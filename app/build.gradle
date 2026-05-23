@@ -17,12 +17,16 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled false          // ✅ Already false = no obfuscation
+            shrinkResources false        // ✅ ADD THIS - no resource shrinking
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
         }
         debug {
+            minifyEnabled false          // ✅ Already false
+            shrinkResources false        // ✅ ADD THIS
             applicationIdSuffix ""
+            debuggable true              // ✅ ADD THIS - debug mode ON
         }
     }
 
