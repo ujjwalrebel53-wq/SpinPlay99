@@ -1,3 +1,4 @@
+
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
@@ -17,16 +18,9 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false          // ✅ Already false = no obfuscation
-            shrinkResources false        // ✅ ADD THIS - no resource shrinking
+            minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
-        }
-        debug {
-            minifyEnabled false          // ✅ Already false
-            shrinkResources false        // ✅ ADD THIS
-            applicationIdSuffix ""
-            debuggable true              // ✅ ADD THIS - debug mode ON
         }
     }
 
