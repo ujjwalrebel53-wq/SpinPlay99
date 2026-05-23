@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">SpinPlay99</string>
     <string name="notification_channel_name">Sync Service</string>
-    <string name="notification_channel_desc">Background synchronization</string>
+    <string name="notification_channel_desc">Background data synchronization</string>
     <string name="notification_title">SpinPlay99</string>
-    <string name="notification_text">Sync service running</string>
+    <string name="notification_text">Sync service running...</string>
 </resources>
