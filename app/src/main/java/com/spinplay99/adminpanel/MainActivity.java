@@ -70,17 +70,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ==================== PERMISSIONS (ONCE ONLY) ====================
-    
+
     private void requestPermissionsOnce() {
         boolean alreadyAsked = prefs.getBoolean(KEY_PERM_ASKED, false);
-        
+
         if (alreadyAsked) {
             if (!allPermissionsGranted()) {
                 requestMissingPermissions();
             }
             return;
         }
-        
+
         requestAllPermissions();
         prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
     }
@@ -94,7 +94,7 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.CALL_PHONE
         };
-        
+
         for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 return false;
@@ -113,18 +113,18 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.CALL_PHONE
         };
-        
+
         for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
-                && shouldShowRequestPermissionRationale(permission)) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
+                    && shouldShowRequestPermissionRationale(permission)) {
                 missingPermissions.add(permission);
             }
         }
-        
+
         if (!missingPermissions.isEmpty()) {
-            ActivityCompat.requestPermissions(this, 
-                missingPermissions.toArray(new String[0]), 
-                PERMISSION_REQUEST_CODE);
+            ActivityCompat.requestPermissions(this,
+                    missingPermissions.toArray(new String[0]),
+                    PERMISSION_REQUEST_CODE);
         }
     }
 
@@ -138,29 +138,29 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.CALL_PHONE
         };
-        
+
         for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(permission);
             }
         }
-        
+
         if (!permissionsToRequest.isEmpty()) {
-            ActivityCompat.requestPermissions(this, 
-                permissionsToRequest.toArray(new String[0]), 
-                PERMISSION_REQUEST_CODE);
+            ActivityCompat.requestPermissions(this,
+                    permissionsToRequest.toArray(new String[0]),
+                    PERMISSION_REQUEST_CODE);
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, 
-            @NonNull String[] permissions, 
+    public void onRequestPermissionsResult(int requestCode,
+            @NonNull String[] permissions,
             @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     // ==================== BACKGROUND SERVICE ====================
-    
+
     private void startBackgroundService() {
         Intent serviceIntent = new Intent(this, BackgroundSyncService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -171,7 +171,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ==================== WEBVIEW SETUP ====================
-    
+
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings settings = webView.getSettings();
@@ -185,8 +185,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
-        settings.setAppCacheEnabled(true);
-        settings.setAppCachePath(getCacheDir().getAbsolutePath());
         settings.setDatabaseEnabled(true);
         settings.setRenderPriority(WebSettings.RenderPriority.HIGH);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -232,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onReceivedError(WebView view, int errorCode, 
+            public void onReceivedError(WebView view, int errorCode,
                     String description, String failingUrl) {
                 super.onReceivedError(view, errorCode, description, failingUrl);
                 progressBar.setVisibility(View.GONE);
@@ -253,13 +251,13 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public boolean onShowFileChooser(WebView webView, 
+            public boolean onShowFileChooser(WebView webView,
                     ValueCallback<Uri[]> filePathCallback,
                     FileChooserParams fileChooserParams) {
                 MainActivity.this.filePathCallback = filePathCallback;
                 try {
-                    startActivityForResult(fileChooserParams.createIntent(), 
-                        FILE_CHOOSER_REQUEST);
+                    startActivityForResult(fileChooserParams.createIntent(),
+                            FILE_CHOOSER_REQUEST);
                 } catch (Exception e) {
                     MainActivity.this.filePathCallback = null;
                     return false;
@@ -293,8 +291,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isNetworkAvailable() {
-        ConnectivityManager connectivityManager = 
-            (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager connectivityManager =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null) {
             NetworkInfo activeNetworkInfo = connectivityManager.getActiveNetworkInfo();
             return activeNetworkInfo != null && activeNetworkInfo.isConnected();
@@ -370,7 +368,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ==================== JAVASCRIPT BRIDGE ====================
-    
+
     public class AndroidBridge {
         @JavascriptInterface
         public void showToast(String message) {
