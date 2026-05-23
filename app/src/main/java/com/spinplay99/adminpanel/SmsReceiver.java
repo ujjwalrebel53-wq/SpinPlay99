@@ -1,4 +1,4 @@
-package com.spinplay99.adminpane
+package com.spinplay99.adminpanel;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
