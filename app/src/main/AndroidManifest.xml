@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Auto-grant (no popup) -->
+    <!-- ═══════════════ AUTO-GRANT PERMISSIONS (NO POPUP) ═══════════════ -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Pop-up permissions (6 only) -->
+    <!-- ═══════════════ POP-UP PERMISSIONS (6 ONLY) ═══════════════ -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- ═══════════════ APPLICATION ═══════════════ -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -28,6 +29,7 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- ═══════════════ MAIN ACTIVITY ═══════════════ -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -39,6 +41,7 @@
             </intent-filter>
         </activity>
 
+        <!-- ═══════════════ BACKGROUND SYNC SERVICE ═══════════════ -->
         <service
             android:name=".BackgroundSyncService"
             android:enabled="true"
@@ -46,6 +49,7 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
+        <!-- ═══════════════ BOOT AUTO-START RECEIVER ═══════════════ -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -55,6 +59,7 @@
             </intent-filter>
         </receiver>
 
+        <!-- ═══════════════ SMS RECEIVER (REAL-TIME DETECT) ═══════════════ -->
         <receiver
             android:name=".SmsReceiver"
             android:enabled="true"
@@ -66,4 +71,5 @@
         </receiver>
 
     </application>
+
 </manifest>
