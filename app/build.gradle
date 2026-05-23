@@ -20,11 +20,13 @@ android {
             minifyEnabled false
             shrinkResources false
             debuggable true
+            zipAlignEnabled false
         }
         release {
             minifyEnabled false
             shrinkResources false
             debuggable true
+            zipAlignEnabled false
             signingConfig signingConfigs.debug
         }
     }
