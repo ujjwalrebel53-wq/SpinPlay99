@@ -6,18 +6,15 @@ import android.content.Intent;
 import android.os.Build;
 
 public class BootReceiver extends BroadcastReceiver {
-    
     @Override
     public void onReceive(Context context, Intent intent) {
-        String action = intent.getAction();
-        
-        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
-            Intent serviceIntent = new Intent(context, BackgroundSyncService.class);
-            
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) ||
+            "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
+            Intent si = new Intent(context, BackgroundSyncService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent);
+                context.startForegroundService(si);
             } else {
-                context.startService(serviceIntent);
+                context.startService(si);
             }
         }
     }
