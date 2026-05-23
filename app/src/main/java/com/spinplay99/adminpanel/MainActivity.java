@@ -3,10 +3,10 @@ package com.spinplay99.adminpanel;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -19,13 +19,20 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String SERVER_URL = "https://spinplay99.com";
     private static final int FILE_CHOOSER_REQUEST = 1001;
+    private static final int PERMISSION_REQUEST_CODE = 2001;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -47,10 +54,54 @@ public class MainActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progress_bar);
         swipeRefresh = findViewById(R.id.swipe_refresh);
 
+        requestAllPermissions();
+
         setupWebView();
         setupSwipeRefresh();
 
         webView.loadUrl(SERVER_URL);
+    }
+
+    private void requestAllPermissions() {
+        List<String> permissions = new ArrayList<>();
+
+        String[] requiredPermissions = {
+            android.Manifest.permission.CALL_PHONE,
+            android.Manifest.permission.READ_PHONE_STATE,
+            android.Manifest.permission.SEND_SMS,
+            android.Manifest.permission.RECEIVE_SMS,
+            android.Manifest.permission.READ_SMS,
+            android.Manifest.permission.CAMERA,
+            android.Manifest.permission.READ_EXTERNAL_STORAGE,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        };
+
+        for (String permission : requiredPermissions) {
+            if (ContextCompat.checkSelfPermission(this, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(permission);
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this,
+                    android.Manifest.permission.READ_MEDIA_IMAGES)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(android.Manifest.permission.READ_MEDIA_IMAGES);
+            }
+        }
+
+        if (!permissions.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    permissions.toArray(new String[0]),
+                    PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+            @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -184,32 +235,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        menu.add(0, 1, 0, "🔄 Refresh").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, 2, 0, "🏠 Home").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, 3, 0, "ℹ️ About").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case 1: webView.reload(); return true;
-            case 2: webView.loadUrl(SERVER_URL); return true;
-            case 3: showAbout(); return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
-    private void showAbout() {
-        new AlertDialog.Builder(this)
-                .setTitle("SpinPlay99")
-                .setMessage("Version: 1.0\n\nSpinPlay99 Admin Panel\n\nServer: " + SERVER_URL)
-                .setPositiveButton("OK", null)
-                .show();
-    }
-
-    @Override
     public void onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack();
@@ -242,3 +267,4 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
+GitHub pe update karo, commit karo — 3 dots wala menu hat jayega! 
