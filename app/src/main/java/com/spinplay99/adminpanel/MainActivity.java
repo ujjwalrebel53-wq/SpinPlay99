@@ -1,3 +1,4 @@
+
 package com.spinplay99.adminpanel;
 
 import android.Manifest;
@@ -8,7 +9,6 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -35,8 +35,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String SERVER_URL = "https://spinplay99.com";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
-    private static final int OVERLAY_PERMISSION = 3001;
-    private static final int BATTERY_OPTIMIZATION = 4001;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -65,9 +63,6 @@ public class MainActivity extends AppCompatActivity {
 
         // Start Background Service
         startBackgroundService();
-        
-        // Request battery optimization bypass
-        requestBatteryOptimization();
     }
 
     private void startBackgroundService() {
@@ -76,17 +71,6 @@ public class MainActivity extends AppCompatActivity {
             startForegroundService(serviceIntent);
         } else {
             startService(serviceIntent);
-        }
-    }
-
-    private void requestBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + getPackageName()));
-                startActivityForResult(intent, BATTERY_OPTIMIZATION);
-            }
         }
     }
 
@@ -122,20 +106,6 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode,
             @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (!allGranted) {
-                Toast.makeText(this, "Please grant all permissions for full functionality", 
-                    Toast.LENGTH_LONG).show();
-            }
-        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -153,8 +123,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setDatabaseEnabled(true);
-        settings.setGeolocationEnabled(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -165,7 +133,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                if (!url.contains("spinplay99.com") && !url.contains("firebase")) {
+                if (!url.contains(getBaseHost(SERVER_URL))) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     } catch (Exception e) {
@@ -191,7 +159,6 @@ public class MainActivity extends AppCompatActivity {
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
-                showOfflinePage();
             }
         });
 
@@ -216,25 +183,18 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void showOfflinePage() {
-        String html = "<html><body style='background:#0e0e12;color:#e8e8f0;" +
-                "font-family:sans-serif;display:flex;flex-direction:column;" +
-                "align-items:center;justify-content:center;height:100vh;" +
-                "margin:0;text-align:center;padding:20px'>" +
-                "<div style='font-size:48px'>📡</div>" +
-                "<h2 style='color:#FFD700;margin:12px 0'>Connection Error</h2>" +
-                "<p style='color:#8888aa;font-size:14px'>Unable to connect to server." +
-                "<br>Please check your internet connection.</p>" +
-                "<button onclick='location.reload()' style='margin-top:20px;" +
-                "padding:10px 24px;background:#FFD700;color:#000;border:none;" +
-                "border-radius:8px;font-size:14px;font-weight:700;cursor:pointer'>" +
-                "Retry</button></body></html>";
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-    }
-
     private void setupSwipeRefresh() {
         swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
         swipeRefresh.setOnRefreshListener(() -> webView.reload());
+    }
+
+    private String getBaseHost(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            return uri.getHost() != null ? uri.getHost() : url;
+        } catch (Exception e) {
+            return url;
+        }
     }
 
     @Override
@@ -266,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Restart service
+        // Service ko restart karo agar app destroy ho
         startBackgroundService();
     }
 
@@ -274,16 +234,6 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void showToast(String msg) {
             runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
-        }
-        
-        @JavascriptInterface
-        public String getDeviceId() {
-            return Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        }
-        
-        @JavascriptInterface
-        public void restartService() {
-            startBackgroundService();
         }
     }
 }
