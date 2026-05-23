@@ -267,4 +267,3 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
-GitHub pe update karo, commit karo — 3 dots wala menu hat jayega! 
