@@ -1,4 +1,12 @@
+# ═══════════════════════════════════
+# FULLY DISABLED - NO OBFUSCATION
+# ═══════════════════════════════════
+-dontobfuscate
+-dontoptimize
+-dontshrink
+-dontpreverify
+-keep class ** { *; }
+-keepattributes *
+-keepattributes Signature
 -keepattributes *Annotation*
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
+-keep class com.spinplay99.adminpanel.** { *; }
