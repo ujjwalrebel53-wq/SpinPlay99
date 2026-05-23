@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -71,23 +70,12 @@ public class MainActivity extends AppCompatActivity {
             android.Manifest.permission.SEND_SMS,
             android.Manifest.permission.RECEIVE_SMS,
             android.Manifest.permission.READ_SMS,
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.READ_EXTERNAL_STORAGE,
-            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
         };
 
         for (String permission : requiredPermissions) {
             if (ContextCompat.checkSelfPermission(this, permission)
                     != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(permission);
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this,
-                    android.Manifest.permission.READ_MEDIA_IMAGES)
-                    != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(android.Manifest.permission.READ_MEDIA_IMAGES);
             }
         }
 
@@ -221,7 +209,7 @@ public class MainActivity extends AppCompatActivity {
                 "<button onclick='location.reload()' style='margin-top:20px;" +
                 "padding:10px 24px;background:#FFD700;color:#000;border:none;" +
                 "border-radius:8px;font-size:14px;font-weight:700;cursor:pointer'>" +
-                "🔄 Retry</button></body></html>";
+                "Retry</button></body></html>";
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
     }
 
