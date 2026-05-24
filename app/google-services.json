@@ -1,16 +1,30 @@
 {
   "project_info": {
     "project_number": "8121733414",
+    "firebase_url": "https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "spinplay99",
     "storage_bucket": "spinplay99.firebasestorage.app"
   },
-  "client": [{
-    "client_info": {
-      "mobilesdk_app_id": "1:8121733414:android:04b9ae5df1b6bc413e31e7",
-      "android_client_info": {
-        "package_name": "com.spinplay99.adminpanel"
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:8121733414:android:04b9ae5df1b6bc413e31e7",
+        "android_client_info": {
+          "package_name": "com.spinplay99.adminpanel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
       }
-    },
-    "api_key": [{"current_key": "AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I"}]
-  }]
+    }
+  ],
+  "configuration_version": "1"
 }

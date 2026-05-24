@@ -72,8 +72,8 @@ public class BackgroundSyncService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        FirebaseApp.initializeApp(this);
-        databaseReference = FirebaseDatabase.getInstance().getReference();
+        if (FirebaseApp.getApps(this).isEmpty()) { FirebaseApp.initializeApp(this); }
+        databaseReference = FirebaseDatabase.getInstance("https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app").getReference();
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
