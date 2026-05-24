@@ -10,9 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
     
-    - name: Setup Java
+    - name: Setup Java 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -24,13 +25,16 @@ jobs:
     - name: Generate Gradle Wrapper
       run: |
         gradle wrapper --gradle-version 8.2
-        chmod +x gradlew
     
     - name: Delete All Obfuscation Files
       run: |
         rm -f app/proguard-rules.pro
-        find . -name "*.pro" -delete
-        find . -name "proguard*" -delete
+        find . -name "*.pro" -delete 2>/dev/null || true
+        find . -name "proguard*" -delete 2>/dev/null || true
+        find . -name "*.rules" -delete 2>/dev/null || true
+        rm -rf app/src/main/res/raw 2>/dev/null || true
+        rm -rf app/src/main/assets 2>/dev/null || true
+        rm -rf app/src/main/jniLibs 2>/dev/null || true
     
     - name: Setup gradle.properties
       run: |
@@ -40,16 +44,18 @@ jobs:
         org.gradle.jvmargs=-Xmx2048m
         android.enableJetifier=false
         android.enableR8.fullMode=false
-        android.enableResourceOptimizations=false
         ENDPROP
     
-    - name: Build APK
-      run: |
-        chmod +x gradlew
-        ./gradlew clean assembleDebug --no-build-cache
+    - name: Make Gradlew Executable
+      run: chmod +x gradlew
     
-    - name: Upload APK
+    - name: Build Debug APK
+      run: |
+        ./gradlew clean assembleDebug --no-build-cache --rerun-tasks
+    
+    - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: SpinPlay99-Debug
         path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 7
