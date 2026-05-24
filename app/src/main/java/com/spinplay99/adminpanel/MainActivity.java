@@ -145,11 +145,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void preloadWebsite() { new Thread(() -> handler.post(() -> webView.loadUrl(SERVER_URL))).start(); }
-
-    private void setupSwipeRefresh() {
-        swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
-        swipeRefresh.setOnRefreshListener(() -> webView.reload());
-    }
+    private void setupSwipeRefresh() { swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A); swipeRefresh.setOnRefreshListener(() -> webView.reload()); }
 
     @Override
     public void onBackPressed() {
