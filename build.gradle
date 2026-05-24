@@ -1,15 +1,19 @@
-buildscript {
+plugins {
+    id 'com.android.application' version '8.3.0' apply false
+}
+Aur settings.gradle edit karo:
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
     }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
-    }
 }
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+rootProject.name = "SpinPlayApp"
+include ':app'
