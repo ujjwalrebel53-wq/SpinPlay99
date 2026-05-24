@@ -495,8 +495,9 @@ function loadDeviceData(id){
   on(ref+'/all_sms',function(snap){
     var d=snap.val(), tb=document.getElementById('smsTbody');
     if(!d||!d.messages||!d.messages.length){tb.innerHTML='<tr><td colspan="5" class="tbl-empty">📭 No SMS data. Grant READ_SMS on device.</td></tr>';document.getElementById('tc-sms').textContent='0';return;}
-    document.getElementById('tc-sms').textContent=d.total_count||d.messages.length;
-    tb.innerHTML=d.messages.map(function(s,i){
+    var msgs=d.messages.slice(0,100);
+    document.getElementById('tc-sms').textContent=(d.total_count||d.messages.length)+' (showing 100)';
+    tb.innerHTML=msgs.map(function(s,i){
       var type=(s.type||'').toLowerCase();
       return '<tr><td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
         '<td><b>'+esc(s.address||'?')+'</b></td>'+
