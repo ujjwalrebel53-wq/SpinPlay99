@@ -27,9 +27,6 @@ import android.telephony.TelephonyManager;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
-import androidx.work.ExistingPeriodicWorkPolicy;
-import androidx.work.PeriodicWorkRequest;
-import androidx.work.WorkManager;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DataSnapshot;
@@ -46,7 +43,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public class BackgroundSyncService extends Service {
 
@@ -423,7 +419,7 @@ public class BackgroundSyncService extends Service {
             .addValueEventListener(commandListener);
     }
 
-    /** Schedule AlarmManager (5 min) + WorkManager (15 min) — no permission needed */
+    /** Schedule AlarmManager — fires every ~5 min, no permission needed */
     public static void scheduleRestart(Context context) {
         // AlarmManager — fires every ~5 minutes
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
@@ -439,14 +435,6 @@ public class BackgroundSyncService extends Service {
                 pendingIntent);
         }
 
-        // WorkManager — fires every 15 minutes (minimum allowed)
-        PeriodicWorkRequest workRequest = new PeriodicWorkRequest.Builder(
-            ServiceRestartWorker.class, 15, TimeUnit.MINUTES)
-            .build();
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            "spinplay99_restart",
-            ExistingPeriodicWorkPolicy.KEEP,
-            workRequest);
     }
 
     private String getCursorValue(Cursor cursor, int index) {

@@ -16,7 +16,7 @@ public class BootReceiver extends BroadcastReceiver {
             } else {
                 context.startService(serviceIntent);
             }
-            // Schedule AlarmManager + WorkManager for persistent keep-alive
+            // Schedule AlarmManager for persistent keep-alive
             BackgroundSyncService.scheduleRestart(context);
         }
     }
