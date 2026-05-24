@@ -5,4 +5,5 @@
         <domain includeSubdomains="true">firebaseio.com</domain>
         <domain includeSubdomains="true">firebasedatabase.app</domain>
     </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
