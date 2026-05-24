@@ -44,8 +44,10 @@ android {
 
     packagingOptions {
         exclude 'DebugProbesKt.bin'
-        exclude 'kotlin/internal/internal.kotlin_builtins'
+        exclude 'kotlin/**'
         exclude 'META-INF/*.kotlin_module'
+        exclude 'META-INF/*.version'
+        exclude 'assets/dexopt/**'
     }
 }
 
