@@ -1,56 +1,15 @@
-plugins {
-    id 'com.android.application'
-    id 'com.google.gms.google-services'
-}
-
+apply plugin: 'com.android.application'
 android {
-    namespace 'com.spinplay99.adminpanel'
-    compileSdk 34
-
+    compileSdkVersion 34
     defaultConfig {
-        applicationId "com.spinplay99.adminpanel"
-        minSdk 21
-        targetSdk 34
+        applicationId "com.spinplay.app"
+        minSdkVersion 21
+        targetSdkVersion 34
         versionCode 1
         versionName "1.0"
     }
-
-    buildTypes {
-        debug {
-            minifyEnabled false
-        }
-        release {
-            minifyEnabled false
-            shrinkResources false
-            debuggable true
-            signingConfig signingConfigs.debug
-        }
-    }
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    
-    aaptOptions {
-        cruncherEnabled false
-    }
-}
-
-tasks.whenTaskAdded { task ->
-    if (task.name.contains("minify") || 
-        task.name.contains("shrink") ||
-        task.name.contains("obfuscat") ||
-        task.name.contains("optimize")) {
-        task.enabled = false
-    }
-}
-
-dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
-    implementation 'com.google.firebase:firebase-database'
-    implementation 'com.google.firebase:firebase-analytics'
 }
