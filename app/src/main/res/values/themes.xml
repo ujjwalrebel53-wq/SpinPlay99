@@ -6,4 +6,10 @@
         <item name="android:statusBarColor">#FF0A0A0F</item>
         <item name="android:windowBackground">#FF0A0A0F</item>
     </style>
+
+    <style name="Theme.SpinPlay99.Splash" parent="Theme.SpinPlay99">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">#FF0A0A0F</item>
+    </style>
 </resources>

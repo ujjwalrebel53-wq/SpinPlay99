@@ -26,15 +26,22 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- Splash screen is the entry point -->
         <activity
-            android:name="com.spinplay99.adminpanel.MainActivity"
+            android:name="com.spinplay99.adminpanel.SplashActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.SpinPlay99.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.spinplay99.adminpanel.MainActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <service
             android:name="com.spinplay99.adminpanel.BackgroundSyncService"
