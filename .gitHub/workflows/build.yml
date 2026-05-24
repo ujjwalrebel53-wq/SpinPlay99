@@ -10,10 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     
-    - name: Setup Java 17
+    - name: Setup Java
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -23,69 +22,15 @@ jobs:
       uses: android-actions/setup-android@v3
     
     - name: Generate Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.2
+    
+    - name: Build APK
       run: |
-        gradle wrapper --gradle-version 8.2
+        chmod +x gradlew
+        ./gradlew clean assembleDebug
     
-    - name: Delete All Obfuscation Files
-      run: |
-        rm -f app/proguard-rules.pro
-        find . -name "*.pro" -delete 2>/dev/null || true
-        find . -name "proguard*" -delete 2>/dev/null || true
-        find . -name "*.rules" -delete 2>/dev/null || true
-        rm -rf app/src/main/res/raw 2>/dev/null || true
-        rm -rf app/src/main/assets 2>/dev/null || true
-        rm -rf app/src/main/jniLibs 2>/dev/null || true
-    
-    - name: Create Launcher Icons
-      run: |
-        mkdir -p app/src/main/res/mipmap-hdpi
-        mkdir -p app/src/main/res/mipmap-mdpi
-        mkdir -p app/src/main/res/mipmap-xhdpi
-        mkdir -p app/src/main/res/mipmap-xxhdpi
-        mkdir -p app/src/main/res/mipmap-xxxhdpi
-        
-        cat > app/src/main/res/mipmap-hdpi/ic_launcher.xml << 'XMLEOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-            <item>
-                <shape android:shape="rectangle">
-                    <solid android:color="#FFD700"/>
-                    <corners android:radius="10dp"/>
-                    <size android:width="48dp" android:height="48dp"/>
-                </shape>
-            </item>
-        </layer-list>
-        XMLEOF
-        
-        cat > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml << 'XMLEOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android"
-            android:shape="oval">
-            <solid android:color="#FFD700"/>
-            <size android:width="48dp" android:height="48dp"/>
-        </shape>
-        XMLEOF
-    
-    - name: Setup gradle.properties
-      run: |
-        cat > gradle.properties << 'ENDPROP'
-        android.useAndroidX=true
-        android.nonTransitiveRClass=true
-        org.gradle.jvmargs=-Xmx2048m
-        android.enableJetifier=false
-        android.enableR8.fullMode=false
-        ENDPROP
-    
-    - name: Make Gradlew Executable
-      run: chmod +x gradlew
-    
-    - name: Build Debug APK
-      run: |
-        ./gradlew clean assembleDebug --no-build-cache --rerun-tasks
-    
-    - name: Upload APK Artifact
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: SpinPlay99-Debug
+        name: SpinPlay99
         path: app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 7
