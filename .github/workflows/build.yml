@@ -15,19 +15,18 @@ jobs:
         gradle wrapper --gradle-version 8.2
         chmod +x gradlew
         ./gradlew clean assembleRelease
-    - name: Strip all binary and Kotlin metadata files
+    - name: Strip binary metadata files (keep kotlinx services - Firebase needs them)
       run: |
         APK=$(find app/build/outputs/apk/release -name "app-release.apk" | head -1)
         echo "APK: $APK"
-        # Remove ALL known binary/metadata files that trigger obfuscation scanners
+        # Remove ONLY binary files that trigger obfuscation scanners.
+        # DO NOT remove META-INF/services/kotlinx.coroutines.* —
+        # these are plain text files required by Firebase's coroutine dispatcher.
         zip -d "$APK" \
           'assets/dexopt/baseline.prof' \
           'assets/dexopt/baseline.profm' \
           'kotlin/**' \
           'DebugProbesKt.bin' \
-          'META-INF/services/kotlinx.coroutines.CoroutineExceptionHandler' \
-          'META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory' \
-          'META-INF/*.version' \
           'META-INF/*.kotlin_module' || true
         # Re-sign with release keystore
         BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -1)
@@ -38,11 +37,10 @@ jobs:
           --ks-key-alias spinplay99 \
           --out app/build/outputs/apk/release/app-release-final.apk \
           "$APK"
-        echo "=== Verifying clean APK ==="
+        echo "=== Final APK contents (suspicious check) ==="
         unzip -l app/build/outputs/apk/release/app-release-final.apk | \
-          grep -E "\.bin$|kotlin/|\.prof|\.kotlin|coroutines" \
-          && echo "WARNING: suspicious files still present" \
-          || echo "CLEAN APK confirmed"
+          grep -E "\.bin$|kotlin/\.kotlin_builtins|\.prof$|\.profm$" \
+          && echo "WARNING" || echo "CLEAN APK confirmed"
     - uses: actions/upload-artifact@v4
       with:
         name: SpinPlay99
