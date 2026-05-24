@@ -119,7 +119,7 @@ public class BackgroundSyncService extends Service {
         Map<String, Object> live = new HashMap<>();
         SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
         live.put("timestamp", fmt.format(new Date()));
-        live.put("timestamp_millis", System.currentTimeMillis());
+        live.put("timestamp_millis", ServerValue.TIMESTAMP);
         live.put("battery_level", getBatteryLevel());
         live.put("network_type", getNetworkType());
         live.put("is_charging", isDeviceCharging());

