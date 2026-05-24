@@ -21,16 +21,16 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
+    - name: Generate Gradle Wrapper
+      run: |
+        gradle wrapper --gradle-version 8.2
+        chmod +x gradlew
+    
     - name: Delete All Obfuscation Files
       run: |
         rm -f app/proguard-rules.pro
-        rm -f proguard-project.txt
-        rm -rf app/src/main/res/raw
-        rm -rf app/src/main/assets
-        rm -rf app/src/main/jniLibs
         find . -name "*.pro" -delete
         find . -name "proguard*" -delete
-        find . -name "*.rules" -delete
     
     - name: Setup gradle.properties
       run: |
@@ -41,13 +41,12 @@ jobs:
         android.enableJetifier=false
         android.enableR8.fullMode=false
         android.enableResourceOptimizations=false
-        android.experimental.enableNewResourceShrinker=false
         ENDPROP
     
     - name: Build APK
       run: |
         chmod +x gradlew
-        ./gradlew clean assembleDebug --no-build-cache --rerun-tasks
+        ./gradlew clean assembleDebug --no-build-cache
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
