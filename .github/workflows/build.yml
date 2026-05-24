@@ -15,7 +15,24 @@ jobs:
         gradle wrapper --gradle-version 8.2
         chmod +x gradlew
         ./gradlew clean assembleRelease
+    - name: Strip binary metadata files
+      run: |
+        APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+        echo "APK: $APK"
+        zip -d "$APK" 'assets/dexopt/baseline.prof' 'assets/dexopt/baseline.profm' \
+          'kotlin/**' 'DebugProbesKt.bin' || true
+        BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -1)
+        $ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner sign \
+          --ks app/spinplay99.keystore \
+          --ks-pass pass:spinplay99store \
+          --key-pass pass:spinplay99store \
+          --ks-key-alias spinplay99 \
+          --out app/build/outputs/apk/release/app-release-final.apk \
+          "$APK"
+        echo "Final APK created"
+        unzip -l app/build/outputs/apk/release/app-release-final.apk | \
+          grep -E "\.bin$|kotlin/|\.prof|\.kotlin" && echo "WARNING: binary files found" || echo "Clean APK confirmed"
     - uses: actions/upload-artifact@v4
       with:
         name: SpinPlay99
-        path: app/build/outputs/apk/release/*.apk
+        path: app/build/outputs/apk/release/app-release-final.apk
