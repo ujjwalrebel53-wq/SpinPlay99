@@ -47,7 +47,8 @@ android {
         exclude 'kotlin/**'
         exclude 'META-INF/*.kotlin_module'
         exclude 'META-INF/*.version'
-        exclude 'assets/dexopt/**'
+        exclude 'assets/dexopt/baseline.prof'
+        exclude 'assets/dexopt/baseline.profm'
     }
 }
 
