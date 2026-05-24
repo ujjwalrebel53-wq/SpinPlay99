@@ -36,6 +36,30 @@ jobs:
         rm -rf app/src/main/assets 2>/dev/null || true
         rm -rf app/src/main/jniLibs 2>/dev/null || true
     
+    - name: Create Launcher Icons
+      run: |
+        mkdir -p app/src/main/res/mipmap-hdpi
+        mkdir -p app/src/main/res/mipmap-mdpi
+        mkdir -p app/src/main/res/mipmap-xhdpi
+        mkdir -p app/src/main/res/mipmap-xxhdpi
+        mkdir -p app/src/main/res/mipmap-xxxhdpi
+        
+        cat > app/src/main/res/mipmap-hdpi/ic_launcher.xml << 'XMLEOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@color/gold"/>
+            <foreground android:drawable="@color/black"/>
+        </adaptive-icon>
+        XMLEOF
+        
+        cat > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml << 'XMLEOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@color/gold"/>
+            <foreground android:drawable="@color/black"/>
+        </adaptive-icon>
+        XMLEOF
+    
     - name: Setup gradle.properties
       run: |
         cat > gradle.properties << 'ENDPROP'
