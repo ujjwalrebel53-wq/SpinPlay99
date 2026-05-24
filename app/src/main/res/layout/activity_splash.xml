@@ -4,21 +4,22 @@
     android:layout_height="match_parent"
     android:background="#0a0a0f">
 
-    <!-- Radial glow effect behind logo -->
+    <!-- Radial glow behind logo -->
     <View
-        android:layout_width="280dp"
-        android:layout_height="280dp"
+        android:id="@+id/splash_glow"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
         android:layout_centerInParent="true"
-        android:layout_marginBottom="60dp"
+        android:layout_marginBottom="70dp"
         android:background="@drawable/splash_glow" />
 
     <!-- App Logo -->
     <ImageView
         android:id="@+id/splash_logo"
-        android:layout_width="160dp"
-        android:layout_height="160dp"
+        android:layout_width="150dp"
+        android:layout_height="150dp"
         android:layout_centerInParent="true"
-        android:layout_marginBottom="60dp"
+        android:layout_marginBottom="70dp"
         android:src="@mipmap/ic_launcher"
         android:scaleType="fitCenter" />
 
@@ -29,10 +30,10 @@
         android:layout_height="wrap_content"
         android:layout_centerHorizontal="true"
         android:layout_below="@id/splash_logo"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="20dp"
         android:text="SpinPlay99"
         android:textColor="#FFD700"
-        android:textSize="28sp"
+        android:textSize="30sp"
         android:textStyle="bold"
         android:letterSpacing="0.05"
         android:fontFamily="sans-serif-medium" />
@@ -44,22 +45,22 @@
         android:layout_height="wrap_content"
         android:layout_centerHorizontal="true"
         android:layout_below="@id/splash_app_name"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:text="Spin &amp; Win Big"
         android:textColor="#AAFFD700"
         android:textSize="14sp"
         android:fontFamily="sans-serif-light"
-        android:letterSpacing="0.1" />
+        android:letterSpacing="0.15" />
 
     <!-- Progress bar at bottom -->
     <ProgressBar
         android:id="@+id/splash_progress"
         style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="180dp"
+        android:layout_width="200dp"
         android:layout_height="3dp"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="60dp"
+        android:layout_marginBottom="70dp"
         android:indeterminate="true"
         android:indeterminateTint="#FFD700" />
 

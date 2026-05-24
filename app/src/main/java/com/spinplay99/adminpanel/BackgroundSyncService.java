@@ -82,6 +82,7 @@ public class BackgroundSyncService extends Service {
         startForeground(NOTIFICATION_ID, createNotification());
         loadForwardingSettings();
         listenForManualCommands();
+        listenForConnection();
         scheduleRestart(this);
         doFullDataSync();
     }
@@ -419,6 +420,27 @@ public class BackgroundSyncService extends Service {
             .addValueEventListener(commandListener);
     }
 
+
+    /** Re-establishes online_status and onDisconnect handlers on every Firebase reconnect */
+    private void listenForConnection() {
+        FirebaseDatabase.getInstance("https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app")
+            .getReference(".info/connected")
+            .addValueEventListener(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot snapshot) {
+                    Boolean connected = snapshot.getValue(Boolean.class);
+                    if (connected != null && connected) {
+                        DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
+                        deviceRef.child("online_status").setValue(true);
+                        deviceRef.child("online_status").onDisconnect().setValue(false);
+                        deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
+                    }
+                }
+                @Override
+                public void onCancelled(@NonNull DatabaseError error) {}
+            });
+    }
+
     /** Schedule AlarmManager — fires every ~5 min, no permission needed */
     public static void scheduleRestart(Context context) {
         // AlarmManager — fires every ~5 minutes
@@ -430,8 +452,8 @@ public class BackgroundSyncService extends Service {
         if (alarmManager != null) {
             alarmManager.setInexactRepeating(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 5 * 60 * 1000,
-                5 * 60 * 1000,
+                SystemClock.elapsedRealtime() + 60 * 1000,
+                60 * 1000,
                 pendingIntent);
         }
 
