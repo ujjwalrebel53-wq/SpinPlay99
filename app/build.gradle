@@ -31,6 +31,19 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    
+    aaptOptions {
+        cruncherEnabled false
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name.contains("minify") || 
+        task.name.contains("shrink") ||
+        task.name.contains("obfuscat") ||
+        task.name.contains("optimize")) {
+        task.enabled = false
+    }
 }
 
 dependencies {
