@@ -34,8 +34,3 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
-Aur proguard-rules.pro file mein yeh paste karo:
--keep class com.spinplay99.adminpanel.** { *; }
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
