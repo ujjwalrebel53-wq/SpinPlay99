@@ -53,7 +53,8 @@ android {
         exclude 'META-INF/*.version'
         exclude 'assets/dexopt/baseline.prof'
         exclude 'assets/dexopt/baseline.profm'
-        exclude 'META-INF/services/kotlinx*'
+        exclude 'META-INF/services/kotlinx.coroutines.CoroutineExceptionHandler'
+        exclude 'META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory'
     }
 }
 
