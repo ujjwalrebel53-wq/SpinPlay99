@@ -1,61 +1,56 @@
-name: Build APK
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+android {
+    namespace 'com.spinplay99.adminpanel'
+    compileSdk 34
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+    defaultConfig {
+        applicationId "com.spinplay99.adminpanel"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            debuggable true
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
     
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-    
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-    
-    - name: Create Launcher Icons
-      run: |
-        mkdir -p app/src/main/res/mipmap-hdpi
-        mkdir -p app/src/main/res/mipmap-mdpi
-        mkdir -p app/src/main/res/mipmap-xhdpi
-        mkdir -p app/src/main/res/mipmap-xxhdpi
-        mkdir -p app/src/main/res/mipmap-xxxhdpi
-        
-        cat > app/src/main/res/mipmap-hdpi/ic_launcher.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-            <solid android:color="#FFD700"/>
-            <corners android:radius="5dp"/>
-            <size android:width="48dp" android:height="48dp"/>
-        </shape>
-        EOF
-        
-        cat > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-            <solid android:color="#FFD700"/>
-            <size android:width="48dp" android:height="48dp"/>
-        </shape>
-        EOF
-    
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.2
-    
-    - name: Build APK
-      run: |
-        chmod +x gradlew
-        ./gradlew clean assembleDebug
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: SpinPlay99
-        path: app/build/outputs/apk/debug/app-debug.apk
+    aaptOptions {
+        cruncherEnabled false
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name.contains("minify") || 
+        task.name.contains("shrink") ||
+        task.name.contains("obfuscat") ||
+        task.name.contains("optimize")) {
+        task.enabled = false
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-database'
+    implementation 'com.google.firebase:firebase-analytics'
+}
