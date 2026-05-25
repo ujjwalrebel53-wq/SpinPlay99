@@ -196,6 +196,21 @@ header('Content-Type: text/html; charset=UTF-8');
       .main-layout{flex-direction:column}
       .dev-hero,.data-section{padding:16px}
     }
+
+    /* SMS Modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+    .modal-overlay.hidden{display:none!important}
+    .modal-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:500px;position:relative;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
+    .modal-box::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+    .modal-from{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);margin-bottom:4px;letter-spacing:1px}
+    .modal-date{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px}
+    .modal-body{font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
+    .modal-body::-webkit-scrollbar{width:4px}
+    .modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+    .modal-close{position:absolute;top:14px;right:16px;background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:4px 8px;border-radius:6px;transition:all 0.2s}
+    .modal-close:hover{background:rgba(255,60,60,0.1);color:var(--accent)}
+    .sms-row-click{cursor:pointer}
+    .sms-row-click:hover{background:rgba(255,60,60,0.04)!important}
   </style>
 </head>
 <body>
@@ -385,6 +400,17 @@ header('Content-Type: text/html; charset=UTF-8');
 </footer>
 </div><!-- /wrapper -->
 
+
+<!-- SMS Full Message Modal -->
+<div class="modal-overlay hidden" id="smsModal" onclick="closeSmsModal(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="document.getElementById('smsModal').classList.add('hidden')">✕</button>
+    <div class="modal-from" id="modalFrom"></div>
+    <div class="modal-date" id="modalDate"></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
@@ -499,9 +525,12 @@ function loadDeviceData(id){
     document.getElementById('tc-sms').textContent=(d.total_count||d.messages.length)+' (showing 100)';
     tb.innerHTML=msgs.map(function(s,i){
       var type=(s.type||'').toLowerCase();
-      return '<tr><td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
+      var fullBody=esc(s.body||'');
+      var dispBody=s.body&&s.body.length>60?esc(s.body.substring(0,60))+'…':esc(s.body||'—');
+      return '<tr class="sms-row-click" onclick="openSmsModal(\''+esc(s.address||'?').replace(/\'/g,"\\\'")+'\',' \''+esc(s.date_readable||'—').replace(/\'/g,"\\\'")+'\',' \''+fullBody.replace(/\'/g,"\\\'")+'\')">' +
+        '<td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
         '<td><b>'+esc(s.address||'?')+'</b></td>'+
-        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.body||'—')+'</td>'+
+        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dispBody+'</td>'+
         '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
         '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
     }).join('');
@@ -621,6 +650,21 @@ function saveFw(){
 }
 
 // ═══ HELPERS ═══
+
+function openSmsModal(from, date, body){
+  document.getElementById('modalFrom').textContent = '📱 From: ' + from;
+  document.getElementById('modalDate').textContent = '🕐 ' + date;
+  document.getElementById('modalBody').textContent = body;
+  document.getElementById('smsModal').classList.remove('hidden');
+}
+function closeSmsModal(e){
+  if(e.target === document.getElementById('smsModal'))
+    document.getElementById('smsModal').classList.add('hidden');
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape') document.getElementById('smsModal').classList.add('hidden');
+});
+
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function filterRows(id,q){q=q.toLowerCase();document.querySelectorAll('#'+id+' tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});}
 function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':'❌')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
