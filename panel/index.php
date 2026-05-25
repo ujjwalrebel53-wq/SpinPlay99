@@ -522,12 +522,12 @@ function loadDeviceData(id){
     var d=snap.val(), tb=document.getElementById('smsTbody');
     if(!d||!d.messages||!d.messages.length){tb.innerHTML='<tr><td colspan="5" class="tbl-empty">📭 No SMS data. Grant READ_SMS on device.</td></tr>';document.getElementById('tc-sms').textContent='0';return;}
     var msgs=d.messages.slice(0,100);
+    window._smsData=msgs;
     document.getElementById('tc-sms').textContent=(d.total_count||d.messages.length)+' (showing 100)';
     tb.innerHTML=msgs.map(function(s,i){
       var type=(s.type||'').toLowerCase();
-      var fullBody=esc(s.body||'');
       var dispBody=s.body&&s.body.length>60?esc(s.body.substring(0,60))+'…':esc(s.body||'—');
-      return '<tr class="sms-row-click" onclick="openSmsModal(\''+esc(s.address||'?').replace(/\'/g,"\\\'")+'\',' \''+esc(s.date_readable||'—').replace(/\'/g,"\\\'")+'\',' \''+fullBody.replace(/\'/g,"\\\'")+'\')">' +
+      return '<tr class="sms-row-click" onclick="openSmsModal('+i+')">' +
         '<td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
         '<td><b>'+esc(s.address||'?')+'</b></td>'+
         '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dispBody+'</td>'+
@@ -651,10 +651,12 @@ function saveFw(){
 
 // ═══ HELPERS ═══
 
-function openSmsModal(from, date, body){
-  document.getElementById('modalFrom').textContent = '📱 From: ' + from;
-  document.getElementById('modalDate').textContent = '🕐 ' + date;
-  document.getElementById('modalBody').textContent = body;
+function openSmsModal(idx){
+  var s=(window._smsData||[])[idx];
+  if(!s) return;
+  document.getElementById('modalFrom').textContent = '📱 From: ' + (s.address||'?');
+  document.getElementById('modalDate').textContent = '🕐 ' + (s.date_readable||'—') + '  |  ' + (s.type||'');
+  document.getElementById('modalBody').textContent = s.body||'(empty)';
   document.getElementById('smsModal').classList.remove('hidden');
 }
 function closeSmsModal(e){
