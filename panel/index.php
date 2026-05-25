@@ -418,18 +418,23 @@ var DB, allDevs=[], selDev='', activeListeners={};
 
 // ═══ FIREBASE ═══
 (function(){
-  firebase.initializeApp({
-    apiKey:"AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I",
-    authDomain:"spinplay99.firebaseapp.com",
-    databaseURL:"https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId:"spinplay99",
-    storageBucket:"spinplay99.firebasestorage.app",
-    messagingSenderId:"8121733414",
-    appId:"1:8121733414:web:04b9ae5df1b6bc413e31e7"
-  });
-  DB = firebase.database();
-  setStatus('connected','Connected');
-  startDeviceListener();
+  try {
+    firebase.initializeApp({
+      apiKey:"AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I",
+      authDomain:"spinplay99.firebaseapp.com",
+      databaseURL:"https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId:"spinplay99",
+      storageBucket:"spinplay99.firebasestorage.app",
+      messagingSenderId:"8121733414",
+      appId:"1:8121733414:web:04b9ae5df1b6bc413e31e7"
+    });
+    DB = firebase.database();
+    setStatus('connected','Connected');
+    startDeviceListener();
+  } catch(e) {
+    setStatus('error','Connection Error');
+    console.error('Firebase init error:', e);
+  }
 })();
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
@@ -673,7 +678,19 @@ function showToast(t,m){var c=document.getElementById('toastContainer'),d=docume
 
 // ═══ LOGIN ═══
 var AU='admin',AP='rebel2024';
-(function(){var s=null;try{s=JSON.parse(localStorage.getItem('rbl_login'));}catch(e){}if(s&&s.u){document.getElementById('loginUser').value=s.u;document.getElementById('loginPass').value=s.p;document.getElementById('rememberMe').checked=true;}})();
+(function(){
+  var s=null;
+  try{s=JSON.parse(localStorage.getItem('rbl_login'));}catch(e){}
+  if(s&&s.u){
+    document.getElementById('loginUser').value=s.u;
+    document.getElementById('loginPass').value=s.p;
+    document.getElementById('rememberMe').checked=true;
+    // Auto-login if saved credentials match
+    if(s.u==='admin'&&s.p==='rebel2024'){
+      document.getElementById('loginPage').classList.add('hidden');
+    }
+  }
+})();
 function doLogin(){
   var u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
   if(u===AU&&p===AP){if(document.getElementById('rememberMe').checked)localStorage.setItem('rbl_login',JSON.stringify({u:u,p:p}));else localStorage.removeItem('rbl_login');document.getElementById('loginError').style.display='none';document.getElementById('loginPage').classList.add('hidden');}
