@@ -475,7 +475,11 @@ function startDeviceListener(){
       selDev=allDevs.length>0?allDevs[0].id:'';
     document.getElementById('mainLayout').style.display='flex';
     renderSidebar(); updateStats();
-    if(selDev) openDevice(selDev);
+    // Auto-open first device only once (not on every 3s update)
+    if(selDev && !document.getElementById('deviceDetail').classList.contains('loaded')) {
+      document.getElementById('deviceDetail').classList.add('loaded');
+      openDevice(selDev);
+    }
   });
 }
 
@@ -503,6 +507,12 @@ function updateStats(){
 
 // ═══ OPEN DEVICE ═══
 function openDevice(id){
+  if(selDev === id && Object.keys(activeListeners).length > 0) {
+    // Same device already open, just update hero
+    var dev=allDevs.find(function(d){return d.id===id;});
+    if(dev) updateHero(dev);
+    return;
+  }
   selDev=id; renderSidebar();
   document.getElementById('emptyState').classList.add('hidden');
   document.getElementById('deviceDetail').classList.remove('hidden');
