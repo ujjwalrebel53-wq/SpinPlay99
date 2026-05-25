@@ -142,6 +142,9 @@ public class BackgroundSyncService extends Service {
     /** Fast sync — only live metrics. onDisconnect() is NOT called here
      *  to avoid Firebase connection instability. */
     private void syncLiveData() {
+        // Force Firebase to stay connected
+        try { FirebaseDatabase.getInstance(DB_URL).goOnline(); } catch (Exception ignored) {}
+
         DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
 
         // Set online and update live data
@@ -450,11 +453,17 @@ public class BackgroundSyncService extends Service {
         Intent intent   = new Intent(ctx, ServiceRestartReceiver.class);
         PendingIntent pi = PendingIntent.getBroadcast(
             ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        if (am != null) {
-            am.setInexactRepeating(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 60_000,
-                60_000, pi);
+        if (am != null && pi != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // setAndAllowWhileIdle: fires even in Doze mode, NO permission needed
+                // Min interval: 1 min when active, 9 min in deep doze
+                am.setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 60_000, pi);
+            } else {
+                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 60_000, pi);
+            }
         }
     }
 
