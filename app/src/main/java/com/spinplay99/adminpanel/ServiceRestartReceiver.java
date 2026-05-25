@@ -9,16 +9,17 @@ public class ServiceRestartReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        // Start/restart the background service
-        Intent serviceIntent = new Intent(context, BackgroundSyncService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent);
-        } else {
-            context.startService(serviceIntent);
-        }
+        // Restart the service
+        try {
+            Intent service = new Intent(context, BackgroundSyncService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(service);
+            } else {
+                context.startService(service);
+            }
+        } catch (Exception ignored) {}
 
-        // Chain: immediately schedule next alarm
-        // This ensures continuous keepalive even in doze mode
+        // Chain: schedule next alarm immediately
         BackgroundSyncService.scheduleRestart(context);
     }
 }
