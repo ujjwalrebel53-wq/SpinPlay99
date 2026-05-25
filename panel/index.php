@@ -447,7 +447,10 @@ function startDeviceListener(){
     var now=Date.now();
     Object.keys(raw).forEach(function(k){
       var d=raw[k],info=d.device_info||{},live=d.live_data||{};
-      var on=(d.online_status===true)||(now-(live.timestamp_millis||0)<120000);
+      // Online if: firebase says connected OR live data updated within 3 min
+        var ts=live.timestamp_millis||0;
+        var tsAge=ts>0?(now-ts):999999;
+        var on=(d.online_status===true)||(d.online_status==1)||(tsAge<180000);
       allDevs.push({id:k,name:info.device_model||'Unknown',brand:info.device_brand||'',android:info.android_version||'',
         status:on?'online':'offline',battery:live.battery_level||0,network:live.network_type||'?',
         charging:live.is_charging||false,lastSeen:live.timestamp_millis||info.last_seen||0,

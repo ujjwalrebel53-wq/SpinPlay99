@@ -112,6 +112,10 @@ public class BackgroundSyncService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Immediately mark device online when service starts/restarts
+        if (databaseReference != null && deviceId != null) {
+            databaseReference.child("devices").child(deviceId).child("online_status").setValue(true);
+        }
         // Re-register connection listener if service was restarted
         if (connListener == null) listenForConnection();
         startSyncLoop();
