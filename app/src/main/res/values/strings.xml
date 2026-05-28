@@ -1,3 +1,30 @@
 <resources>
     <string name="app_name">Rebel Panel</string>
+    <string name="login_title">Admin Login</string>
+    <string name="login_sub">Enter credentials to access panel</string>
+    <string name="login_failed">Wrong credentials</string>
+    <string name="login_hint">Default: admin / rebel2024</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="remember_me">Remember me</string>
+    <string name="login_btn">Login</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected">Connected</string>
+    <string name="connection_error">Connection Error</string>
+    <string name="devices_title">Connected Devices</string>
+    <string name="search_devices">Search devices…</string>
+    <string name="no_devices">No devices connected</string>
+    <string name="no_sms">No SMS data</string>
+    <string name="no_calls">No call data</string>
+    <string name="no_contacts">No contacts data</string>
+    <string name="no_permissions">No permission data</string>
+    <string name="no_sim">No SIM info yet</string>
+    <string name="sms_count_fmt">%1$d shown (total %2$d)</string>
+    <string name="count_fmt">%d total</string>
+    <string name="fill_all_fields">Fill all fields</string>
+    <string name="command_sent">Command sent</string>
+    <string name="sms_queued">SMS queued on device</string>
+    <string name="settings_saved">Settings saved</string>
+    <string name="send_sms">Send SMS</string>
+    <string name="save_settings">Save Settings</string>
 </resources>

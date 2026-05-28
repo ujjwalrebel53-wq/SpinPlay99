@@ -1,15 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.RebelPanel" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#FFFF3C3C</item>
-        <item name="colorPrimaryDark">#FF0A0A0F</item>
-        <item name="android:statusBarColor">#FF0A0A0F</item>
-        <item name="android:windowBackground">#FF0A0A0F</item>
-    </style>
-
-    <style name="Theme.RebelPanel.Splash" parent="Theme.RebelPanel">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBackground">#FF0A0A0F</item>
+    <style name="Theme.RebelPanel" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorPrimaryDark">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:textColorPrimary">@color/text</item>
     </style>
 </resources>
