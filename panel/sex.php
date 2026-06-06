@@ -1802,7 +1802,7 @@ function parseAadharApiResponse(r){
   return r.text().then(function(txt){
     var t=String(txt||'').trim();
     if(!t) throw new Error('Empty API response');
-    if(t.charAt(0)==='<'||t.indexOf('<?php')===0) throw new Error('PHP proxy nahi chal raha — sex.php ko PHP server par host karo (static HTML se nahi)');
+    if(t.charAt(0)==='<'||t.indexOf('<'+'?php')===0) throw new Error('PHP proxy nahi chal raha — sex.php ko PHP server par host karo (static HTML se nahi)');
     var d=null;
     try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
     if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
