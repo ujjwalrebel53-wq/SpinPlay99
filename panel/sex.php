@@ -566,13 +566,19 @@ var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','us
 
 var REBEL_AI_API='https://api-rebix.vercel.app/api/copilot';
 var rebelAiBooted=false;
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand'];
+var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
   apiKey:'',
   authDomain:'rabel-raand.firebaseapp.com',
   databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
   projectId:'rabel-raand'
+},{
+  id:'pmfg_ccccc', name:'PMFG', schema:'spinplay',
+  apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',
+  authDomain:'pmfg-ccccc.firebaseapp.com',
+  databaseURL:'https://pmfg-ccccc-default-rtdb.firebaseio.com',
+  projectId:'pmfg-ccccc'
 },{
   id:'spinplay99', name:'SpinPlay99', schema:'spinplay',
   apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',
@@ -595,8 +601,15 @@ function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){ret
 function testFirebaseRoots(url){
   var base=String(url||'').replace(/\/+$/,'').replace(/\.json(\?.*)?$/i,'');
   return fetch(base+'/.json?shallow=true',{cache:'no-store'}).then(function(r){
-    if(!r.ok) throw new Error('Firebase not reachable (HTTP '+r.status+')');
-    return r.json();
+    return r.json().then(function(data){
+      if(data&&data.error){
+        if(/deactivated/i.test(data.error)) throw new Error('Firebase database is DEACTIVATED — enable Realtime Database in Firebase Console');
+        if(data.correctUrl) throw new Error('Wrong region — use: '+data.correctUrl);
+        throw new Error(String(data.error));
+      }
+      if(!r.ok) throw new Error('Firebase not reachable (HTTP '+r.status+')');
+      return data;
+    });
   });
 }
 function loadFirebaseConfigs(){
@@ -737,7 +750,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
