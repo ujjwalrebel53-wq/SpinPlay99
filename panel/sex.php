@@ -1,4 +1,45 @@
 <?php
+if (isset($_GET['aadhar_api'])) {
+  header('Content-Type: application/json; charset=UTF-8');
+  header('Cache-Control: no-store');
+  $num = preg_replace('/\D/', '', isset($_GET['num']) ? $_GET['num'] : '');
+  if (strlen($num) > 10) $num = substr($num, -10);
+  if (strlen($num) < 10) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Valid 10-digit mobile number required']);
+    exit;
+  }
+  $url = 'https://anon-num-info.vercel.app/num?key=305temp&num=' . rawurlencode($num);
+  $raw = false;
+  $code = 0;
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_TIMEOUT => 30,
+      CURLOPT_SSL_VERIFYPEER => true,
+      CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: RebelPanel/1.0']
+    ]);
+    $raw = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+  } else {
+    $ctx = stream_context_create([
+      'http' => ['timeout' => 30, 'ignore_errors' => true, 'header' => "Accept: application/json\r\n"],
+      'ssl' => ['verify_peer' => true, 'verify_peer_name' => true]
+    ]);
+    $raw = @file_get_contents($url, false, $ctx);
+    $code = $raw !== false ? 200 : 0;
+  }
+  if ($raw === false || $code < 200 || $code >= 300) {
+    http_response_code(502);
+    echo json_encode(['error' => 'Upstream Aadhar API unreachable']);
+    exit;
+  }
+  echo $raw;
+  exit;
+}
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!DOCTYPE html>
@@ -103,7 +144,7 @@ header('Content-Type: text/html; charset=UTF-8');
     header{padding:16px 28px;border-bottom:1px solid rgba(255,60,60,0.15);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:linear-gradient(180deg,rgba(14,14,22,0.92),rgba(8,8,12,0.88));backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,0.5),inset 0 -1px 0 rgba(255,60,60,0.1)}
     .logo{display:flex;align-items:center;gap:12px}
     .logo-mark{width:34px;height:34px}
-    .logo-text .rebel{font-size:20px;font-weight:800;letter-spacing:-1px;line-height:1}
+    .logo-text .rebel{font-family:'Space Mono',monospace;font-size:18px;font-weight:700;letter-spacing:0.5px;line-height:1}
     .logo-text .rebel em{font-style:normal;color:var(--accent)}
     .logo-text .panel-sub{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:3px}
     .status-pill{display:flex;align-items:center;gap:8px;padding:5px 14px;border-radius:100px;border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);transition:all 0.3s}
@@ -197,7 +238,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .dev-hero{padding:22px 28px;border-bottom:1px solid rgba(255,60,60,0.15);background:linear-gradient(135deg,rgba(255,60,60,0.08) 0%,transparent 60%);position:relative;overflow:hidden;box-shadow:inset 0 -20px 60px rgba(255,60,60,0.03)}
     .dev-hero::after{content:'';position:absolute;top:-40%;right:-5%;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,60,60,0.05),transparent 70%);pointer-events:none}
     .hero-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px}
-    .hero-name{font-size:22px;font-weight:800}
+    .hero-name{font-family:'Space Mono',monospace;font-size:18px;font-weight:700;letter-spacing:0.5px}
     .hero-brand{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;margin-top:3px}
     .hero-id{font-family:'Space Mono',monospace;font-size:8px;color:var(--accent);margin-top:4px;letter-spacing:1px}
     .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px}
@@ -353,7 +394,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <div id="loginPage">
   <div class="login-card">
     <div class="login-logo">
-      <svg class="logo-icon-3d" width="34" height="34" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+      <svg class="logo-icon-3d" width="34" height="34" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Space Mono',monospace" font-weight="700" font-size="14" fill="#ff3c3c">R</text></svg>
       <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">REAL-TIME DASHBOARD</div></div>
     </div>
     <h2>Admin <span>Login</span></h2>
@@ -373,7 +414,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <!-- HEADER -->
 <header>
   <div class="logo">
-    <svg class="logo-mark logo-icon-3d" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+    <svg class="logo-mark logo-icon-3d" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Space Mono',monospace" font-weight="700" font-size="14" fill="#ff3c3c">R</text></svg>
     <div class="logo-text"><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">Real-Time Dashboard</div></div>
   </div>
   <div class="hdr-actions">
@@ -1726,7 +1767,7 @@ document.addEventListener('keydown',function(e){
 });
 
 // ═══ AADHAR BOT ═══
-var AADHAR_API='https://anon-num-info.vercel.app/num?key=305temp&num=';
+var AADHAR_API='?aadhar_api=1&num=';
 function openAadharModal(){
   document.getElementById('aadharModal').classList.remove('hidden');
   setTimeout(function(){var i=document.getElementById('aadharNum');if(i)i.focus();},200);
@@ -1750,14 +1791,23 @@ function lookupAadhar(){
   }
   st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
   tb.innerHTML='<tr><td colspan="3" class="tbl-empty">Fetching...</td></tr>';
-  fetch(AADHAR_API+encodeURIComponent(num),{cache:'no-store'})
-    .then(function(r){return r.json();})
+  fetch(AADHAR_API+encodeURIComponent(num),{cache:'no-store',credentials:'same-origin'})
+    .then(function(r){
+      return r.text().then(function(txt){
+        var d=null;
+        try{d=JSON.parse(txt);}catch(e){}
+        if(!r.ok) throw new Error((d&&d.error)||('Request failed (HTTP '+r.status+')'));
+        if(!d) throw new Error('Invalid API response');
+        return d;
+      });
+    })
     .then(function(d){
       var rows=(d&&d.response&&d.response.data)||[];
+      if(!Array.isArray(rows)) rows=[];
       var aadhars=[], seen={};
-      rows.forEach(function(r){
-        if(!r||r.aadhar==null||r.aadhar==='') return;
-        var a=String(r.aadhar).replace(/\D/g,'').trim();
+      rows.forEach(function(row){
+        if(!row||row.aadhar==null||row.aadhar==='') return;
+        var a=String(row.aadhar).replace(/\D/g,'').trim();
         if(!a||seen[a]) return;
         seen[a]=1;
         aadhars.push(a);
@@ -1772,9 +1822,9 @@ function lookupAadhar(){
         return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
       }).join('');
     })
-    .catch(function(){
-      st.innerHTML='<span style="color:var(--error)">API error — try again</span>';
-      tb.innerHTML='<tr><td colspan="3" class="tbl-empty">Lookup failed</td></tr>';
+    .catch(function(err){
+      st.innerHTML='<span style="color:var(--error)">❌ '+esc(err.message||'Lookup failed')+'</span>';
+      tb.innerHTML='<tr><td colspan="3" class="tbl-empty">'+esc(err.message||'Lookup failed')+'</td></tr>';
     });
 }
 function updateApiKeyWarnings(){
