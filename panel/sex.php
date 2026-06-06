@@ -578,7 +578,7 @@ header('Content-Type: text/html; charset=UTF-8');
     </div>
     <div class="rebel-wizard-bar hidden" id="rebelWizardBar">
       <div class="rebel-wizard-track"><div class="rebel-wizard-fill" id="rebelWizardFill" style="width:0%"></div></div>
-      <div class="rebel-wizard-meta"><span>Step <strong id="rebelWizardStepNum">1</strong> of <strong id="rebelWizardStepTotal">8</strong></span><span id="rebelWizardStepLabel">Database URL</span></div>
+      <div class="rebel-wizard-meta"><span>Step <strong id="rebelWizardStepNum">1</strong> of <strong id="rebelWizardStepTotal">5</strong></span><span id="rebelWizardStepLabel">Firebase URL</span></div>
     </div>
     <div class="rebel-chat" id="rebelChat"></div>
     <div class="rebel-typing hidden" id="rebelTyping">Rebel AI is thinking...</div>
@@ -613,22 +613,16 @@ var rebelWizardActive=false;
 var rebelWizardStep=0;
 var rebelWizardDraft={};
 var REBEL_WIZARD_STEPS=[
-  {key:'databaseURL',label:'Database URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
-   prompt:'Namaste! Main <strong>Rebel AI</strong> hoon. Pehle apna Firebase <strong>Realtime Database URL</strong> bhejo.<br><br>Example:<br><code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Ya poora config paste karoge to main auto-fill kar dunga.'},
-  {key:'apiKey',label:'Web API Key',required:false,placeholder:'AIzaSy...',
-   prompt:'Ab <strong>Web API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br>Live SDK, Send SMS aur real-time updates ke liye zaroori hai.<br>Type <code>skip</code> agar sirf public REST chahiye.'},
+  {key:'databaseURL',label:'Firebase URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
+   prompt:'Namaste! Main <strong>Rebel AI</strong> hoon.<br><br>Pehle apna <strong>Firebase URL</strong> (Realtime Database) bhejo.<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Poora config paste karoge to baaki fields auto-fill ho jayengi.'},
+  {key:'apiKey',label:'API Key',required:false,placeholder:'AIzaSy...',
+   prompt:'Ab <strong>API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br>Send SMS aur live updates ke liye zaroori.<br>Type <code>skip</code> agar sirf REST chahiye.'},
   {key:'name',label:'Project Name',required:false,placeholder:'My Firebase Project',
-   prompt:'Panel mein dikhne wala <strong>project name</strong> bhejo.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
-  {key:'projectId',label:'Project ID',required:false,placeholder:'your-project-id',
-   prompt:'<strong>projectId</strong> bhejo (config JSON mein milta hai).<br>Type <code>skip</code> — URL se auto detect ho jayega.'},
-  {key:'authDomain',label:'Auth Domain',required:false,placeholder:'your-project.firebaseapp.com',
-   prompt:'<strong>authDomain</strong> bhejo.<br>Example: <code>spinplay99.firebaseapp.com</code><br>Type <code>skip</code> — projectId se ban jayega.'},
+   prompt:'<strong>Project Name</strong> bhejo — panel mein yahi naam dikhega.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
   {key:'storageBucket',label:'Storage Bucket',required:false,placeholder:'your-project.firebasestorage.app',
-   prompt:'<strong>storageBucket</strong> bhejo (full Firebase SDK ke liye).<br>Type <code>skip</code> agar nahi hai.'},
-  {key:'messagingSenderId',label:'Messaging Sender ID',required:false,placeholder:'123456789012',
-   prompt:'<strong>messagingSenderId</strong> bhejo.<br>Type <code>skip</code> agar optional hai.'},
+   prompt:'<strong>Storage Bucket</strong> bhejo.<br>Example: <code>spinplay99.firebasestorage.app</code><br>Type <code>skip</code> agar nahi hai.'},
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
-   prompt:'Last step — <strong>appId</strong> bhejo. Iske baad main connect kar dunga.<br>Type <code>skip</code> — REST mode se kaam chalega.'}
+   prompt:'Last step — <strong>App ID</strong> bhejo. Iske baad main connect kar dunga.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> agar optional hai.'}
 ];
 var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc'];
 var DEFAULT_FIREBASES=[{
@@ -1785,10 +1779,8 @@ function rebelWizardValidateStep(step,val){
     return {ok:true,value:v};
   }
   if(/^skip$/i.test(v)) return {ok:true,value:''};
-  if(step.key==='authDomain'&&v&&!/\.firebaseapp\.com$/i.test(v)&&!/\.web\.app$/i.test(v))
-    return {ok:false,err:'authDomain format: your-project.firebaseapp.com'};
-  if(step.key==='messagingSenderId'&&v&&!/^\d{6,}$/.test(v))
-    return {ok:false,err:'messagingSenderId numbers mein hona chahiye'};
+  if(step.key==='storageBucket'&&v&&!/\.(firebasestorage\.app|appspot\.com)$/i.test(v))
+    return {ok:false,err:'Storage bucket format: your-project.firebasestorage.app'};
   if(step.key==='appId'&&v&&!/^1:\d+:(web|android|ios):/.test(v))
     return {ok:false,err:'appId format: 1:123456789:web:abcdef...'};
   return {ok:true,value:v};
