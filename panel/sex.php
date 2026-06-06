@@ -324,6 +324,13 @@ header('Content-Type: text/html; charset=UTF-8');
     .rebel-send{padding:12px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#7b2fff,#cc0000);color:#fff;font-family:'Syne',sans-serif;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap}
     .rebel-send:disabled{opacity:0.45;cursor:not-allowed}
     .rebel-typing{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);padding:0 18px 8px}
+    .rebel-wizard-bar{padding:0 18px 10px;border-bottom:1px solid var(--border)}
+    .rebel-wizard-track{height:4px;border-radius:2px;background:rgba(255,255,255,0.06);overflow:hidden}
+    .rebel-wizard-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#7b2fff,#ff3c3c);transition:width 0.35s ease}
+    .rebel-wizard-meta{display:flex;justify-content:space-between;align-items:center;margin-top:7px;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:0.5px}
+    .rebel-wizard-meta strong{color:var(--accent2)}
+    .rebel-skip-btn{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap}
+    .rebel-skip-btn:hover{border-color:rgba(123,47,255,0.45);color:#fff}
     .fb-item-secure{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-top:3px}
   </style>
 </head>
@@ -549,7 +556,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Firebase <span>Manager</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> to add Firebase — URL stays hidden. Nodes auto-discovered.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> — step-by-step wizard URL, API key aur saari config mangta hai. URL hidden rehta hai.</p>
     <div class="fb-list" id="fbList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
@@ -566,13 +573,18 @@ header('Content-Type: text/html; charset=UTF-8');
       <span class="i3d i3d-purple i3d-lg i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span>
       <div>
         <div class="rebel-hdr-title">Rebel <span style="color:var(--accent)">AI</span></div>
-        <div class="rebel-hdr-sub">Firebase setup · auto node discovery</div>
+        <div class="rebel-hdr-sub">Step-by-step Firebase setup wizard</div>
       </div>
+    </div>
+    <div class="rebel-wizard-bar hidden" id="rebelWizardBar">
+      <div class="rebel-wizard-track"><div class="rebel-wizard-fill" id="rebelWizardFill" style="width:0%"></div></div>
+      <div class="rebel-wizard-meta"><span>Step <strong id="rebelWizardStepNum">1</strong> of <strong id="rebelWizardStepTotal">8</strong></span><span id="rebelWizardStepLabel">Database URL</span></div>
     </div>
     <div class="rebel-chat" id="rebelChat"></div>
     <div class="rebel-typing hidden" id="rebelTyping">Rebel AI is thinking...</div>
     <div class="rebel-foot">
-      <textarea class="rebel-input" id="rebelInput" placeholder="Paste Firebase config or database URL here..." rows="2" onkeydown="rebelInputKey(event)"></textarea>
+      <textarea class="rebel-input" id="rebelInput" placeholder="Paste your Firebase database URL..." rows="2" onkeydown="rebelInputKey(event)"></textarea>
+      <button class="rebel-skip-btn hidden" id="rebelSkipBtn" onclick="rebelWizardSkip()">Skip</button>
       <button class="rebel-send" id="rebelSendBtn" onclick="sendRebelAiMessage()">Send</button>
     </div>
   </div>
@@ -597,6 +609,27 @@ var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','us
 
 var REBEL_AI_API='https://api-rebix.vercel.app/api/copilot';
 var rebelAiBooted=false;
+var rebelWizardActive=false;
+var rebelWizardStep=0;
+var rebelWizardDraft={};
+var REBEL_WIZARD_STEPS=[
+  {key:'databaseURL',label:'Database URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
+   prompt:'Namaste! Main <strong>Rebel AI</strong> hoon. Pehle apna Firebase <strong>Realtime Database URL</strong> bhejo.<br><br>Example:<br><code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Ya poora config paste karoge to main auto-fill kar dunga.'},
+  {key:'apiKey',label:'Web API Key',required:false,placeholder:'AIzaSy...',
+   prompt:'Ab <strong>Web API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br>Live SDK, Send SMS aur real-time updates ke liye zaroori hai.<br>Type <code>skip</code> agar sirf public REST chahiye.'},
+  {key:'name',label:'Project Name',required:false,placeholder:'My Firebase Project',
+   prompt:'Panel mein dikhne wala <strong>project name</strong> bhejo.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
+  {key:'projectId',label:'Project ID',required:false,placeholder:'your-project-id',
+   prompt:'<strong>projectId</strong> bhejo (config JSON mein milta hai).<br>Type <code>skip</code> — URL se auto detect ho jayega.'},
+  {key:'authDomain',label:'Auth Domain',required:false,placeholder:'your-project.firebaseapp.com',
+   prompt:'<strong>authDomain</strong> bhejo.<br>Example: <code>spinplay99.firebaseapp.com</code><br>Type <code>skip</code> — projectId se ban jayega.'},
+  {key:'storageBucket',label:'Storage Bucket',required:false,placeholder:'your-project.firebasestorage.app',
+   prompt:'<strong>storageBucket</strong> bhejo (full Firebase SDK ke liye).<br>Type <code>skip</code> agar nahi hai.'},
+  {key:'messagingSenderId',label:'Messaging Sender ID',required:false,placeholder:'123456789012',
+   prompt:'<strong>messagingSenderId</strong> bhejo.<br>Type <code>skip</code> agar optional hai.'},
+  {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
+   prompt:'Last step — <strong>appId</strong> bhejo. Iske baad main connect kar dunga.<br>Type <code>skip</code> — REST mode se kaam chalega.'}
+];
 var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
@@ -1668,12 +1701,171 @@ document.addEventListener('keydown',function(e){
   }
 });
 
-// ═══ REBEL AI CHAT ═══
+// ═══ REBEL AI WIZARD ═══
+function rebelWizardUpdateUI(){
+  var bar=document.getElementById('rebelWizardBar');
+  var skip=document.getElementById('rebelSkipBtn');
+  var input=document.getElementById('rebelInput');
+  var total=REBEL_WIZARD_STEPS.length;
+  if(!rebelWizardActive){
+    if(bar) bar.classList.add('hidden');
+    if(skip) skip.classList.add('hidden');
+    if(input) input.placeholder='Type new to add another Firebase, or ask a question...';
+    return;
+  }
+  var step=REBEL_WIZARD_STEPS[rebelWizardStep]||REBEL_WIZARD_STEPS[0];
+  if(bar) bar.classList.remove('hidden');
+  var pct=Math.round(((rebelWizardStep+1)/total)*100);
+  var fill=document.getElementById('rebelWizardFill');
+  if(fill) fill.style.width=pct+'%';
+  var sn=document.getElementById('rebelWizardStepNum');
+  var st=document.getElementById('rebelWizardStepTotal');
+  var sl=document.getElementById('rebelWizardStepLabel');
+  if(sn) sn.textContent=String(rebelWizardStep+1);
+  if(st) st.textContent=String(total);
+  if(sl) sl.textContent=step.label+(step.required?' *':'');
+  if(skip){
+    if(step.required) skip.classList.add('hidden');
+    else{skip.classList.remove('hidden');skip.textContent='Skip';}
+  }
+  if(input) input.placeholder=step.placeholder||'Type your answer...';
+}
+function rebelWizardMergeParsed(parsed){
+  if(!parsed) return false;
+  Object.keys(parsed).forEach(function(k){
+    if(parsed[k]!=null&&parsed[k]!=='') rebelWizardDraft[k]=parsed[k];
+  });
+  return !!rebelWizardDraft.databaseURL;
+}
+function rebelWizardApplyDefaults(){
+  var d=rebelWizardDraft,url=normalizeFirebaseUrl(d.databaseURL||'');
+  if(url){
+    d.databaseURL=url;
+    if(!d.projectId) d.projectId=projectIdFromUrl(url);
+    if(!d.authDomain&&d.projectId) d.authDomain=d.projectId+'.firebaseapp.com';
+    if(!d.name) d.name=url.indexOf('rabel-raand')>=0?'Rebel':d.projectId||'Firebase Project';
+    if(url.indexOf('rabel-raand')>=0) d.name='Rebel';
+  }
+}
+function rebelWizardShowStep(){
+  var step=REBEL_WIZARD_STEPS[rebelWizardStep];
+  if(!step) return rebelWizardFinish();
+  rebelWizardUpdateUI();
+  appendRebelMsg('ai','<span style="opacity:0.7">Step '+(rebelWizardStep+1)+'/'+REBEL_WIZARD_STEPS.length+'</span><br><br>'+step.prompt);
+}
+function startRebelWizard(resetChat){
+  rebelWizardActive=true;
+  rebelWizardStep=0;
+  rebelWizardDraft={};
+  if(resetChat){
+    var box=document.getElementById('rebelChat');
+    if(box) box.innerHTML='';
+  }
+  rebelWizardShowStep();
+  rebelWizardUpdateUI();
+}
+function rebelWizardSkip(){
+  if(!rebelWizardActive) return;
+  var step=REBEL_WIZARD_STEPS[rebelWizardStep];
+  if(!step||step.required) return;
+  appendRebelMsg('user','skip');
+  rebelWizardAdvance('');
+}
+function rebelWizardValidateStep(step,val){
+  var v=String(val||'').trim();
+  if(!v&&!step.required) return {ok:true,value:''};
+  if(step.key==='databaseURL'){
+    var url=normalizeFirebaseUrl(v);
+    if(!url) return {ok:false,err:'Valid Firebase database URL chahiye. Example: https://xxx-default-rtdb.firebaseio.com'};
+    return {ok:true,value:url};
+  }
+  if(step.key==='apiKey'){
+    if(!v||/^skip$/i.test(v)) return {ok:true,value:''};
+    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(v)) return {ok:false,err:'API Key AIza se start honi chahiye, ya type karo: skip'};
+    return {ok:true,value:v};
+  }
+  if(/^skip$/i.test(v)) return {ok:true,value:''};
+  if(step.key==='authDomain'&&v&&!/\.firebaseapp\.com$/i.test(v)&&!/\.web\.app$/i.test(v))
+    return {ok:false,err:'authDomain format: your-project.firebaseapp.com'};
+  if(step.key==='messagingSenderId'&&v&&!/^\d{6,}$/.test(v))
+    return {ok:false,err:'messagingSenderId numbers mein hona chahiye'};
+  if(step.key==='appId'&&v&&!/^1:\d+:(web|android|ios):/.test(v))
+    return {ok:false,err:'appId format: 1:123456789:web:abcdef...'};
+  return {ok:true,value:v};
+}
+function rebelWizardAdvance(val){
+  var step=REBEL_WIZARD_STEPS[rebelWizardStep];
+  if(!step) return rebelWizardFinish();
+  var check=rebelWizardValidateStep(step,val);
+  if(!check.ok){
+    appendRebelMsg('ai','⚠️ '+esc(check.err)+'<br><br>Dobara try karo ya <code>skip</code> likho (agar optional ho).');
+    return;
+  }
+  if(check.value) rebelWizardDraft[step.key]=check.value;
+  rebelWizardStep++;
+  while(rebelWizardStep<REBEL_WIZARD_STEPS.length){
+    var next=REBEL_WIZARD_STEPS[rebelWizardStep];
+    if(rebelWizardDraft[next.key]){rebelWizardStep++;continue;}
+    rebelWizardShowStep();
+    return;
+  }
+  rebelWizardFinish();
+}
+function rebelWizardFinish(){
+  rebelWizardActive=false;
+  rebelWizardApplyDefaults();
+  rebelWizardUpdateUI();
+  var summary=[
+    '📋 <strong>Config summary</strong>',
+    '• Name: <code>'+esc(rebelWizardDraft.name||'Auto')+'</code>',
+    '• Project: <code>'+esc(rebelWizardDraft.projectId||'auto')+'</code>',
+    '• API Key: <code>'+(rebelWizardDraft.apiKey?'✓ set':'skip (REST only)')+'</code>',
+    '• SDK fields: <code>'+(rebelWizardDraft.storageBucket||rebelWizardDraft.appId?'partial/full':'minimal')+'</code>'
+  ].join('<br>');
+  appendRebelMsg('sys','🔍 Connecting Firebase from your browser...');
+  appendRebelMsg('ai',summary);
+  document.getElementById('rebelTyping').classList.remove('hidden');
+  addFirebaseFromConfig(rebelWizardDraft).then(function(res){
+    rebelAiLocalReply(res,null);
+  }).catch(function(err){
+    rebelAiLocalReply(null,err);
+    appendRebelMsg('ai','Setup dubara shuru karne ke liye type karo: <code>new</code>');
+  }).finally(function(){
+    document.getElementById('rebelTyping').classList.add('hidden');
+    var btn=document.getElementById('rebelSendBtn');
+    if(btn) btn.disabled=false;
+    var input=document.getElementById('rebelInput');
+    if(input) input.focus();
+  });
+}
+function handleRebelWizardInput(text){
+  var parsed=parseFirebaseFromText(text);
+  if(parsed&&parsed.databaseURL){
+    rebelWizardMergeParsed(parsed);
+    rebelWizardApplyDefaults();
+    var filled=[];
+    REBEL_WIZARD_STEPS.forEach(function(s){if(rebelWizardDraft[s.key]) filled.push(s.label);});
+    if(filled.length>1){
+      appendRebelMsg('ai','✨ Config detect ho gaya! Auto-fill: <code>'+esc(filled.join(', '))+'</code>');
+      while(rebelWizardStep<REBEL_WIZARD_STEPS.length){
+        var st=REBEL_WIZARD_STEPS[rebelWizardStep];
+        if(rebelWizardDraft[st.key]) rebelWizardStep++;
+        else break;
+      }
+      if(rebelWizardStep>=REBEL_WIZARD_STEPS.length) rebelWizardFinish();
+      else rebelWizardShowStep();
+      return;
+    }
+  }
+  rebelWizardAdvance(text);
+}
 function openRebelAiModal(){
   document.getElementById('rebelAiModal').classList.remove('hidden');
   if(!rebelAiBooted){
     rebelAiBooted=true;
-    appendRebelMsg('ai','Hey — I\'m <strong>Rebel AI</strong>. Paste your Firebase <code>databaseURL</code> here and I\'ll connect it directly from your browser (no external access needed).<br><br>Example:<br><code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Or full config with <code>apiKey</code> for live SDK.');
+    startRebelWizard(true);
+  }else if(!rebelWizardActive){
+    rebelWizardUpdateUI();
   }
   setTimeout(function(){var i=document.getElementById('rebelInput');if(i)i.focus();},200);
 }
@@ -1737,7 +1929,13 @@ function parseFirebaseFromText(text){
   if(projM) out.projectId=projM[1];
   var nameM=t.match(/(?:name|project\s*name)\s*[:=]\s*["']?([^"'\n,]+)/i);
   if(nameM) out.name=nameM[1].trim();
-  var blocks=t.match(/\{[\s\S]{0,1200}?databaseURL[\s\S]{0,1200}?\}/g);
+  var storeM=t.match(/storageBucket\s*[:=]\s*["']?([a-zA-Z0-9_.-]+\.(?:firebasestorage\.app|appspot\.com))/i);
+  if(storeM) out.storageBucket=storeM[1];
+  var msgM=t.match(/messagingSenderId\s*[:=]\s*["']?(\d{6,})/i);
+  if(msgM) out.messagingSenderId=msgM[1];
+  var appM=t.match(/appId\s*[:=]\s*["']?(1:\d+:web:[a-zA-Z0-9]+)/i);
+  if(appM) out.appId=appM[1];
+  var blocks=t.match(/\{[\s\S]{0,2000}?databaseURL[\s\S]{0,2000}?\}/g);
   if(blocks) blocks.forEach(function(block){
     try{
       var j=JSON.parse(block.replace(/([{,]\s*)([A-Za-z_][\w]*)\s*:/g,'$1"$2":').replace(/'/g,'"'));
@@ -1745,6 +1943,9 @@ function parseFirebaseFromText(text){
       if(j.apiKey) out.apiKey=j.apiKey;
       if(j.authDomain) out.authDomain=j.authDomain;
       if(j.projectId) out.projectId=j.projectId;
+      if(j.storageBucket) out.storageBucket=j.storageBucket;
+      if(j.messagingSenderId) out.messagingSenderId=String(j.messagingSenderId);
+      if(j.appId) out.appId=j.appId;
     }catch(e){}
   });
   if(out.databaseURL){
@@ -1787,7 +1988,9 @@ function addFirebaseFromConfig(cfg){
     var fullCfg={
       id:id,name:name,databaseURL:url,
       apiKey:cfg.apiKey||'',authDomain:cfg.authDomain||(pid+'.firebaseapp.com'),
-      projectId:pid,schema:schema
+      projectId:pid,schema:schema,
+      storageBucket:cfg.storageBucket||'',messagingSenderId:cfg.messagingSenderId||'',
+      appId:cfg.appId||''
     };
     firebaseConfigs.push(fullCfg);
     saveFirebaseConfigs();
@@ -1831,30 +2034,46 @@ function sendRebelAiMessage(){
   input.value='';
   btn.disabled=true;
   appendRebelMsg('user',text);
-  document.getElementById('rebelTyping').classList.remove('hidden');
+  if(/^new$/i.test(text)||/^setup$/i.test(text)||/^dobara$/i.test(text)){
+    startRebelWizard(false);
+    btn.disabled=false;
+    input.focus();
+    return;
+  }
+  if(rebelWizardActive){
+    handleRebelWizardInput(text);
+    if(rebelWizardActive){
+      btn.disabled=false;
+      input.focus();
+    }
+    return;
+  }
   var parsed=parseFirebaseFromText(text);
-  if(parsed){
+  if(parsed&&parsed.databaseURL){
+    document.getElementById('rebelTyping').classList.remove('hidden');
     rebelAiTryAutoFirebase(text).then(function(res){
       rebelAiLocalReply(res,null);
       btn.disabled=false;
       input.focus();
     }).catch(function(err){
       rebelAiLocalReply(null,err);
+      appendRebelMsg('ai','Step-by-step setup ke liye type karo: <code>new</code>');
       btn.disabled=false;
       input.focus();
     });
     return;
   }
+  document.getElementById('rebelTyping').classList.remove('hidden');
   callRebelAiApi(text).then(function(aiText){
     document.getElementById('rebelTyping').classList.add('hidden');
     appendRebelMsg('ai',formatAiText(aiText));
     var fromAi=parseFirebaseFromText(aiText);
-    if(fromAi){
+    if(fromAi&&fromAi.databaseURL){
       rebelAiTryAutoFirebase(aiText).then(function(res){if(res&&res.ok)rebelAiLocalReply(res,null);});
     }
   }).catch(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
-    appendRebelMsg('ai','Sorry, Rebel AI is temporarily unavailable. Try again in a moment.');
+    appendRebelMsg('ai','Rebel AI abhi unavailable hai. Firebase add karne ke liye type karo: <code>new</code>');
   }).finally(function(){btn.disabled=false;input.focus();});
 }
 
