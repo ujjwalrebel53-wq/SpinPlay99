@@ -271,6 +271,29 @@ header('Content-Type: text/html; charset=UTF-8');
     .modal-close:hover{background:rgba(255,60,60,0.1);color:var(--accent)}
     .sms-row-click{cursor:pointer}
     .sms-row-click:hover{background:rgba(255,60,60,0.04)!important}
+
+    /* ─── REBEL AI CHAT ─── */
+    .btn-rebel-ai{border-color:rgba(123,47,255,0.45);background:linear-gradient(135deg,rgba(123,47,255,0.18),rgba(255,60,60,0.1));color:#fff}
+    .btn-rebel-ai:hover{border-color:rgba(160,90,255,0.7);color:#fff;box-shadow:0 4px 20px rgba(123,47,255,0.25)}
+    .modal-rebel{max-width:560px;padding:0;display:flex;flex-direction:column;max-height:min(88vh,720px)}
+    .rebel-hdr{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+    .rebel-hdr-title{font-size:18px;font-weight:800}
+    .rebel-hdr-sub{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:2px}
+    .rebel-chat{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-height:280px;max-height:52vh}
+    .rebel-chat::-webkit-scrollbar{width:4px}
+    .rebel-chat::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+    .rebel-msg{max-width:92%;padding:11px 14px;border-radius:14px;font-size:12px;line-height:1.55;word-break:break-word}
+    .rebel-msg.user{align-self:flex-end;background:linear-gradient(135deg,rgba(255,60,60,0.2),rgba(180,0,0,0.12));border:1px solid rgba(255,60,60,0.25)}
+    .rebel-msg.ai{align-self:flex-start;background:linear-gradient(145deg,rgba(18,18,28,0.95),rgba(12,12,18,0.98));border:1px solid rgba(123,47,255,0.25);box-shadow:0 0 20px rgba(123,47,255,0.08)}
+    .rebel-msg.sys{align-self:center;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.2);font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);text-align:center;max-width:100%}
+    .rebel-msg.ai code{background:var(--surface);padding:1px 5px;border-radius:4px;font-family:'Space Mono',monospace;font-size:10px}
+    .rebel-msg-label{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;margin-bottom:5px;opacity:0.65;text-transform:uppercase}
+    .rebel-foot{padding:14px 18px 18px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end}
+    .rebel-input{flex:1;min-height:44px;max-height:120px;resize:none}
+    .rebel-send{padding:12px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#7b2fff,#cc0000);color:#fff;font-family:'Syne',sans-serif;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap}
+    .rebel-send:disabled{opacity:0.45;cursor:not-allowed}
+    .rebel-typing{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);padding:0 18px 8px}
+    .fb-item-secure{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-top:3px}
   </style>
 </head>
 <body>
@@ -314,6 +337,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <button class="btn-fb btn-switch" onclick="toggleFbDropdown(event)"><span class="i3d i3d-blue i3d-sm i3d-static">⇄</span> <span id="activeFbShort">—</span> ▾</button>
       <div class="fb-drop-menu hidden" id="fbDropMenu"></div>
     </div>
+    <button class="btn-fb btn-rebel-ai" onclick="openRebelAiModal()"><span class="i3d i3d-purple i3d-sm">🤖</span> Chat with Rebel AI</button>
     <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm">🔥</span> Manage <span id="fbCount">0</span></button>
     <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>
   </div>
@@ -494,21 +518,31 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire">🔥</span> Firebase <span>Manager</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Add multiple Firebase projects — nodes auto-discovered &amp; fetched.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> to add Firebase — URL stays hidden. Nodes auto-discovered.</p>
     <div class="fb-list" id="fbList"></div>
-    <div class="config-card" style="max-width:none;margin:0">
-      <div class="input-group">
-        <div><label>Project Name</label><input type="text" id="fbName" placeholder="My Project"/></div>
-        <div><label>Database URL</label><input type="url" id="fbUrl" placeholder="https://xxx-default-rtdb.firebaseio.com"/></div>
-        <div><label>API Key</label><input type="text" id="fbApiKey" placeholder="AIzaSy..."/></div>
-        <div><label>Auth Domain (optional)</label><input type="text" id="fbAuth" placeholder="xxx.firebaseapp.com"/></div>
-        <div><label>Project ID (optional)</label><input type="text" id="fbProject" placeholder="my-project"/></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm">🤖</span> Chat with Rebel AI</button>
+      <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()"><span class="i3d i3d-blue i3d-sm">🔄</span> Refresh All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rebel AI Chat Modal -->
+<div class="modal-overlay hidden" id="rebelAiModal" onclick="closeRebelAiModal(event)">
+  <div class="modal-box modal-rebel" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="document.getElementById('rebelAiModal').classList.add('hidden')">✕</button>
+    <div class="rebel-hdr">
+      <span class="i3d i3d-purple i3d-lg">🤖</span>
+      <div>
+        <div class="rebel-hdr-title">Rebel <span style="color:var(--accent)">AI</span></div>
+        <div class="rebel-hdr-sub">Firebase setup · auto node discovery</div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn-sm" onclick="addFirebaseProject()"><span class="i3d i3d-green i3d-sm">➕</span> Add Firebase</button>
-        <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()"><span class="i3d i3d-blue i3d-sm">🔄</span> Refresh All</button>
-      </div>
-      <div id="fbAddStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)"></div>
+    </div>
+    <div class="rebel-chat" id="rebelChat"></div>
+    <div class="rebel-typing hidden" id="rebelTyping">Rebel AI is thinking...</div>
+    <div class="rebel-foot">
+      <textarea class="rebel-input" id="rebelInput" placeholder="Paste Firebase config or database URL here..." rows="2" onkeydown="rebelInputKey(event)"></textarea>
+      <button class="rebel-send" id="rebelSendBtn" onclick="sendRebelAiMessage()">Send</button>
     </div>
   </div>
 </div>
@@ -530,9 +564,11 @@ var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','adminpass','passwords','webhook','webhooks','tokens','auth'];
 
+var REBEL_AI_API='https://api-rebix.vercel.app/api/copilot';
+var rebelAiBooted=false;
 var PROTECTED_FB_IDS=['spinplay99','rabel_raand'];
 var DEFAULT_FIREBASES=[{
-  id:'rabel_raand', name:'Rabel Raand', schema:'rabel',
+  id:'rabel_raand', name:'Rebel', schema:'rabel',
   apiKey:'',
   authDomain:'rabel-raand.firebaseapp.com',
   databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
@@ -567,6 +603,7 @@ function loadFirebaseConfigs(){
         });
         p.forEach(function(c){
           if(!c.schema) c.schema=(c.databaseURL||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+          if(c.id==='rabel_raand'||(c.databaseURL||'').indexOf('rabel-raand')>=0) c.name='Rebel';
         });
         return p;
       }
@@ -995,7 +1032,7 @@ function fetchDevicesFast(inst,nodeName){
       return restJson(base+encodeURIComponent(id)+'/online_status.json').then(function(st){
         var key=makeDevKey(inst.id,id);
         var prev=clientsRawMap[key]||{};
-        clientsRawMap[key]=Object.assign({},prev,{_node:nodeName,_fbId:inst.id,rawId:id,
+        clientsRawMap[key]=Object.assign({},prev,{_node:nodeName,_fbId:inst.id,
           online:st===true,online_status:st===true||st===false?st:undefined});
       });
     })).then(function(){
@@ -1455,9 +1492,152 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
     document.getElementById('smsModal').classList.add('hidden');
     document.getElementById('firebaseModal').classList.add('hidden');
+    document.getElementById('rebelAiModal').classList.add('hidden');
     closeFbDropdown();
   }
 });
+
+// ═══ REBEL AI CHAT ═══
+function openRebelAiModal(){
+  document.getElementById('rebelAiModal').classList.remove('hidden');
+  if(!rebelAiBooted){
+    rebelAiBooted=true;
+    appendRebelMsg('ai','Hey — I\'m <strong>Rebel AI</strong>. Paste your Firebase config or database URL and I\'ll auto-check nodes, schema &amp; connect it securely.<br><br>Example:<br><code>databaseURL: https://xxx-default-rtdb.firebaseio.com</code><br><code>apiKey: AIzaSy...</code>');
+  }
+  setTimeout(function(){var i=document.getElementById('rebelInput');if(i)i.focus();},200);
+}
+function closeRebelAiModal(e){
+  if(e&&e.target!==document.getElementById('rebelAiModal')) return;
+  document.getElementById('rebelAiModal').classList.add('hidden');
+}
+function closeFirebaseModalQuick(){document.getElementById('firebaseModal').classList.add('hidden');}
+function rebelInputKey(e){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendRebelAiMessage();}
+}
+function appendRebelMsg(role,html){
+  var box=document.getElementById('rebelChat');
+  if(!box) return;
+  var lbl=role==='user'?'You':role==='ai'?'Rebel AI':'System';
+  var div=document.createElement('div');
+  div.className='rebel-msg '+role;
+  div.innerHTML='<div class="rebel-msg-label">'+lbl+'</div>'+(role==='ai'?html:formatAiText(html));
+  box.appendChild(div);
+  box.scrollTop=box.scrollHeight;
+}
+function formatAiText(t){
+  return esc(String(t||''))
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\n/g,'<br>');
+}
+function callRebelAiApi(text){
+  return fetch(REBEL_AI_API+'?text='+encodeURIComponent(text),{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d&&d.status&&d.results&&d.results.text) return d.results.text;
+      throw new Error('Rebel AI unavailable');
+    });
+}
+function parseFirebaseFromText(text){
+  if(!text) return null;
+  var out={}, t=String(text);
+  var urlM=t.match(/https?:\/\/[a-zA-Z0-9_.-]+\.(?:firebaseio\.com|firebasedatabase\.app)[^\s"'`,;)<>]*/i);
+  if(urlM) out.databaseURL=urlM[0].replace(/['"`.,;]+$/,'').replace(/\/$/,'');
+  var apiM=t.match(/apiKey\s*[:=]\s*["']?(AIza[A-Za-z0-9_-]{20,})/i)||t.match(/\b(AIza[A-Za-z0-9_-]{20,})\b/);
+  if(apiM) out.apiKey=(apiM[1]||apiM[0]).trim();
+  var authM=t.match(/authDomain\s*[:=]\s*["']?([a-zA-Z0-9_.-]+\.firebaseapp\.com)/i);
+  if(authM) out.authDomain=authM[1];
+  var projM=t.match(/projectId\s*[:=]\s*["']?([a-zA-Z0-9_-]+)/i);
+  if(projM) out.projectId=projM[1];
+  var nameM=t.match(/(?:name|project\s*name)\s*[:=]\s*["']?([^"'\n,]+)/i);
+  if(nameM) out.name=nameM[1].trim();
+  var blocks=t.match(/\{[\s\S]{0,800}?databaseURL[\s\S]{0,800}?\}/g);
+  if(blocks) blocks.forEach(function(block){
+    try{
+      var j=JSON.parse(block.replace(/([{,]\s*)([A-Za-z_][\w]*)\s*:/g,'$1"$2":').replace(/'/g,'"'));
+      if(j.databaseURL) out.databaseURL=String(j.databaseURL).replace(/\/$/,'');
+      if(j.apiKey) out.apiKey=j.apiKey;
+      if(j.authDomain) out.authDomain=j.authDomain;
+      if(j.projectId) out.projectId=j.projectId;
+    }catch(e){}
+  });
+  if((out.databaseURL||'').indexOf('rabel-raand')>=0) out.name='Rebel';
+  return out.databaseURL?out:null;
+}
+function detectFbSchema(url){
+  return (url||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+}
+function makeFbId(name){
+  return String(name||'fb').toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,20)+'_'+Date.now().toString(36);
+}
+function addFirebaseFromConfig(cfg){
+  var url=(cfg.databaseURL||'').replace(/\/$/,'');
+  if(!url) return Promise.reject(new Error('No database URL'));
+  if(firebaseConfigs.some(function(c){return c.databaseURL===url;}))
+    return Promise.resolve({ok:true,already:true,name:cfg.name||'Firebase'});
+  var schema=cfg.schema||detectFbSchema(url);
+  var name=cfg.name||(schema==='rabel'?'Rebel':'Firebase Project');
+  if(url.indexOf('rabel-raand')>=0) name='Rebel';
+  var id=cfg.id||cfg.projectId||makeFbId(name);
+  if(firebaseConfigs.some(function(c){return c.id===id;})) id=makeFbId(name);
+  if(schema!=='rabel'&&!cfg.apiKey) return Promise.reject(new Error('API Key required for this Firebase'));
+  return restJson(url+'/.json?shallow=true').then(function(roots){
+    if(!roots||typeof roots!=='object') throw new Error('Cannot connect to Firebase');
+    var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
+    var fullCfg={id:id,name:name,databaseURL:url,apiKey:cfg.apiKey||'',authDomain:cfg.authDomain||'',projectId:cfg.projectId||id,schema:schema};
+    firebaseConfigs.push(fullCfg);
+    saveFirebaseConfigs();
+    initFirebaseInstance(fullCfg);
+    var inst=getFbInstance(fullCfg.id);
+    inst.discoveredNodes=nodes;
+    renderFirebaseList();
+    renderFirebaseSwitcher();
+    discoverAndFetchInstance(inst);
+    attachClientsLiveUpdates(inst);
+    attachRestPolling(inst);
+    if(panelInitialized) switchFirebase(fullCfg.id,true);
+    showToast('success','Firebase connected: '+name);
+    return {ok:true,name:name,nodes:nodes};
+  });
+}
+function rebelAiTryAutoFirebase(text){
+  var parsed=parseFirebaseFromText(text);
+  if(!parsed) return Promise.resolve(null);
+  appendRebelMsg('sys','🔍 Firebase detected — scanning nodes & connecting...');
+  return addFirebaseFromConfig(parsed).then(function(res){
+    if(res.already){
+      appendRebelMsg('sys','ℹ️ This Firebase is already connected as <strong>'+esc(res.name)+'</strong>');
+      return res;
+    }
+    appendRebelMsg('sys','✅ Connected <strong>'+esc(res.name)+'</strong> · Nodes: '+esc((res.nodes||[]).join(', ')||'none'));
+    return res;
+  }).catch(function(err){
+    appendRebelMsg('sys','❌ Auto-setup failed: '+esc(err.message||'Unknown error'));
+    return null;
+  });
+}
+function sendRebelAiMessage(){
+  var input=document.getElementById('rebelInput');
+  var btn=document.getElementById('rebelSendBtn');
+  var text=(input.value||'').trim();
+  if(!text) return;
+  input.value='';
+  btn.disabled=true;
+  appendRebelMsg('user',text);
+  document.getElementById('rebelTyping').classList.remove('hidden');
+  var fbPromise=rebelAiTryAutoFirebase(text);
+  var aiPromise=callRebelAiApi(text);
+  Promise.all([fbPromise,aiPromise]).then(function(results){
+    var aiText=results[1];
+    document.getElementById('rebelTyping').classList.add('hidden');
+    appendRebelMsg('ai',formatAiText(aiText));
+    var fromAi=parseFirebaseFromText(aiText);
+    if(fromAi) rebelAiTryAutoFirebase(aiText);
+  }).catch(function(){
+    document.getElementById('rebelTyping').classList.add('hidden');
+    appendRebelMsg('ai','Sorry, Rebel AI is temporarily unavailable. Try again in a moment.');
+  }).finally(function(){btn.disabled=false;input.focus();});
+}
 
 // ═══ FIREBASE MANAGER UI ═══
 function openFirebaseModal(){
@@ -1475,51 +1655,16 @@ function renderFirebaseList(){
     var inst=getFbInstance(cfg.id);
     var nodes=inst&&inst.discoveredNodes.length?inst.discoveredNodes.join(', '):'discovering...';
     return '<div class="fb-item"><div><div class="fb-item-name">'+esc(cfg.name)+'</div>'+
-      '<div class="fb-item-url">'+esc(cfg.databaseURL)+'</div>'+
+      '<div class="fb-item-secure">'+ico('🔒','i3d-green i3d-sm i3d-static')+' Secure · URL hidden</div>'+
       '<div class="fb-item-nodes">'+ico('📂','i3d-orange i3d-sm i3d-static')+' Nodes: '+esc(nodes)+'</div></div>'+
       (PROTECTED_FB_IDS.indexOf(cfg.id)<0?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
       '</div>';
   }).join('');
   var c=document.getElementById('fbCount');if(c)c.textContent=firebaseConfigs.length;
 }
-function addFirebaseProject(){
-  var name=document.getElementById('fbName').value.trim();
-  var url=document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
-  var apiKey=document.getElementById('fbApiKey').value.trim();
-  var auth=document.getElementById('fbAuth').value.trim();
-  var project=document.getElementById('fbProject').value.trim();
-  var status=document.getElementById('fbAddStatus');
-  var schema=url.indexOf('rabel-raand')>=0?'rabel':'spinplay';
-  if(!name||!url){status.innerHTML='<span style="color:var(--error)">Name & Database URL required</span>';return;}
-  if(schema!=='rabel'&&!apiKey){status.innerHTML='<span style="color:var(--error)">API Key required for this Firebase</span>';return;}
-  status.textContent='Testing connection...';
-  restJson(url+'/.json?shallow=true').then(function(roots){
-    var id=project||name.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,24)+'_'+Date.now().toString(36);
-    var cfg={id:id,name:name,databaseURL:url,apiKey:apiKey||'',authDomain:auth,projectId:project||id,schema:schema};
-    if(firebaseConfigs.some(function(c){return c.databaseURL===url;})){
-      status.innerHTML='<span style="color:var(--error)">This Firebase already added</span>';return;
-    }
-    firebaseConfigs.push(cfg);
-    saveFirebaseConfigs();
-    initFirebaseInstance(cfg);
-    var inst=getFbInstance(cfg.id);
-    var nodes=roots&&typeof roots==='object'?Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;}):[];
-    inst.discoveredNodes=nodes;
-    renderFirebaseList();
-    discoverAndFetchInstance(inst);
-    attachClientsLiveUpdates(inst);
-    attachRestPolling(inst);
-    switchFirebase(cfg.id,true);
-    document.getElementById('fbName').value='';
-    document.getElementById('fbUrl').value='';
-    document.getElementById('fbApiKey').value='';
-    document.getElementById('fbAuth').value='';
-    document.getElementById('fbProject').value='';
-    status.innerHTML='<span style="color:var(--success)">✅ Connected! Auto nodes: '+esc(nodes.join(', ')||'none')+'</span>';
-    showToast('success','Firebase added: '+name);
-  }).catch(function(){
-    status.innerHTML='<span style="color:var(--error)">Connection failed — check URL & API key</span>';
-  });
+function addFirebaseProject(cfg){
+  if(!cfg) return openRebelAiModal();
+  addFirebaseFromConfig(cfg).catch(function(err){showToast('error',err.message||'Failed');});
 }
 function removeFirebaseProject(id){
   if(!confirm('Remove this Firebase project?')) return;
