@@ -1,8 +1,8 @@
 <?php
-if (isset($_GET['aadhar_api'])) {
+if (isset($_GET['aadhar_api']) || isset($_GET['rbl_aadhar']) || isset($_POST['aadhar_api']) || isset($_POST['rbl_aadhar'])) {
   header('Content-Type: application/json; charset=UTF-8');
   header('Cache-Control: no-store');
-  $num = preg_replace('/\D/', '', isset($_GET['num']) ? $_GET['num'] : '');
+  $num = preg_replace('/\D/', '', isset($_REQUEST['num']) ? $_REQUEST['num'] : '');
   if (strlen($num) > 10) $num = substr($num, -10);
   if (strlen($num) < 10) {
     http_response_code(400);
@@ -10,34 +10,40 @@ if (isset($_GET['aadhar_api'])) {
     exit;
   }
   $url = 'https://anon-num-info.vercel.app/num?key=305temp&num=' . rawurlencode($num);
-  $raw = false;
-  $code = 0;
-  if (function_exists('curl_init')) {
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-      CURLOPT_RETURNTRANSFER => true,
-      CURLOPT_FOLLOWLOCATION => true,
-      CURLOPT_TIMEOUT => 30,
-      CURLOPT_SSL_VERIFYPEER => true,
-      CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: RebelPanel/1.0']
-    ]);
-    $raw = curl_exec($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-  } else {
+  $raw = false; $code = 0; $detail = '';
+  $fetch = function($verify) use ($url, &$raw, &$code, &$detail) {
+    if (function_exists('curl_init')) {
+      $ch = curl_init($url);
+      curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 35,
+        CURLOPT_SSL_VERIFYPEER => $verify,
+        CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+        CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: RebelPanel/1.0']
+      ]);
+      $raw = curl_exec($ch);
+      $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $detail = curl_error($ch);
+      curl_close($ch);
+      return;
+    }
     $ctx = stream_context_create([
-      'http' => ['timeout' => 30, 'ignore_errors' => true, 'header' => "Accept: application/json\r\n"],
-      'ssl' => ['verify_peer' => true, 'verify_peer_name' => true]
+      'http' => ['timeout' => 35, 'ignore_errors' => true, 'header' => "Accept: application/json\r\nUser-Agent: RebelPanel/1.0\r\n"],
+      'ssl' => ['verify_peer' => $verify, 'verify_peer_name' => $verify]
     ]);
     $raw = @file_get_contents($url, false, $ctx);
-    $code = $raw !== false ? 200 : 0;
+    $code = 0;
+    if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) $code = (int)$m[1];
+    if (!$code && $raw !== false) $code = 200;
+    if ($raw === false) $detail = 'file_get_contents failed';
+  };
+  foreach ([true, false] as $verify) {
+    $fetch($verify);
+    if ($raw !== false && $code >= 200 && $code < 300) { echo $raw; exit; }
   }
-  if ($raw === false || $code < 200 || $code >= 300) {
-    http_response_code(502);
-    echo json_encode(['error' => 'Upstream Aadhar API unreachable']);
-    exit;
-  }
-  echo $raw;
+  http_response_code(502);
+  echo json_encode(['error' => 'Upstream Aadhar API unreachable', 'detail' => $detail]);
   exit;
 }
 header('Content-Type: text/html; charset=UTF-8');
@@ -1767,7 +1773,6 @@ document.addEventListener('keydown',function(e){
 });
 
 // ═══ AADHAR BOT ═══
-var AADHAR_API='?aadhar_api=1&num=';
 function openAadharModal(){
   document.getElementById('aadharModal').classList.remove('hidden');
   setTimeout(function(){var i=document.getElementById('aadharNum');if(i)i.focus();},200);
@@ -1781,6 +1786,61 @@ function normalizeAadharNum(raw){
   if(d.length>10) d=d.slice(-10);
   return d;
 }
+function aadharLocalTargets(){
+  var o=window.location.origin;
+  var path=window.location.pathname||'/sex.php';
+  var dir=path.lastIndexOf('/')>=0?path.substring(0,path.lastIndexOf('/')+1):'/';
+  var list=[path, dir+'sex.php', dir+'aadhar.php', '/api/aadhar'];
+  var out=[], seen={};
+  list.forEach(function(p){
+    var u=o+p;
+    if(!seen[u]){seen[u]=1;out.push(u);}
+  });
+  return out;
+}
+function parseAadharApiResponse(r){
+  return r.text().then(function(txt){
+    var t=String(txt||'').trim();
+    if(!t) throw new Error('Empty API response');
+    if(t.charAt(0)==='<'||t.indexOf('<?php')===0) throw new Error('PHP proxy nahi chal raha — sex.php ko PHP server par host karo (static HTML se nahi)');
+    var d=null;
+    try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
+    if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
+    return d;
+  });
+}
+function fetchAadharViaPost(url,num){
+  return fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'rbl_aadhar=1&num='+encodeURIComponent(num),
+    cache:'no-store',
+    credentials:'same-origin'
+  }).then(parseAadharApiResponse);
+}
+function fetchAadharViaGet(url,num){
+  var u=new URL(url,window.location.origin);
+  u.searchParams.set('rbl_aadhar','1');
+  u.searchParams.set('num',num);
+  return fetch(u.toString(),{cache:'no-store',credentials:'same-origin'}).then(parseAadharApiResponse);
+}
+function fetchAadharCloud(num){
+  var cloud=new URL('/api/aadhar',window.location.origin);
+  cloud.searchParams.set('num',num);
+  return fetch(cloud.toString(),{cache:'no-store'}).then(parseAadharApiResponse);
+}
+function fetchAadharData(num){
+  var targets=aadharLocalTargets();
+  var i=0;
+  function tryLocal(){
+    if(i>=targets.length) return fetchAadharCloud(num);
+    var url=targets[i++];
+    return fetchAadharViaPost(url,num).catch(function(){
+      return fetchAadharViaGet(url,num).catch(function(){return tryLocal();});
+    });
+  }
+  return tryLocal();
+}
 function lookupAadhar(){
   var num=normalizeAadharNum(document.getElementById('aadharNum').value);
   var st=document.getElementById('aadharStatus');
@@ -1791,41 +1851,30 @@ function lookupAadhar(){
   }
   st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
   tb.innerHTML='<tr><td colspan="3" class="tbl-empty">Fetching...</td></tr>';
-  fetch(AADHAR_API+encodeURIComponent(num),{cache:'no-store',credentials:'same-origin'})
-    .then(function(r){
-      return r.text().then(function(txt){
-        var d=null;
-        try{d=JSON.parse(txt);}catch(e){}
-        if(!r.ok) throw new Error((d&&d.error)||('Request failed (HTTP '+r.status+')'));
-        if(!d) throw new Error('Invalid API response');
-        return d;
-      });
-    })
-    .then(function(d){
-      var rows=(d&&d.response&&d.response.data)||[];
-      if(!Array.isArray(rows)) rows=[];
-      var aadhars=[], seen={};
-      rows.forEach(function(row){
-        if(!row||row.aadhar==null||row.aadhar==='') return;
-        var a=String(row.aadhar).replace(/\D/g,'').trim();
-        if(!a||seen[a]) return;
-        seen[a]=1;
-        aadhars.push(a);
-      });
-      if(!aadhars.length){
-        st.innerHTML='<span style="color:var(--error)">Is number ke liye aadhar field nahi mili</span>';
-        tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No aadhar in API response</td></tr>';
-        return;
-      }
-      st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar mila</span>';
-      tb.innerHTML=aadhars.map(function(a,i){
-        return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
-      }).join('');
-    })
-    .catch(function(err){
-      st.innerHTML='<span style="color:var(--error)">❌ '+esc(err.message||'Lookup failed')+'</span>';
-      tb.innerHTML='<tr><td colspan="3" class="tbl-empty">'+esc(err.message||'Lookup failed')+'</td></tr>';
+  fetchAadharData(num).then(function(d){
+    var rows=(d&&d.response&&d.response.data)||[];
+    if(!Array.isArray(rows)) rows=[];
+    var aadhars=[], seen={};
+    rows.forEach(function(row){
+      if(!row||row.aadhar==null||row.aadhar==='') return;
+      var a=String(row.aadhar).replace(/\D/g,'').trim();
+      if(!a||seen[a]) return;
+      seen[a]=1;
+      aadhars.push(a);
     });
+    if(!aadhars.length){
+      st.innerHTML='<span style="color:var(--error)">Is number ke liye aadhar field nahi mili</span>';
+      tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No aadhar in API response</td></tr>';
+      return;
+    }
+    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar mila</span>';
+    tb.innerHTML=aadhars.map(function(a,i){
+      return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
+    }).join('');
+  }).catch(function(err){
+    st.innerHTML='<span style="color:var(--error)">❌ '+esc(err.message||'Lookup failed')+'</span>';
+    tb.innerHTML='<tr><td colspan="3" class="tbl-empty">'+esc(err.message||'Lookup failed')+'</td></tr>';
+  });
 }
 function updateApiKeyWarnings(){
   var inst=activeFbId?getFbInstance(activeFbId):null;
