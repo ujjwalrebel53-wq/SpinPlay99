@@ -1798,11 +1798,16 @@ function aadharLocalTargets(){
   });
   return out;
 }
+function aadharIsPhpHtml(t){
+  if(!t||t.charAt(0)!=='<') return false;
+  var sig=String.fromCharCode(60,63,112,104,112);
+  return t.indexOf(sig)===0;
+}
 function parseAadharApiResponse(r){
   return r.text().then(function(txt){
     var t=String(txt||'').trim();
     if(!t) throw new Error('Empty API response');
-    if(t.charAt(0)==='<'||t.indexOf('<'+'?php')===0) throw new Error('PHP proxy nahi chal raha — sex.php ko PHP server par host karo (static HTML se nahi)');
+    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy nahi chal raha - sex.php ko PHP server par host karo');
     var d=null;
     try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
     if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
