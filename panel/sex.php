@@ -592,6 +592,13 @@ function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',de
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;});}
+function testFirebaseRoots(url){
+  var base=String(url||'').replace(/\/+$/,'').replace(/\.json(\?.*)?$/i,'');
+  return fetch(base+'/.json?shallow=true',{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('Firebase not reachable (HTTP '+r.status+')');
+    return r.json();
+  });
+}
 function loadFirebaseConfigs(){
   try{
     var s=localStorage.getItem(FIREBASE_CFG_KEY);
@@ -1502,7 +1509,7 @@ function openRebelAiModal(){
   document.getElementById('rebelAiModal').classList.remove('hidden');
   if(!rebelAiBooted){
     rebelAiBooted=true;
-    appendRebelMsg('ai','Hey — I\'m <strong>Rebel AI</strong>. Paste your Firebase config or database URL and I\'ll auto-check nodes, schema &amp; connect it securely.<br><br>Example:<br><code>databaseURL: https://xxx-default-rtdb.firebaseio.com</code><br><code>apiKey: AIzaSy...</code>');
+    appendRebelMsg('ai','Hey — I\'m <strong>Rebel AI</strong>. Paste your Firebase <code>databaseURL</code> here and I\'ll connect it directly from your browser (no external access needed).<br><br>Example:<br><code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Or full config with <code>apiKey</code> for live SDK.');
   }
   setTimeout(function(){var i=document.getElementById('rebelInput');if(i)i.focus();},200);
 }
@@ -1538,11 +1545,26 @@ function callRebelAiApi(text){
       throw new Error('Rebel AI unavailable');
     });
 }
+function normalizeFirebaseUrl(raw){
+  if(!raw) return '';
+  var u=String(raw).trim().replace(/['"`<>]/g,'').replace(/[.,;]+$/, '');
+  u=u.replace(/\.json(\?.*)?$/i,'').replace(/\/+$/,'');
+  if(!/^https?:\/\//i.test(u)&&u.indexOf('.')>0) u='https://'+u;
+  if(!/firebaseio\.com|firebasedatabase\.app/i.test(u)) return '';
+  return u.replace(/\/(clients|devices|messages|\.json).*$/i,'');
+}
+function projectIdFromUrl(url){
+  var m=String(url||'').match(/\/\/([a-z0-9-]+?)(?:-default-rtdb)?\.(?:firebaseio\.com|firebasedatabase\.app)/i);
+  return m?m[1]:'';
+}
 function parseFirebaseFromText(text){
   if(!text) return null;
   var out={}, t=String(text);
   var urlM=t.match(/https?:\/\/[a-zA-Z0-9_.-]+\.(?:firebaseio\.com|firebasedatabase\.app)[^\s"'`,;)<>]*/i);
-  if(urlM) out.databaseURL=urlM[0].replace(/['"`.,;]+$/,'').replace(/\/$/,'');
+  if(!urlM) urlM=t.match(/[a-zA-Z0-9_.-]+\.(?:firebaseio\.com|firebasedatabase\.app)[^\s"'`,;)<>]*/i);
+  if(urlM) out.databaseURL=normalizeFirebaseUrl(urlM[0]);
+  var dbLine=t.match(/databaseURL\s*[:=]\s*["']?(https?:\/\/[^"'\s]+)/i);
+  if(dbLine) out.databaseURL=normalizeFirebaseUrl(dbLine[1]);
   var apiM=t.match(/apiKey\s*[:=]\s*["']?(AIza[A-Za-z0-9_-]{20,})/i)||t.match(/\b(AIza[A-Za-z0-9_-]{20,})\b/);
   if(apiM) out.apiKey=(apiM[1]||apiM[0]).trim();
   var authM=t.match(/authDomain\s*[:=]\s*["']?([a-zA-Z0-9_.-]+\.firebaseapp\.com)/i);
@@ -1551,45 +1573,64 @@ function parseFirebaseFromText(text){
   if(projM) out.projectId=projM[1];
   var nameM=t.match(/(?:name|project\s*name)\s*[:=]\s*["']?([^"'\n,]+)/i);
   if(nameM) out.name=nameM[1].trim();
-  var blocks=t.match(/\{[\s\S]{0,800}?databaseURL[\s\S]{0,800}?\}/g);
+  var blocks=t.match(/\{[\s\S]{0,1200}?databaseURL[\s\S]{0,1200}?\}/g);
   if(blocks) blocks.forEach(function(block){
     try{
       var j=JSON.parse(block.replace(/([{,]\s*)([A-Za-z_][\w]*)\s*:/g,'$1"$2":').replace(/'/g,'"'));
-      if(j.databaseURL) out.databaseURL=String(j.databaseURL).replace(/\/$/,'');
+      if(j.databaseURL) out.databaseURL=normalizeFirebaseUrl(j.databaseURL);
       if(j.apiKey) out.apiKey=j.apiKey;
       if(j.authDomain) out.authDomain=j.authDomain;
       if(j.projectId) out.projectId=j.projectId;
     }catch(e){}
   });
-  if((out.databaseURL||'').indexOf('rabel-raand')>=0) out.name='Rebel';
+  if(out.databaseURL){
+    if(!out.projectId) out.projectId=projectIdFromUrl(out.databaseURL);
+    if(!out.authDomain&&out.projectId) out.authDomain=out.projectId+'.firebaseapp.com';
+    if(out.databaseURL.indexOf('rabel-raand')>=0) out.name='Rebel';
+  }
   return out.databaseURL?out:null;
 }
-function detectFbSchema(url){
-  return (url||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+function detectFbSchema(url,roots){
+  if((url||'').indexOf('rabel-raand')>=0) return 'rabel';
+  if(roots&&typeof roots==='object'){
+    var n=Object.keys(roots);
+    if(n.indexOf('clients')>=0&&n.indexOf('messages')>=0) return 'rabel';
+    if(n.indexOf('devices')>=0) return 'spinplay';
+  }
+  return 'spinplay';
 }
 function makeFbId(name){
   return String(name||'fb').toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,20)+'_'+Date.now().toString(36);
 }
 function addFirebaseFromConfig(cfg){
-  var url=(cfg.databaseURL||'').replace(/\/$/,'');
-  if(!url) return Promise.reject(new Error('No database URL'));
-  if(firebaseConfigs.some(function(c){return c.databaseURL===url;}))
-    return Promise.resolve({ok:true,already:true,name:cfg.name||'Firebase'});
-  var schema=cfg.schema||detectFbSchema(url);
-  var name=cfg.name||(schema==='rabel'?'Rebel':'Firebase Project');
-  if(url.indexOf('rabel-raand')>=0) name='Rebel';
-  var id=cfg.id||cfg.projectId||makeFbId(name);
-  if(firebaseConfigs.some(function(c){return c.id===id;})) id=makeFbId(name);
-  if(schema!=='rabel'&&!cfg.apiKey) return Promise.reject(new Error('API Key required for this Firebase'));
-  return restJson(url+'/.json?shallow=true').then(function(roots){
-    if(!roots||typeof roots!=='object') throw new Error('Cannot connect to Firebase');
+  var url=normalizeFirebaseUrl(cfg.databaseURL||'');
+  if(!url) return Promise.reject(new Error('No valid Firebase database URL'));
+  var existing=firebaseConfigs.find(function(c){return normalizeFirebaseUrl(c.databaseURL)===url;});
+  if(existing){
+    if(panelInitialized) switchFirebase(existing.id,true);
+    return Promise.resolve({ok:true,already:true,name:existing.name,id:existing.id});
+  }
+  return testFirebaseRoots(url).then(function(roots){
+    if(!roots||typeof roots!=='object') throw new Error('Firebase returned empty data — check URL & rules');
     var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
-    var fullCfg={id:id,name:name,databaseURL:url,apiKey:cfg.apiKey||'',authDomain:cfg.authDomain||'',projectId:cfg.projectId||id,schema:schema};
+    if(!nodes.length) throw new Error('No device nodes found in this Firebase');
+    var schema=cfg.schema||detectFbSchema(url,roots);
+    var name=cfg.name||(schema==='rabel'?'Rebel':projectIdFromUrl(url)||'Firebase Project');
+    if(url.indexOf('rabel-raand')>=0) name='Rebel';
+    var pid=cfg.projectId||projectIdFromUrl(url)||makeFbId(name);
+    var id=cfg.id||pid;
+    if(firebaseConfigs.some(function(c){return c.id===id;})) id=makeFbId(name);
+    var fullCfg={
+      id:id,name:name,databaseURL:url,
+      apiKey:cfg.apiKey||'',authDomain:cfg.authDomain||(pid+'.firebaseapp.com'),
+      projectId:pid,schema:schema
+    };
     firebaseConfigs.push(fullCfg);
     saveFirebaseConfigs();
     initFirebaseInstance(fullCfg);
     var inst=getFbInstance(fullCfg.id);
     inst.discoveredNodes=nodes;
+    inst.schema=schema;
     renderFirebaseList();
     renderFirebaseSwitcher();
     discoverAndFetchInstance(inst);
@@ -1597,24 +1638,26 @@ function addFirebaseFromConfig(cfg){
     attachRestPolling(inst);
     if(panelInitialized) switchFirebase(fullCfg.id,true);
     showToast('success','Firebase connected: '+name);
-    return {ok:true,name:name,nodes:nodes};
+    return {ok:true,name:name,nodes:nodes,id:fullCfg.id};
   });
 }
 function rebelAiTryAutoFirebase(text){
   var parsed=parseFirebaseFromText(text);
   if(!parsed) return Promise.resolve(null);
-  appendRebelMsg('sys','🔍 Firebase detected — scanning nodes & connecting...');
-  return addFirebaseFromConfig(parsed).then(function(res){
+  appendRebelMsg('sys','🔍 Scanning Firebase nodes & connecting from your browser...');
+  return addFirebaseFromConfig(parsed);
+}
+function rebelAiLocalReply(res,err){
+  document.getElementById('rebelTyping').classList.add('hidden');
+  if(res&&res.ok){
     if(res.already){
-      appendRebelMsg('sys','ℹ️ This Firebase is already connected as <strong>'+esc(res.name)+'</strong>');
-      return res;
+      appendRebelMsg('ai','✅ <strong>'+esc(res.name)+'</strong> is already connected. Switched to this project — check devices in the sidebar.');
+    }else{
+      appendRebelMsg('ai','✅ <strong>'+esc(res.name)+'</strong> connected successfully!<br><br>📂 Nodes: <code>'+esc((res.nodes||[]).join(', ')||'none')+'</code><br>📱 Devices are loading now. Use the header <strong>Switch FB</strong> menu to change project.');
     }
-    appendRebelMsg('sys','✅ Connected <strong>'+esc(res.name)+'</strong> · Nodes: '+esc((res.nodes||[]).join(', ')||'none'));
-    return res;
-  }).catch(function(err){
-    appendRebelMsg('sys','❌ Auto-setup failed: '+esc(err.message||'Unknown error'));
-    return null;
-  });
+    return;
+  }
+  if(err) appendRebelMsg('ai','❌ Could not connect Firebase: '+esc(err.message||'Unknown error')+'<br><br>Tip: Paste the full <code>databaseURL</code> from Firebase console. Public databases work without API key.');
 }
 function sendRebelAiMessage(){
   var input=document.getElementById('rebelInput');
@@ -1625,14 +1668,26 @@ function sendRebelAiMessage(){
   btn.disabled=true;
   appendRebelMsg('user',text);
   document.getElementById('rebelTyping').classList.remove('hidden');
-  var fbPromise=rebelAiTryAutoFirebase(text);
-  var aiPromise=callRebelAiApi(text);
-  Promise.all([fbPromise,aiPromise]).then(function(results){
-    var aiText=results[1];
+  var parsed=parseFirebaseFromText(text);
+  if(parsed){
+    rebelAiTryAutoFirebase(text).then(function(res){
+      rebelAiLocalReply(res,null);
+      btn.disabled=false;
+      input.focus();
+    }).catch(function(err){
+      rebelAiLocalReply(null,err);
+      btn.disabled=false;
+      input.focus();
+    });
+    return;
+  }
+  callRebelAiApi(text).then(function(aiText){
     document.getElementById('rebelTyping').classList.add('hidden');
     appendRebelMsg('ai',formatAiText(aiText));
     var fromAi=parseFirebaseFromText(aiText);
-    if(fromAi) rebelAiTryAutoFirebase(aiText);
+    if(fromAi){
+      rebelAiTryAutoFirebase(aiText).then(function(res){if(res&&res.ok)rebelAiLocalReply(res,null);});
+    }
   }).catch(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
     appendRebelMsg('ai','Sorry, Rebel AI is temporarily unavailable. Try again in a moment.');
