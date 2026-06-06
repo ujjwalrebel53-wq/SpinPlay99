@@ -25,7 +25,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .wrapper{position:relative;z-index:1}
 
     /* ─── 3D GLOWING ICONS (icons only — layout stays flat) ─── */
-    .i3d{display:inline-block;position:relative;font-style:normal;line-height:1;vertical-align:middle;transform-style:preserve-3d;transform:perspective(400px) rotateX(12deg) translateZ(0);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow));text-shadow:0 1px 0 rgba(255,255,255,0.45),0 4px 8px rgba(0,0,0,0.65),0 0 14px var(--icon-glow),0 0 28px var(--icon-glow);animation:iconGlow 2.8s ease-in-out infinite}
+    .i3d{display:inline-block;position:relative;font-style:normal;line-height:1;vertical-align:middle;transform-style:preserve-3d;transform:perspective(400px) rotateX(12deg) translateZ(0);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow));text-shadow:0 1px 0 rgba(255,255,255,0.45),0 4px 8px rgba(0,0,0,0.65),0 0 14px var(--icon-glow),0 0 28px var(--icon-glow);animation:iconFloat 4.2s ease-in-out infinite,iconShine 3.6s ease-in-out infinite;will-change:transform,filter}
     .i3d-sm{font-size:0.95em}
     .i3d-lg{font-size:1.55em}
     .i3d-xl{font-size:2.8em}
@@ -36,12 +36,14 @@ header('Content-Type: text/html; charset=UTF-8');
     .i3d-purple{--icon-glow:rgba(160,90,255,0.8)}
     .i3d-orange{--icon-glow:rgba(255,149,0,0.85)}
     .i3d-static{animation:none}
-    .logo-icon-3d{filter:drop-shadow(0 0 8px rgba(255,60,60,0.7)) drop-shadow(0 4px 12px rgba(0,0,0,0.5));animation:logoIconGlow 2.5s ease-in-out infinite}
-    @keyframes iconGlow{0%,100%{transform:perspective(400px) rotateX(12deg) translateY(0) scale(1);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow))}50%{transform:perspective(400px) rotateX(16deg) translateY(-2px) scale(1.08);filter:drop-shadow(0 5px 8px rgba(0,0,0,0.6)) drop-shadow(0 0 18px var(--icon-glow)) drop-shadow(0 0 32px var(--icon-glow))}}
-    @keyframes logoIconGlow{0%,100%{filter:drop-shadow(0 0 6px rgba(255,60,60,0.5)) drop-shadow(0 3px 8px rgba(0,0,0,0.4))}50%{filter:drop-shadow(0 0 16px rgba(255,60,60,0.95)) drop-shadow(0 0 28px rgba(255,60,60,0.45)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}}
+    .logo-icon-3d{filter:drop-shadow(0 0 8px rgba(255,60,60,0.7)) drop-shadow(0 4px 12px rgba(0,0,0,0.5));animation:logoFloat 4.5s ease-in-out infinite,logoShine 3.8s ease-in-out infinite;will-change:transform,filter}
+    @keyframes iconFloat{0%,100%{transform:perspective(400px) rotateX(12deg) translateY(0) scale(1)}50%{transform:perspective(400px) rotateX(14deg) translateY(-3px) scale(1.03)}}
+    @keyframes iconShine{0%,100%{filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 8px var(--icon-glow))}50%{filter:drop-shadow(0 4px 6px rgba(0,0,0,0.5)) drop-shadow(0 0 14px var(--icon-glow)) drop-shadow(0 0 22px var(--icon-glow))}}
+    @keyframes logoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+    @keyframes logoShine{0%,100%{filter:drop-shadow(0 0 6px rgba(255,60,60,0.55)) drop-shadow(0 3px 8px rgba(0,0,0,0.4))}50%{filter:drop-shadow(0 0 12px rgba(255,60,60,0.85)) drop-shadow(0 0 20px rgba(255,60,60,0.35)) drop-shadow(0 4px 10px rgba(0,0,0,0.45))}}
     .data-tab .i3d{font-size:13px;margin-right:3px}
     .btn .i3d,.btn-sm .i3d,.btn-fb .i3d{margin-right:5px}
-    .dchip .i3d{font-size:9px;margin-right:2px;animation-duration:3.5s}
+    .dchip .i3d{font-size:9px;margin-right:2px;animation-duration:4.8s,4.2s}
 
     /* ─── LOGIN ─── */
     #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
@@ -79,8 +81,8 @@ header('Content-Type: text/html; charset=UTF-8');
     .status-pill{display:flex;align-items:center;gap:8px;padding:5px 14px;border-radius:100px;border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);transition:all 0.3s}
     .status-pill.connected{border-color:var(--success);color:var(--success)}
     .status-pill .status-dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
-    .status-pill.connected .status-dot{background:var(--success);box-shadow:0 0 6px var(--success);animation:blink 1.5s ease-in-out infinite}
-    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+    .status-pill.connected .status-dot{background:var(--success);box-shadow:0 0 6px var(--success);animation:softPulse 2.4s ease-in-out infinite}
+    @keyframes softPulse{0%,100%{box-shadow:0 0 4px var(--success);opacity:1;transform:scale(1)}50%{box-shadow:0 0 10px var(--success),0 0 16px rgba(0,255,157,0.35);opacity:1;transform:scale(1.15)}}
 
     /* ─── LAYOUT ─── */
     .main-layout{display:flex;min-height:calc(100vh - 65px)}
@@ -127,7 +129,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .dev-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
     .dev-name{font-weight:700;font-size:13px}
     .dev-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-    .dev-dot.online{background:var(--success);box-shadow:0 0 5px var(--success);animation:blink 2s infinite}
+    .dev-dot.online{background:var(--success);box-shadow:0 0 5px var(--success);animation:softPulse 2.4s ease-in-out infinite}
     .dev-dot.offline{background:var(--muted)}
     .dev-uid{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-bottom:6px}
     .dev-chips{display:flex;gap:5px;flex-wrap:wrap}
@@ -172,7 +174,7 @@ header('Content-Type: text/html; charset=UTF-8');
     .hero-id{font-family:'Space Mono',monospace;font-size:8px;color:var(--accent);margin-top:4px;letter-spacing:1px}
     .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px}
     .hero-badge.online{background:rgba(0,255,157,0.1);border:1px solid rgba(0,255,157,0.25);color:var(--success)}
-    .hero-badge.online::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--success);animation:blink 1.5s infinite}
+    .hero-badge.online::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--success);animation:softPulse 2.4s ease-in-out infinite}
     .hero-badge.offline{background:rgba(107,107,136,0.1);border:1px solid rgba(107,107,136,0.2);color:var(--muted)}
     .hero-badge.offline::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--muted)}
     .hero-metrics{display:flex;gap:20px;flex-wrap:wrap}
@@ -193,7 +195,8 @@ header('Content-Type: text/html; charset=UTF-8');
 
     /* ─── TABLES ─── */
     .realtime-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:100px;background:rgba(255,149,0,0.1);border:1px solid rgba(255,149,0,0.25);font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2)}
-    .rt-dot{width:5px;height:5px;border-radius:50%;background:var(--accent2);animation:blink 1s ease-in-out infinite}
+    .rt-dot{width:5px;height:5px;border-radius:50%;background:var(--accent2);animation:softPulseOrange 2.2s ease-in-out infinite}
+    @keyframes softPulseOrange{0%,100%{box-shadow:0 0 3px var(--accent2);opacity:1;transform:scale(1)}50%{box-shadow:0 0 8px var(--accent2),0 0 14px rgba(255,149,0,0.35);opacity:1;transform:scale(1.12)}}
     .sec-title{font-size:22px;font-weight:800;margin-bottom:4px}
     .sec-title span{color:var(--accent)}
     .dm-toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
