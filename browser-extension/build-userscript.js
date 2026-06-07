@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      10.3.0
-// @description  Rebel Adhar v10.3 — DOB remove + native OTP (NO fake date)
+// @version      11.0.0
+// @description  Rebel Adhar v11 — DOB bypass + OTP pipeline (NO fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -185,74 +185,61 @@ const ui = `
   }
 
   var skipOtpHook = false;
-
-  function watchOtpFail(before, btn) {
-    setTimeout(function () {
-      if (netCount > before) return;
-      log('warn', 'Native OTP fail — force retry');
-      skipOtpHook = true;
-      if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
-      setTimeout(function () { skipOtpHook = false; }, 600);
-      setTimeout(function () {
-        if (netCount <= before) {
-          log('error', 'NO API CALL — v' + (E.ENGINE_VERSION || '?') + ' Copy Debug bhejo');
-          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
-        }
-      }, 5000);
-    }, 3500);
-  }
+  var otpRunning = false;
 
   function watchOtp() {
     if (window.__rebelOtp83) return;
     window.__rebelOtp83 = true;
 
-    document.addEventListener('mousedown', function (e) {
-      if (!on) return;
-      const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
-      if (!btn) return;
-      const t = E.norm(btn.textContent || btn.value || '');
-      if (!t.includes('send otp') && !t.includes('request otp')) return;
-      E.prepareSubmit(UI_SEL, log);
-    }, true);
-
     document.addEventListener('click', function (e) {
-      if (!on || skipOtpHook) return;
+      if (!on || skipOtpHook || otpRunning) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
-
-      const before = netCount;
-      otpNetWatch = true;
-      setTimeout(function () { otpNetWatch = false; }, 10000);
-
-      const prep = E.prepareSubmit(UI_SEL, log);
-      if (prep.dobBypassed && prep.formOk) {
-        log('info', 'OTP send native', { v: E.ENGINE_VERSION || '10.3' });
-        watchOtpFail(before, btn);
-        return;
-      }
 
       e.preventDefault();
       e.stopImmediatePropagation();
 
-      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(prep);
-      runPrep.then(function (prep2) {
-        if (!prep2.dobBypassed) {
-          log('error', 'DOB bypass fail — Bypass DOB dabao', { dobInForm: prep2.dobInForm });
-          return;
-        }
-        if (!prep2.formOk) {
-          log('error', 'Pehle naam + mobile + captcha bharo', prep2.after);
-          return;
-        }
-        log('info', 'OTP send force', { v: E.ENGINE_VERSION || '10.3' });
-        skipOtpHook = true;
-        if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
-        else btn.click();
-        setTimeout(function () { skipOtpHook = false; }, 600);
-        watchOtpFail(before, btn);
-      });
+      const before = netCount;
+      otpNetWatch = true;
+      setTimeout(function () { otpNetWatch = false; }, 15000);
+
+      otpRunning = true;
+      skipOtpHook = true;
+
+      const run =
+        E.invokeOtpPipeline
+          ? E.invokeOtpPipeline(btn, UI_SEL, log, function () {
+              return netCount > before;
+            })
+          : (E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(E.prepareSubmit(UI_SEL, log))).then(
+              function (prep) {
+                if (!prep.dobBypassed) return { ok: false, prep };
+                if (!prep.formOk) return { ok: false, prep };
+                if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
+                else btn.click();
+                return { ok: netCount > before, prep };
+              }
+            );
+
+      Promise.resolve(run)
+        .then(function (result) {
+          if (result && result.ok) {
+            log('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION || '11.0' });
+            return;
+          }
+          if (netCount <= before) {
+            log('error', 'NO API CALL — v' + (E.ENGINE_VERSION || '?') + ' Copy Debug bhejo');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        })
+        .finally(function () {
+          otpRunning = false;
+          setTimeout(function () {
+            skipOtpHook = false;
+          }, 400);
+        });
     }, true);
   }
 
@@ -260,7 +247,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '10.3') + ' ON — DOB bypass shuru');
+    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '11.0') + ' ON — DOB bypass shuru');
     const ready = await E.waitForForm(30000);
     if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);

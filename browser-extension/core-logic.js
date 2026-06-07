@@ -84,6 +84,7 @@
   }
 
   let skipOtpHook = false;
+  let otpRunning = false;
 
   function installOtpPrep() {
     if (otpPrepInstalled || !engine) return;
@@ -91,7 +92,7 @@
     document.addEventListener(
       'click',
       (e) => {
-        if (!enabledState || skipOtpHook) return;
+        if (!enabledState || skipOtpHook || otpRunning) return;
         const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
@@ -99,32 +100,36 @@
         const before = networkCount;
         e.preventDefault();
         e.stopImmediatePropagation();
-        const runPrep = engine.prepareSubmitAsync
-          ? engine.prepareSubmitAsync(UI_SEL, engLog)
-          : Promise.resolve(engine.prepareSubmit(UI_SEL, engLog));
-        runPrep.then((prep) => {
-          if (!prep?.dobBypassed) {
-            log('error', 'DOB bypass nahi hua — Bypass DOB dabao', { dobInForm: prep?.dobInForm });
-            return;
-          }
-          if (!prep?.formOk) {
-            log('error', 'Pehle naam + mobile + captcha bharo', prep?.after);
-            return;
-          }
-          log('info', 'OTP send', { dobBypassed: true });
-          skipOtpHook = true;
-          if (engine.forceSubmitOtp) engine.forceSubmitOtp(btn, engLog);
-          else btn.click();
-          setTimeout(() => {
-            skipOtpHook = false;
-          }, 600);
-          setTimeout(() => {
+        otpRunning = true;
+        skipOtpHook = true;
+        const run = engine.invokeOtpPipeline
+          ? engine.invokeOtpPipeline(btn, UI_SEL, engLog, () => networkCount > before)
+          : (engine.prepareSubmitAsync
+              ? engine.prepareSubmitAsync(UI_SEL, engLog)
+              : Promise.resolve(engine.prepareSubmit(UI_SEL, engLog))
+            ).then((prep) => {
+              if (!prep?.dobBypassed || !prep?.formOk) return { ok: false, prep };
+              if (engine.forceSubmitOtp) engine.forceSubmitOtp(btn, engLog);
+              else btn.click();
+              return { ok: networkCount > before, prep };
+            });
+        Promise.resolve(run)
+          .then((result) => {
+            if (result?.ok) {
+              log('info', 'OTP sent', { via: result.via || 'pipeline', v: engine.ENGINE_VERSION });
+              return;
+            }
             if (networkCount <= before) {
               log('error', 'NO API CALL');
               log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
             }
-          }, 6000);
-        });
+          })
+          .finally(() => {
+            otpRunning = false;
+            setTimeout(() => {
+              skipOtpHook = false;
+            }, 400);
+          });
       },
       true
     );

