@@ -1,5 +1,5 @@
 /**
- * UIDAI Engine v9 — True DOB bypass: UIDAI mode switch only, NO fake DOB fill
+ * UIDAI Engine v9.3 — True DOB bypass: UIDAI mode switch only, NO fake DOB fill
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -16,6 +16,7 @@
 
   let dobWatcher = null;
   let watchTimer = null;
+  let bypassPoller = null;
   let syncingDom = false;
   const nativeInputSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
 
@@ -47,6 +48,32 @@
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }
+
+  function isInDom(el, uiSel) {
+    if (!el || !el.isConnected) return false;
+    if (uiSel && el.closest(uiSel)) return false;
+    let cur = el;
+    while (cur && cur !== document.body) {
+      const s = getComputedStyle(cur);
+      if (s.display === 'none' || s.visibility === 'hidden') return false;
+      cur = cur.parentElement;
+    }
+    return true;
+  }
+
+  function isLinkish(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'a' || tag === 'button') return true;
+    if (el.getAttribute('role') === 'button' || el.getAttribute('role') === 'link') return true;
+    if (el.closest?.('[matSuffix], [matsuffix], .mat-mdc-form-field-text-suffix')) return true;
+    const st = getComputedStyle(el);
+    return st.cursor === 'pointer' || st.textDecorationLine?.includes('underline');
+  }
+
+  function isFormLabel(el) {
+    return !!el?.closest?.('mat-label, label, .mdc-floating-label, .mat-mdc-floating-label, legend');
   }
 
   function fieldContainer(el) {
@@ -223,9 +250,25 @@
     return n;
   }
 
-  /** Bypass = UIDAI ne DOB field DOM se hata diya (fake date fill NAHI) */
-  function isDobBypassed() {
-    return getDobInputs().length === 0;
+  /** Bypass = DOB screen/form se hat gaya (DOM me ho sakta hai par UIDAI ne hide/remove kiya) */
+  function isDobInputActive(input, uiSel) {
+    if (!input || input.type === 'hidden') return false;
+    if (input.closest('[data-rebel-dob-hidden],[data-rebel-dob-off]')) return false;
+    const box = fieldContainer(input);
+    if (box) {
+      if (box.hidden || box.getAttribute('aria-hidden') === 'true') return false;
+      const bs = getComputedStyle(box);
+      if (bs.display === 'none' || bs.visibility === 'hidden' || parseFloat(bs.opacity) === 0) return false;
+      const br = box.getBoundingClientRect();
+      if (br.width < 1 || br.height < 1) return false;
+    }
+    return isVisible(input, uiSel);
+  }
+
+  function isDobBypassed(uiSel) {
+    const inputs = getDobInputs();
+    if (!inputs.length) return true;
+    return !inputs.some((i) => isDobInputActive(i, uiSel));
   }
 
   /** OR Email → OR Mobile (ya sirf OR Mobile) — UIDAI native mode switch */
@@ -541,7 +584,7 @@
   }
 
   function isFormReadyForOtp(uiSel) {
-    if (!isDobBypassed()) return false;
+    if (!isDobBypassed(uiSel)) return false;
     const snap = getFieldSnapshot(uiSel);
     const mobile = snap.find((f) => f.type === 'mobile');
     const captcha = snap.find((f) => f.type === 'captcha');
@@ -557,8 +600,9 @@
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
       ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
-      dobBypassed: isDobBypassed(),
+      dobBypassed: isDobBypassed(uiSel),
       dobInForm: getDobInputs().length,
+      dobVisible: dobFieldVisible(uiSel),
       fields: getFieldSnapshot(uiSel),
       dobInputs: getDobInputs().map((i) => ({
         val: readInputVal(i).slice(0, 14),
@@ -649,11 +693,48 @@
     );
   }
 
+  /** UIDAI live: sirf "Enter Email Address" (bina OR) bhi hota hai */
+  function isToggleText(text, el) {
+    const t = norm(text);
+    if (isOrLinkText(t)) return true;
+    if (t.length < 5 || t.length > 45) return false;
+    if (isFormLabel(el)) return false;
+    if (/date of birth|enter captcha|enter name|जन्म|as per aadhaar/i.test(t)) return false;
+    if (/^enter\s*(e-?mail|email)(\s*(address|id))?$/i.test(t)) return true;
+    if (/^enter\s*(mobile|phone)(\s*(number|no))?$/i.test(t) && isLinkish(el)) return true;
+    if (/या\s*(ईमेल|मोबाइल)/i.test(t) || /(email|mobile)\s*instead/i.test(t)) return true;
+    return false;
+  }
+
   function kindFromOrText(text) {
     const t = norm(text);
     if (/e-?mail|email|ईमेल/i.test(t)) return 'email';
     if (/mobile|phone|मोबाइल/i.test(t)) return 'mobile';
     return 'other';
+  }
+
+  function xpathOrLinks(uiSel) {
+    const out = [];
+    const seen = new Set();
+    try {
+      const snap = document.evaluate(
+        "//*[self::a or self::button or self::span or self::div][contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'or enter') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'enter email') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'enter mobile')]",
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+      for (let i = 0; i < snap.snapshotLength; i++) {
+        const el = snap.snapshotItem(i);
+        const text = norm(el.innerText || el.textContent || '');
+        if (!isToggleText(text, el)) continue;
+        const click = leafClickable(el);
+        if (!click || seen.has(click) || !isInDom(click, uiSel)) continue;
+        seen.add(click);
+        out.push({ el: click, text, kind: kindFromOrText(text) });
+      }
+    } catch (_e) {}
+    return out;
   }
 
   function discoverOrLinks(uiSel) {
@@ -663,32 +744,49 @@
     function add(el, raw) {
       if (!el || seen.has(el)) return;
       const text = norm(raw || el.innerText || el.textContent || '');
-      if (!isOrLinkText(text)) return;
+      if (!isToggleText(text, el)) return;
       const click = leafClickable(el);
       if (!click || seen.has(click)) return;
-      if (!isVisible(click, uiSel)) return;
+      if (!isInDom(click, uiSel)) return;
       seen.add(click);
       found.push({ el: click, text, kind: kindFromOrText(text) });
     }
 
     const sel =
-      'a, button, span, div, p, label, mat-hint, [matSuffix], [matsuffix], [role="button"], [role="link"], .uidai-or-link, .or-link, [class*="or-link"], [class*="or_link"], [class*="toggle"]';
+      'a, button, span, div, p, mat-hint, [matSuffix], [matsuffix], [role="button"], [role="link"], .uidai-or-link, .or-link, [class*="or-link"], [class*="or_link"], [class*="link"], [class*="toggle"], [class*="suffix"]';
     qAll(sel).forEach((el) => add(el));
 
     findDobBlocks().forEach((block) => {
       block.querySelectorAll(sel).forEach((el) => add(el));
     });
 
+    qAll('mat-form-field, .mat-mdc-form-field').forEach((mff) => {
+      mff.querySelectorAll(sel).forEach((el) => add(el));
+    });
+
+    qAll('*').forEach((el) => {
+      if ((el.children?.length || 0) > 5) return;
+      add(el);
+    });
+
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
       const t = norm(node.textContent || '');
-      if (!t || t.length > 50 || !/\bor\b/.test(t)) continue;
+      if (!t || t.length > 50) continue;
+      if (!/\bor\b|enter\s*(e-?mail|email|mobile)/i.test(t)) continue;
       let cur = node.parentElement;
-      for (let i = 0; i < 4 && cur; i++, cur = cur.parentElement) {
+      for (let i = 0; i < 5 && cur; i++, cur = cur.parentElement) {
         add(cur, cur.innerText || cur.textContent);
       }
     }
+
+    xpathOrLinks(uiSel).forEach((hit) => {
+      if (!seen.has(hit.el)) {
+        seen.add(hit.el);
+        found.push(hit);
+      }
+    });
 
     const order = { email: 0, mobile: 1, other: 2 };
     found.sort((a, b) => {
@@ -724,14 +822,21 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  async function clickToggle(link, log) {
+    if (!link?.el) return;
+    log?.('info', 'UIDAI mode click', link.text);
+    simulateClick(link.el);
+    await waitMs(1500);
+  }
+
   async function tryUidaiModeSwitch(uiSel, log) {
-    if (isDobBypassed()) return true;
+    if (isDobBypassed(uiSel)) return true;
 
     const links = discoverOrLinks(uiSel);
     log?.('info', 'OR links scan', links.map((l) => l.text));
 
     if (!links.length) {
-      const sample = norm(document.body?.innerText || '').slice(0, 240);
+      const sample = norm(document.body?.innerText || '').slice(0, 320);
       log?.('warn', 'OR toggle not found', { sample });
       return false;
     }
@@ -740,37 +845,53 @@
     const mobile = links.find((l) => l.kind === 'mobile');
 
     if (email) {
-      log?.('info', 'UIDAI mode click', email.text);
-      simulateClick(email.el);
-      await waitMs(1400);
-      if (isDobBypassed()) return true;
+      await clickToggle(email, log);
+      if (isDobBypassed(uiSel)) return true;
     }
 
     const mobileAfter = discoverOrLinks(uiSel).find((l) => l.kind === 'mobile') || mobile;
     if (mobileAfter) {
-      log?.('info', 'UIDAI mode click', mobileAfter.text);
-      simulateClick(mobileAfter.el);
-      await waitMs(1400);
-      return true;
+      await clickToggle(mobileAfter, log);
+      if (isDobBypassed(uiSel)) return true;
     }
 
-    if (email) return true;
+    if (!email && mobile) {
+      await clickToggle(mobile, log);
+      if (isDobBypassed(uiSel)) return true;
+    }
 
-    log?.('info', 'UIDAI mode click (fallback)', links[0].text);
-    simulateClick(links[0].el);
-    await waitMs(1400);
-    return true;
+    for (const link of links) {
+      if (isDobBypassed(uiSel)) return true;
+      await clickToggle(link, log);
+    }
+
+    return links.length > 0;
   }
 
   function runModeSwitchRetry(uiSel, log, times) {
     let chain = Promise.resolve();
-    for (let i = 0; i < (times || 3); i++) {
+    for (let i = 0; i < (times || 6); i++) {
       chain = chain.then(() => tryUidaiModeSwitch(uiSel, log)).then(() => {
-        if (isDobBypassed()) return false;
-        return new Promise((r) => setTimeout(r, 800));
+        if (isDobBypassed(uiSel)) return false;
+        return waitMs(900);
       });
     }
     return chain;
+  }
+
+  function startBypassPoller(uiSel, log, on) {
+    if (bypassPoller) clearInterval(bypassPoller);
+    if (!on) return;
+    let n = 0;
+    bypassPoller = setInterval(() => {
+      n += 1;
+      if (n > 24 || isDobBypassed(uiSel)) {
+        clearInterval(bypassPoller);
+        bypassPoller = null;
+        return;
+      }
+      tryUidaiModeSwitch(uiSel, log);
+    }, 2500);
   }
 
   function startWatcher(uiSel, log, on) {
@@ -781,30 +902,35 @@
       if (watchTimer) return;
       watchTimer = setTimeout(() => {
         watchTimer = null;
-        if (isDobBypassed()) return;
+        if (isDobBypassed(uiSel)) return;
         quickModeSwitch(uiSel, log);
         neutralizeEmail(log);
-      }, 700);
+      }, 500);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
   }
 
   function apply(uiSel, log) {
     startWatcher(uiSel, log, true);
-    return runModeSwitchRetry(uiSel, log, 4).then(() => {
+    startBypassPoller(uiSel, log, true);
+    return runModeSwitchRetry(uiSel, log, 6).then(() => {
       return new Promise((resolve) => {
         setTimeout(() => {
           neutralizeEmail(log);
-          if (!isDobBypassed()) {
+          if (!isDobBypassed(uiSel)) {
             quickModeSwitch(uiSel, log);
-            log?.('warn', 'DOB abhi form me — Switch Mode dubara try', { dobCount: getDobInputs().length });
+            log?.('warn', 'DOB abhi form me — Switch Mode dubara try', {
+              dobCount: getDobInputs().length,
+              orLinks: discoverOrLinks(uiSel).map((l) => l.text),
+            });
           } else {
             log?.('info', 'DOB bypass OK — UIDAI ne DOB hata diya', {});
           }
           const diag = getFormDiagnostics(uiSel);
           const state = {
-            dobBypassed: isDobBypassed(),
+            dobBypassed: isDobBypassed(uiSel),
             dobInForm: getDobInputs().length,
+            dobVisible: dobFieldVisible(uiSel),
             formOk: isFormReadyForOtp(uiSel),
             diag,
           };
@@ -828,7 +954,7 @@
 
   function buildSubmitState(uiSel, log) {
     const after = getFormDiagnostics(uiSel);
-    const bypassed = isDobBypassed();
+    const bypassed = isDobBypassed(uiSel);
     const state = {
       dobBypassed: bypassed,
       dobInForm: getDobInputs().length,
@@ -851,7 +977,7 @@
 
   /** OTP prep — sirf mode switch + email neutralize; DOB fill KABHI NAHI */
   function prepareSubmit(uiSel, log) {
-    if (!isDobBypassed()) quickModeSwitch(uiSel, log);
+    if (!isDobBypassed(uiSel)) quickModeSwitch(uiSel, log);
     neutralizeEmail(log);
     enableOtpButtons();
     return buildSubmitState(uiSel, log);
@@ -859,18 +985,18 @@
 
   /** Mode switch ke baad wait — UIDAI DOM update async hota hai */
   async function ensureDobBypassed(uiSel, log, tries) {
-    if (isDobBypassed()) return true;
-    const n = tries || 4;
+    if (isDobBypassed(uiSel)) return true;
+    const n = tries || 8;
     for (let i = 0; i < n; i++) {
       await tryUidaiModeSwitch(uiSel, log);
-      if (isDobBypassed()) return true;
-      await new Promise((r) => setTimeout(r, 600));
+      if (isDobBypassed(uiSel)) return true;
+      await new Promise((r) => setTimeout(r, 700));
     }
-    return isDobBypassed();
+    return isDobBypassed(uiSel);
   }
 
   async function prepareSubmitAsync(uiSel, log) {
-    await ensureDobBypassed(uiSel, log, 4);
+    await ensureDobBypassed(uiSel, log, 8);
     neutralizeEmail(log);
     enableOtpButtons();
     return buildSubmitState(uiSel, log);
@@ -908,6 +1034,8 @@
   function stopWatcher() {
     if (dobWatcher) dobWatcher.disconnect();
     dobWatcher = null;
+    if (bypassPoller) clearInterval(bypassPoller);
+    bypassPoller = null;
   }
 
   function dobFieldVisible(uiSel) {

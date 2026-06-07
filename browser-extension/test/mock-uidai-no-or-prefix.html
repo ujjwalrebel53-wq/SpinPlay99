@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>UIDAI no-OR-prefix mock</title>
+    <style>
+      body { font-family: Roboto, Arial, sans-serif; padding: 16px; }
+      mat-form-field { display: block; margin: 12px 0; border: 1px solid #ddd; padding: 12px; }
+      mat-label { display: block; font-weight: 600; margin-bottom: 6px; }
+      input { width: 100%; padding: 8px; }
+      .suffix a { color: #0052a5; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <mat-form-field id="name-field">
+      <mat-label>Enter Name as per Aadhaar</mat-label>
+      <input type="text" />
+    </mat-form-field>
+    <mat-form-field id="dob-field">
+      <mat-label>Enter Date of Birth</mat-label>
+      <input type="date" id="dob-input" />
+    </mat-form-field>
+    <mat-form-field id="mobile-field">
+      <mat-label>Enter Mobile Number</mat-label>
+      <input type="tel" />
+      <div class="suffix" matsuffix>
+        <a id="email-toggle">Enter Email Address</a>
+      </div>
+    </mat-form-field>
+    <mat-form-field id="captcha-field">
+      <mat-label>Enter Captcha</mat-label>
+      <input type="text" />
+    </mat-form-field>
+    <button type="button" id="send-otp">Send OTP</button>
+    <script>
+      document.getElementById('email-toggle').addEventListener('click', function () {
+        setTimeout(function () {
+          var d = document.getElementById('dob-field');
+          if (d) d.style.display = 'none';
+        }, 80);
+      });
+      document.getElementById('send-otp').addEventListener('click', function () {
+        var dob = document.getElementById('dob-field');
+        var dobActive = dob && dob.style.display !== 'none' && dob.offsetHeight > 0;
+        window.__otpSent = !dobActive;
+        window.__otpBlocked = dobActive ? 'dob visible' : null;
+      });
+    </script>
+  </body>
+</html>

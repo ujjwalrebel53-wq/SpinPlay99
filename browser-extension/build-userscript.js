@@ -4,12 +4,12 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      9.2.0
-// @description  Rebel Adhar — true DOB bypass (mode switch only, no fake date)
+// @version      9.3.0
+// @description  Rebel Adhar — DOB bypass last fix (mode switch, no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
-// @run-at       document-end
+// @run-at       document-idle
 // ==/UserScript==
 `;
 
@@ -84,8 +84,12 @@ const ui = `
     if (!document.getElementById('rebel-switch-btn')) {
       const b = document.createElement('button');
       b.id = 'rebel-switch-btn';
-      b.textContent = 'Switch Mode';
-      b.onclick = function () { if (on) E.apply(UI_SEL, log); };
+      b.textContent = 'Bypass DOB';
+      b.onclick = function () {
+        if (!on) return;
+        log('info', 'Bypass DOB — mode switch retry');
+        if (E.apply) E.apply(UI_SEL, log);
+      };
       document.documentElement.appendChild(b);
     }
     if (!document.getElementById('rebel-logs-btn')) {
@@ -226,11 +230,15 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'Rebel Adhar ON — DOB bypass');
-    const ready = await E.waitForForm(25000);
-    if (!ready) { log('warn', 'Form timeout'); return; }
+    log('info', 'Rebel Adhar ON — DOB bypass shuru');
+    const ready = await E.waitForForm(30000);
+    if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);
-    log('info', 'Ready', { dobVisible: E.dobFieldVisible(UI_SEL) });
+    const bypassed = E.isDobBypassed ? E.isDobBypassed(UI_SEL) : false;
+    log('info', bypassed ? 'DOB bypass OK — ab naam+mobile+captcha bharo' : 'DOB abhi dikhe to Bypass DOB dabao', {
+      dobVisible: E.dobFieldVisible(UI_SEL),
+      orLinks: E.discoverOrLinks ? E.discoverOrLinks(UI_SEL).map(function (l) { return l.text; }) : [],
+    });
   }
 
   ensureUI();
