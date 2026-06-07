@@ -1,5 +1,5 @@
 /**
- * Rebel Adhar / Astik Helper — shared core logic
+ * Rebel Adhar v2.2 — Astik-style UIDAI form mode switch + safe fallback
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -8,670 +8,452 @@
     root.AstikHelperCore = factory();
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const HIDDEN_CLASS = 'astik-helper-hidden';
   const ACTIVE_CLASS = 'astik-helper-active';
   const FAB_ID = 'astik-helper-fab';
   const LOG_PANEL_ID = 'rebel-adhar-log-panel';
   const LOG_BODY_ID = 'rebel-adhar-log-body';
+  const SWITCHED_KEY = 'rebelAdharModeSwitched';
+  const HIDDEN_CLASS = 'astik-helper-hidden';
 
-  const DOB_PATTERNS = [
-    'date of birth',
-    'enter date of birth',
-    'dateofbirth',
-    'dob',
-    'birth date',
-    'birthdate',
-    'जन्म तिथि',
+  const MODE_PATTERNS = [
+    /or\s*enter\s*e-?mail/i,
+    /or\s*enter\s*email\s*id/i,
+    /or\s*e-?mail/i,
+    /verify\s*(with|using)\s*e-?mail/i,
   ];
 
-  const NAME_PATTERNS = [
-    'name as per aadhaar',
-    'enter name as per',
-    'enter name',
-    'full name',
-    'aadhaar name',
-    'resident name',
-  ];
+  const DOB_PATTERNS = ['date of birth', 'dob', 'birth date', 'जन्म'];
 
-  const DOB_API_KEYS = [
-    'dob',
-    'dateOfBirth',
-    'date_of_birth',
-    'birthDate',
-    'birthDt',
-    'dobStr',
-    'userDob',
-    'applicantDob',
-  ];
-
-  const DEFAULT_FALLBACK_NAME = 'Mr';
-  const MAX_LOG_LINES = 120;
-
-  const logLines = [];
-  let hooksInstalled = false;
-  let validityBypassInstalled = false;
-  let originalFetch = null;
-  let originalXhrOpen = null;
-  let originalXhrSend = null;
-  let originalInputCheckValidity = null;
-  let originalFormReportValidity = null;
+  const logs = [];
+  let enabledState = false;
+  let networkHooksInstalled = false;
+  let otpWatcherInstalled = false;
   let networkCount = 0;
-  let lastOtpClickAt = 0;
 
-  function normalize(text) {
-    return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  function norm(s) {
+    return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  function textMatches(text, patterns) {
-    const value = normalize(text);
-    return patterns.some((pattern) => value.includes(pattern));
-  }
-
-  function isUiElement(el) {
-    if (!el) return true;
-    return !!(el.closest(`#${FAB_ID}, #${LOG_PANEL_ID}, #astik-helper-name-btn, #astik-helper-logs-btn`));
-  }
-
-  function log(level, message, data) {
-    const time = new Date().toLocaleTimeString();
-    let extra = '';
-    if (data !== undefined) {
-      try {
-        extra = typeof data === 'string' ? data : JSON.stringify(data);
-      } catch (_error) {
-        extra = String(data);
-      }
-    }
-    const line = { time, level, message, extra };
-    logLines.push(line);
-    if (logLines.length > MAX_LOG_LINES) logLines.shift();
-    updateLogPanel();
-    console.log(`[Rebel Adhar ${level}]`, message, data !== undefined ? data : '');
+  function log(level, msg, data) {
+    const line = { time: new Date().toLocaleTimeString(), level, msg, data };
+    logs.push(line);
+    if (logs.length > 100) logs.shift();
+    renderLogs();
+    console.log('[Rebel Adhar]', level, msg, data ?? '');
   }
 
   function ensureLogPanel() {
     if (document.getElementById(LOG_PANEL_ID)) return;
-
     const panel = document.createElement('div');
     panel.id = LOG_PANEL_ID;
     panel.innerHTML =
-      '<div id="rebel-adhar-log-header">' +
+      '<div id="rebel-adhar-log-header" style="display:flex;justify-content:space-between;padding:8px;background:#111827;color:#fff;font:700 12px system-ui">' +
       '<strong>Rebel Adhar Logs</strong>' +
-      '<span id="rebel-adhar-log-actions">' +
-      '<button type="button" id="rebel-adhar-log-clear">Clear</button>' +
-      '<button type="button" id="rebel-adhar-log-min">Hide</button>' +
-      '</span></div>' +
-      '<pre id="' +
+      '<span><button type="button" id="rebel-log-clear" style="border:none;border-radius:5px;padding:3px 8px;background:#374151;color:#fff">Clear</button></span>' +
+      '</div><pre id="' +
       LOG_BODY_ID +
-      '"></pre>';
-
+      '" style="margin:0;padding:10px;max-height:200px;overflow:auto;font:11px monospace;color:#bbf7d0;background:rgba(8,12,20,.97)"></pre>';
     document.documentElement.appendChild(panel);
-
-    document.getElementById('rebel-adhar-log-clear').addEventListener('click', () => {
-      logLines.length = 0;
-      updateLogPanel();
-    });
-
-    document.getElementById('rebel-adhar-log-min').addEventListener('click', () => {
-      const body = document.getElementById(LOG_BODY_ID);
-      const btn = document.getElementById('rebel-adhar-log-min');
-      const hidden = body.style.display === 'none';
-      body.style.display = hidden ? 'block' : 'none';
-      btn.textContent = hidden ? 'Hide' : 'Show';
-    });
+    document.getElementById('rebel-log-clear').onclick = () => {
+      logs.length = 0;
+      renderLogs();
+    };
   }
 
-  function updateLogPanel() {
+  function renderLogs() {
     ensureLogPanel();
     const body = document.getElementById(LOG_BODY_ID);
     if (!body) return;
-
-    body.textContent = logLines
-      .map((line) => {
-        const suffix = line.extra ? ` | ${line.extra}` : '';
-        return `[${line.time}] ${line.level.toUpperCase()} ${line.message}${suffix}`;
+    body.textContent = logs
+      .map((l) => {
+        const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
+        return `[${l.time}] ${l.level.toUpperCase()} ${l.msg}${x}`;
       })
       .join('\n');
-
     body.scrollTop = body.scrollHeight;
   }
 
-  function getLabelText(el) {
+  function isVisible(el) {
+    if (!el || el.closest(`#${LOG_PANEL_ID}, #${FAB_ID}`)) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+  }
+
+  function directText(el) {
     if (!el) return '';
-    const id = el.id;
-    if (id) {
-      const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
-      if (label) return label.textContent;
-    }
-    const matLabel = el.closest('mat-form-field, .mat-mdc-form-field')?.querySelector('mat-label, label');
-    return matLabel?.textContent || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
-  }
-
-  function findFieldContainer(el) {
-    return (
-      el?.closest(
-        'mat-form-field, .mat-mdc-form-field, .form-group, .form-floating, .mb-3, .mb-4, div'
-      ) || el?.parentElement
+    return norm(
+      Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent)
+        .join(' ')
     );
   }
 
-  function hardHide(el) {
-    if (!el || isUiElement(el)) return;
-    el.classList.add(HIDDEN_CLASS);
-    el.setAttribute('data-astik-hidden', '1');
-    el.style.setProperty('display', 'none', 'important');
-    el.style.setProperty('visibility', 'hidden', 'important');
-    el.style.setProperty('height', '0', 'important');
-    el.style.setProperty('margin', '0', 'important');
-    el.style.setProperty('padding', '0', 'important');
-    el.style.setProperty('overflow', 'hidden', 'important');
-    el.style.setProperty('pointer-events', 'none', 'important');
-  }
-
-  function showElement(el) {
-    if (!el) return;
-    el.classList.remove(HIDDEN_CLASS);
-    el.removeAttribute('data-astik-hidden');
-    ['display', 'visibility', 'height', 'margin', 'padding', 'overflow', 'pointer-events'].forEach((prop) => {
-      el.style.removeProperty(prop);
-    });
-  }
-
-  function getAllInputs() {
+  function getInputs() {
     return Array.from(
-      document.querySelectorAll(
-        'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, select'
-      )
+      document.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea')
     );
   }
 
-  function classifyField(input) {
-    const combined = normalize(
-      [
-        input.name,
-        input.id,
-        input.type,
-        input.placeholder,
-        input.getAttribute('formcontrolname'),
-        getLabelText(input),
-      ].join(' ')
-    );
-
-    const fc = input.getAttribute('formcontrolname') || '';
-
-    if (
-      textMatches(combined, DOB_PATTERNS) ||
-      input.type === 'date' ||
-      /dob|birth/i.test(fc)
-    ) {
-      return 'dob';
+  function labelOf(el) {
+    const id = el?.id;
+    if (id) {
+      const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      if (lbl) return lbl.textContent || '';
     }
-    if (textMatches(combined, NAME_PATTERNS) || /name|full|resident/i.test(fc)) {
-      return 'name';
-    }
-    if (textMatches(combined, ['mobile', 'phone', 'mobileno', 'mobile number']) || /mobile|phone|mob|contact/i.test(fc)) {
-      return 'mobile';
-    }
-    if (textMatches(combined, ['email', 'e-mail', 'mail id']) || /email|mail/i.test(fc)) {
-      return 'email';
-    }
-    if (textMatches(combined, ['captcha', 'security code']) || /captcha|security/i.test(fc)) {
-      return 'captcha';
-    }
-    return 'other';
+    const l = el?.closest('mat-form-field,.mat-mdc-form-field')?.querySelector('mat-label,label,.form-label');
+    return l?.textContent || el?.getAttribute('placeholder') || el?.getAttribute('aria-label') || '';
   }
 
-  function getNameInputs() {
-    return getAllInputs().filter((input) => classifyField(input) === 'name');
+  function isDobField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname'), el.name, el.id].join(' '));
+    return DOB_PATTERNS.some((p) => blob.includes(p)) || el.type === 'date' || /dob|birth/i.test(el.getAttribute('formcontrolname') || '');
   }
 
-  function dispatchInputEvents(input) {
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    input.dispatchEvent(new Event('blur', { bubbles: true }));
+  function isEmailField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return blob.includes('email') || /email|mail/i.test(el.getAttribute('formcontrolname') || '');
   }
 
-  function patchRequestBody(body, enabled) {
-    if (!enabled || body == null) return { body, changed: false, removed: [] };
-
-    if (typeof body === 'string') {
-      const trimmed = body.trim();
-      if (!trimmed) return { body, changed: false, removed: [] };
-
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        try {
-          const json = JSON.parse(trimmed);
-          const removed = stripDobFromObject(json);
-          if (!removed.length) return { body, changed: false, removed: [] };
-          return { body: JSON.stringify(json), changed: true, removed };
-        } catch (_error) {
-          return { body, changed: false, removed: [] };
-        }
-      }
-
-      if (trimmed.includes('=')) {
-        const params = new URLSearchParams(trimmed);
-        const removed = [];
-        DOB_API_KEYS.forEach((key) => {
-          if (params.has(key)) {
-            removed.push(key);
-            params.delete(key);
-          }
-        });
-        if (!removed.length) return { body, changed: false, removed: [] };
-        return { body: params.toString(), changed: true, removed };
-      }
-    }
-
-    if (typeof FormData !== 'undefined' && body instanceof FormData) {
-      const removed = [];
-      DOB_API_KEYS.forEach((key) => {
-        if (body.has(key)) {
-          removed.push(key);
-          body.delete(key);
-        }
-      });
-      return { body, changed: removed.length > 0, removed };
-    }
-
-    return { body, changed: false, removed: [] };
+  function isMobileField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return (blob.includes('mobile') || /mobile|phone|mob/i.test(el.getAttribute('formcontrolname') || '')) && !blob.includes('email');
   }
 
-  function stripDobFromObject(obj) {
-    const removed = [];
-    if (!obj || typeof obj !== 'object') return removed;
-
-    DOB_API_KEYS.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key] != null && obj[key] !== '') {
-        removed.push(key);
-        delete obj[key];
-      }
-    });
-
-    Object.keys(obj).forEach((key) => {
-      if (/dob|birth/i.test(key) && obj[key] != null && obj[key] !== '') {
-        removed.push(key);
-        delete obj[key];
-      }
-    });
-
-    return removed;
+  function dobVisible() {
+    return getInputs().some((i) => isDobField(i) && isVisible(i));
   }
 
-  function noteNetworkActivity(source, url, bodyPreview) {
-    networkCount += 1;
-    log('req', `${source} ${url}`, bodyPreview || '');
+  function emailVisible() {
+    return getInputs().some((i) => isEmailField(i) && isVisible(i));
   }
 
-  function installValidityBypass() {
-    if (validityBypassInstalled) return;
-    validityBypassInstalled = true;
+  function formReady() {
+    return getInputs().length >= 2;
+  }
 
-    originalInputCheckValidity = HTMLInputElement.prototype.checkValidity;
-    HTMLInputElement.prototype.checkValidity = function () {
-      if (enabledState && classifyField(this) === 'dob') return true;
-      return originalInputCheckValidity.call(this);
-    };
-
-    originalFormReportValidity = HTMLFormElement.prototype.reportValidity;
-    HTMLFormElement.prototype.reportValidity = function () {
-      if (enabledState) {
-        getAllInputs().forEach((input) => input.setCustomValidity(''));
+  function simulateClick(el) {
+    if (!el) return false;
+    const opts = { bubbles: true, cancelable: true, view: window };
+    try {
+      el.dispatchEvent(new PointerEvent('pointerdown', opts));
+      el.dispatchEvent(new MouseEvent('mousedown', opts));
+      el.focus?.();
+      el.dispatchEvent(new PointerEvent('pointerup', opts));
+      el.dispatchEvent(new MouseEvent('mouseup', opts));
+      el.dispatchEvent(new MouseEvent('click', opts));
+      if (typeof el.click === 'function') el.click();
+      return true;
+    } catch (e) {
+      try {
+        el.click();
         return true;
+      } catch (_e) {
+        return false;
       }
-      return originalFormReportValidity.call(this);
-    };
-
-    log('info', 'Validity bypass installed');
+    }
   }
 
-  function syncAllInputsToAngular() {
-    getAllInputs().forEach((input) => dispatchInputEvents(input));
+  function matchesModeText(text) {
+    if (!text || text.length > 60) return false;
+    if (/enter email address|email address/i.test(text) && !/or\s/i.test(text)) return false;
+    return MODE_PATTERNS.some((p) => p.test(text));
+  }
+
+  function findModeSwitchCandidates() {
+    const found = [];
+    const selector = 'a, button, span, label, p, div[role="button"], [class*="link"], [class*="toggle"], mat-slide-toggle';
+
+    document.querySelectorAll(selector).forEach((el) => {
+      if (!isVisible(el)) return;
+      const own = directText(el);
+      const full = norm(el.textContent || '');
+      const text = own.length >= 3 ? own : full;
+      if (!matchesModeText(text)) return;
+      found.push({ el, text, score: text.length });
+    });
+
+    found.sort((a, b) => a.score - b.score);
+    return found;
+  }
+
+  function findToggleNearMobile() {
+    const mobile = getInputs().find((i) => isMobileField(i));
+    if (!mobile) return null;
+
+    let node = mobile.closest('mat-form-field,.mat-mdc-form-field,.form-group,div');
+    for (let depth = 0; depth < 8 && node; depth++) {
+      const kids = node.querySelectorAll('a, span, button, label, p, div');
+      for (const el of kids) {
+        if (!isVisible(el)) continue;
+        const text = directText(el) || norm(el.textContent || '');
+        if (matchesModeText(text)) return el;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function clickModeSwitch() {
+    const near = findToggleNearMobile();
+    if (near) {
+      log('info', 'Clicking toggle near mobile', directText(near) || near.textContent?.trim());
+      simulateClick(near);
+      return true;
+    }
+
+    const candidates = findModeSwitchCandidates();
+    if (candidates.length) {
+      const best = candidates[0];
+      log('info', 'Clicking mode switch', best.text);
+      simulateClick(best.el);
+      return true;
+    }
+
+    return false;
   }
 
   function walkNgContext(el, visitor) {
-    const ctx = el && el.__ngContext__;
+    const ctx = el?.__ngContext__;
     if (!Array.isArray(ctx)) return;
     ctx.forEach((item) => visitor(item, el));
   }
 
-  function patchAngularFormInternal(aggressive) {
-    const stats = { controls: 0, groups: 0, forms: [] };
-
-    document.querySelectorAll('input, textarea, select, form, mat-form-field, .mat-mdc-form-field').forEach((el) => {
-      walkNgContext(el, (item) => {
-        const control = item?.control;
-        if (control && typeof control.setErrors === 'function' && control.constructor?.name?.includes('FormControl')) {
-          const hostInput =
-            item.valueAccessor?._elementRef?.nativeElement ||
-            item.valueAccessor?.element?.nativeElement ||
-            (el.matches?.('input, textarea, select') ? el : null);
-          const kind = hostInput ? classifyField(hostInput) : '';
-
-          if (aggressive || kind === 'dob') {
-            control.clearValidators();
-            control.setErrors(null);
-            control.markAsUntouched();
-            control.updateValueAndValidity({ emitEvent: false });
-            stats.controls += 1;
-          }
-        }
-
-        const form = item?.form;
-        if (form && form.controls) {
-          const keys = Object.keys(form.controls);
-          keys.forEach((key) => {
-            const ctrl = form.controls[key];
-            if (!ctrl) return;
-            if (aggressive || /dob|birth|date/i.test(key)) {
-              ctrl.clearValidators();
-              ctrl.setErrors(null);
-              ctrl.updateValueAndValidity({ emitEvent: false });
-              stats.controls += 1;
-            }
-          });
-          form.setErrors(null);
-          form.updateValueAndValidity({ emitEvent: true });
-          stats.groups += 1;
-          stats.forms.push({ valid: form.valid, status: form.status, keys });
-        }
-      });
-    });
-
-    log('info', aggressive ? 'Angular AGGRESSIVE patch' : 'Angular patch', stats);
-    return stats;
-  }
-
-  function retrySendOtpClick(btn) {
-    if (!btn || btn.dataset.rebelRetrying) return;
-    btn.dataset.rebelRetrying = '1';
-    log('warn', 'Retry Send OTP after Angular patch');
-    syncAllInputsToAngular();
-    patchAngularFormInternal(true);
-    forceAngularFormValid();
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    delete btn.dataset.rebelRetrying;
-  }
-
-  function forceAngularFormValid() {
-    getAllInputs().forEach((input) => {
-      const kind = classifyField(input);
-      input.setCustomValidity('');
-      if (kind === 'dob') {
+  function patchDobValidatorsOnly() {
+    let patched = 0;
+    getInputs()
+      .filter(isDobField)
+      .forEach((input) => {
         input.removeAttribute('required');
         input.setAttribute('aria-required', 'false');
+        input.setCustomValidity('');
         input.disabled = false;
-      }
-      if (kind !== 'email' || (input.value || '').trim()) {
-        input.disabled = false;
-      }
-    });
 
-    getAllInputs()
-      .filter((input) => classifyField(input) === 'email')
-      .forEach((input) => {
-        input.disabled = false;
-      });
-
-    document
-      .querySelectorAll('.ng-invalid, .mat-form-field-invalid, .mat-mdc-form-field-invalid, .ng-pending')
-      .forEach((el) => {
-        el.classList.remove('ng-invalid', 'mat-form-field-invalid', 'mat-mdc-form-field-invalid', 'ng-pending');
-      });
-
-    document.querySelectorAll('button, input[type="submit"], [role="button"]').forEach((btn) => {
-      const text = normalize(btn.textContent || btn.value || '');
-      if (!text.includes('send otp') && !text.includes('request otp')) return;
-      btn.disabled = false;
-      btn.removeAttribute('disabled');
-      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
-      btn.style.pointerEvents = 'auto';
-      btn.style.opacity = '1';
-    });
-  }
-
-  function scheduleOtpWatchdog(btn) {
-    const clickCount = networkCount;
-    const clickedAt = lastOtpClickAt;
-    setTimeout(() => {
-      if (lastOtpClickAt !== clickedAt) return;
-      if (networkCount > clickCount) return;
-      log('error', 'NO API CALL after Send OTP — retry with Angular patch');
-      log('error', 'ng-invalid count', document.querySelectorAll('.ng-invalid').length);
-      retrySendOtpClick(btn);
-    }, 600);
-
-    setTimeout(() => {
-      if (lastOtpClickAt !== clickedAt) return;
-      if (networkCount > clickCount) return;
-      log('error', 'STILL NO API CALL — Angular form invalid internally');
-      log('error', 'Try: extension OFF + asli naam, ya DOB manually bharo');
-    }, 3000);
-  }
-
-  function installNetworkHooks(enabledProvider) {
-    if (hooksInstalled) return;
-    hooksInstalled = true;
-
-    originalFetch = window.fetch.bind(window);
-    window.fetch = async function (input, init) {
-      const url = String(typeof input === 'string' ? input : input?.url || '');
-      const method = (init?.method || 'GET').toUpperCase();
-      let requestInit = init ? { ...init } : {};
-
-      if (enabledProvider()) {
-        if (requestInit.body) {
-          const patched = patchRequestBody(requestInit.body, true);
-          if (patched.changed) {
-            requestInit.body = patched.body;
-            log('patch', 'Removed DOB from fetch body', patched.removed);
+        walkNgContext(input, (item) => {
+          const ctrl = item?.control;
+          if (ctrl && typeof ctrl.clearValidators === 'function') {
+            ctrl.clearValidators();
+            ctrl.setErrors(null);
+            ctrl.updateValueAndValidity({ emitEvent: true });
+            patched += 1;
           }
-        }
-        if (method !== 'GET' || requestInit.body) {
-          noteNetworkActivity(`FETCH ${method}`, url, String(requestInit.body || '').slice(0, 500));
-        }
-      }
-
-      try {
-        const response = await originalFetch(input, requestInit);
-        if (enabledProvider() && (method !== 'GET' || requestInit.body)) {
-          const text = await response.clone().text().catch(() => '');
-          log(response.ok ? 'ok' : 'error', `FETCH ${response.status} ${url}`, text.slice(0, 400));
-        }
-        return response;
-      } catch (error) {
-        log('error', `Fetch failed ${url}`, error.message || String(error));
-        throw error;
-      }
-    };
-
-    originalXhrOpen = XMLHttpRequest.prototype.open;
-    originalXhrSend = XMLHttpRequest.prototype.send;
-
-    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-      this.__rebelMethod = method;
-      this.__rebelUrl = String(url || '');
-      return originalXhrOpen.call(this, method, url, ...rest);
-    };
-
-    XMLHttpRequest.prototype.send = function (body) {
-      const url = this.__rebelUrl || '';
-      const method = (this.__rebelMethod || 'POST').toUpperCase();
-      let finalBody = body;
-
-      if (enabledProvider()) {
-        if (body != null) {
-          const patched = patchRequestBody(body, true);
-          if (patched.changed) {
-            finalBody = patched.body;
-            log('patch', 'Removed DOB from XHR body', patched.removed);
-          }
-        }
-        noteNetworkActivity(`XHR ${method}`, url, String(finalBody || '').slice(0, 500));
-      }
-
-      this.addEventListener('load', () => {
-        if (!enabledProvider()) return;
-        log(this.status >= 200 && this.status < 300 ? 'ok' : 'error', `XHR ${this.status} ${url}`, (this.responseText || '').slice(0, 400));
-      });
-
-      this.addEventListener('error', () => {
-        log('error', `XHR failed ${url}`);
-      });
-
-      return originalXhrSend.call(this, finalBody);
-    };
-
-    log('info', 'Network hooks installed');
-  }
-
-  function hideDobVisualOnly() {
-    getAllInputs().forEach((input) => {
-      if (classifyField(input) !== 'dob') return;
-
-      hardHide(findFieldContainer(input));
-      input.removeAttribute('required');
-      input.setAttribute('aria-required', 'false');
-      input.setCustomValidity('');
-      input.disabled = false;
-      log('info', 'DOB hidden (visual only)', { value: input.value || '(empty)' });
-    });
-
-    document.querySelectorAll('mat-form-field, .mat-mdc-form-field, label, mat-label').forEach((node) => {
-      const text = normalize(node.textContent || '');
-      if (!textMatches(text, DOB_PATTERNS) || text.length > 100) return;
-      if (textMatches(text, ['mobile', 'captcha', 'name as per'])) return;
-      hardHide(findFieldContainer(node) || node);
-    });
-  }
-
-  function relaxNameField(nameOptional, fallbackName) {
-    getNameInputs().forEach((input) => {
-      if (!nameOptional) return;
-
-      input.removeAttribute('required');
-      input.setAttribute('aria-required', 'false');
-      input.removeAttribute('minlength');
-      input.setCustomValidity('');
-      input.setAttribute('placeholder', 'Mr ya apna naam likho');
-      showElement(findFieldContainer(input));
-      showElement(input);
-
-      findFieldContainer(input)?.querySelectorAll('mat-error, .mat-mdc-form-field-error').forEach(hardHide);
-    });
-
-    document.querySelectorAll('button, input[type="submit"], [role="button"]').forEach((btn) => {
-      if (btn.dataset.rebelOtpHooked) return;
-      const text = normalize(btn.textContent || btn.value || '');
-      if (!text.includes('send otp') && !text.includes('request otp')) return;
-
-      btn.dataset.rebelOtpHooked = '1';
-      btn.addEventListener(
-        'click',
-        () => {
-          lastOtpClickAt = Date.now();
-          log('info', 'Send OTP clicked');
-          syncAllInputsToAngular();
-          patchAngularFormInternal(false);
-          forceAngularFormValid();
-
-          if (nameOptional) {
-            getAllInputs().forEach((input) => {
-              const kind = classifyField(input);
-              if (kind === 'captcha' || kind === 'dob' || kind === 'mobile' || kind === 'email') return;
-              if (!(input.value || '').trim()) {
-                input.value = fallbackName;
-                dispatchInputEvents(input);
-                log('warn', 'Empty name filled with fallback', fallbackName);
-              }
+          const form = item?.form;
+          if (form?.controls) {
+            Object.keys(form.controls).forEach((key) => {
+              if (!/dob|birth|date/i.test(key)) return;
+              const c = form.controls[key];
+              c.clearValidators?.();
+              c.setErrors?.(null);
+              c.updateValueAndValidity?.({ emitEvent: true });
+              patched += 1;
             });
+            form.updateValueAndValidity?.({ emitEvent: true });
           }
+        });
+      });
+    log('info', 'DOB validator patch', { patched });
+    return patched;
+  }
 
-          syncAllInputsToAngular();
-          patchAngularFormInternal(false);
-          forceAngularFormValid();
-          logFormSnapshot('Before submit');
-          scheduleOtpWatchdog(btn);
-        },
-        true
-      );
+  function hideDobVisual() {
+    getInputs()
+      .filter(isDobField)
+      .forEach((input) => {
+        const box = input.closest('mat-form-field,.mat-mdc-form-field,.form-group,div') || input;
+        box.classList.add(HIDDEN_CLASS);
+        box.style.setProperty('display', 'none', 'important');
+        box.style.setProperty('visibility', 'hidden', 'important');
+        box.style.setProperty('height', '0', 'important');
+        box.style.setProperty('overflow', 'hidden', 'important');
+        input.removeAttribute('required');
+        input.setCustomValidity('');
+      });
+    log('info', 'DOB hidden (CSS fallback)');
+  }
+
+  function modeSwitchSucceeded() {
+    return !dobVisible() || emailVisible();
+  }
+
+  function applyFallbackIfNeeded() {
+    if (modeSwitchSucceeded()) return false;
+    log('warn', 'Mode switch incomplete — applying safe fallback');
+    hideDobVisual();
+    patchDobValidatorsOnly();
+    return true;
+  }
+
+  function applyAstikMode(force) {
+    if (!enabledState && !force) return { dobVisible: dobVisible(), emailVisible: emailVisible() };
+
+    if (!formReady()) {
+      log('warn', 'Form not loaded yet');
+      return { dobVisible: dobVisible(), emailVisible: emailVisible(), ready: false };
+    }
+
+    if (!force && sessionStorage.getItem(SWITCHED_KEY) === '1' && modeSwitchSucceeded()) {
+      log('info', 'Already in Mobile/Email mode');
+      return { dobVisible: dobVisible(), emailVisible: emailVisible() };
+    }
+
+    log('info', 'Switching UIDAI form mode...', { dobVisible: dobVisible(), emailVisible: emailVisible() });
+
+    if (dobVisible() || !emailVisible()) {
+      const clicked = clickModeSwitch();
+      if (!clicked) {
+        log('warn', 'OR Enter Email link not found');
+        applyFallbackIfNeeded();
+        return { dobVisible: dobVisible(), emailVisible: emailVisible() };
+      }
+    }
+
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const ok = modeSwitchSucceeded();
+        log('info', 'After mode switch', { ok, dobVisible: dobVisible(), emailVisible: emailVisible() });
+        if (!ok) applyFallbackIfNeeded();
+        else sessionStorage.setItem(SWITCHED_KEY, '1');
+        resolve({ dobVisible: dobVisible(), emailVisible: emailVisible(), ok });
+      }, 700);
     });
   }
 
-  function logFormSnapshot(label) {
-    const snapshot = getAllInputs().map((input) => ({
-      type: classifyField(input),
-      fc: input.getAttribute('formcontrolname') || '',
-      id: input.id || '',
-      value: (input.value || '').slice(0, 80),
-      required: input.required,
-      disabled: input.disabled,
-      valid: input.checkValidity ? input.checkValidity() : null,
-      hidden: input.closest('[data-astik-hidden]') != null,
-    }));
-    log('info', label, snapshot);
+  function applyAstikModeSync(force) {
+    if (!enabledState && !force) return { dobVisible: dobVisible() };
+
+    if (!formReady()) {
+      log('warn', 'Form not loaded yet');
+      return { dobVisible: dobVisible(), ready: false };
+    }
+
+    if (!force && sessionStorage.getItem(SWITCHED_KEY) === '1' && modeSwitchSucceeded()) {
+      return { dobVisible: dobVisible(), emailVisible: emailVisible() };
+    }
+
+    if (dobVisible() || !emailVisible()) clickModeSwitch();
+    return { dobVisible: dobVisible(), emailVisible: emailVisible() };
   }
 
-  function restoreForm() {
-    document.querySelectorAll('[data-astik-hidden]').forEach(showElement);
-    getAllInputs().forEach((input) => {
-      input.disabled = false;
-    });
-    log('info', 'Extension OFF — form restored');
+  function installPassiveNetworkLog() {
+    if (networkHooksInstalled) return;
+    networkHooksInstalled = true;
+
+    const origFetch = window.fetch;
+    if (origFetch) {
+      window.fetch = function (...args) {
+        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+        if (enabledState && /otp|uidai|aadhaar|retrieve|genric/i.test(url)) {
+          networkCount += 1;
+          log('req', 'fetch', url.slice(0, 120));
+        }
+        return origFetch.apply(this, args);
+      };
+    }
+
+    const XHR = XMLHttpRequest.prototype;
+    const origOpen = XHR.open;
+    const origSend = XHR.send;
+    XHR.open = function (method, url) {
+      this._rebelUrl = url;
+      return origOpen.apply(this, arguments);
+    };
+    XHR.send = function () {
+      if (enabledState && /otp|uidai|aadhaar|retrieve|genric/i.test(this._rebelUrl || '')) {
+        networkCount += 1;
+        log('req', 'xhr', (this._rebelUrl || '').slice(0, 120));
+      }
+      return origSend.apply(this, arguments);
+    };
   }
 
-  function isDobStillVisible() {
-    return getAllInputs().some((input) => {
-      if (classifyField(input) !== 'dob') return false;
-      const container = findFieldContainer(input);
-      if (!container) return false;
-      const style = window.getComputedStyle(container);
-      return style.display !== 'none' && !container.classList.contains(HIDDEN_CLASS);
-    });
+  function installOtpWatcher() {
+    if (otpWatcherInstalled) return;
+    otpWatcherInstalled = true;
+
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (!enabledState) return;
+        const t = norm(e.target?.textContent || e.target?.value || '');
+        if (!t.includes('send otp') && !t.includes('request otp')) return;
+
+        const snapshot = getInputs().map((i) => ({
+          lbl: labelOf(i).slice(0, 25),
+          val: (i.value || '').slice(0, 20),
+          dis: i.disabled,
+          dob: isDobField(i),
+        }));
+
+        log('info', 'Send OTP clicked', {
+          dobVisible: dobVisible(),
+          emailVisible: emailVisible(),
+          ngInvalid: document.querySelectorAll('.ng-invalid').length,
+          fields: snapshot,
+        });
+
+        setTimeout(() => {
+          if (networkCount === 0) {
+            log('error', 'NO API CALL — tap Switch Mode, reload page, use asli naam + registered mobile');
+          }
+        }, 2500);
+      },
+      false
+    );
   }
 
-  let enabledState = false;
+  function waitAndApply(retries) {
+    let n = 0;
+    const max = retries || 12;
+    const timer = setInterval(() => {
+      n += 1;
+      if (!enabledState || n > max) return clearInterval(timer);
+      if (!formReady()) return;
+      applyAstikMode(true).then((r) => {
+        if (r.ok || !dobVisible()) clearInterval(timer);
+      });
+    }, 1200);
+  }
 
-  function applyMode(enabled, options) {
-    const opts = options || {};
-    const nameOptional = opts.nameOptional !== false;
-    const fallbackName = (opts.fallbackName || DEFAULT_FALLBACK_NAME).trim() || DEFAULT_FALLBACK_NAME;
-
+  function applyMode(enabled) {
     enabledState = Boolean(enabled);
     ensureLogPanel();
+    installPassiveNetworkLog();
+    installOtpWatcher();
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      installNetworkHooks(() => enabledState);
-      installValidityBypass();
-      hideDobVisualOnly();
-      relaxNameField(nameOptional, fallbackName);
-      log('info', 'Extension ON', { nameOptional, fallbackName });
-      logFormSnapshot('After ON');
+      sessionStorage.removeItem(SWITCHED_KEY);
+      log('info', 'v2.2 ON — Astik mode switch');
+      applyAstikMode(true);
+      waitAndApply(12);
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);
-      restoreForm();
+      sessionStorage.removeItem(SWITCHED_KEY);
+      document.querySelectorAll('.' + HIDDEN_CLASS).forEach((el) => {
+        el.classList.remove(HIDDEN_CLASS);
+        el.style.removeProperty('display');
+        el.style.removeProperty('visibility');
+        el.style.removeProperty('height');
+        el.style.removeProperty('overflow');
+      });
+      log('info', 'OFF — reload page for normal form');
     }
 
-    return {
-      enabled: enabledState,
-      nameOptional,
-      fallbackName,
-      dobVisible: isDobStillVisible(),
-      nameInputs: getNameInputs().length,
-    };
+    return { enabled: enabledState, dobVisible: dobVisible(), emailVisible: emailVisible() };
   }
 
   return {
-    HIDDEN_CLASS,
     ACTIVE_CLASS,
     FAB_ID,
     LOG_PANEL_ID,
-    DEFAULT_FALLBACK_NAME,
     applyMode,
-    isDobStillVisible,
-    getNameInputs,
+    applyAstikMode,
+    applyAstikModeSync,
+    isDobStillVisible: dobVisible,
+    isEmailVisible: emailVisible,
+    formReady,
+    clickModeSwitch,
     log,
-    logFormSnapshot,
   };
 });

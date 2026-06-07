@@ -1,59 +1,40 @@
-# Astik Helper — myAadhaar Form
+# Rebel Adhar v2.2
 
-Retrieve Aadhaar page par **DOB hide** + **Mobile/Email mode**.
+**Astik jaisa kaam** — UIDAI ka official **OR Enter Email** mode switch.
 
-## v1.3.0 — OTP fix + Live Logs
+## Problem kya tha?
 
-- **OTP fix:** Auto email-toggle hata diya (yeh form tod raha tha)
-- **API patch:** Request se DOB field remove hoti hai jab ON ho
-- **Logs panel:** Screen ke neeche live logs — exact UIDAI error dikhega
+Pehle wale version DOB ko CSS se chhupa dete the, lekin Angular form andar se DOB maangta rehta tha — isliye **Send OTP pe koi API call nahi hoti thi**.
 
-## Name optional (Mr)
+v2.2 pehle UIDAI ka **OR Enter Email** link click karta hai (Astik jaisa). Agar link na mile to safe fallback: sirf DOB validator clear + hide.
 
-- Name field **required nahi** rahega (client-side)
-- Khud naam likh sakte ho **ya sirf `Mr`**
-- Khali chhodoge aur **Send OTP** dabayoge → auto **`Mr`** fill hoga
-- **Note:** UIDAI server galat naam par OTP nahi bhej sakta — ye sirf form validation ease karta hai
+## Kiwi Browser install
 
-## ⭐ Kiwi / Phone ke liye BEST (userscript)
-
-Extension se zyada reliable:
-
-1. Download file: **`rebel-adhar.user.js`**
-2. Kiwi → **⋮ → Extensions** → Developer mode **ON**
-3. **+ (from .zip/.crx/.user.js)** → `rebel-adhar.user.js` select karo
+1. Purana script hatao (Extensions → delete)
+2. Naya download: `rebel-adhar.user.js`
+3. Kiwi → ⋮ → Extensions → Developer mode ON → + → file select
 4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid kholo
-5. Screen par **red button** dikhega: `DOB Hide: OFF` → tap → **ON**
-6. DOB field hide ho jayegi
+5. **Rebel Adhar ON** dabao
+6. DOB gayab hona chahiye + **OR Enter Email** area dikhe
+7. **Asli naam** (Mr mat likho) + **registered mobile** + captcha → Send OTP
 
-## PC Chrome / Edge (extension)
+## Buttons
 
-1. `chrome://extensions` ya `edge://extensions`
-2. Developer mode **ON**
-3. **Load unpacked** → `browser-extension` folder
-4. UIDAI retrieve page kholo → toggle ON
+| Button | Kaam |
+|--------|------|
+| Rebel Adhar ON/OFF | Main toggle |
+| Switch Mode | Dob ab bhi dikhe to manually mode switch |
+| Logs | Debug panel |
 
-## Download
+## Download link
 
-Branch ZIP:
-https://github.com/ujjwalrebel53-wq/SpinPlay99/archive/refs/heads/cursor/aadhaar-form-helper-extension-95e1.zip
-
-Direct userscript:
+```
 https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/rebel-adhar.user.js
+```
 
-## Tested
+## Logs mein kya dekho
 
-- Mock UIDAI Angular form: **DOB hide PASS**
-- Live UIDAI: India network / browser par test karo (server geo-block ho sakta hai)
-
-## Files
-
-| File | Use |
-|------|-----|
-| `rebel-adhar.user.js` | **Kiwi / mobile — Rebel Adhar (use this)** |
-| `manifest.json` + `content.js` | Chrome/Edge extension |
-| `core-logic.js` | Shared hide logic |
-
-## Note
-
-Sirf apne registered details ke saath use karo. OTP Indian mobile par aayega.
+- `Click near mobile` ya `Click mode switch` = sahi link mila
+- `After switch ok:true` = mode switch success
+- `fetch` / `xhr` line = OTP API call gayi
+- `NO API CALL` = Switch Mode dabao, page reload, asli naam use karo

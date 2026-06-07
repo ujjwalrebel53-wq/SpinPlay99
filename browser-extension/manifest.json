@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Astik Helper — myAadhaar Form",
-  "version": "1.4.0",
-  "description": "Retrieve Aadhaar page par DOB hide karke Mobile/Email mode enable karta hai.",
+  "version": "2.2.0",
+  "description": "Astik jaisa UIDAI form mode switch — DOB mode se Mobile/Email mode",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",

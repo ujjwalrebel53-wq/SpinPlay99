@@ -13,19 +13,16 @@ async function run() {
   await page.goto(mockUrl);
   await page.waitForTimeout(300);
 
-  const result = await page.evaluate((code) => {
+  const result = await page.evaluate(async (code) => {
     eval(code);
-
-    AstikHelperCore.applyMode(true, { nameOptional: true, fallbackName: 'Mr' });
-
-    const nameInput = document.querySelector('[formcontrolname="fullName"]');
-    nameInput.value = '';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    AstikHelperCore.applyMode(true);
+    await new Promise((r) => setTimeout(r, 900));
 
     return {
       dobVisible: AstikHelperCore.isDobStillVisible(),
-      nameRequired: nameInput.required,
+      emailVisible: AstikHelperCore.isEmailVisible(),
       logPanel: !!document.getElementById('rebel-adhar-log-panel'),
+      bodyHasEmailMode: document.body.classList.contains('email-mode'),
     };
   }, coreCode);
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      1.4.0
-// @description  Minimal DOB hide + API patch — Angular ko disturb nahi karta
+// @version      2.2.0
+// @description  Astik jaisa — UIDAI OR Enter Email mode switch + safe fallback
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,49 +10,137 @@
 // ==/UserScript==
 
 (function () {
-  const STORAGE_KEY = 'rebelAdharEnabled';
-  const NAME_OPTIONAL_KEY = 'rebelAdharNameOptional';
-  const FALLBACK_NAME_KEY = 'rebelAdharFallbackName';
-  const FAB_ID = 'rebel-adhar-fab';
-  const LOG_PANEL_ID = 'rebel-adhar-log-panel';
-  const LOG_BODY_ID = 'rebel-adhar-log-body';
-  const STYLE_ID = 'rebel-adhar-style';
+  'use strict';
 
-  const DOB_KEYS = ['dob', 'dateOfBirth', 'date_of_birth', 'birthDate', 'birthDt', 'dobStr', 'userDob'];
-  const DOB_TEXT = ['date of birth', 'enter date of birth', 'dob', 'birth date', 'जन्म तिथि'];
-  const NAME_TEXT = ['name as per aadhaar', 'enter name', 'full name', 'aadhaar name'];
+  const KEY = 'rebelAdharOn';
+  const LOG_ID = 'rebel-adhar-log-panel';
+  const LOG_BODY = 'rebel-adhar-log-body';
+  const SWITCHED_KEY = 'rebelAdharModeSwitched';
+  const HIDDEN = 'rebel-dob-hidden';
 
-  let enabled = localStorage.getItem(STORAGE_KEY) === '1';
-  let nameOptional = localStorage.getItem(NAME_OPTIONAL_KEY) !== '0';
-  let fallbackName = (localStorage.getItem(FALLBACK_NAME_KEY) || 'Mr').trim() || 'Mr';
-  const logLines = [];
-  let networkCount = 0;
-  let hooksReady = false;
-  let applyTimer = null;
+  const MODE_PATTERNS = [/or\s*enter\s*e-?mail/i, /or\s*enter\s*email\s*id/i, /or\s*e-?mail/i];
+
+  let on = localStorage.getItem(KEY) === '1';
+  const logs = [];
+  let netCount = 0;
+
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
   function log(level, msg, data) {
-    const time = new Date().toLocaleTimeString();
-    let extra = '';
-    if (data !== undefined) {
-      try {
-        extra = typeof data === 'string' ? data : JSON.stringify(data);
-      } catch (_e) {
-        extra = String(data);
-      }
-    }
-    logLines.push({ time, level, msg, extra });
-    if (logLines.length > 100) logLines.shift();
-    updateLogs();
+    logs.push({ t: new Date().toLocaleTimeString(), level, msg, data });
+    if (logs.length > 100) logs.shift();
+    renderLogs();
     console.log('[Rebel Adhar]', level, msg, data ?? '');
   }
 
-  function norm(s) {
-    return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  function renderLogs() {
+    ensureUI();
+    const b = document.getElementById(LOG_BODY);
+    if (!b) return;
+    b.textContent = logs
+      .map((l) => {
+        const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
+        return `[${l.t}] ${l.level.toUpperCase()} ${l.msg}${x}`;
+      })
+      .join('\n');
+    b.scrollTop = b.scrollHeight;
   }
 
-  function matchText(text, list) {
-    const v = norm(text);
-    return list.some((x) => v.includes(x));
+  function ensureUI() {
+    if (!document.getElementById('rebel-adhar-style')) {
+      const st = document.createElement('style');
+      st.id = 'rebel-adhar-style';
+      st.textContent =
+        '#rebel-adhar-log-panel{position:fixed;left:6px;right:6px;bottom:6px;max-height:36vh;z-index:2147483646;background:rgba(8,12,20,.97);color:#bbf7d0;border:1px solid #334155;border-radius:10px;font:10px/1.45 monospace}' +
+        '#rebel-adhar-log-header{display:flex;justify-content:space-between;padding:6px 8px;background:#111827;color:#fff;font:700 11px system-ui}' +
+        '#rebel-adhar-log-header button{border:none;border-radius:5px;padding:3px 7px;margin-left:4px;background:#374151;color:#fff}' +
+        '#rebel-adhar-log-body{margin:0;padding:8px;max-height:calc(36vh - 32px);overflow:auto;white-space:pre-wrap}' +
+        '#rebel-fab{position:fixed;right:10px;bottom:78px;z-index:2147483647;border:none;border-radius:999px;padding:12px 14px;color:#fff;font:700 12px system-ui;box-shadow:0 6px 18px rgba(0,0,0,.35)}' +
+        '#rebel-switch-btn{position:fixed;right:10px;bottom:136px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#0052a5;color:#fff;font:700 11px system-ui;box-shadow:0 6px 18px rgba(0,0,0,.35)}' +
+        '#rebel-logs-btn{position:fixed;right:10px;bottom:194px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#4b5563;color:#fff;font:700 11px system-ui}' +
+        '.' + HIDDEN + '{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}';
+      document.documentElement.appendChild(st);
+    }
+    if (!document.getElementById(LOG_ID)) {
+      const p = document.createElement('div');
+      p.id = LOG_ID;
+      p.innerHTML =
+        '<div id="rebel-adhar-log-header"><strong>Rebel Adhar Logs</strong><span><button type="button" id="rebel-clr">Clear</button><button type="button" id="rebel-hid">Hide</button></span></div><pre id="' +
+        LOG_BODY +
+        '"></pre>';
+      document.documentElement.appendChild(p);
+      document.getElementById('rebel-clr').onclick = () => {
+        logs.length = 0;
+        renderLogs();
+      };
+      document.getElementById('rebel-hid').onclick = () => {
+        const b = document.getElementById(LOG_BODY);
+        b.style.display = b.style.display === 'none' ? 'block' : 'none';
+      };
+    }
+    if (!document.getElementById('rebel-fab')) {
+      const fab = document.createElement('button');
+      fab.id = 'rebel-fab';
+      fab.onclick = () => {
+        on = !on;
+        localStorage.setItem(KEY, on ? '1' : '0');
+        if (on) {
+          sessionStorage.removeItem(SWITCHED_KEY);
+          netCount = 0;
+          applyAstikMode(true);
+          startRetryLoop();
+        } else {
+          log('info', 'OFF — page reload recommended');
+        }
+        updateBtns();
+      };
+      document.documentElement.appendChild(fab);
+    }
+    if (!document.getElementById('rebel-switch-btn')) {
+      const b = document.createElement('button');
+      b.id = 'rebel-switch-btn';
+      b.textContent = 'Switch Mode';
+      b.onclick = () => {
+        sessionStorage.removeItem(SWITCHED_KEY);
+        applyAstikMode(true);
+      };
+      document.documentElement.appendChild(b);
+    }
+    if (!document.getElementById('rebel-logs-btn')) {
+      const b = document.createElement('button');
+      b.id = 'rebel-logs-btn';
+      b.textContent = 'Logs';
+      b.onclick = () => {
+        const p = document.getElementById(LOG_ID);
+        p.style.display = p.style.display === 'none' ? 'block' : 'none';
+      };
+      document.documentElement.appendChild(b);
+    }
+    updateBtns();
+  }
+
+  function updateBtns() {
+    const fab = document.getElementById('rebel-fab');
+    if (fab) {
+      fab.textContent = on ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
+      fab.style.background = on ? '#0a7a2f' : '#b42318';
+    }
+  }
+
+  function isVisible(el) {
+    if (!el || el.closest('#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn')) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }
+
+  function directText(el) {
+    return norm(
+      Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => n.textContent)
+        .join(' ')
+    );
   }
 
   function inputs() {
@@ -60,269 +148,195 @@
   }
 
   function labelOf(el) {
-    const l = el.closest('mat-form-field, .mat-mdc-form-field')?.querySelector('mat-label, label');
-    return l?.textContent || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+    const l = el.closest('mat-form-field,.mat-mdc-form-field')?.querySelector('mat-label,label');
+    return l?.textContent || el.getAttribute('placeholder') || '';
   }
 
-  function kindOf(input) {
-    const blob = norm([input.id, input.name, input.placeholder, input.getAttribute('formcontrolname'), labelOf(input)].join(' '));
-    if (matchText(blob, DOB_TEXT) || input.type === 'date' || /dob|birth/i.test(input.getAttribute('formcontrolname') || '')) return 'dob';
-    if (matchText(blob, NAME_TEXT) || /name|full|resident/i.test(input.getAttribute('formcontrolname') || '')) return 'name';
-    if (/mobile|phone|mob|contact/i.test(blob)) return 'mobile';
-    if (/email|mail/i.test(blob)) return 'email';
-    if (/captcha|security/i.test(blob)) return 'captcha';
-    return 'other';
+  function isDobField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname'), el.name].join(' '));
+    return blob.includes('date of birth') || blob.includes('dob') || blob.includes('birth date') || el.type === 'date';
   }
 
-  function containerOf(el) {
-    return el.closest('mat-form-field, .mat-mdc-form-field, .form-group, div') || el.parentElement;
+  function isEmailField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return blob.includes('email') || /email|mail/i.test(el.getAttribute('formcontrolname') || '');
   }
 
-  function injectStyles() {
-    if (document.getElementById(STYLE_ID)) return;
-    const s = document.createElement('style');
-    s.id = STYLE_ID;
-    s.textContent =
-      '.rebel-dob-hidden{display:none!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important}' +
-      '#rebel-adhar-log-panel{position:fixed;left:6px;right:6px;bottom:6px;max-height:38vh;z-index:2147483646;background:rgba(8,12,20,.97);color:#bbf7d0;border:1px solid #334155;border-radius:10px;font:10px/1.4 monospace;overflow:hidden}' +
-      '#rebel-adhar-log-header{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#111827;color:#fff;font:700 11px system-ui}' +
-      '#rebel-adhar-log-header button{border:none;border-radius:5px;padding:3px 7px;margin-left:4px;background:#374151;color:#fff;font:600 10px system-ui}' +
-      '#rebel-adhar-log-body{margin:0;padding:8px;max-height:calc(38vh - 34px);overflow:auto;white-space:pre-wrap;word-break:break-word}' +
-      '#rebel-adhar-fab{position:fixed;right:10px;bottom:80px;z-index:2147483647;border:none;border-radius:999px;padding:12px 14px;color:#fff;font:700 12px system-ui;box-shadow:0 6px 20px rgba(0,0,0,.3)}' +
-      '#rebel-adhar-name-btn{position:fixed;right:10px;bottom:138px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;color:#fff;font:700 11px system-ui;box-shadow:0 6px 20px rgba(0,0,0,.3)}' +
-      '#rebel-adhar-logs-btn{position:fixed;right:10px;bottom:196px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#4b5563;color:#fff;font:700 11px system-ui}';
-    document.documentElement.appendChild(s);
+  function isMobileField(el) {
+    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return blob.includes('mobile') && !blob.includes('email');
   }
 
-  function ensureLogs() {
-    if (document.getElementById(LOG_PANEL_ID)) return;
-    const p = document.createElement('div');
-    p.id = LOG_PANEL_ID;
-    p.innerHTML =
-      '<div id="rebel-adhar-log-header"><strong>Rebel Adhar Logs</strong><span><button type="button" id="rebel-log-clear">Clear</button><button type="button" id="rebel-log-hide">Hide</button></span></div><pre id="' +
-      LOG_BODY_ID +
-      '"></pre>';
-    document.documentElement.appendChild(p);
-    document.getElementById('rebel-log-clear').onclick = () => {
-      logLines.length = 0;
-      updateLogs();
-    };
-    document.getElementById('rebel-log-hide').onclick = () => {
-      const b = document.getElementById(LOG_BODY_ID);
-      b.style.display = b.style.display === 'none' ? 'block' : 'none';
-    };
+  function dobVisible() {
+    return inputs().some((i) => isDobField(i) && isVisible(i));
   }
 
-  function updateLogs() {
-    ensureLogs();
-    const b = document.getElementById(LOG_BODY_ID);
-    if (!b) return;
-    b.textContent = logLines.map((l) => `[${l.time}] ${l.level.toUpperCase()} ${l.msg}${l.extra ? ' | ' + l.extra : ''}`).join('\n');
-    b.scrollTop = b.scrollHeight;
+  function emailVisible() {
+    return inputs().some((i) => isEmailField(i) && isVisible(i));
   }
 
-  function stripDobFromPayload(body) {
-    if (body == null) return { body, changed: false, removed: [] };
-    if (typeof body === 'string') {
-      const t = body.trim();
-      if (t.startsWith('{')) {
-        try {
-          const j = JSON.parse(t);
-          const removed = [];
-          const walk = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            Object.keys(obj).forEach((k) => {
-              if (DOB_KEYS.includes(k) || /dob|birth|dateofbirth/i.test(k)) {
-                removed.push(k);
-                delete obj[k];
-              } else if (typeof obj[k] === 'object') walk(obj[k]);
-            });
-          };
-          walk(j);
-          if (!removed.length) return { body, changed: false, removed: [] };
-          return { body: JSON.stringify(j), changed: true, removed };
-        } catch (_e) {
-          return { body, changed: false, removed: [] };
-        }
-      }
-      if (t.includes('=')) {
-        const p = new URLSearchParams(t);
-        const removed = [];
-        [...p.keys()].forEach((k) => {
-          if (/dob|birth|date/i.test(k)) {
-            removed.push(k);
-            p.delete(k);
+  function formReady() {
+    return inputs().length >= 2;
+  }
+
+  function modeOk() {
+    return !dobVisible() || emailVisible();
+  }
+
+  function simulateClick(el) {
+    const o = { bubbles: true, cancelable: true, view: window };
+    el.dispatchEvent(new PointerEvent('pointerdown', o));
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    el.dispatchEvent(new PointerEvent('pointerup', o));
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+    el.dispatchEvent(new MouseEvent('click', o));
+    el.click?.();
+  }
+
+  function matchesMode(text) {
+    if (!text || text.length > 60) return false;
+    if (/enter email address/i.test(text) && !/or\s/i.test(text)) return false;
+    return MODE_PATTERNS.some((p) => p.test(text));
+  }
+
+  function clickModeSwitch() {
+    const mobile = inputs().find(isMobileField);
+    if (mobile) {
+      let node = mobile.closest('mat-form-field,.mat-mdc-form-field,div');
+      for (let d = 0; d < 8 && node; d++) {
+        for (const el of node.querySelectorAll('a,span,button,label,p')) {
+          const text = directText(el) || norm(el.textContent || '');
+          if (matchesMode(text) && isVisible(el)) {
+            log('info', 'Click near mobile', text);
+            simulateClick(el);
+            return true;
           }
-        });
-        if (!removed.length) return { body, changed: false, removed: [] };
-        return { body: p.toString(), changed: true, removed };
+        }
+        node = node.parentElement;
       }
     }
-    return { body, changed: false, removed: [] };
+
+    const hits = [];
+    document.querySelectorAll('a,button,span,label,p').forEach((el) => {
+      const text = directText(el) || norm(el.textContent || '');
+      if (matchesMode(text) && isVisible(el)) hits.push({ el, text, len: text.length });
+    });
+    hits.sort((a, b) => a.len - b.len);
+    if (hits.length) {
+      log('info', 'Click mode switch', hits[0].text);
+      simulateClick(hits[0].el);
+      return true;
+    }
+    return false;
   }
 
-  function installNetworkHooks() {
-    if (hooksReady) return;
-    hooksReady = true;
-
-    const origFetch = window.fetch.bind(window);
-    window.fetch = async function (input, init) {
-      const url = String(typeof input === 'string' ? input : input?.url || '');
-      const method = (init?.method || 'GET').toUpperCase();
-      let req = init ? { ...init } : {};
-      if (enabled && req.body) {
-        const patched = stripDobFromPayload(req.body);
-        if (patched.changed) {
-          req.body = patched.body;
-          log('patch', 'DOB stripped from fetch', patched.removed);
+  function patchDobOnly() {
+    inputs()
+      .filter(isDobField)
+      .forEach((input) => {
+        const box = input.closest('mat-form-field,.mat-mdc-form-field,div') || input;
+        box.classList.add(HIDDEN);
+        input.removeAttribute('required');
+        input.setCustomValidity('');
+        input.disabled = false;
+        const ctx = input.__ngContext__;
+        if (Array.isArray(ctx)) {
+          ctx.forEach((item) => {
+            const c = item?.control;
+            if (c?.clearValidators) {
+              c.clearValidators();
+              c.setErrors(null);
+              c.updateValueAndValidity({ emitEvent: true });
+            }
+          });
         }
-      }
-      if (enabled && method !== 'GET') {
-        networkCount += 1;
-        log('req', `FETCH ${method} ${url}`, String(req.body || '').slice(0, 400));
-      }
-      const res = await origFetch(input, req);
-      if (enabled && method !== 'GET') {
-        const txt = await res.clone().text().catch(() => '');
-        log(res.ok ? 'ok' : 'error', `FETCH ${res.status}`, txt.slice(0, 350));
-      }
-      return res;
-    };
-
-    const oOpen = XMLHttpRequest.prototype.open;
-    const oSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function (m, u, ...r) {
-      this.__ru = String(u || '');
-      this.__rm = m;
-      return oOpen.call(this, m, u, ...r);
-    };
-    XMLHttpRequest.prototype.send = function (body) {
-      let final = body;
-      if (enabled && body != null) {
-        const patched = stripDobFromPayload(body);
-        if (patched.changed) {
-          final = patched.body;
-          log('patch', 'DOB stripped from XHR', patched.removed);
-        }
-      }
-      if (enabled) {
-        networkCount += 1;
-        log('req', `XHR ${this.__rm || 'POST'} ${this.__ru}`, String(final || '').slice(0, 400));
-      }
-      this.addEventListener('load', () => {
-        if (!enabled) return;
-        log(this.status >= 200 && this.status < 300 ? 'ok' : 'error', `XHR ${this.status}`, (this.responseText || '').slice(0, 350));
       });
-      return oSend.call(this, final);
-    };
-
-    log('info', 'Network hooks ready (minimal mode)');
+    log('warn', 'Fallback: DOB hidden + validator cleared');
   }
 
-  /** CSS hide + hidden dummy DOB for Angular (stripped from API) */
-  function hideDobOnly() {
-    inputs().forEach((input) => {
-      if (kindOf(input) !== 'dob') return;
-      if (!input.value) {
-        input.value = '01/01/1990';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        log('info', 'Hidden DOB filled for Angular only (stripped from API)');
+  function applyAstikMode(force) {
+    if (!on && !force) return;
+    ensureUI();
+
+    if (!formReady()) {
+      log('warn', 'Form loading... wait');
+      return;
+    }
+
+    if (!force && sessionStorage.getItem(SWITCHED_KEY) === '1' && modeOk()) {
+      log('info', 'Already Mobile/Email mode');
+      return;
+    }
+
+    log('info', 'Applying mode switch', { dob: dobVisible(), email: emailVisible() });
+
+    if (dobVisible() || !emailVisible()) {
+      if (!clickModeSwitch()) {
+        log('warn', 'OR Enter Email not found — fallback');
+        patchDobOnly();
+        return;
       }
-      const box = containerOf(input);
-      if (box) box.classList.add('rebel-dob-hidden');
-      input.classList.add('rebel-dob-hidden');
-      input.setAttribute('tabindex', '-1');
-    });
+    }
+
+    setTimeout(() => {
+      const ok = modeOk();
+      log('info', 'After switch', { ok, dob: dobVisible(), email: emailVisible() });
+      if (!ok) patchDobOnly();
+      else sessionStorage.setItem(SWITCHED_KEY, '1');
+    }, 700);
   }
 
-  function showDob() {
-    document.querySelectorAll('.rebel-dob-hidden').forEach((el) => {
-      el.classList.remove('rebel-dob-hidden');
-      el.removeAttribute('tabindex');
-    });
+  function startRetryLoop() {
+    let n = 0;
+    const t = setInterval(() => {
+      n += 1;
+      if (!on || n > 12) return clearInterval(t);
+      if (!formReady()) return;
+      if (!modeOk()) applyAstikMode(true);
+      else clearInterval(t);
+    }, 1200);
   }
 
-  function relaxNameOnly() {
-    if (!nameOptional) return;
-    inputs().forEach((input) => {
-      if (kindOf(input) !== 'name' && kindOf(input) !== 'other') return;
-      const blob = norm(labelOf(input));
-      if (kindOf(input) === 'other' && !matchText(blob, NAME_TEXT) && inputs().indexOf(input) !== 0) return;
-      input.setAttribute('placeholder', 'Mr ya apna naam likho');
-    });
+  function installNetLog() {
+    if (window.__rebelNet) return;
+    window.__rebelNet = true;
+    const f = window.fetch;
+    window.fetch = function (...a) {
+      const u = typeof a[0] === 'string' ? a[0] : a[0]?.url || '';
+      if (on && /otp|uidai|aadhaar|retrieve/i.test(u)) {
+        netCount += 1;
+        log('req', 'fetch', u.slice(0, 100));
+      }
+      return f.apply(this, a);
+    };
   }
 
-  function ensureButtons() {
-    injectStyles();
-    if (!document.getElementById(FAB_ID)) {
-      const fab = document.createElement('button');
-      fab.id = FAB_ID;
-      fab.onclick = () => {
-        enabled = !enabled;
-        localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
-        apply();
-      };
-      document.documentElement.appendChild(fab);
-    }
-    if (!document.getElementById('rebel-adhar-name-btn')) {
-      const b = document.createElement('button');
-      b.id = 'rebel-adhar-name-btn';
-      b.onclick = () => {
-        nameOptional = !nameOptional;
-        localStorage.setItem(NAME_OPTIONAL_KEY, nameOptional ? '1' : '0');
-        apply();
-      };
-      document.documentElement.appendChild(b);
-    }
-    if (!document.getElementById('rebel-adhar-logs-btn')) {
-      const b = document.createElement('button');
-      b.id = 'rebel-adhar-logs-btn';
-      b.textContent = 'Logs';
-      b.onclick = () => {
-        const p = document.getElementById(LOG_PANEL_ID);
-        if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none';
-      };
-      document.documentElement.appendChild(b);
-    }
-    const fab = document.getElementById(FAB_ID);
-    const nameBtn = document.getElementById('rebel-adhar-name-btn');
-    if (fab) {
-      fab.textContent = enabled ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
-      fab.style.background = enabled ? '#0a7a2f' : '#b42318';
-    }
-    if (nameBtn) {
-      nameBtn.textContent = nameOptional ? 'Name: Optional (Mr OK)' : 'Name: Required';
-      nameBtn.style.background = nameOptional ? '#0052a5' : '#6b7280';
-    }
+  function watchOtp() {
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (!on) return;
+        const t = norm(e.target?.textContent || e.target?.value || '');
+        if (!t.includes('send otp') && !t.includes('request otp')) return;
+        const before = netCount;
+        log('info', 'Send OTP', { dob: dobVisible(), email: emailVisible(), ngInv: document.querySelectorAll('.ng-invalid').length });
+        setTimeout(() => {
+          if (netCount === before) log('error', 'NO API CALL — Switch Mode dabao, asli naam + registered mobile use karo');
+        }, 2500);
+      },
+      false
+    );
   }
 
-  function apply() {
-    if (!/uidai\.gov\.in/i.test(location.href)) return;
-    ensureButtons();
-    ensureLogs();
+  ensureUI();
+  installNetLog();
+  watchOtp();
 
-    if (enabled) {
-      installNetworkHooks();
-      hideDobOnly();
-      relaxNameOnly();
-      log('info', 'MINIMAL mode ON — no click intercept, no validity bypass');
-      log('info', 'Fields', inputs().map((i) => ({ k: kindOf(i), v: (i.value || '').slice(0, 40), dis: i.disabled })));
-    } else {
-      showDob();
-      log('info', 'Extension OFF');
-    }
+  if (on) {
+    log('info', 'v2.2 — Astik mode switch');
+    applyAstikMode(true);
+    startRetryLoop();
+  } else {
+    log('info', 'Rebel Adhar OFF — ON button dabao');
   }
-
-  function scheduleApply() {
-    if (applyTimer) clearTimeout(applyTimer);
-    applyTimer = setTimeout(() => {
-      if (enabled) hideDobOnly();
-    }, 800);
-  }
-
-  apply();
-
-  const obs = new MutationObserver(scheduleApply);
-  obs.observe(document.documentElement, { childList: true, subtree: true });
 })();

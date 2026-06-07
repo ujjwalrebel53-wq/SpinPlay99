@@ -1,173 +1,86 @@
 /**
- * Astik Helper content script
+ * Rebel Adhar content script v2.2
  */
 const STORAGE_KEY = 'astikHelperEnabled';
-const NAME_OPTIONAL_KEY = 'astikHelperNameOptional';
-const FALLBACK_NAME_KEY = 'astikHelperFallbackName';
 const FAB_ID = 'astik-helper-fab';
-const LOG_PANEL_ID = 'rebel-adhar-log-panel';
 
 let enabled = false;
-let nameOptional = true;
-let fallbackName = 'Mr';
-let observer = null;
 let retryTimer = null;
 
-function getOptions() {
-  return { nameOptional, fallbackName };
-}
-
 function ensureFab() {
-  if (!/uidai\.gov\.in/i.test(window.location.href)) return;
-
-  if (!document.getElementById(FAB_ID)) {
-    const fab = document.createElement('button');
+  if (!/uidai\.gov\.in/i.test(location.href)) return;
+  let fab = document.getElementById(FAB_ID);
+  if (!fab) {
+    fab = document.createElement('button');
     fab.id = FAB_ID;
-    fab.type = 'button';
-    fab.textContent = 'Rebel Adhar: OFF';
-    fab.addEventListener('click', () => {
-      setEnabled(!enabled);
+    fab.style.cssText =
+      'position:fixed;right:12px;bottom:88px;z-index:2147483647;border:none;border-radius:999px;padding:12px 16px;color:#fff;font:700 13px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.28)';
+    fab.onclick = () => {
+      enabled = !enabled;
       chrome.storage.local.set({ [STORAGE_KEY]: enabled });
-    });
+      apply();
+    };
     document.documentElement.appendChild(fab);
   }
-
-  if (!document.getElementById('astik-helper-name-btn')) {
-    const nameBtn = document.createElement('button');
-    nameBtn.id = 'astik-helper-name-btn';
-    nameBtn.type = 'button';
-    nameBtn.textContent = 'Name: Optional';
-    nameBtn.addEventListener('click', () => {
-      setNameOptional(!nameOptional);
-      chrome.storage.local.set({ [NAME_OPTIONAL_KEY]: nameOptional });
-    });
-    document.documentElement.appendChild(nameBtn);
-  }
-
-  if (!document.getElementById('astik-helper-logs-btn')) {
-    const logsBtn = document.createElement('button');
-    logsBtn.id = 'astik-helper-logs-btn';
-    logsBtn.type = 'button';
-    logsBtn.textContent = 'Logs';
-    logsBtn.addEventListener('click', () => {
-      const panel = document.getElementById(LOG_PANEL_ID);
-      if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    });
-    document.documentElement.appendChild(logsBtn);
-  }
-
-  updateFab();
+  fab.textContent = enabled ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
+  fab.style.background = enabled ? '#0a7a2f' : '#b42318';
 }
 
-function updateFab() {
-  const fab = document.getElementById(FAB_ID);
-  const nameBtn = document.getElementById('astik-helper-name-btn');
-  if (fab) {
-    fab.textContent = enabled ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
-    fab.classList.toggle('is-on', enabled);
-  }
-  if (nameBtn) {
-    nameBtn.textContent = nameOptional ? 'Name: Optional (Mr OK)' : 'Name: Required';
-    nameBtn.style.background = nameOptional ? '#0052a5' : '#6b7280';
-  }
-}
-
-function applyMode() {
-  if (!window.AstikHelperCore) return;
-  if (!window.location.href.includes('uidai.gov.in')) return;
-
-  ensureFab();
-  window.AstikHelperCore.applyMode(enabled, getOptions());
-  updateFab();
-}
-
-function scheduleRetries() {
+function startRetryLoop() {
   if (retryTimer) clearInterval(retryTimer);
-  let attempts = 0;
+  let n = 0;
   retryTimer = setInterval(() => {
-    attempts += 1;
-    if (enabled) applyMode();
-    if (attempts >= 10) clearInterval(retryTimer);
-  }, 1500);
+    n += 1;
+    if (!enabled || n > 12) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+      return;
+    }
+    if (!window.AstikHelperCore?.formReady?.()) return;
+    if (window.AstikHelperCore?.isDobStillVisible?.() && !window.AstikHelperCore?.isEmailVisible?.()) {
+      window.AstikHelperCore.applyAstikMode(true);
+    } else {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
+  }, 1200);
 }
 
-function startObserver() {
-  if (observer) observer.disconnect();
-  observer = new MutationObserver(() => {
-    if (enabled) applyMode();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-}
-
-function setEnabled(value) {
-  enabled = Boolean(value);
-  applyMode();
-  scheduleRetries();
-}
-
-function setNameOptional(value) {
-  nameOptional = Boolean(value);
-  applyMode();
-}
-
-function setFallbackName(value) {
-  fallbackName = (value || 'Mr').trim() || 'Mr';
-  applyMode();
+function apply() {
+  if (!window.AstikHelperCore) return;
+  ensureFab();
+  window.AstikHelperCore.applyMode(enabled);
+  if (enabled) startRetryLoop();
 }
 
 function boot() {
-  chrome.storage.local.get([STORAGE_KEY, NAME_OPTIONAL_KEY, FALLBACK_NAME_KEY], (result) => {
-    enabled = Boolean(result[STORAGE_KEY]);
-    nameOptional = result[NAME_OPTIONAL_KEY] !== false;
-    fallbackName = (result[FALLBACK_NAME_KEY] || 'Mr').trim() || 'Mr';
-    applyMode();
-    startObserver();
-    scheduleRetries();
+  chrome.storage.local.get([STORAGE_KEY], (r) => {
+    enabled = Boolean(r[STORAGE_KEY]);
+    apply();
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
-} else {
-  boot();
-}
+boot();
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'GET_STATUS') {
-    sendResponse({
+chrome.runtime.onMessage.addListener((msg, _s, res) => {
+  if (msg?.type === 'GET_STATUS') {
+    res({
       enabled,
-      nameOptional,
-      fallbackName,
-      url: window.location.href,
-      dobVisible: window.AstikHelperCore?.isDobStillVisible?.() ?? null,
+      dobVisible: window.AstikHelperCore?.isDobStillVisible?.(),
+      emailVisible: window.AstikHelperCore?.isEmailVisible?.(),
     });
     return true;
   }
-
-  if (message?.type === 'SET_ENABLED') {
-    setEnabled(message.enabled);
+  if (msg?.type === 'SET_ENABLED') {
+    enabled = Boolean(msg.enabled);
+    apply();
     chrome.storage.local.set({ [STORAGE_KEY]: enabled });
-    sendResponse({ enabled, nameOptional, fallbackName });
+    res({ enabled });
     return true;
   }
-
-  if (message?.type === 'SET_NAME_OPTIONAL') {
-    setNameOptional(message.nameOptional);
-    chrome.storage.local.set({ [NAME_OPTIONAL_KEY]: nameOptional });
-    sendResponse({ enabled, nameOptional, fallbackName });
-    return true;
-  }
-
-  if (message?.type === 'SET_FALLBACK_NAME') {
-    setFallbackName(message.fallbackName);
-    chrome.storage.local.set({ [FALLBACK_NAME_KEY]: fallbackName });
-    sendResponse({ enabled, nameOptional, fallbackName });
-    return true;
-  }
-
-  if (message?.type === 'APPLY_NOW') {
-    applyMode();
-    sendResponse({ enabled, nameOptional, fallbackName });
+  if (msg?.type === 'APPLY_NOW') {
+    window.AstikHelperCore?.applyAstikMode?.(true);
+    res({ enabled });
     return true;
   }
 });

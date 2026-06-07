@@ -1,16 +1,5 @@
-.astik-helper-hidden {
-  display: none !important;
-  visibility: hidden !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
-  opacity: 0 !important;
-}
-
 html.astik-helper-active::before {
-  content: 'Rebel Adhar ON — DOB hidden | Logs screen par neeche';
+  content: 'Rebel Adhar ON — Mobile/Email mode (Astik style)';
   position: fixed;
   top: 0;
   left: 0;
@@ -21,48 +10,10 @@ html.astik-helper-active::before {
   font: 600 12px/1.4 system-ui, sans-serif;
   text-align: center;
   padding: 6px 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-#astik-helper-fab {
-  position: fixed;
-  right: 12px;
-  bottom: 88px;
-  z-index: 2147483647;
-  border: none;
-  border-radius: 999px;
-  padding: 12px 16px;
-  background: #b42318;
-  color: #fff;
-  font: 700 13px/1.2 system-ui, sans-serif;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 #astik-helper-fab.is-on {
   background: #0a7a2f;
-}
-
-#astik-helper-name-btn,
-#astik-helper-logs-btn {
-  position: fixed;
-  right: 12px;
-  z-index: 2147483647;
-  border: none;
-  border-radius: 999px;
-  padding: 12px 14px;
-  color: #fff;
-  font: 700 12px system-ui, sans-serif;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-}
-
-#astik-helper-name-btn {
-  bottom: 150px;
-  background: #0052a5;
-}
-
-#astik-helper-logs-btn {
-  bottom: 212px;
-  background: #4b5563;
 }
 
 #rebel-adhar-log-panel {
@@ -70,44 +21,9 @@ html.astik-helper-active::before {
   left: 8px;
   right: 8px;
   bottom: 8px;
-  max-height: 42vh;
+  max-height: 40vh;
   z-index: 2147483646;
-  background: rgba(10, 15, 25, 0.96);
-  color: #d1fae5;
   border: 1px solid #334155;
   border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow: hidden;
-}
-
-#rebel-adhar-log-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  background: #111827;
-  border-bottom: 1px solid #334155;
-  color: #fff;
-  font: 700 12px system-ui, sans-serif;
-}
-
-#rebel-adhar-log-actions button {
-  border: none;
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin-left: 6px;
-  background: #374151;
-  color: #fff;
-  font: 600 11px system-ui, sans-serif;
-}
-
-#rebel-adhar-log-body {
-  margin: 0;
-  padding: 10px;
-  max-height: calc(42vh - 42px);
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
