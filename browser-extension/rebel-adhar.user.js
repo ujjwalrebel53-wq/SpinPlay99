@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Astik Helper — myAadhaar DOB Hide
+// @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
 // @version      1.2.0
 // @description  DOB hide + Name optional (Mr) + Mobile/Email mode
@@ -202,7 +202,7 @@
   function updateFab() {
     const fab = document.getElementById(FAB_ID);
     if (!fab) return;
-    fab.textContent = enabled ? 'DOB Hide: ON' : 'DOB Hide: OFF';
+    fab.textContent = enabled ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
     fab.style.background = enabled ? '#0a7a2f' : '#b42318';
   }
 

@@ -13,9 +13,9 @@ Retrieve Aadhaar page par **DOB hide** + **Mobile/Email mode**.
 
 Extension se zyada reliable:
 
-1. Download file: **`astik-helper.user.js`**
+1. Download file: **`rebel-adhar.user.js`**
 2. Kiwi → **⋮ → Extensions** → Developer mode **ON**
-3. **+ (from .zip/.crx/.user.js)** → `astik-helper.user.js` select karo
+3. **+ (from .zip/.crx/.user.js)** → `rebel-adhar.user.js` select karo
 4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid kholo
 5. Screen par **red button** dikhega: `DOB Hide: OFF` → tap → **ON**
 6. DOB field hide ho jayegi
@@ -33,7 +33,7 @@ Branch ZIP:
 https://github.com/ujjwalrebel53-wq/SpinPlay99/archive/refs/heads/cursor/aadhaar-form-helper-extension-95e1.zip
 
 Direct userscript:
-https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/astik-helper.user.js
+https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/rebel-adhar.user.js
 
 ## Tested
 
@@ -44,7 +44,7 @@ https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-for
 
 | File | Use |
 |------|-----|
-| `astik-helper.user.js` | **Kiwi / mobile — use this** |
+| `rebel-adhar.user.js` | **Kiwi / mobile — Rebel Adhar (use this)** |
 | `manifest.json` + `content.js` | Chrome/Edge extension |
 | `core-logic.js` | Shared hide logic |
 
