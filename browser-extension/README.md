@@ -1,4 +1,4 @@
-# Rebel Adhar v6.0 — Prod UIDAI OTP fix
+# Rebel Adhar v7.0 — type=date + always hide DOB
 
 **Astik jaisa (video flow):** Tap → **DOB hat jata hai** → sirf **Name + Mobile + Captcha** → Send OTP.
 
@@ -13,7 +13,7 @@
 ## Install (Kiwi)
 
 1. Purana script delete
-2. `rebel-adhar.user.js` v5.0 load karo
+2. `rebel-adhar.user.js` v7.0 load karo
 3. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
 4. **Rebel Adhar ON** → DOB field **gayab** ho (jaise video me Astik ke baad)
 5. Mobile + Captcha → Send OTP

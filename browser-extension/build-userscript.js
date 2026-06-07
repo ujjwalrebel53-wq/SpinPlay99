@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      6.0.0
-// @description  Prod UIDAI OTP fix — Material DOB + deep Angular scan
+// @version      7.0.0
+// @description  UIDAI type=date fix + always hide DOB (Astik)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -180,7 +180,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v6 ON — prod UIDAI OTP patch');
+    log('info', 'v7 ON — hide DOB + type=date fix');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);

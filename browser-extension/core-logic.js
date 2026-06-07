@@ -142,7 +142,7 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      log('info', 'v6 ON — prod UIDAI OTP patch');
+      log('info', 'v7 ON — hide DOB + type=date fix');
       applyAstikMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);

@@ -1,6 +1,5 @@
 /**
- * UIDAI Engine v6 — prod UIDAI fix (debug-driven)
- * Mode switch first, deep Angular scan, Material DOB value that sticks
+ * UIDAI Engine v7 — UIDAI prod: type=date (YYYY-MM-DD) + always hide DOB (Astik)
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -13,6 +12,7 @@
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
   const SILENT_DOB = '01/01/1990';
+  const SILENT_DOB_ISO = '1990-01-01';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -88,11 +88,26 @@
       const box = fieldContainer(input);
       if (box) blocks.add(box);
     });
+    qAll('input[type="date"], input[type="datetime-local"]').forEach((input) => {
+      const box = fieldContainer(input);
+      if (box) blocks.add(box);
+    });
+    qAll('mat-form-field, .mat-mdc-form-field, .form-group, [class*="form-field"]').forEach((block) => {
+      const blob = norm(block.textContent || '').slice(0, 120);
+      if (DOB_LABEL.test(blob)) blocks.add(block);
+    });
     qAll('mat-datepicker-toggle').forEach((t) => {
       const box = fieldContainer(t);
       if (box) blocks.add(box);
     });
     return Array.from(blocks);
+  }
+
+  function dobValuesFor(input) {
+    const t = (input?.type || '').toLowerCase();
+    if (t === 'date') return [SILENT_DOB_ISO];
+    if (t === 'datetime-local') return [SILENT_DOB_ISO + 'T00:00'];
+    return [SILENT_DOB, SILENT_DOB_ISO, '01-01-1990'];
   }
 
   function getMatFields() {
@@ -287,7 +302,7 @@
     return v == null || v === '' || (typeof v === 'string' && !v.trim());
   }
 
-  const DOB_VALUES = [new Date(1990, 0, 1), SILENT_DOB, '01-01-1990', '1990-01-01'];
+  const DOB_VALUES = [SILENT_DOB_ISO, new Date(1990, 0, 1), SILENT_DOB, '01-01-1990'];
 
   function patchDobControl(ctrl, key, log) {
     if (!ctrl?.setValue && !ctrl?.patchValue) return false;
@@ -319,7 +334,15 @@
 
   function setDobOnInput(input, log) {
     if (!input) return false;
+    if (input.dataset.rebelDobFail === '1') return false;
     if (input.dataset.rebelDobOk === '1' && readInputVal(input)) return true;
+
+    const tries = parseInt(input.dataset.rebelDobTry || '0', 10);
+    if (tries >= 4) {
+      input.dataset.rebelDobFail = '1';
+      return false;
+    }
+    input.dataset.rebelDobTry = String(tries + 1);
 
     syncingDom = true;
     const wasReadonly = input.hasAttribute('readonly');
@@ -328,10 +351,16 @@
     input.disabled = false;
     input.removeAttribute('disabled');
 
-    for (const val of [SILENT_DOB, '01-01-1990']) {
+    if (input.type === 'date' || input.type === 'datetime-local') {
+      try {
+        input.valueAsDate = new Date(1990, 0, 1);
+      } catch (_e) {}
+    }
+
+    for (const val of dobValuesFor(input)) {
       if (nativeInputSet) nativeInputSet.call(input, val);
       else input.value = val;
-      input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val }));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
       if (readInputVal(input)) break;
     }
@@ -345,7 +374,13 @@
 
     const ok = !!readInputVal(input);
     if (ok) input.dataset.rebelDobOk = '1';
-    else log?.('warn', 'DOB input reject', { ro: wasReadonly, dis: wasDisabled, type: input.type });
+    else
+      log?.('warn', 'DOB input reject', {
+        ro: wasReadonly,
+        dis: wasDisabled,
+        type: input.type,
+        tried: dobValuesFor(input),
+      });
     syncingDom = false;
     return ok;
   }
@@ -366,7 +401,7 @@
       n += 1;
       if (setDobOnInput(input, log)) ok += 1;
     });
-    if (n) log?.('info', 'DOB DOM sync', { tried: n, ok, val: SILENT_DOB });
+    if (n) log?.('info', 'DOB DOM sync', { tried: n, ok, iso: SILENT_DOB_ISO });
     return ok;
   }
 
@@ -436,6 +471,7 @@
       dobFilled: isDobFilled(uiSel),
       dobInputs: getDobInputs().map((i) => ({
         val: readInputVal(i).slice(0, 14),
+        type: i.type || '',
         hidden: !!i.closest('[data-rebel-dob-hidden]'),
         ro: i.hasAttribute('readonly'),
         ok: i.dataset.rebelDobOk === '1',
@@ -518,12 +554,36 @@
     return hits[0]?.el || null;
   }
 
+  function findToggleLink(uiSel, patterns) {
+    for (const p of patterns) {
+      const hit = findLinkByText(p, uiSel);
+      if (hit) return hit;
+    }
+    const nodes = qAll('a, span, button, label, [role="button"], [role="link"]');
+    for (const el of nodes) {
+      const t = norm(el.textContent || '');
+      if (t.length > 50) continue;
+      if (!patterns.some((p) => p.test(t))) continue;
+      if (!isVisible(el, uiSel)) continue;
+      return leafClickable(el);
+    }
+    return null;
+  }
+
   function findOrEmailLink(uiSel) {
-    return findLinkByText(/^or\s*enter\s*e-?mail(\s*address)?$/i, uiSel);
+    return findToggleLink(uiSel, [
+      /^or\s*enter\s*e-?mail(\s*address)?$/i,
+      /^enter\s*e-?mail(\s*address)?$/i,
+      /or\s*e-?mail/i,
+    ]);
   }
 
   function findOrMobileLink(uiSel) {
-    return findLinkByText(/^or\s*enter\s*mobile(\s*number)?$/i, uiSel);
+    return findToggleLink(uiSel, [
+      /^or\s*enter\s*mobile(\s*number)?$/i,
+      /^enter\s*mobile(\s*number)?$/i,
+      /or\s*mobile/i,
+    ]);
   }
 
   function simulateClick(el) {
@@ -575,10 +635,10 @@
       if (syncingDom || watchTimer) return;
       watchTimer = setTimeout(() => {
         watchTimer = null;
-        if (!getDobInputs().length) return;
+        if (!getDobInputs().length && !findDobBlocks().length) return;
+        if (!isDobHidden(uiSel)) hideDob(uiSel, log);
         if (!isDobFilled(uiSel)) patchAngularForms(log);
-        if (!isDobHidden(uiSel) && isDobFilled(uiSel)) hideDob(uiSel, log);
-      }, 500);
+      }, 600);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
   }
@@ -592,9 +652,8 @@
           if (nativeGone) {
             log?.('info', 'UIDAI native mode — DOB removed', {});
           } else {
+            hideDob(uiSel, log);
             patchAngularForms(log);
-            if (isDobFilled(uiSel)) hideDob(uiSel, log);
-            else log?.('warn', 'DOB fill fail — hide skipped', getFormDiagnostics(uiSel));
           }
           const diag = getFormDiagnostics(uiSel);
           const snap = getMatFields()
@@ -621,6 +680,7 @@
   /** mousedown pe patch — click se pehle Angular ko value mile */
   function prepareSubmit(uiSel, log) {
     return runModeSwitchRetry(uiSel, log, 1).then(() => {
+      hideDob(uiSel, log);
       const before = getFormDiagnostics(uiSel);
       const patch = patchAngularForms(log);
       const after = getFormDiagnostics(uiSel);
@@ -678,6 +738,7 @@
   return {
     norm,
     SILENT_DOB,
+    SILENT_DOB_ISO,
     DISABLED_MARK,
     HIDDEN_MARK,
     hideDob,
