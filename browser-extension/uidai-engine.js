@@ -189,20 +189,51 @@
     return hideBlocks(findEmailBlocks(), 'rebel-email-hidden', 'data-rebel-email-hidden', log, 'Email hidden (mobile mode)');
   }
 
+  function isEmailNeutralized(input) {
+    return input?.dataset?.rebelEmailOff === '1' || !!input?.closest?.('[data-rebel-email-hidden]');
+  }
+
+  /** Angular email empty block karta hai — disable + validators clear */
+  function neutralizeEmail(log) {
+    let n = 0;
+    getMatFields().forEach((f) => {
+      if (classifyField(f) !== 'email') return;
+      const input = f.input;
+      input.disabled = true;
+      input.removeAttribute('required');
+      input.setAttribute('aria-required', 'false');
+      input.setCustomValidity?.('');
+      input.dataset.rebelEmailOff = '1';
+      n += 1;
+    });
+    collectFormGroups().forEach((form) => {
+      if (!form.controls) return;
+      Object.entries(form.controls).forEach(([key, ctrl]) => {
+        if (!/email/i.test(key)) return;
+        ctrl.clearValidators?.();
+        ctrl.setErrors?.(null);
+        try {
+          ctrl.disable({ emitEvent: false });
+        } catch (_e) {}
+      });
+      form.updateValueAndValidity?.({ emitEvent: false });
+    });
+    hideEmail(null, log);
+    if (n) log?.('info', 'Email neutralized', { count: n });
+    return n;
+  }
+
   function isDobBypassed(uiSel) {
     return getDobInputs().length === 0 || isDobHidden(uiSel);
   }
 
   function ensureMobileModeSync(uiSel, log) {
-    const emailBlocks = findEmailBlocks();
-    const emailVisible = emailBlocks.some((b) => isVisible(b, uiSel));
-    if (!emailVisible) return false;
     const mobile = findOrMobileLink(uiSel);
-    if (!mobile) return false;
-    log?.('info', 'Switch to mobile mode', (mobile.textContent || '').trim().slice(0, 30));
-    simulateClick(mobile);
-    hideEmail(uiSel, log);
-    return true;
+    if (mobile && isVisible(mobile, uiSel)) {
+      log?.('info', 'Switch to mobile mode', (mobile.textContent || '').trim().slice(0, 30));
+      simulateClick(mobile);
+    }
+    return neutralizeEmail(log) > 0 || !!mobile;
   }
 
   function walkNg(el, fn) {
@@ -477,7 +508,12 @@
 
   function getFieldSnapshot(uiSel) {
     return getMatFields()
-      .filter((f) => classifyField(f) !== 'dob' && classifyField(f) !== 'toggle')
+      .filter((f) => {
+        const t = classifyField(f);
+        if (t === 'dob' || t === 'toggle') return false;
+        if (t === 'email' && isEmailNeutralized(f.input)) return false;
+        return true;
+      })
       .map((f) => ({
         type: classifyField(f),
         label: f.label.slice(0, 28),
@@ -699,7 +735,7 @@
           } else {
             ensureMobileModeSync(uiSel, log);
             hideDob(uiSel, log);
-            hideEmail(uiSel, log);
+            neutralizeEmail(log);
             if (!isDobBypassed(uiSel)) patchAngularForms(log);
           }
           const diag = getFormDiagnostics(uiSel);
@@ -728,7 +764,7 @@
   function prepareSubmit(uiSel, log) {
     ensureMobileModeSync(uiSel, log);
     hideDob(uiSel, log);
-    hideEmail(uiSel, log);
+    neutralizeEmail(log);
 
     const bypassed = isDobBypassed(uiSel);
     let patch = { bypassed, patched: 0, dom: 0 };
@@ -804,6 +840,7 @@
     isDobFilled,
     getFieldSnapshot,
     ensureMobileModeSync,
+    neutralizeEmail,
     readInputVal,
     isDobHidden,
     isDobDisabled,

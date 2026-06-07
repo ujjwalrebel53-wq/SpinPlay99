@@ -112,23 +112,26 @@
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
+        if (window.__rebelOtpReplay) return;
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         const before = networkCount;
         const prep = engine.prepareSubmit(UI_SEL, engLog);
         if (!prep?.formOk) {
           log('error', 'Pehle mobile + captcha bharo', prep?.after);
           return;
         }
+        window.__rebelOtpReplay = true;
         setTimeout(() => {
           btn.click();
           setTimeout(() => {
+            window.__rebelOtpReplay = false;
             if (networkCount <= before) {
               log('error', 'NO API CALL');
               log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
             }
           }, 4000);
-        }, 80);
+        }, 100);
       },
       true
     );

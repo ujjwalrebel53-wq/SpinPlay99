@@ -4,7 +4,7 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.0.0
+// @version      8.1.0
 // @description  Astik bypass DOB + sync OTP click (no async block)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -115,7 +115,7 @@ const ui = `
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar v8 ON' : 'Rebel Adhar v8 OFF';
+      fab.textContent = on ? 'Rebel Adhar v8.1 ON' : 'Rebel Adhar v8.1 OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
   }
@@ -165,17 +165,17 @@ const ui = `
   }
 
   function watchOtp() {
-    if (window.__rebelOtp8) return;
-    window.__rebelOtp8 = true;
+    if (window.__rebelOtp81) return;
+    window.__rebelOtp81 = true;
     document.addEventListener('mousedown', function (e) {
-      if (!on) return;
+      if (!on || window.__rebelOtpReplay) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
 
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
 
       const before = netCount;
       otpNetWatch = true;
@@ -187,16 +187,18 @@ const ui = `
         return;
       }
 
-      log('info', 'OTP click', { dobBypassed: prep.dobBypassed });
+      log('info', 'OTP send', { dobBypassed: prep.dobBypassed });
+      window.__rebelOtpReplay = true;
       setTimeout(function () {
         btn.click();
         setTimeout(function () {
+          window.__rebelOtpReplay = false;
           if (netCount <= before) {
             log('error', 'NO API CALL');
             if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
           }
         }, 4000);
-      }, 80);
+      }, 100);
     }, true);
   }
 
