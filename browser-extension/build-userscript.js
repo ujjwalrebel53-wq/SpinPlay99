@@ -4,7 +4,7 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      9.1.0
+// @version      9.2.0
 // @description  Rebel Adhar — true DOB bypass (mode switch only, no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -104,7 +104,8 @@ const ui = `
       b.style.cssText = 'position:fixed;right:10px;bottom:252px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#7c3aed;color:#fff;font:700 11px system-ui';
       b.onclick = function () {
         const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
-        const txt = JSON.stringify({ url: location.href, on: on, diag: d, logs: logs.slice(-15) }, null, 2);
+        const orLinks = E.discoverOrLinks ? E.discoverOrLinks(UI_SEL).map(function (l) { return l.text; }) : [];
+        const txt = JSON.stringify({ url: location.href, on: on, diag: d, orLinks: orLinks, logs: logs.slice(-15) }, null, 2);
         try { navigator.clipboard.writeText(txt); log('info', 'Debug copied'); } catch (_e) { log('info', 'Debug', txt); }
       };
       document.documentElement.appendChild(b);

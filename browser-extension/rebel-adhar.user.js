@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      9.1.0
+// @version      9.2.0
 // @description  Rebel Adhar — true DOB bypass (mode switch only, no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -239,19 +239,23 @@
     return getDobInputs().length === 0;
   }
 
-  /** OR Email → OR Mobile double tap (Astik bookmark jaisa) */
+  /** OR Email → OR Mobile (ya sirf OR Mobile) — UIDAI native mode switch */
   function quickModeSwitch(uiSel, log) {
-    const email = findOrEmailLink(uiSel);
-    const mobile = findOrMobileLink(uiSel);
+    const links = discoverOrLinks(uiSel);
+    const email = links.find((l) => l.kind === 'email');
+    const mobile = links.find((l) => l.kind === 'mobile');
     if (email) {
-      log?.('info', 'Mode: OR Email', (email.textContent || '').trim().slice(0, 32));
-      simulateClick(email);
+      log?.('info', 'Mode click', email.text);
+      simulateClick(email.el);
     }
     if (mobile) {
-      log?.('info', 'Mode: OR Mobile', (mobile.textContent || '').trim().slice(0, 32));
-      simulateClick(mobile);
+      log?.('info', 'Mode click', mobile.text);
+      simulateClick(mobile.el);
+    } else if (!email && links[0]) {
+      log?.('info', 'Mode click', links[0].text);
+      simulateClick(links[0].el);
     }
-    return { email: !!email, mobile: !!mobile };
+    return { email: !!email, mobile: !!mobile, found: links.length };
   }
 
   function ensureMobileModeSync(uiSel, log) {
@@ -574,6 +578,7 @@
         ro: i.hasAttribute('readonly'),
         ok: i.dataset.rebelDobOk === '1',
       })),
+      orLinks: discoverOrLinks(uiSel).map((l) => l.text),
     };
   }
 
@@ -627,83 +632,145 @@
     let cur = el;
     while (cur && cur !== document.body) {
       const tag = (cur.tagName || '').toLowerCase();
-      if (tag === 'a' || tag === 'button' || cur.getAttribute('role') === 'button' || cur.onclick) return cur;
-      if (cur.classList?.contains('uidai-or-link')) return cur;
+      if (tag === 'a' || tag === 'button') return cur;
+      if (cur.getAttribute('role') === 'button' || cur.getAttribute('role') === 'link') return cur;
+      if (cur.onclick || cur.getAttribute('ng-reflect-router-link')) return cur;
+      if (cur.classList?.contains('uidai-or-link') || cur.classList?.contains('or-link')) return cur;
+      const blob = norm(cur.textContent || '');
+      if (blob.length < 55 && isOrLinkText(blob)) {
+        const st = getComputedStyle(cur);
+        if (st.cursor === 'pointer' || st.textDecorationLine?.includes('underline') || tag === 'span') return cur;
+      }
       cur = cur.parentElement;
     }
     return el;
   }
 
-  function findLinkByText(pattern, uiSel) {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const t = node.textContent.trim();
-        if (!t || t.length > 45) return NodeFilter.FILTER_REJECT;
-        return pattern.test(t) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-      },
-    });
-    const hits = [];
-    let n;
-    while ((n = walker.nextNode())) {
-      const el = leafClickable(n.parentElement);
-      if (el && isVisible(el, uiSel)) hits.push({ el, len: n.textContent.trim().length });
-    }
-    hits.sort((a, b) => a.len - b.len);
-    return hits[0]?.el || null;
+  function isOrLinkText(text) {
+    const t = norm(text);
+    if (t.length < 5 || t.length > 60) return false;
+    if (!/\bor\b/.test(t)) return false;
+    if (/date of birth|enter captcha|enter name|जन्म/i.test(t)) return false;
+    if ((t.match(/\benter\b/g) || []).length > 2) return false;
+    if (/mobile|phone|मोबाइल/i.test(t) && /e-?mail|email/i.test(t) && t.length > 34) return false;
+    return (
+      /\bor\s*(enter\s*)?(e-?mail|email)(\s*(address|id|no\.?))?\b/i.test(t) ||
+      /\bor\s*(enter\s*)?(mobile|phone)(\s*(number|no\.?))?\b/i.test(t) ||
+      /\bor\s*(e-?mail|mobile|phone)\b/i.test(t)
+    );
   }
 
-  function findToggleLink(uiSel, patterns) {
-    for (const p of patterns) {
-      const hit = findLinkByText(p, uiSel);
-      if (hit) return hit;
+  function kindFromOrText(text) {
+    const t = norm(text);
+    if (/e-?mail|email|ईमेल/i.test(t)) return 'email';
+    if (/mobile|phone|मोबाइल/i.test(t)) return 'mobile';
+    return 'other';
+  }
+
+  function discoverOrLinks(uiSel) {
+    const found = [];
+    const seen = new Set();
+
+    function add(el, raw) {
+      if (!el || seen.has(el)) return;
+      const text = norm(raw || el.innerText || el.textContent || '');
+      if (!isOrLinkText(text)) return;
+      const click = leafClickable(el);
+      if (!click || seen.has(click)) return;
+      if (!isVisible(click, uiSel)) return;
+      seen.add(click);
+      found.push({ el: click, text, kind: kindFromOrText(text) });
     }
-    const nodes = qAll('a, span, button, [role="button"], [role="link"]');
-    for (const el of nodes) {
-      const t = norm(el.textContent || '');
-      if (!/^or\s/.test(t) || t.length > 45) continue;
-      if (!patterns.some((p) => p.test(t))) continue;
-      if (!isVisible(el, uiSel)) continue;
-      return leafClickable(el);
+
+    const sel =
+      'a, button, span, div, p, label, mat-hint, [matSuffix], [matsuffix], [role="button"], [role="link"], .uidai-or-link, .or-link, [class*="or-link"], [class*="or_link"], [class*="toggle"]';
+    qAll(sel).forEach((el) => add(el));
+
+    findDobBlocks().forEach((block) => {
+      block.querySelectorAll(sel).forEach((el) => add(el));
+    });
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = norm(node.textContent || '');
+      if (!t || t.length > 50 || !/\bor\b/.test(t)) continue;
+      let cur = node.parentElement;
+      for (let i = 0; i < 4 && cur; i++, cur = cur.parentElement) {
+        add(cur, cur.innerText || cur.textContent);
+      }
     }
-    return null;
+
+    const order = { email: 0, mobile: 1, other: 2 };
+    found.sort((a, b) => {
+      const d = (order[a.kind] ?? 9) - (order[b.kind] ?? 9);
+      if (d) return d;
+      return a.text.length - b.text.length;
+    });
+    return found;
   }
 
   function findOrEmailLink(uiSel) {
-    return findToggleLink(uiSel, [/^or\s*enter\s*e-?mail(\s*address)?$/i, /^or\s*e-?mail/i]);
+    return discoverOrLinks(uiSel).find((l) => l.kind === 'email')?.el || null;
   }
 
   function findOrMobileLink(uiSel) {
-    return findToggleLink(uiSel, [/^or\s*enter\s*mobile(\s*number)?$/i, /^or\s*mobile(\s*number)?$/i]);
+    return discoverOrLinks(uiSel).find((l) => l.kind === 'mobile')?.el || null;
   }
 
   function simulateClick(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    } catch (_e) {}
+    el.focus?.();
     const o = { bubbles: true, cancelable: true, view: window };
-    el.dispatchEvent(new MouseEvent('mousedown', o));
-    el.dispatchEvent(new MouseEvent('mouseup', o));
-    el.dispatchEvent(new MouseEvent('click', o));
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach((type) => {
+      el.dispatchEvent(new MouseEvent(type, o));
+    });
     el.click?.();
   }
 
-  function tryUidaiModeSwitch(uiSel, log) {
-    const email = findOrEmailLink(uiSel);
-    if (!email) {
-      log?.('warn', 'OR Email link not found');
-      return Promise.resolve(false);
+  function waitMs(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  async function tryUidaiModeSwitch(uiSel, log) {
+    if (isDobBypassed()) return true;
+
+    const links = discoverOrLinks(uiSel);
+    log?.('info', 'OR links scan', links.map((l) => l.text));
+
+    if (!links.length) {
+      const sample = norm(document.body?.innerText || '').slice(0, 240);
+      log?.('warn', 'OR toggle not found', { sample });
+      return false;
     }
-    log?.('info', 'UIDAI mode: OR Enter Email', (email.textContent || '').trim().slice(0, 40));
-    simulateClick(email);
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mobile = findOrMobileLink(uiSel);
-        if (mobile) {
-          log?.('info', 'UIDAI mode: OR Enter Mobile', (mobile.textContent || '').trim().slice(0, 40));
-          simulateClick(mobile);
-        } else {
-          log?.('warn', 'OR Mobile link not found');
-        }
-        setTimeout(() => resolve(!!mobile), 1200);
-      }, 1200);
-    });
+
+    const email = links.find((l) => l.kind === 'email');
+    const mobile = links.find((l) => l.kind === 'mobile');
+
+    if (email) {
+      log?.('info', 'UIDAI mode click', email.text);
+      simulateClick(email.el);
+      await waitMs(1400);
+      if (isDobBypassed()) return true;
+    }
+
+    const mobileAfter = discoverOrLinks(uiSel).find((l) => l.kind === 'mobile') || mobile;
+    if (mobileAfter) {
+      log?.('info', 'UIDAI mode click', mobileAfter.text);
+      simulateClick(mobileAfter.el);
+      await waitMs(1400);
+      return true;
+    }
+
+    if (email) return true;
+
+    log?.('info', 'UIDAI mode click (fallback)', links[0].text);
+    simulateClick(links[0].el);
+    await waitMs(1400);
+    return true;
   }
 
   function runModeSwitchRetry(uiSel, log, times) {
@@ -871,6 +938,7 @@
     isFormReadyForOtp,
     isDobBypassed,
     quickModeSwitch,
+    discoverOrLinks,
     getFieldSnapshot,
     ensureMobileModeSync,
     neutralizeEmail,
@@ -979,7 +1047,8 @@
       b.style.cssText = 'position:fixed;right:10px;bottom:252px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#7c3aed;color:#fff;font:700 11px system-ui';
       b.onclick = function () {
         const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
-        const txt = JSON.stringify({ url: location.href, on: on, diag: d, logs: logs.slice(-15) }, null, 2);
+        const orLinks = E.discoverOrLinks ? E.discoverOrLinks(UI_SEL).map(function (l) { return l.text; }) : [];
+        const txt = JSON.stringify({ url: location.href, on: on, diag: d, orLinks: orLinks, logs: logs.slice(-15) }, null, 2);
         try { navigator.clipboard.writeText(txt); log('info', 'Debug copied'); } catch (_e) { log('info', 'Debug', txt); }
       };
       document.documentElement.appendChild(b);

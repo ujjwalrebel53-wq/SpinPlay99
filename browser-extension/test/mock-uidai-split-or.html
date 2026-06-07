@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>UIDAI split OR link mock</title>
+    <style>
+      body { font-family: Roboto, Arial, sans-serif; padding: 16px; }
+      mat-form-field { display: block; margin: 12px 0; border: 1px solid #ddd; padding: 12px; }
+      mat-label, label { display: block; font-weight: 600; margin-bottom: 6px; }
+      input { width: 100%; padding: 8px; }
+      .link-text { color: #0052a5; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <mat-form-field id="name-field">
+      <mat-label>Enter Name as per Aadhaar</mat-label>
+      <input type="text" />
+    </mat-form-field>
+    <mat-form-field id="dob-field">
+      <mat-label>Enter Date of Birth</mat-label>
+      <input type="date" id="dob-input" />
+      <mat-datepicker-toggle>📅</mat-datepicker-toggle>
+      <div class="link-text" id="or-mobile-split"><span>OR</span> <span>Enter Mobile Number</span></div>
+    </mat-form-field>
+    <mat-form-field id="mobile-field">
+      <mat-label>Enter Mobile Number</mat-label>
+      <input type="tel" />
+      <div class="link-text" id="or-email-split"><span>OR</span> <span>Enter Email ID</span></div>
+    </mat-form-field>
+    <mat-form-field id="captcha-field">
+      <mat-label>Enter Captcha</mat-label>
+      <input type="text" />
+    </mat-form-field>
+    <script>
+      document.getElementById('or-email-split').addEventListener('click', function () {
+        setTimeout(function () { document.getElementById('dob-field')?.remove(); }, 80);
+      });
+      document.getElementById('or-mobile-split').addEventListener('click', function () {
+        setTimeout(function () { document.getElementById('dob-field')?.remove(); }, 80);
+      });
+    </script>
+  </body>
+</html>
