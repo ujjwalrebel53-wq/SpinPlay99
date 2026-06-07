@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      10.2.0
-// @description  Rebel Adhar — server se DOB strip + OTP bypass (no fake date)
+// @version      10.3.0
+// @description  Rebel Adhar v10.3 — DOB remove + native OTP (NO fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -186,9 +186,35 @@ const ui = `
 
   var skipOtpHook = false;
 
+  function watchOtpFail(before, btn) {
+    setTimeout(function () {
+      if (netCount > before) return;
+      log('warn', 'Native OTP fail — force retry');
+      skipOtpHook = true;
+      if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
+      setTimeout(function () { skipOtpHook = false; }, 600);
+      setTimeout(function () {
+        if (netCount <= before) {
+          log('error', 'NO API CALL — v' + (E.ENGINE_VERSION || '?') + ' Copy Debug bhejo');
+          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+        }
+      }, 5000);
+    }, 3500);
+  }
+
   function watchOtp() {
     if (window.__rebelOtp83) return;
     window.__rebelOtp83 = true;
+
+    document.addEventListener('mousedown', function (e) {
+      if (!on) return;
+      const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
+      if (!btn) return;
+      const t = E.norm(btn.textContent || btn.value || '');
+      if (!t.includes('send otp') && !t.includes('request otp')) return;
+      E.prepareSubmit(UI_SEL, log);
+    }, true);
+
     document.addEventListener('click', function (e) {
       if (!on || skipOtpHook) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
@@ -198,35 +224,34 @@ const ui = `
 
       const before = netCount;
       otpNetWatch = true;
-      setTimeout(function () { otpNetWatch = false; }, 8000);
+      setTimeout(function () { otpNetWatch = false; }, 10000);
+
+      const prep = E.prepareSubmit(UI_SEL, log);
+      if (prep.dobBypassed && prep.formOk) {
+        log('info', 'OTP send native', { v: E.ENGINE_VERSION || '10.3' });
+        watchOtpFail(before, btn);
+        return;
+      }
 
       e.preventDefault();
       e.stopImmediatePropagation();
 
-      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(E.prepareSubmit(UI_SEL, log));
-      runPrep.then(function (prep) {
-        if (!prep.dobBypassed) {
-          log('error', 'DOB bypass nahi hua — Bypass DOB dabao. DOB mat bharo.', {
-            dobInForm: prep.dobInForm,
-            dobVisible: prep.after?.dobVisible,
-          });
+      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(prep);
+      runPrep.then(function (prep2) {
+        if (!prep2.dobBypassed) {
+          log('error', 'DOB bypass fail — Bypass DOB dabao', { dobInForm: prep2.dobInForm });
           return;
         }
-        if (!prep.formOk) {
-          log('error', 'Pehle naam + mobile + captcha bharo', prep.after);
+        if (!prep2.formOk) {
+          log('error', 'Pehle naam + mobile + captcha bharo', prep2.after);
           return;
         }
-        log('info', 'OTP send', { dobBypassed: true, dobVisible: false });
+        log('info', 'OTP send force', { v: E.ENGINE_VERSION || '10.3' });
         skipOtpHook = true;
         if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
         else btn.click();
         setTimeout(function () { skipOtpHook = false; }, 600);
-        setTimeout(function () {
-          if (netCount <= before) {
-            log('error', 'NO API CALL — Bypass DOB dubara try karo');
-            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
-          }
-        }, 6000);
+        watchOtpFail(before, btn);
       });
     }, true);
   }
@@ -235,7 +260,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'Rebel Adhar ON — DOB bypass shuru');
+    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '10.3') + ' ON — DOB bypass shuru');
     const ready = await E.waitForForm(30000);
     if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);

@@ -11,8 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const SILENT_DOB = '01/01/1990';
-  const SILENT_DOB_ISO = '1990-01-01';
+  const ENGINE_VERSION = '10.3.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -130,11 +129,8 @@
     return Array.from(blocks);
   }
 
-  function dobValuesFor(input) {
-    const t = (input?.type || '').toLowerCase();
-    if (t === 'date') return [SILENT_DOB_ISO];
-    if (t === 'datetime-local') return [SILENT_DOB_ISO + 'T00:00'];
-    return [SILENT_DOB, SILENT_DOB_ISO, '01-01-1990'];
+  function dobValuesFor() {
+    return [];
   }
 
   function getMatFields() {
@@ -449,6 +445,23 @@
     return n;
   }
 
+  /** DOB field DOM se physically remove */
+  function removeDobFromDom(uiSel, log) {
+    let n = 0;
+    findDobBlocks().forEach((block) => {
+      block.remove();
+      n += 1;
+    });
+    getDobInputs().forEach((input) => {
+      const box = fieldContainer(input);
+      if (box) box.remove();
+      else input.remove();
+      n += 1;
+    });
+    if (n) log?.('info', 'DOB DOM se remove', { count: n });
+    return n;
+  }
+
   /** DOB ko form se hatao — validators clear, hide, NO fake date */
   function neutralizeDobControls(uiSel, log) {
     injectCss();
@@ -485,7 +498,7 @@
 
   function advancedBypass(uiSel, log) {
     const now = Date.now();
-    if (!isDobBypassed(uiSel) && now - lastModeClickAt > 2000) {
+    if (!isDobBypassed(uiSel) && now - lastModeClickAt > 3000) {
       const links = discoverOrLinks(uiSel);
       const email = links.find((l) => l.kind === 'email');
       const mobile = links.find((l) => l.kind === 'mobile');
@@ -499,6 +512,7 @@
         log?.('info', 'Mode click', mobile.text);
       }
     }
+    if (!isDobBypassed(uiSel)) removeDobFromDom(uiSel, log);
     if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
     if (isDobBypassed(uiSel)) neutralizeEmail(log);
     enableOtpButtons();
@@ -509,6 +523,49 @@
     };
   }
 
+  async function advancedBypassAsync(uiSel, log) {
+    if (!isDobBypassed(uiSel)) await tryUidaiModeSwitch(uiSel, log);
+    if (!isDobBypassed(uiSel)) removeDobFromDom(uiSel, log);
+    if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
+    if (isDobBypassed(uiSel)) neutralizeEmail(log);
+    enableOtpButtons();
+    return {
+      dobBypassed: isDobBypassed(uiSel),
+      dobVisible: dobFieldVisible(uiSel),
+      orLinks: discoverOrLinks(uiSel).map((l) => l.text),
+    };
+  }
+
+  function triggerAngularOtp(btn, log) {
+    if (!btn) return false;
+    let el = btn;
+    for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
+      if (typeof window.ng?.getComponent === 'function') {
+        try {
+          const cmp = window.ng.getComponent(el);
+          const names = [
+            'sendOtp',
+            'onSendOtp',
+            'generateOtp',
+            'submitForm',
+            'onSubmit',
+            'submit',
+            'requestOtp',
+            'sendOTP',
+          ];
+          for (const n of names) {
+            if (typeof cmp?.[n] === 'function') {
+              cmp[n]();
+              log?.('info', 'OTP Angular method', n);
+              return true;
+            }
+          }
+        } catch (_e) {}
+      }
+    }
+    return false;
+  }
+
   function forceSubmitOtp(btn, log) {
     if (!btn) return false;
     enableOtpButtons();
@@ -516,6 +573,7 @@
     btn.removeAttribute('disabled');
     btn.classList?.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
     btn.style.pointerEvents = 'auto';
+    if (triggerAngularOtp(btn, log)) return true;
     const form = btn.closest('form');
     if (form?.requestSubmit) {
       try {
@@ -736,144 +794,26 @@
     return v == null || v === '' || (typeof v === 'string' && !v.trim());
   }
 
-  const DOB_VALUES = [SILENT_DOB_ISO, new Date(1990, 0, 1), SILENT_DOB, '01-01-1990'];
-
-  function patchDobControl(ctrl, key, log) {
-    if (!ctrl?.setValue && !ctrl?.patchValue) return false;
-    if (key && !isDobControlKey(key) && key !== 'dob') return false;
-    try {
-      if (ctrl.disabled) ctrl.enable({ emitEvent: false });
-    } catch (_e) {}
-    ctrl.clearValidators?.();
-    ctrl.setErrors?.(null);
-    if (dobControlEmpty(ctrl)) {
-      for (const val of DOB_VALUES) {
-        try {
-          ctrl.setValue(val, { emitEvent: true });
-          if (!dobControlEmpty(ctrl)) break;
-        } catch (_e1) {
-          try {
-            ctrl.patchValue(val, { emitEvent: true });
-            if (!dobControlEmpty(ctrl)) break;
-          } catch (_e2) {}
-        }
-      }
-    }
-    ctrl.markAsDirty?.();
-    ctrl.markAsTouched?.();
-    ctrl.updateValueAndValidity?.({ emitEvent: true });
-    log?.('info', 'Angular DOB patch', { key: key || 'ctrl', val: String(ctrl.value).slice(0, 14) });
-    return true;
+  function patchDobControl() {
+    return false;
   }
 
-  function setDobOnInput(input, log) {
-    if (!input) return false;
-    if (input.dataset.rebelDobFail === '1') return false;
-    if (input.dataset.rebelDobOk === '1' && readInputVal(input)) return true;
-
-    const tries = parseInt(input.dataset.rebelDobTry || '0', 10);
-    if (tries >= 4) {
-      input.dataset.rebelDobFail = '1';
-      return false;
-    }
-    input.dataset.rebelDobTry = String(tries + 1);
-
-    syncingDom = true;
-    const wasReadonly = input.hasAttribute('readonly');
-    const wasDisabled = input.disabled;
-    input.removeAttribute('readonly');
-    input.disabled = false;
-    input.removeAttribute('disabled');
-
-    if (input.type === 'date' || input.type === 'datetime-local') {
-      try {
-        input.valueAsDate = new Date(1990, 0, 1);
-      } catch (_e) {}
-    }
-
-    for (const val of dobValuesFor(input)) {
-      if (nativeInputSet) nativeInputSet.call(input, val);
-      else input.value = val;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      if (readInputVal(input)) break;
-    }
-    input.dispatchEvent(new Event('blur', { bubbles: true }));
-
-    if (wasReadonly) input.setAttribute('readonly', '');
-    if (wasDisabled) {
-      input.disabled = true;
-      input.setAttribute('disabled', 'true');
-    }
-
-    const ok = !!readInputVal(input);
-    if (ok) input.dataset.rebelDobOk = '1';
-    else
-      log?.('warn', 'DOB input reject', {
-        ro: wasReadonly,
-        dis: wasDisabled,
-        type: input.type,
-        tried: dobValuesFor(input),
-      });
-    syncingDom = false;
-    return ok;
+  function setDobOnInput() {
+    return false;
   }
 
-  function syncDobDom(log) {
-    if (syncingDom) return 0;
-    let n = 0;
-    let ok = 0;
-    findDobBlocks().forEach((block) => {
-      block.querySelectorAll('input, textarea').forEach((input) => {
-        if (readInputVal(input)) return;
-        n += 1;
-        if (setDobOnInput(input, log)) ok += 1;
-      });
-    });
-    getDobInputs().forEach((input) => {
-      if (readInputVal(input)) return;
-      n += 1;
-      if (setDobOnInput(input, log)) ok += 1;
-    });
-    if (n) log?.('info', 'DOB DOM sync', { tried: n, ok, iso: SILENT_DOB_ISO });
-    return ok;
+  function syncDobDom() {
+    return 0;
   }
 
-  function patchAllDobControls(log) {
-    let patched = 0;
-    collectNgControls().forEach((item) => {
-      const ctrl = item.ctrl || item;
-      const key = item.key || 'dob';
-      if (ctrl?.setValue && patchDobControl(ctrl, key, log)) patched += 1;
-    });
-    return patched;
+  function patchAllDobControls() {
+    return 0;
   }
 
-  /** OTP fix: Angular form VALID + hidden DOB filled silently */
+  /** Sirf DOB clear — fake date fill disabled permanently */
   function patchAngularForms(log) {
-    let patched = 0;
-    const forms = [];
-    collectFormGroups().forEach((form) => {
-      if (!form.controls) return;
-      const before = form.status;
-      const walk = (group) => {
-        Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
-          if (isFormGroup(ctrl)) walk(ctrl);
-          else if (isDobControlKey(key) && patchDobControl(ctrl, key, log)) patched += 1;
-        });
-      };
-      walk(form);
-      if (patched === 0) {
-        Object.entries(form.controls).forEach(([key, ctrl]) => {
-          if (!isFormGroup(ctrl) && dobControlEmpty(ctrl) && patchDobControl(ctrl, key, log)) patched += 1;
-        });
-      }
-      form.updateValueAndValidity?.({ emitEvent: true });
-      forms.push({ before, after: form.status, valid: !!form.valid });
-    });
-    patched += patchAllDobControls(log);
-    const dom = syncDobDom(log);
-    return { patched, dom, forms, ngControls: collectNgControls().length };
+    clearDobValuesOnly(log);
+    return { patched: 0, dom: 0, forms: [], ngControls: 0 };
   }
 
   function getFieldSnapshot(uiSel) {
@@ -1183,18 +1123,16 @@
       if (isDobBypassed(uiSel)) return true;
     }
 
-    for (const link of links) {
-      if (isDobBypassed(uiSel)) return true;
-      await clickToggle(link, log);
-    }
-
     return links.length > 0;
   }
 
   function runModeSwitchRetry(uiSel, log, times) {
     let chain = Promise.resolve();
-    for (let i = 0; i < (times || 6); i++) {
+    const n = Math.min(times || 3, 3);
+    for (let i = 0; i < n; i++) {
       chain = chain.then(() => tryUidaiModeSwitch(uiSel, log)).then(() => {
+        if (isDobBypassed(uiSel)) return false;
+        removeDobFromDom(uiSel, log);
         if (isDobBypassed(uiSel)) return false;
         return waitMs(900);
       });
@@ -1307,19 +1245,21 @@
   /** Mode switch + fallback neutralize */
   async function ensureDobBypassed(uiSel, log, tries) {
     if (isDobBypassed(uiSel)) return true;
-    const n = tries || 10;
+    const n = Math.min(tries || 4, 4);
     for (let i = 0; i < n; i++) {
       await tryUidaiModeSwitch(uiSel, log);
       if (isDobBypassed(uiSel)) return true;
+      removeDobFromDom(uiSel, log);
+      if (isDobBypassed(uiSel)) return true;
       await waitMs(700);
     }
-    advancedBypass(uiSel, log);
+    await advancedBypassAsync(uiSel, log);
     return isDobBypassed(uiSel);
   }
 
   async function prepareSubmitAsync(uiSel, log) {
-    await ensureDobBypassed(uiSel, log, 10);
-    advancedBypass(uiSel, log);
+    await ensureDobBypassed(uiSel, log, 4);
+    await advancedBypassAsync(uiSel, log);
     return buildSubmitState(uiSel, log);
   }
 
@@ -1364,9 +1304,8 @@
   }
 
   return {
+    ENGINE_VERSION,
     norm,
-    SILENT_DOB,
-    SILENT_DOB_ISO,
     DISABLED_MARK,
     HIDDEN_MARK,
     hideDob,
@@ -1394,9 +1333,12 @@
     classifyField,
     stopWatcher,
     neutralizeDobControls,
+    removeDobFromDom,
     clearDobValuesOnly,
     advancedBypass,
+    advancedBypassAsync,
     forceSubmitOtp,
+    triggerAngularOtp,
     installNetworkBypass,
     stripDobDeep,
     stripDobFromBody,
