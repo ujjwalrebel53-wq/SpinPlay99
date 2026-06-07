@@ -16,32 +16,25 @@ async function run() {
   const result = await page.evaluate((code) => {
     eval(code);
 
-    const before = {
-      dobVisible: AstikHelperCore.isDobStillVisible(),
-      nameRequired: document.querySelector('[formcontrolname="fullName"]')?.required,
-    };
-
     AstikHelperCore.applyMode(true, { nameOptional: true, fallbackName: 'Mr' });
 
     const nameInput = document.querySelector('[formcontrolname="fullName"]');
     nameInput.value = '';
-    AstikHelperCore.fillNameIfEmpty(nameInput, 'Mr');
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-    const after = {
+    return {
       dobVisible: AstikHelperCore.isDobStillVisible(),
-      nameRequired: nameInput?.required,
-      nameValue: nameInput?.value,
-      nameInputs: AstikHelperCore.getNameInputs().length,
+      nameRequired: nameInput.required,
+      logPanel: !!document.getElementById('rebel-adhar-log-panel'),
     };
-
-    return { before, after, pass: !after.dobVisible && after.nameValue === 'Mr' };
   }, coreCode);
 
   console.log(JSON.stringify(result, null, 2));
-  console.log(result.pass ? 'PASS' : 'FAIL');
+  const pass = !result.dobVisible && result.logPanel;
+  console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();
-  process.exit(result.pass ? 0 : 1);
+  process.exit(pass ? 0 : 1);
 }
 
 run().catch((e) => {

@@ -2,6 +2,12 @@
 
 Retrieve Aadhaar page par **DOB hide** + **Mobile/Email mode**.
 
+## v1.3.0 — OTP fix + Live Logs
+
+- **OTP fix:** Auto email-toggle hata diya (yeh form tod raha tha)
+- **API patch:** Request se DOB field remove hoti hai jab ON ho
+- **Logs panel:** Screen ke neeche live logs — exact UIDAI error dikhega
+
 ## Name optional (Mr)
 
 - Name field **required nahi** rahega (client-side)

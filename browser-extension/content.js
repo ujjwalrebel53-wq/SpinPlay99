@@ -5,6 +5,7 @@ const STORAGE_KEY = 'astikHelperEnabled';
 const NAME_OPTIONAL_KEY = 'astikHelperNameOptional';
 const FALLBACK_NAME_KEY = 'astikHelperFallbackName';
 const FAB_ID = 'astik-helper-fab';
+const LOG_PANEL_ID = 'rebel-adhar-log-panel';
 
 let enabled = false;
 let nameOptional = true;
@@ -19,33 +20,56 @@ function getOptions() {
 function ensureFab() {
   if (!/uidai\.gov\.in/i.test(window.location.href)) return;
 
-  let fab = document.getElementById(FAB_ID);
-  if (!fab) {
-    fab = document.createElement('button');
+  if (!document.getElementById(FAB_ID)) {
+    const fab = document.createElement('button');
     fab.id = FAB_ID;
     fab.type = 'button';
-    fab.textContent = 'Astik: OFF';
+    fab.textContent = 'Rebel Adhar: OFF';
     fab.addEventListener('click', () => {
       setEnabled(!enabled);
       chrome.storage.local.set({ [STORAGE_KEY]: enabled });
     });
     document.documentElement.appendChild(fab);
   }
+
+  if (!document.getElementById('astik-helper-name-btn')) {
+    const nameBtn = document.createElement('button');
+    nameBtn.id = 'astik-helper-name-btn';
+    nameBtn.type = 'button';
+    nameBtn.textContent = 'Name: Optional';
+    nameBtn.addEventListener('click', () => {
+      setNameOptional(!nameOptional);
+      chrome.storage.local.set({ [NAME_OPTIONAL_KEY]: nameOptional });
+    });
+    document.documentElement.appendChild(nameBtn);
+  }
+
+  if (!document.getElementById('astik-helper-logs-btn')) {
+    const logsBtn = document.createElement('button');
+    logsBtn.id = 'astik-helper-logs-btn';
+    logsBtn.type = 'button';
+    logsBtn.textContent = 'Logs';
+    logsBtn.addEventListener('click', () => {
+      const panel = document.getElementById(LOG_PANEL_ID);
+      if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    document.documentElement.appendChild(logsBtn);
+  }
+
   updateFab();
 }
 
 function updateFab() {
   const fab = document.getElementById(FAB_ID);
-  if (!fab) return;
-
-  if (!enabled) {
-    fab.textContent = 'Astik: OFF';
-    fab.classList.remove('is-on');
-    return;
+  const nameBtn = document.getElementById('astik-helper-name-btn');
+  if (fab) {
+    fab.textContent = enabled ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
+    fab.classList.toggle('is-on', enabled);
   }
-
-  fab.textContent = nameOptional ? 'Astik: ON (Name optional)' : 'Astik: ON';
-  fab.classList.add('is-on');
+  if (nameBtn) {
+    nameBtn.textContent = nameOptional ? 'Name: Optional (Mr OK)' : 'Name: Required';
+    nameBtn.style.background = nameOptional ? '#0052a5' : '#6b7280';
+  }
 }
 
 function applyMode() {
@@ -62,14 +86,16 @@ function scheduleRetries() {
   let attempts = 0;
   retryTimer = setInterval(() => {
     attempts += 1;
-    applyMode();
-    if (attempts >= 25) clearInterval(retryTimer);
-  }, 1000);
+    if (enabled) applyMode();
+    if (attempts >= 10) clearInterval(retryTimer);
+  }, 1500);
 }
 
 function startObserver() {
   if (observer) observer.disconnect();
-  observer = new MutationObserver(() => applyMode());
+  observer = new MutationObserver(() => {
+    if (enabled) applyMode();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 }
 
@@ -82,7 +108,6 @@ function setEnabled(value) {
 function setNameOptional(value) {
   nameOptional = Boolean(value);
   applyMode();
-  scheduleRetries();
 }
 
 function setFallbackName(value) {
@@ -136,13 +161,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'SET_FALLBACK_NAME') {
     setFallbackName(message.fallbackName);
     chrome.storage.local.set({ [FALLBACK_NAME_KEY]: fallbackName });
-    sendResponse({ enabled, nameOptional, fallbackName });
-    return true;
-  }
-
-  if (message?.type === 'TOGGLE') {
-    setEnabled(!enabled);
-    chrome.storage.local.set({ [STORAGE_KEY]: enabled });
     sendResponse({ enabled, nameOptional, fallbackName });
     return true;
   }
