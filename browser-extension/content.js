@@ -1,10 +1,32 @@
 /**
- * Rebel Adhar content script v3
+ * Rebel Adhar content script — injects engine into PAGE context (Angular world).
  */
 const STORAGE_KEY = 'rebelAdharEnabled';
 const FAB_ID = 'rebel-adhar-fab';
 
 let enabled = false;
+let pageInjected = false;
+
+function injectPageBundle() {
+  if (pageInjected) return;
+  pageInjected = true;
+  const s = document.createElement('script');
+  s.src = chrome.runtime.getURL('page-bundle.js');
+  s.onload = () => s.remove();
+  (document.documentElement || document.head).appendChild(s);
+}
+
+function syncStorageToLocal() {
+  try {
+    localStorage.setItem('rebelAdharOn', enabled ? '1' : '0');
+  } catch (_e) {}
+}
+
+function postPage(cmd, extra) {
+  const msg = { rebel: 1, type: 'cmd', cmd };
+  if (extra) Object.assign(msg, extra);
+  window.postMessage(msg, '*');
+}
 
 function ensureFab() {
   if (!/uidai\.gov\.in/i.test(location.href)) return;
@@ -26,14 +48,18 @@ function ensureFab() {
 }
 
 function apply() {
-  if (!window.RebelAdharCore) return;
+  injectPageBundle();
+  syncStorageToLocal();
   ensureFab();
-  window.RebelAdharCore.applyMode(enabled);
+  if (enabled) postPage('boot');
+  if (window.RebelAdharCore) window.RebelAdharCore.applyMode(enabled);
 }
 
 function boot() {
+  injectPageBundle();
   chrome.storage.local.get([STORAGE_KEY], (r) => {
     enabled = Boolean(r[STORAGE_KEY]);
+    syncStorageToLocal();
     apply();
   });
 }
@@ -42,11 +68,7 @@ boot();
 
 chrome.runtime.onMessage.addListener((msg, _s, res) => {
   if (msg?.type === 'GET_STATUS') {
-    res({
-      enabled,
-      dobVisible: window.RebelAdharCore?.isDobStillVisible?.(),
-      emailVisible: window.RebelAdharCore?.isEmailVisible?.(),
-    });
+    res({ enabled });
     return true;
   }
   if (msg?.type === 'SET_ENABLED') {
@@ -57,7 +79,7 @@ chrome.runtime.onMessage.addListener((msg, _s, res) => {
     return true;
   }
   if (msg?.type === 'APPLY_NOW') {
-    window.RebelAdharCore?.applyRebelMode?.(true);
+    postPage('apply');
     res({ enabled });
     return true;
   }

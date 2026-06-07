@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Rebel Adhar — myAadhaar Form",
-  "version": "10.3.0",
-  "description": "Rebel Adhar Advanced — DOB bypass + OTP payload strip",
+  "version": "12.0.0",
+  "description": "Rebel Adhar v12 — PAGE context injection + DOB bypass",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",
@@ -26,15 +26,15 @@
         "https://myaadhaar.uidai.gov.in/*",
         "https://*.uidai.gov.in/*"
       ],
-      "js": ["uidai-engine.js", "core-logic.js", "content.js"],
+      "js": ["content.js"],
       "css": ["content.css"],
-      "run_at": "document_end",
+      "run_at": "document_start",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["core-logic.js"],
+      "resources": ["page-bundle.js", "core-logic.js"],
       "matches": ["https://*.uidai.gov.in/*"]
     }
   ],
