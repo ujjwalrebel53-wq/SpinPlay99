@@ -1,11 +1,10 @@
 /**
- * Rebel Adhar content script v2.2
+ * Rebel Adhar content script v3
  */
 const STORAGE_KEY = 'astikHelperEnabled';
 const FAB_ID = 'astik-helper-fab';
 
 let enabled = false;
-let retryTimer = null;
 
 function ensureFab() {
   if (!/uidai\.gov\.in/i.test(location.href)) return;
@@ -26,31 +25,10 @@ function ensureFab() {
   fab.style.background = enabled ? '#0a7a2f' : '#b42318';
 }
 
-function startRetryLoop() {
-  if (retryTimer) clearInterval(retryTimer);
-  let n = 0;
-  retryTimer = setInterval(() => {
-    n += 1;
-    if (!enabled || n > 12) {
-      clearInterval(retryTimer);
-      retryTimer = null;
-      return;
-    }
-    if (!window.AstikHelperCore?.formReady?.()) return;
-    if (window.AstikHelperCore?.isDobStillVisible?.() && !window.AstikHelperCore?.isEmailVisible?.()) {
-      window.AstikHelperCore.applyAstikMode(true);
-    } else {
-      clearInterval(retryTimer);
-      retryTimer = null;
-    }
-  }, 1200);
-}
-
 function apply() {
   if (!window.AstikHelperCore) return;
   ensureFab();
   window.AstikHelperCore.applyMode(enabled);
-  if (enabled) startRetryLoop();
 }
 
 function boot() {

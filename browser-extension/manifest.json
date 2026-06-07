@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Astik Helper — myAadhaar Form",
-  "version": "2.4.0",
+  "version": "3.0.0",
   "description": "Astik jaisa UIDAI form mode switch — DOB mode se Mobile/Email mode",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
@@ -26,7 +26,7 @@
         "https://myaadhaar.uidai.gov.in/*",
         "https://*.uidai.gov.in/*"
       ],
-      "js": ["core-logic.js", "content.js"],
+      "js": ["uidai-engine.js", "core-logic.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_end",
       "all_frames": true

@@ -1,43 +1,40 @@
-# Rebel Adhar v2.3
+# Rebel Adhar v3.0
 
-**DOB hide + Angular bypass** — real UIDAI page par "OR Enter Email" link aksar nahi milta, isliye v2.3 **hidden dummy DOB** (`01/01/1990`) set karke Angular ko satisfy karta hai.
+UIDAI **Retrieve Aadhaar** page ke liye — production Angular (bina `formcontrolname`) ke saath kaam karta hai.
 
-## Problem kya tha?
+## Kaise kaam karta hai
 
-Sirf DOB CSS se hide karne se Angular andar se form invalid rehta tha → **Send OTP pe API call nahi hoti**.
+1. **mat-label** se fields pehchanta hai (prod Angular mein `formcontrolname` empty hota hai)
+2. **Step 1:** `OR Enter Email Address` click → DOB hide
+3. **Step 2:** `OR Enter Mobile Number` click → mobile wapas, DOB hidden rehti hai
+4. Fallback: mat-datepicker + Angular FormControl pe Date set
 
-v2.3:
-1. Toggle link dhundhta hai (shadow DOM + DOB/mobile ke paas)
-2. Toggle na mile to **DOB bypass**: chhupa ke dummy value + Angular FormControl sync
-3. Send OTP se **pehle** form prepare karta hai (capture phase)
+## Kiwi install
 
-## Kiwi Browser install
+1. Purana script **delete** karo
+2. Download: `rebel-adhar.user.js` (v3.0.0)
+3. Kiwi → Extensions → Developer mode → + → file select
+4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
+5. **Rebel Adhar ON** → DOB gayab → naam + mobile + captcha → Send OTP
 
-1. Purana script hatao (Extensions → delete)
-2. Naya download: `rebel-adhar.user.js`
-3. Kiwi → ⋮ → Extensions → Developer mode ON → + → file select
-4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid kholo
-5. **Rebel Adhar ON** dabao
-6. DOB gayab hona chahiye + **OR Enter Email** area dikhe
-7. **Asli naam** (Mr mat likho) + **registered mobile** + captcha → Send OTP
+## Logs mein success
 
-## Buttons
+```
+Click OR Enter Email | OR Enter Email Address
+Apply done | switched:true
+Submit prep | emptyDob:0
+fetch ...  ← OTP API
+```
 
-| Button | Kaam |
-|--------|------|
-| Rebel Adhar ON/OFF | Main toggle |
-| Switch Mode | Dob ab bhi dikhe to manually mode switch |
-| Logs | Debug panel |
-
-## Download link
+## Download
 
 ```
 https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/rebel-adhar.user.js
 ```
 
-## Logs mein kya dekho
+## Dev
 
-- `Click near mobile` ya `Click mode switch` = sahi link mila
-- `After switch ok:true` = mode switch success
-- `fetch` / `xhr` line = OTP API call gayi
-- `NO API CALL` = Switch Mode dabao, page reload, asli naam use karo
+```bash
+node browser-extension/build-userscript.js   # bundle userscript
+node browser-extension/test/run-test.js      # realistic mock test
+```
