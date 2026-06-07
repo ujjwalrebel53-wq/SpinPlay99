@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Astik Helper — myAadhaar Form",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Astik jaisa UIDAI form mode switch — DOB mode se Mobile/Email mode",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [

@@ -4,12 +4,12 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      3.0.0
+// @version      3.1.0
 // @description  UIDAI retrieve v3 — mat-label engine, OR Enter Email text-node click
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
-// @run-at       document-idle
+// @run-at       document-end
 // ==/UserScript==
 `;
 
@@ -142,7 +142,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v3.0 ON — waiting form');
+    log('info', 'v3.1 ON — waiting form');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);

@@ -47,7 +47,7 @@ async function run() {
   }, engineCode);
 
   console.log(JSON.stringify(result, null, 2));
-  const pass = result.switched && !result.dobVisible && result.otpSent && result.prep.emptyDob === 0;
+  const pass = result.switched && !result.dobVisible && result.otpSent && !result.prep.dobVisible;
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();
