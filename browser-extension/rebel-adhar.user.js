@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      4.0.0
-// @description  Astik style — DOB disable, mobile + captcha → Send OTP
+// @version      4.1.0
+// @description  Astik style — DOB hide/disable, mobile + captcha → Send OTP
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,8 +10,8 @@
 // ==/UserScript==
 
 /**
- * UIDAI Engine v4 — Astik style: DOB DISABLE (not hide/fake fill)
- * User fills mobile + captcha → Send OTP
+ * UIDAI Engine v4.1 — Astik style: DOB hide/disable (video flow)
+ * Tap → mode switch → DOB gone → mobile + captcha → Send OTP
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -21,6 +21,7 @@
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const DISABLED_MARK = 'rebel-dob-disabled';
+  const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
 
   let dobWatcher = null;
@@ -135,6 +136,9 @@
     st.id = 'rebel-astik-css';
     st.textContent =
       '.' +
+      HIDDEN_MARK +
+      '{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;}' +
+      '.' +
       DISABLED_MARK +
       '{opacity:.55!important;pointer-events:none!important;user-select:none!important;}' +
       '.' +
@@ -145,6 +149,19 @@
       DISABLED_MARK +
       ' mat-datepicker-toggle{cursor:not-allowed!important;pointer-events:none!important;background:#f3f4f6!important;}';
     (document.head || document.documentElement).appendChild(st);
+  }
+
+  /** Video/Astik: DOB field screen se hat jaye */
+  function hideDob(uiSel, log) {
+    injectCss();
+    const blocks = findDobBlocks();
+    blocks.forEach((block) => {
+      block.classList.add(HIDDEN_MARK);
+      block.setAttribute('data-rebel-dob-hidden', '1');
+      block.style.setProperty('display', 'none', 'important');
+    });
+    log?.('info', 'DOB hidden (Astik)', { blocks: blocks.length });
+    return blocks.length;
   }
 
   function walkNg(el, fn) {
@@ -212,10 +229,29 @@
     return { blocks: blocks.length, angular: ng };
   }
 
-  function isDobDisabled() {
+  function isDobHidden(uiSel) {
     const inputs = getDobInputs();
     if (!inputs.length) return true;
-    return inputs.every((i) => i.disabled || i.closest('[data-rebel-dob-off]'));
+    return !inputs.some((i) => isVisible(i, uiSel) && !i.closest('[data-rebel-dob-hidden],[data-rebel-dob-off]'));
+  }
+
+  function isDobDisabled(uiSel) {
+    if (isDobHidden(uiSel)) return true;
+    const inputs = getDobInputs();
+    if (!inputs.length) return true;
+    return inputs.every((i) => i.disabled || i.closest('[data-rebel-dob-off],[data-rebel-dob-hidden]'));
+  }
+
+  function leafClickable(el) {
+    if (!el) return null;
+    let cur = el;
+    while (cur && cur !== document.body) {
+      const tag = (cur.tagName || '').toLowerCase();
+      if (tag === 'a' || tag === 'button' || cur.getAttribute('role') === 'button' || cur.onclick) return cur;
+      if (cur.classList?.contains('uidai-or-link')) return cur;
+      cur = cur.parentElement;
+    }
+    return el;
   }
 
   function findLinkByText(pattern, uiSel) {
@@ -229,7 +265,7 @@
     const hits = [];
     let n;
     while ((n = walker.nextNode())) {
-      const el = n.parentElement;
+      const el = leafClickable(n.parentElement);
       if (el && isVisible(el, uiSel)) hits.push({ el, len: n.textContent.trim().length });
     }
     hits.sort((a, b) => a.len - b.len);
@@ -254,25 +290,28 @@
 
   function tryUidaiModeSwitch(uiSel, log) {
     const email = findOrEmailLink(uiSel);
-    if (!email) return false;
+    if (!email) return Promise.resolve(false);
     log?.('info', 'UIDAI mode: OR Enter Email', (email.textContent || '').trim().slice(0, 40));
     simulateClick(email);
-    setTimeout(() => {
-      const mobile = findOrMobileLink(uiSel);
-      if (mobile) {
-        log?.('info', 'UIDAI mode: OR Enter Mobile', (mobile.textContent || '').trim().slice(0, 40));
-        simulateClick(mobile);
-      }
-    }, 500);
-    return true;
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const mobile = findOrMobileLink(uiSel);
+        if (mobile) {
+          log?.('info', 'UIDAI mode: OR Enter Mobile', (mobile.textContent || '').trim().slice(0, 40));
+          simulateClick(mobile);
+        }
+        setTimeout(() => resolve(!!mobile || true), 700);
+      }, 700);
+    });
   }
 
   function startWatcher(uiSel, log, on) {
     if (dobWatcher) dobWatcher.disconnect();
     if (!on) return;
     dobWatcher = new MutationObserver(() => {
+      if (!isDobHidden(uiSel)) hideDob(uiSel, log);
       const inputs = getDobInputs();
-      if (inputs.some((i) => !i.disabled)) disableDob(uiSel, log);
+      if (inputs.some((i) => !i.disabled && isVisible(i, uiSel))) disableDob(uiSel, log);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
   }
@@ -288,35 +327,44 @@
   }
 
   function apply(uiSel, log) {
-    disableDob(uiSel, log);
-    tryUidaiModeSwitch(uiSel, log);
     startWatcher(uiSel, log, true);
-
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        disableDob(uiSel, log);
-        const snap = getMatFields().map((f) => ({
-          type: classifyField(f),
-          label: f.label.slice(0, 26),
-          dis: f.input.disabled,
-        }));
-        log?.('info', 'Astik ON done', { dobDisabled: isDobDisabled(), snap });
-        resolve({ dobDisabled: isDobDisabled(), snap });
-      }, 1200);
+    return tryUidaiModeSwitch(uiSel, log).then(() => {
+      hideDob(uiSel, log);
+      disableDob(uiSel, log);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          hideDob(uiSel, log);
+          disableDob(uiSel, log);
+          const snap = getMatFields()
+            .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
+            .map((f) => ({
+              type: classifyField(f),
+              label: f.label.slice(0, 26),
+              dis: f.input.disabled,
+            }));
+          const state = { dobHidden: isDobHidden(uiSel), dobDisabled: isDobDisabled(uiSel), snap };
+          log?.('info', 'Astik ON done', state);
+          resolve(state);
+        }, 900);
+      });
     });
   }
 
   function prepareSubmit(uiSel, log) {
+    hideDob(uiSel, log);
     disableDob(uiSel, log);
     enableOtpButtons();
-    const snap = getMatFields().map((f) => ({
-      type: classifyField(f),
-      label: f.label.slice(0, 22),
-      val: (f.input.value || '').slice(0, 14),
-      dis: f.input.disabled,
-    }));
-    log?.('info', 'Send OTP prep', { dobDisabled: isDobDisabled(), snap });
-    return { dobDisabled: isDobDisabled(), snap };
+    const snap = getMatFields()
+      .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
+      .map((f) => ({
+        type: classifyField(f),
+        label: f.label.slice(0, 22),
+        val: (f.input.value || '').slice(0, 14),
+        dis: f.input.disabled,
+      }));
+    const state = { dobHidden: isDobHidden(uiSel), dobDisabled: isDobDisabled(uiSel), snap };
+    log?.('info', 'Send OTP prep', state);
+    return state;
   }
 
   function formReady() {
@@ -354,12 +402,15 @@
   }
 
   function dobFieldVisible(uiSel) {
-    return getDobInputs().some((i) => isVisible(i, uiSel) && !i.disabled);
+    return getDobInputs().some((i) => isVisible(i, uiSel) && !i.closest('[data-rebel-dob-hidden]'));
   }
 
   return {
     DISABLED_MARK,
+    HIDDEN_MARK,
+    hideDob,
     disableDob,
+    isDobHidden,
     isDobDisabled,
     dobFieldVisible,
     apply,

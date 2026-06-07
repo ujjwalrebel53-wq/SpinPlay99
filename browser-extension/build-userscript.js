@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      4.0.0
-// @description  Astik style — DOB disable, mobile + captcha → Send OTP
+// @version      4.1.0
+// @description  Astik style — DOB hide/disable, mobile + captcha → Send OTP
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none

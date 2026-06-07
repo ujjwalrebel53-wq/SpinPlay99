@@ -30,8 +30,10 @@ async function run() {
 
     const dobInput = document.getElementById('dob-input');
     return {
-      dobDisabled: UidaiRetrieveEngine.isDobDisabled(),
+      dobHidden: UidaiRetrieveEngine.isDobHidden(UI_SEL),
+      dobDisabled: UidaiRetrieveEngine.isDobDisabled(UI_SEL),
       dobInputDisabled: dobInput.disabled,
+      dobVisible: UidaiRetrieveEngine.dobFieldVisible(UI_SEL),
       prep,
       otpSent: !!window.__otpSent,
       otpBlocked: window.__otpBlocked,
@@ -41,7 +43,7 @@ async function run() {
   }, engineCode);
 
   console.log(JSON.stringify(result, null, 2));
-  const pass = result.dobDisabled && result.otpSent && !result.otpBlocked;
+  const pass = result.dobHidden && !result.dobVisible && result.otpSent && !result.otpBlocked;
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();
