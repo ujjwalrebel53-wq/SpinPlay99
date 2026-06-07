@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      3.1.0
-// @description  UIDAI retrieve v3 — mat-label engine, OR Enter Email text-node click
+// @version      4.0.0
+// @description  Astik style — DOB disable, mobile + captcha → Send OTP
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -142,7 +142,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v3.1 ON — waiting form');
+    log('info', 'v4 Astik ON — DOB disable');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);

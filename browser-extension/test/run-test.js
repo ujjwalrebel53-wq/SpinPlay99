@@ -10,7 +10,7 @@ async function run() {
   const page = await browser.newPage();
 
   await page.goto(mockUrl);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(300);
 
   const result = await page.evaluate(async (code) => {
     eval(code);
@@ -19,35 +19,29 @@ async function run() {
     const log = (level, msg, data) => logs.push({ level, msg, data });
 
     await UidaiRetrieveEngine.waitForForm(5000);
-    const link = UidaiRetrieveEngine.findOrEmailLink(UI_SEL);
     const r = await UidaiRetrieveEngine.apply(UI_SEL, log);
-    await new Promise((r) => setTimeout(r, 1600));
 
     document.querySelector('#name-field input').value = 'Javed';
     document.querySelector('#mobile-field input').value = '7651892956';
     document.querySelector('#captcha-field input').value = 'abc123';
 
-    await new Promise((r) => setTimeout(r, 200));
     const prep = UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
-    await new Promise((r) => setTimeout(r, 600));
     document.getElementById('send-otp').click();
 
+    const dobInput = document.getElementById('dob-input');
     return {
-      linkText: link ? link.textContent.trim() : null,
-      switched: r.switched,
-      dobVisible: UidaiRetrieveEngine.dobFieldVisible(UI_SEL),
-      emailVisible: UidaiRetrieveEngine.getMatFields().some(
-        (f) => UidaiRetrieveEngine.classifyField(f) === 'email' && UidaiRetrieveEngine.isVisible(f.mff)
-      ),
+      dobDisabled: UidaiRetrieveEngine.isDobDisabled(),
+      dobInputDisabled: dobInput.disabled,
       prep,
       otpSent: !!window.__otpSent,
-      otpBlocked: window.__otpBlocked || null,
+      otpBlocked: window.__otpBlocked,
+      apply: r,
       logs,
     };
   }, engineCode);
 
   console.log(JSON.stringify(result, null, 2));
-  const pass = result.switched && !result.dobVisible && result.otpSent && !result.prep.dobVisible;
+  const pass = result.dobDisabled && result.otpSent && !result.otpBlocked;
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();

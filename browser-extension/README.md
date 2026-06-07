@@ -1,42 +1,31 @@
-# Rebel Adhar v3.1
+# Rebel Adhar v4.0 — Astik style
 
-UIDAI **Retrieve Aadhaar** page ke liye — production Angular (bina `formcontrolname`) ke saath kaam karta hai.
+**Astik jaisa:** Tap → **DOB disable** → user sirf **mobile + captcha** (naam bhi) → Send OTP.
 
-## Kaise kaam karta hai
+## Kya karta hai
 
-1. **mat-label** se fields pehchanta hai (prod Angular mein `formcontrolname` empty hota hai)
-2. **Step 1:** `OR Enter Email Address` click → DOB hide
-3. **Step 2:** `OR Enter Mobile Number` click → mobile wapas, DOB hidden rehti hai
-4. **Force CSS hide** — mat-label / mat-datepicker / "Date of Birth" text se DOB block hide (MutationObserver se re-hide)
-5. Fallback: mat-datepicker + Angular FormControl pe Date set
+1. DOB input + calendar button **disabled** (gray, fill nahi karna)
+2. Angular `FormControl.disable()` on DOB — validation skip
+3. Optional: UIDAI `OR Enter Email` link click (agar mile)
+4. Send OTP se pehle DOB dubara disable ensure
 
-## Kiwi install
+## Install (Kiwi)
 
-1. Purana script **delete** karo
-2. Download: `rebel-adhar.user.js` (v3.0.0)
-3. Kiwi → Extensions → Developer mode → + → file select
-4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
-5. **Rebel Adhar ON** → DOB gayab → naam + mobile + captcha → Send OTP
+1. Purana script delete
+2. `rebel-adhar.user.js` v4.0 load karo
+3. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
+4. **Rebel Adhar ON** → DOB gray/disabled dikhe
+5. Mobile + Captcha → Send OTP
 
-## Logs mein success
+## Success logs
 
 ```
-Click OR Enter Email | OR Enter Email Address
-Click OR Enter Mobile | OR Enter Mobile Number
-Apply done | switched:true
-Submit prep | emptyDob:0
-fetch ...  ← OTP API
+DOB disabled (Astik) | blocks:1
+Astik ON done | dobDisabled:true
+Send OTP prep | dobDisabled:true
+fetch ...
 ```
 
 ## Download
 
-```
 https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/rebel-adhar.user.js
-```
-
-## Dev
-
-```bash
-node browser-extension/build-userscript.js   # bundle userscript
-node browser-extension/test/run-test.js      # realistic mock test
-```

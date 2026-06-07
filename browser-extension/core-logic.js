@@ -1,5 +1,5 @@
 /**
- * Rebel Adhar v3 — uses UidaiRetrieveEngine (mat-label based, prod Angular)
+ * Rebel Adhar v4 — Astik: DOB disable
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -19,7 +19,6 @@
   let networkHooksInstalled = false;
   let otpPrepInstalled = false;
   let networkCount = 0;
-  let applied = false;
 
   const engine = typeof UidaiRetrieveEngine !== 'undefined' ? UidaiRetrieveEngine : null;
 
@@ -43,7 +42,9 @@
       '<div style="display:flex;justify-content:space-between;padding:8px;background:#111827;color:#fff;font:700 12px system-ui">' +
       '<strong>Rebel Adhar Logs</strong>' +
       '<button type="button" id="rebel-log-clear" style="border:none;border-radius:5px;padding:3px 8px;background:#374151;color:#fff">Clear</button>' +
-      '</div><pre id="' + LOG_BODY_ID + '" style="margin:0;padding:10px;max-height:220px;overflow:auto;font:11px monospace;color:#bbf7d0;background:rgba(8,12,20,.97)"></pre>';
+      '</div><pre id="' +
+      LOG_BODY_ID +
+      '" style="margin:0;padding:10px;max-height:220px;overflow:auto;font:11px monospace;color:#bbf7d0;background:rgba(8,12,20,.97)"></pre>';
     document.documentElement.appendChild(panel);
     document.getElementById('rebel-log-clear').onclick = () => {
       logs.length = 0;
@@ -55,10 +56,12 @@
     ensureLogPanel();
     const body = document.getElementById(LOG_BODY_ID);
     if (!body) return;
-    body.textContent = logs.map((l) => {
-      const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
-      return `[${l.time}] ${l.level.toUpperCase()} ${l.msg}${x}`;
-    }).join('\n');
+    body.textContent = logs
+      .map((l) => {
+        const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
+        return `[${l.time}] ${l.level.toUpperCase()} ${l.msg}${x}`;
+      })
+      .join('\n');
     body.scrollTop = body.scrollHeight;
   }
 
@@ -69,28 +72,13 @@
     if (origFetch) {
       window.fetch = function (...args) {
         const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-        if (enabledState && /otp|uidai|aadhaar|retrieve|send|verify|auth|genric/i.test(url)) {
+        if (enabledState && /otp|uidai|aadhaar|retrieve|send|verify|auth/i.test(url)) {
           networkCount += 1;
           log('req', 'fetch', url.slice(0, 100));
         }
         return origFetch.apply(this, args);
       };
     }
-    const XHR = XMLHttpRequest.prototype;
-    const origOpen = XHR.open;
-    const origSend = XHR.send;
-    XHR.open = function (_m, url) {
-      this._rebelUrl = url;
-      return origOpen.apply(this, arguments);
-    };
-    XHR.send = function () {
-      const url = this._rebelUrl || '';
-      if (enabledState && /otp|uidai|aadhaar|retrieve|send|verify|auth|genric/i.test(url)) {
-        networkCount += 1;
-        log('req', 'xhr', url.slice(0, 100));
-      }
-      return origSend.apply(this, arguments);
-    };
   }
 
   function installOtpPrep() {
@@ -102,11 +90,11 @@
         if (!enabledState) return;
         const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
         if (!btn) return;
-        const t = engine.norm(btn.textContent || btn.value || '');
+        const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
         const before = networkCount;
         const prep = engine.prepareSubmit(UI_SEL, engLog);
-        if (prep.emptyDob > 0 || prep.ngDobEmpty > 0) log('error', 'DOB abhi bhi empty', prep);
+        if (!prep.dobDisabled) log('error', 'DOB abhi enabled hai', prep);
         setTimeout(() => {
           if (networkCount <= before) log('error', 'NO API CALL');
         }, 3000);
@@ -115,20 +103,11 @@
     );
   }
 
-  async function applyAstikMode(force) {
-    if (!engine) return { ok: false, error: 'engine missing' };
-    if (!enabledState && !force) return { ok: false };
+  async function applyAstikMode() {
+    if (!engine) return { ok: false };
     ensureLogPanel();
-    const ready = await engine.waitForForm(20000);
-    if (!ready) {
-      log('warn', 'Form load timeout');
-      return { ok: false };
-    }
-    if (applied && !force && engine.emailModeActive()) return { ok: true };
-    log('info', 'v3 apply start');
-    const result = await engine.apply(UI_SEL, engLog);
-    applied = true;
-    return result;
+    await engine.waitForForm(25000);
+    return engine.apply(UI_SEL, engLog);
   }
 
   function applyMode(enabled) {
@@ -139,19 +118,15 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      applied = false;
-      log('info', 'v3.0 ON');
-      applyAstikMode(true);
+      log('info', 'v4 Astik ON — DOB disable');
+      applyAstikMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);
-      applied = false;
-      log('info', 'OFF — reload page');
+      engine?.stopWatcher?.();
+      log('info', 'OFF — page reload');
     }
 
-    return {
-      enabled: enabledState,
-      dobVisible: engine ? engine.getMatFields().some((f) => engine.classifyField(f) === 'dob' && engine.isVisible(f.mff, UI_SEL)) : false,
-    };
+    return { enabled: enabledState, dobDisabled: engine?.isDobDisabled?.() };
   }
 
   return {
@@ -160,13 +135,9 @@
     LOG_PANEL_ID,
     applyMode,
     applyAstikMode,
-    isDobStillVisible: () =>
-      engine
-        ? engine.getMatFields().some((f) => engine.classifyField(f) === 'dob' && engine.isVisible(f.mff, UI_SEL))
-        : false,
-    isEmailVisible: () =>
-      engine ? engine.getMatFields().some((f) => engine.classifyField(f) === 'email' && engine.isVisible(f.mff, UI_SEL)) : false,
-    formReady: () => (engine ? engine.formReady() : false),
+    isDobStillVisible: () => engine?.dobFieldVisible?.(UI_SEL) ?? false,
+    isDobDisabled: () => engine?.isDobDisabled?.() ?? false,
+    formReady: () => engine?.formReady?.() ?? false,
     log,
   };
 });
