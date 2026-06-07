@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mock Retrieve Aadhaar</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; }
+      mat-form-field, .mat-mdc-form-field { display: block; margin: 16px 0; border: 1px solid #ccc; padding: 12px; }
+      mat-label, label { display: block; font-weight: 600; margin-bottom: 8px; }
+      input { width: 100%; padding: 8px; }
+      .or-link { color: #0052a5; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+      .email-field { display: none; }
+      .email-mode .email-field { display: block; }
+      .email-mode .dob-field { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>Retrieve Aadhaar</h2>
+    <form>
+      <mat-form-field class="name-field">
+        <mat-label>Enter Name as per Aadhaar</mat-label>
+        <input matInput formcontrolname="fullName" placeholder="Enter Name as per Aadhaar" />
+      </mat-form-field>
+
+      <mat-form-field class="dob-field mat-mdc-form-field">
+        <mat-label>Enter Date of Birth</mat-label>
+        <input matInput formcontrolname="dateOfBirth" placeholder="DD/MM/YYYY" />
+        <mat-datepicker-toggle></mat-datepicker-toggle>
+      </mat-form-field>
+
+      <mat-form-field class="mobile-field">
+        <mat-label>Enter Mobile Number</mat-label>
+        <input matInput formcontrolname="mobileNo" placeholder="Enter Mobile Number" />
+        <span class="or-link" id="email-toggle">OR Enter Email</span>
+      </mat-form-field>
+
+      <mat-form-field class="email-field mat-mdc-form-field">
+        <mat-label>Enter Email Address</mat-label>
+        <input matInput formcontrolname="emailId" placeholder="Enter Email Address" />
+      </mat-form-field>
+
+      <mat-form-field>
+        <mat-label>Enter Captcha</mat-label>
+        <input matInput formcontrolname="captcha" placeholder="Enter Captcha" />
+      </mat-form-field>
+
+      <button type="button">Send OTP</button>
+    </form>
+
+    <script>
+      document.getElementById('email-toggle').addEventListener('click', function () {
+        document.body.classList.add('email-mode');
+      });
+    </script>
+  </body>
+</html>

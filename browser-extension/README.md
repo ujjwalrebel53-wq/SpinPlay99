@@ -1,51 +1,46 @@
-# Astik Helper — Browser Extension
+# Astik Helper — myAadhaar Form
 
-myAadhaar **Retrieve Aadhaar** page par Astik jaisa kaam karta hai: **Date of Birth hide** karke **Mobile / Email mode** enable karta hai.
+Retrieve Aadhaar page par **DOB hide** + **Mobile/Email mode**.
 
-## Install (Chrome / Edge / Brave)
+## ⭐ Kiwi / Phone ke liye BEST (userscript)
 
-1. Repo se `browser-extension` folder download karo (ya clone karo).
-2. Browser mein kholo:
-   - Chrome: `chrome://extensions`
-   - Edge: `edge://extensions`
-3. **Developer mode** ON karo (top-right).
-4. **Load unpacked** dabao.
-5. `browser-extension` folder select karo.
+Extension se zyada reliable:
 
-Extension toolbar mein dikhega.
+1. Download file: **`astik-helper.user.js`**
+2. Kiwi → **⋮ → Extensions** → Developer mode **ON**
+3. **+ (from .zip/.crx/.user.js)** → `astik-helper.user.js` select karo
+4. https://myaadhaar.uidai.gov.in/retrieve-eid-uid kholo
+5. Screen par **red button** dikhega: `DOB Hide: OFF` → tap → **ON**
+6. DOB field hide ho jayegi
 
-## Use kaise karein
+## PC Chrome / Edge (extension)
 
-1. Ye page kholo: https://myaadhaar.uidai.gov.in/retrieve-eid-uid
-2. Extension icon par click karo.
-3. **DOB hide mode** toggle **ON** karo.
-4. Page par blue bar dikhegi: `Astik Helper ON`
-5. DOB field gayab ho jayegi; Mobile / Email option active ho jayega.
-6. Normal form chahiye ho to toggle **OFF** karo.
+1. `chrome://extensions` ya `edge://extensions`
+2. Developer mode **ON**
+3. **Load unpacked** → `browser-extension` folder
+4. UIDAI retrieve page kholo → toggle ON
 
-## Kya karta hai
+## Download
 
-| Action | Result |
-|--------|--------|
-| Toggle ON | DOB field + label hide |
-| Toggle ON | "OR Enter Email" jaisa option try karta hai |
-| Toggle ON | Mobile / Email fields visible |
-| Toggle OFF | Form wapas normal |
+Branch ZIP:
+https://github.com/ujjwalrebel53-wq/SpinPlay99/archive/refs/heads/cursor/aadhaar-form-helper-extension-95e1.zip
+
+Direct userscript:
+https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/astik-helper.user.js
+
+## Tested
+
+- Mock UIDAI Angular form: **DOB hide PASS**
+- Live UIDAI: India network / browser par test karo (server geo-block ho sakta hai)
 
 ## Files
 
-- `manifest.json` — Extension config (Manifest V3)
-- `content.js` — Page par DOM change (hide/show fields)
-- `content.css` — Hidden fields + ON indicator bar
-- `popup.html` / `popup.js` — Toolbar popup UI
-- `background.js` — Badge ON/OFF
+| File | Use |
+|------|-----|
+| `astik-helper.user.js` | **Kiwi / mobile — use this** |
+| `manifest.json` + `content.js` | Chrome/Edge extension |
+| `core-logic.js` | Shared hide logic |
 
 ## Note
 
-- Yeh sirf **aapke browser mein page ko modify** karta hai — UIDAI server par kuch change nahi hota.
-- Galat details par OTP nahi aayega; server-side validation same rehti hai.
-- Sirf apne registered mobile/email ke saath use karo.
-
-## Firefox
-
-Firefox Manifest V3 support limited hai. Abhi Chrome/Edge/Brave ke liye optimized hai.
+Sirf apne registered details ke saath use karo. OTP Indian mobile par aayega.
