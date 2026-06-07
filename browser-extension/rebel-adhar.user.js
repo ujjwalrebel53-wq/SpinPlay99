@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      7.0.1
-// @description  UIDAI type=date fix + always hide DOB (Astik)
+// @version      8.0.0
+// @description  Astik bypass DOB + sync OTP click (no async block)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 /**
- * UIDAI Engine v7 — UIDAI prod: type=date (YYYY-MM-DD) + always hide DOB (Astik)
+ * UIDAI Engine v8 — Astik bypass: mode switch removes DOB, sync OTP click
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -142,7 +142,8 @@
   function classifyField(f) {
     const l = f.label;
     if (DOB_LABEL.test(l) || isDobInput(f.input)) return 'dob';
-    if (/email|e-mail/.test(l) || f.input.type === 'email') return 'email';
+    if (/^or\s/.test(l)) return 'toggle';
+    if ((/enter\s*e-?mail/.test(l) || f.input.type === 'email') && !/mobile/.test(l)) return 'email';
     if (/mobile|phone|मोबाइल/.test(l) && !/email/.test(l)) return 'mobile';
     if (/name|नाम/.test(l)) return 'name';
     if (/captcha/.test(l)) return 'captcha';
@@ -156,7 +157,7 @@
     st.textContent =
       '.' +
       HIDDEN_MARK +
-      '{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;}' +
+      ',.rebel-email-hidden{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;}' +
       '.' +
       DISABLED_MARK +
       '{opacity:.55!important;pointer-events:none!important;user-select:none!important;}' +
@@ -171,16 +172,48 @@
   }
 
   /** Video/Astik: DOB field screen se hat jaye */
-  function hideDob(uiSel, log) {
+  function hideBlocks(blocks, cssClass, dataAttr, log, msg) {
     injectCss();
-    const blocks = findDobBlocks();
     blocks.forEach((block) => {
-      block.classList.add(HIDDEN_MARK);
-      block.setAttribute('data-rebel-dob-hidden', '1');
+      block.classList.add(cssClass);
+      block.setAttribute(dataAttr, '1');
       block.style.setProperty('display', 'none', 'important');
     });
-    log?.('info', 'DOB hidden (Astik)', { blocks: blocks.length });
+    if (blocks.length) log?.('info', msg, { blocks: blocks.length });
     return blocks.length;
+  }
+
+  function hideDob(uiSel, log) {
+    return hideBlocks(findDobBlocks(), HIDDEN_MARK, 'data-rebel-dob-hidden', log, 'DOB hidden (bypass)');
+  }
+
+  function findEmailBlocks() {
+    const blocks = new Set();
+    getMatFields().forEach((f) => {
+      if (classifyField(f) !== 'email') return;
+      if (f.mff) blocks.add(f.mff);
+    });
+    return Array.from(blocks);
+  }
+
+  function hideEmail(uiSel, log) {
+    return hideBlocks(findEmailBlocks(), 'rebel-email-hidden', 'data-rebel-email-hidden', log, 'Email hidden (mobile mode)');
+  }
+
+  function isDobBypassed(uiSel) {
+    return getDobInputs().length === 0 || isDobHidden(uiSel);
+  }
+
+  function ensureMobileModeSync(uiSel, log) {
+    const emailBlocks = findEmailBlocks();
+    const emailVisible = emailBlocks.some((b) => isVisible(b, uiSel));
+    if (!emailVisible) return false;
+    const mobile = findOrMobileLink(uiSel);
+    if (!mobile) return false;
+    log?.('info', 'Switch to mobile mode', (mobile.textContent || '').trim().slice(0, 30));
+    simulateClick(mobile);
+    hideEmail(uiSel, log);
+    return true;
   }
 
   function walkNg(el, fn) {
@@ -453,21 +486,31 @@
     return { patched, dom, forms, ngControls: collectNgControls().length };
   }
 
+  function getFieldSnapshot(uiSel) {
+    return getMatFields()
+      .filter((f) => classifyField(f) !== 'dob' && classifyField(f) !== 'toggle')
+      .map((f) => ({
+        type: classifyField(f),
+        label: f.label.slice(0, 28),
+        val: readInputVal(f.input).slice(0, 20),
+        ok: !!readInputVal(f.input),
+      }));
+  }
+
   function isDobFilled(uiSel) {
+    if (isDobBypassed(uiSel)) return true;
     const inputs = getDobInputs();
-    if (!inputs.length) return true;
-    return inputs.every((i) => {
-      if (!isVisible(i, uiSel) || i.closest('[data-rebel-dob-hidden]')) {
-        return !!readInputVal(i) || i.dataset.rebelDobOk === '1';
-      }
-      return !!readInputVal(i);
-    });
+    return inputs.every((i) => !!readInputVal(i) || i.dataset.rebelDobOk === '1');
   }
 
   function isFormReadyForOtp(uiSel) {
-    const groups = collectFormGroups().filter((g) => g.controls);
-    const ngOk = groups.length === 0 || groups.every((g) => g.valid || g.status === 'VALID');
-    return isDobFilled(uiSel) && ngOk;
+    const snap = getFieldSnapshot(uiSel);
+    const mobile = snap.find((f) => f.type === 'mobile');
+    const captcha = snap.find((f) => f.type === 'captcha');
+    const hasMobile = mobile?.ok;
+    const hasCaptcha = captcha?.ok;
+    const dobOk = isDobBypassed(uiSel) || isDobFilled(uiSel);
+    return dobOk && hasMobile && hasCaptcha;
   }
 
   function getFormDiagnostics(uiSel) {
@@ -479,7 +522,9 @@
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
       ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
+      dobBypassed: isDobBypassed(uiSel),
       dobFilled: isDobFilled(uiSel),
+      fields: getFieldSnapshot(uiSel),
       dobInputs: getDobInputs().map((i) => ({
         val: readInputVal(i).slice(0, 14),
         type: i.type || '',
@@ -663,8 +708,10 @@
           if (nativeGone) {
             log?.('info', 'UIDAI native mode — DOB removed', {});
           } else {
+            ensureMobileModeSync(uiSel, log);
             hideDob(uiSel, log);
-            patchAngularForms(log);
+            hideEmail(uiSel, log);
+            if (!isDobBypassed(uiSel)) patchAngularForms(log);
           }
           const diag = getFormDiagnostics(uiSel);
           const snap = getMatFields()
@@ -688,24 +735,31 @@
     });
   }
 
-  /** mousedown pe patch — click se pehle Angular ko value mile */
+  /** Sync prep — OTP click se PEHLE (async nahi) */
   function prepareSubmit(uiSel, log) {
-    return runModeSwitchRetry(uiSel, log, 1).then(() => {
-      hideDob(uiSel, log);
-      const before = getFormDiagnostics(uiSel);
-      const patch = patchAngularForms(log);
-      const after = getFormDiagnostics(uiSel);
-      const state = {
-        dobHidden: isDobHidden(uiSel),
-        patch,
-        before,
-        after,
-        formOk: isFormReadyForOtp(uiSel),
-      };
-      log?.('info', 'Send OTP prep', state);
-      if (!state.formOk) log?.('error', 'DOB/Form not ready', after);
-      return state;
-    });
+    ensureMobileModeSync(uiSel, log);
+    hideDob(uiSel, log);
+    hideEmail(uiSel, log);
+
+    const bypassed = isDobBypassed(uiSel);
+    let patch = { bypassed, patched: 0, dom: 0 };
+    if (!bypassed) patch = patchAngularForms(log);
+
+    const after = getFormDiagnostics(uiSel);
+    const state = {
+      dobBypassed: bypassed,
+      dobHidden: isDobHidden(uiSel),
+      patch,
+      after,
+      formOk: isFormReadyForOtp(uiSel),
+    };
+    log?.('info', 'Send OTP prep', state);
+    if (!bypassed) log?.('warn', 'DOB bypass fail — fallback fill');
+    if (!state.formOk) {
+      const miss = (after.fields || []).filter((f) => (f.type === 'mobile' || f.type === 'captcha') && !f.ok);
+      log?.('error', 'Fill missing', miss.length ? miss : after.fields);
+    }
+    return state;
   }
 
   function formReady() {
@@ -757,7 +811,10 @@
     patchAngularForms,
     getFormDiagnostics,
     isFormReadyForOtp,
+    isDobBypassed,
     isDobFilled,
+    getFieldSnapshot,
+    ensureMobileModeSync,
     readInputVal,
     isDobHidden,
     isDobDisabled,
@@ -872,24 +929,33 @@
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
+      fab.textContent = on ? 'Rebel Adhar v8 ON' : 'Rebel Adhar v8 OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
   }
 
+  var otpNetWatch = false;
+
   function isOtpUrl(u) {
-    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate/i.test(u || '');
+    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate|myaadhaar|gov.in/i.test(u || '');
+  }
+
+  function shouldLogNet(u, method) {
+    if (!on) return false;
+    if (otpNetWatch) return true;
+    return isOtpUrl(u) || (method && String(method).toUpperCase() === 'POST');
   }
 
   function installNet() {
-    if (window.__rebelNet5) return;
-    window.__rebelNet5 = true;
+    if (window.__rebelNet8) return;
+    window.__rebelNet8 = true;
     const f = window.fetch;
     window.fetch = function () {
       const u = typeof arguments[0] === 'string' ? arguments[0] : arguments[0]?.url || '';
-      if (on && isOtpUrl(u)) {
+      const m = (arguments[1] && arguments[1].method) || 'GET';
+      if (shouldLogNet(u, m)) {
         netCount += 1;
-        log('req', 'fetch', u.slice(0, 100));
+        log('req', 'fetch ' + m, u.slice(0, 120));
       }
       return f.apply(this, arguments);
     };
@@ -899,12 +965,13 @@
       const send = XHR.prototype.send;
       XHR.prototype.open = function (method, url) {
         this.__rebelUrl = String(url || '');
+        this.__rebelMethod = String(method || 'GET');
         return open.apply(this, arguments);
       };
       XHR.prototype.send = function () {
-        if (on && isOtpUrl(this.__rebelUrl)) {
+        if (shouldLogNet(this.__rebelUrl, this.__rebelMethod)) {
           netCount += 1;
-          log('req', 'xhr', (this.__rebelUrl || '').slice(0, 100));
+          log('req', 'xhr ' + this.__rebelMethod, (this.__rebelUrl || '').slice(0, 120));
         }
         return send.apply(this, arguments);
       };
@@ -912,24 +979,38 @@
   }
 
   function watchOtp() {
-    if (window.__rebelOtp6) return;
-    window.__rebelOtp6 = true;
+    if (window.__rebelOtp8) return;
+    window.__rebelOtp8 = true;
     document.addEventListener('mousedown', function (e) {
       if (!on) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
       const before = netCount;
-      Promise.resolve(E.prepareSubmit(UI_SEL, log)).then(function (prep) {
-        if (!prep.formOk) log('error', 'DOB/Form not ready', prep.after);
+      otpNetWatch = true;
+      setTimeout(function () { otpNetWatch = false; }, 6000);
+
+      const prep = E.prepareSubmit(UI_SEL, log);
+      if (!prep.formOk) {
+        log('error', 'Pehle mobile + captcha bharo', prep.after);
+        return;
+      }
+
+      log('info', 'OTP click', { dobBypassed: prep.dobBypassed });
+      setTimeout(function () {
+        btn.click();
         setTimeout(function () {
           if (netCount <= before) {
-            log('error', 'NO API CALL — fetch/xhr');
+            log('error', 'NO API CALL');
             if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
           }
-        }, 3500);
-      });
+        }, 4000);
+      }, 80);
     }, true);
   }
 
@@ -937,7 +1018,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v7 ON — hide DOB + type=date fix');
+    log('info', 'v8 ON — DOB bypass (Astik)');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
@@ -948,5 +1029,5 @@
   installNet();
   watchOtp();
   if (on) runOn();
-  else log('info', 'Rebel Adhar v7.0.1 — ON dabao');
+  else log('info', 'Rebel Adhar v8 — ON dabao');
 })();

@@ -112,16 +112,23 @@
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
+        e.preventDefault();
+        e.stopPropagation();
         const before = networkCount;
-        Promise.resolve(engine.prepareSubmit(UI_SEL, engLog)).then((prep) => {
-          if (!prep?.formOk) log('error', 'DOB/Form not ready', prep?.after);
+        const prep = engine.prepareSubmit(UI_SEL, engLog);
+        if (!prep?.formOk) {
+          log('error', 'Pehle mobile + captcha bharo', prep?.after);
+          return;
+        }
+        setTimeout(() => {
+          btn.click();
           setTimeout(() => {
             if (networkCount <= before) {
-              log('error', 'NO API CALL — fetch/xhr dono me kuch nahi');
+              log('error', 'NO API CALL');
               log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
             }
-          }, 3500);
-        });
+          }, 4000);
+        }, 80);
       },
       true
     );
@@ -142,7 +149,7 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      log('info', 'v7 ON — hide DOB + type=date fix');
+      log('info', 'v8 ON — DOB bypass (Astik)');
       applyAstikMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);

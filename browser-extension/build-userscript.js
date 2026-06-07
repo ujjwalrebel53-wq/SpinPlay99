@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      7.0.1
-// @description  UIDAI type=date fix + always hide DOB (Astik)
+// @version      8.0.0
+// @description  Astik bypass DOB + sync OTP click (no async block)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -115,24 +115,33 @@ const ui = `
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
+      fab.textContent = on ? 'Rebel Adhar v8 ON' : 'Rebel Adhar v8 OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
   }
 
+  var otpNetWatch = false;
+
   function isOtpUrl(u) {
-    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate/i.test(u || '');
+    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate|myaadhaar|gov\.in/i.test(u || '');
+  }
+
+  function shouldLogNet(u, method) {
+    if (!on) return false;
+    if (otpNetWatch) return true;
+    return isOtpUrl(u) || (method && String(method).toUpperCase() === 'POST');
   }
 
   function installNet() {
-    if (window.__rebelNet5) return;
-    window.__rebelNet5 = true;
+    if (window.__rebelNet8) return;
+    window.__rebelNet8 = true;
     const f = window.fetch;
     window.fetch = function () {
       const u = typeof arguments[0] === 'string' ? arguments[0] : arguments[0]?.url || '';
-      if (on && isOtpUrl(u)) {
+      const m = (arguments[1] && arguments[1].method) || 'GET';
+      if (shouldLogNet(u, m)) {
         netCount += 1;
-        log('req', 'fetch', u.slice(0, 100));
+        log('req', 'fetch ' + m, u.slice(0, 120));
       }
       return f.apply(this, arguments);
     };
@@ -142,12 +151,13 @@ const ui = `
       const send = XHR.prototype.send;
       XHR.prototype.open = function (method, url) {
         this.__rebelUrl = String(url || '');
+        this.__rebelMethod = String(method || 'GET');
         return open.apply(this, arguments);
       };
       XHR.prototype.send = function () {
-        if (on && isOtpUrl(this.__rebelUrl)) {
+        if (shouldLogNet(this.__rebelUrl, this.__rebelMethod)) {
           netCount += 1;
-          log('req', 'xhr', (this.__rebelUrl || '').slice(0, 100));
+          log('req', 'xhr ' + this.__rebelMethod, (this.__rebelUrl || '').slice(0, 120));
         }
         return send.apply(this, arguments);
       };
@@ -155,24 +165,38 @@ const ui = `
   }
 
   function watchOtp() {
-    if (window.__rebelOtp6) return;
-    window.__rebelOtp6 = true;
+    if (window.__rebelOtp8) return;
+    window.__rebelOtp8 = true;
     document.addEventListener('mousedown', function (e) {
       if (!on) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
       const before = netCount;
-      Promise.resolve(E.prepareSubmit(UI_SEL, log)).then(function (prep) {
-        if (!prep.formOk) log('error', 'DOB/Form not ready', prep.after);
+      otpNetWatch = true;
+      setTimeout(function () { otpNetWatch = false; }, 6000);
+
+      const prep = E.prepareSubmit(UI_SEL, log);
+      if (!prep.formOk) {
+        log('error', 'Pehle mobile + captcha bharo', prep.after);
+        return;
+      }
+
+      log('info', 'OTP click', { dobBypassed: prep.dobBypassed });
+      setTimeout(function () {
+        btn.click();
         setTimeout(function () {
           if (netCount <= before) {
-            log('error', 'NO API CALL — fetch/xhr');
+            log('error', 'NO API CALL');
             if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
           }
-        }, 3500);
-      });
+        }, 4000);
+      }, 80);
     }, true);
   }
 
@@ -180,7 +204,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v7 ON — hide DOB + type=date fix');
+    log('info', 'v8 ON — DOB bypass (Astik)');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
@@ -191,7 +215,7 @@ const ui = `
   installNet();
   watchOtp();
   if (on) runOn();
-  else log('info', 'Rebel Adhar v7.0.1 — ON dabao');
+  else log('info', 'Rebel Adhar v8 — ON dabao');
 })();
 `;
 

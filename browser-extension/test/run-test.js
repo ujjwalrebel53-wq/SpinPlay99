@@ -25,7 +25,7 @@ async function run() {
     document.querySelector('#mobile-field input').value = '7651892956';
     document.querySelector('#captcha-field input').value = 'abc123';
 
-    const prep = await UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
+    const prep = UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
     document.getElementById('send-otp').click();
 
     const dobInput = document.getElementById('dob-input');
