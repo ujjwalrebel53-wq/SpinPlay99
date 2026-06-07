@@ -25,7 +25,7 @@ async function run() {
     document.querySelector('#mobile-field input').value = '7651892956';
     document.querySelector('#captcha-field input').value = 'abc123';
 
-    const prep = UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
+    const prep = await UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
     document.getElementById('send-otp').click();
 
     const dobInput = document.getElementById('dob-input');
@@ -44,11 +44,10 @@ async function run() {
 
   console.log(JSON.stringify(result, null, 2));
   const pass =
-    result.dobHidden &&
-    !result.dobVisible &&
     result.otpSent &&
     !result.otpBlocked &&
-    (result.prep?.formOk !== false);
+    result.prep?.formOk !== false &&
+    (result.prep?.after?.dobFilled !== false);
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();

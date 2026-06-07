@@ -105,7 +105,7 @@
     if (otpPrepInstalled || !engine) return;
     otpPrepInstalled = true;
     document.addEventListener(
-      'click',
+      'mousedown',
       (e) => {
         if (!enabledState) return;
         const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
@@ -113,16 +113,15 @@
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
         const before = networkCount;
-        const prep = engine.prepareSubmit(UI_SEL, engLog);
-        if (!prep.formOk && prep.after?.formCount > 0) {
-          log('error', 'Angular form INVALID', prep.after);
-        }
-        setTimeout(() => {
-          if (networkCount <= before) {
-            log('error', 'NO API CALL — fetch/xhr dono me kuch nahi');
-            log('info', 'Debug', engine.getFormDiagnostics?.());
-          }
-        }, 3500);
+        Promise.resolve(engine.prepareSubmit(UI_SEL, engLog)).then((prep) => {
+          if (!prep?.formOk) log('error', 'DOB/Form not ready', prep?.after);
+          setTimeout(() => {
+            if (networkCount <= before) {
+              log('error', 'NO API CALL — fetch/xhr dono me kuch nahi');
+              log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
+            }
+          }, 3500);
+        });
       },
       true
     );
@@ -143,7 +142,7 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      log('info', 'v5 ON — hide DOB + Angular OTP patch');
+      log('info', 'v6 ON — prod UIDAI OTP patch');
       applyAstikMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);

@@ -1,4 +1,4 @@
-# Rebel Adhar v5.0 — Astik UI + OTP fix
+# Rebel Adhar v6.0 — Prod UIDAI OTP fix
 
 **Astik jaisa (video flow):** Tap → **DOB hat jata hai** → sirf **Name + Mobile + Captcha** → Send OTP.
 

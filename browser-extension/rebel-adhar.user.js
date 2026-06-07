@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      5.0.0
-// @description  Astik UI + Angular OTP fix — silent DOB, mobile + captcha → Send OTP
+// @version      6.0.0
+// @description  Prod UIDAI OTP fix — Material DOB + deep Angular scan
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,8 +10,8 @@
 // ==/UserScript==
 
 /**
- * UIDAI Engine v5 — Astik UI + Angular OTP fix
- * Mode switch / hide DOB + silent Angular DOB value so Send OTP API fires
+ * UIDAI Engine v6 — prod UIDAI fix (debug-driven)
+ * Mode switch first, deep Angular scan, Material DOB value that sticks
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -27,6 +27,8 @@
 
   let dobWatcher = null;
   let watchTimer = null;
+  let syncingDom = false;
+  const nativeInputSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
 
   function norm(s) {
     return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -172,6 +174,52 @@
     ctx.forEach((item) => fn(item, el));
   }
 
+  function readInputVal(input) {
+    if (!input) return '';
+    const v = input.value || input.getAttribute('value') || '';
+    return String(v).trim();
+  }
+
+  function getComponentFromElement(el) {
+    if (!el) return null;
+    if (typeof window.ng?.getComponent === 'function') {
+      try {
+        return window.ng.getComponent(el);
+      } catch (_e) {}
+    }
+    const ctx = el.__ngContext__;
+    if (!Array.isArray(ctx)) return null;
+    const tView = ctx[1];
+    if (tView?.components?.length) {
+      for (const idx of tView.components) {
+        const lView = ctx[idx];
+        if (Array.isArray(lView) && lView[8] && lView[0] === el) return lView[8];
+      }
+    }
+    for (let i = 0; i < ctx.length; i++) {
+      const item = ctx[i];
+      if (item?.form?.controls) return item;
+      if (item?.controls && item.updateValueAndValidity) return item;
+    }
+    return null;
+  }
+
+  function deepScanObject(root, found, seen, depth) {
+    if (!root || depth > 10 || typeof root !== 'object' || seen.has(root)) return;
+    seen.add(root);
+    if (isFormGroup(root) && !found.includes(root)) found.push(root);
+    if (root.control?.setValue && root.name && isDobControlKey(root.name)) {
+      found.push({ ctrl: root.control, key: root.name, ngControl: true });
+    }
+    if (Array.isArray(root)) {
+      root.forEach((x) => deepScanObject(x, found, seen, depth + 1));
+      return;
+    }
+    try {
+      Object.values(root).forEach((x) => deepScanObject(x, found, seen, depth + 1));
+    } catch (_e) {}
+  }
+
   function isDobControlKey(key) {
     return /dob|birth|dateofbirth|date_of_birth|dateOfBirth/i.test(key || '');
   }
@@ -194,6 +242,8 @@
   function collectFormGroups() {
     const groups = [];
     const seen = new WeakSet();
+    const scanSeen = new WeakSet();
+
     walkAllNg((item) => {
       [item, item?.form].forEach((form) => {
         if (!isFormGroup(form) || seen.has(form)) return;
@@ -201,7 +251,46 @@
         groups.push(form);
       });
     });
+
+    qAll('*').forEach((el) => {
+      const ctx = el.__ngContext__;
+      if (Array.isArray(ctx)) deepScanObject(ctx, groups, scanSeen, 0);
+    });
+
+    getDobInputs().forEach((input) => {
+      let el = input;
+      for (let i = 0; i < 12 && el; i++, el = el.parentElement) {
+        const cmp = getComponentFromElement(el);
+        [cmp, cmp?.form, cmp?.retrieveForm, cmp?.aadhaarForm, cmp?.formGroup].forEach((form) => {
+          if (!isFormGroup(form) || seen.has(form)) return;
+          seen.add(form);
+          groups.push(form);
+        });
+      }
+    });
+
     return groups;
+  }
+
+  function collectNgControls() {
+    const out = [];
+    const seen = new WeakSet();
+    getDobInputs().forEach((input) => {
+      let el = input;
+      for (let i = 0; i < 12 && el; i++, el = el.parentElement) {
+        walkNg(el, (item) => {
+          if (item?.control?.setValue && !seen.has(item.control)) {
+            seen.add(item.control);
+            out.push({ ctrl: item.control, key: item.name || item._parent?.name || 'dob', el: input });
+          }
+        });
+        if (Array.isArray(el.__ngContext__)) {
+          const scanSeen = new WeakSet();
+          deepScanObject(el.__ngContext__, out, scanSeen, 0);
+        }
+      }
+    });
+    return out;
   }
 
   function dobControlEmpty(ctrl) {
@@ -209,41 +298,97 @@
     return v == null || v === '' || (typeof v === 'string' && !v.trim());
   }
 
+  const DOB_VALUES = [new Date(1990, 0, 1), SILENT_DOB, '01-01-1990', '1990-01-01'];
+
   function patchDobControl(ctrl, key, log) {
     if (!ctrl?.setValue && !ctrl?.patchValue) return false;
-    if (!isDobControlKey(key)) return false;
+    if (key && !isDobControlKey(key) && key !== 'dob') return false;
     try {
       if (ctrl.disabled) ctrl.enable({ emitEvent: false });
     } catch (_e) {}
     ctrl.clearValidators?.();
     ctrl.setErrors?.(null);
     if (dobControlEmpty(ctrl)) {
-      try {
-        ctrl.setValue(SILENT_DOB, { emitEvent: false });
-      } catch (_e1) {
+      for (const val of DOB_VALUES) {
         try {
-          ctrl.setValue(new Date(1990, 0, 1), { emitEvent: false });
-        } catch (_e2) {
-          ctrl.patchValue?.(SILENT_DOB, { emitEvent: false });
+          ctrl.setValue(val, { emitEvent: true });
+          if (!dobControlEmpty(ctrl)) break;
+        } catch (_e1) {
+          try {
+            ctrl.patchValue(val, { emitEvent: true });
+            if (!dobControlEmpty(ctrl)) break;
+          } catch (_e2) {}
         }
       }
     }
-    ctrl.updateValueAndValidity?.({ emitEvent: false });
-    log?.('info', 'Angular DOB patch', key);
+    ctrl.markAsDirty?.();
+    ctrl.markAsTouched?.();
+    ctrl.updateValueAndValidity?.({ emitEvent: true });
+    log?.('info', 'Angular DOB patch', { key: key || 'ctrl', val: String(ctrl.value).slice(0, 14) });
     return true;
   }
 
-  function syncDobDom(log) {
-    let n = 0;
-    getDobInputs().forEach((input) => {
-      if ((input.value || '').trim()) return;
-      input.value = SILENT_DOB;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+  function setDobOnInput(input, log) {
+    if (!input) return false;
+    if (input.dataset.rebelDobOk === '1' && readInputVal(input)) return true;
+
+    syncingDom = true;
+    const wasReadonly = input.hasAttribute('readonly');
+    const wasDisabled = input.disabled;
+    input.removeAttribute('readonly');
+    input.disabled = false;
+    input.removeAttribute('disabled');
+
+    for (const val of [SILENT_DOB, '01-01-1990']) {
+      if (nativeInputSet) nativeInputSet.call(input, val);
+      else input.value = val;
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      n += 1;
+      if (readInputVal(input)) break;
+    }
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    if (wasReadonly) input.setAttribute('readonly', '');
+    if (wasDisabled) {
+      input.disabled = true;
+      input.setAttribute('disabled', 'true');
+    }
+
+    const ok = !!readInputVal(input);
+    if (ok) input.dataset.rebelDobOk = '1';
+    else log?.('warn', 'DOB input reject', { ro: wasReadonly, dis: wasDisabled, type: input.type });
+    syncingDom = false;
+    return ok;
+  }
+
+  function syncDobDom(log) {
+    if (syncingDom) return 0;
+    let n = 0;
+    let ok = 0;
+    findDobBlocks().forEach((block) => {
+      block.querySelectorAll('input, textarea').forEach((input) => {
+        if (readInputVal(input)) return;
+        n += 1;
+        if (setDobOnInput(input, log)) ok += 1;
+      });
     });
-    if (n) log?.('info', 'DOB DOM sync', { count: n, val: SILENT_DOB });
-    return n;
+    getDobInputs().forEach((input) => {
+      if (readInputVal(input)) return;
+      n += 1;
+      if (setDobOnInput(input, log)) ok += 1;
+    });
+    if (n) log?.('info', 'DOB DOM sync', { tried: n, ok, val: SILENT_DOB });
+    return ok;
+  }
+
+  function patchAllDobControls(log) {
+    let patched = 0;
+    collectNgControls().forEach((item) => {
+      const ctrl = item.ctrl || item;
+      const key = item.key || 'dob';
+      if (ctrl?.setValue && patchDobControl(ctrl, key, log)) patched += 1;
+    });
+    return patched;
   }
 
   /** OTP fix: Angular form VALID + hidden DOB filled silently */
@@ -251,30 +396,60 @@
     let patched = 0;
     const forms = [];
     collectFormGroups().forEach((form) => {
+      if (!form.controls) return;
       const before = form.status;
       const walk = (group) => {
         Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
           if (isFormGroup(ctrl)) walk(ctrl);
-          else if (patchDobControl(ctrl, key, log)) patched += 1;
+          else if (isDobControlKey(key) && patchDobControl(ctrl, key, log)) patched += 1;
         });
       };
       walk(form);
-      form.updateValueAndValidity?.({ emitEvent: false });
+      if (patched === 0) {
+        Object.entries(form.controls).forEach(([key, ctrl]) => {
+          if (!isFormGroup(ctrl) && dobControlEmpty(ctrl) && patchDobControl(ctrl, key, log)) patched += 1;
+        });
+      }
+      form.updateValueAndValidity?.({ emitEvent: true });
       forms.push({ before, after: form.status, valid: !!form.valid });
     });
+    patched += patchAllDobControls(log);
     const dom = syncDobDom(log);
-    return { patched, dom, forms };
+    return { patched, dom, forms, ngControls: collectNgControls().length };
   }
 
-  function getFormDiagnostics() {
-    const groups = collectFormGroups();
+  function isDobFilled(uiSel) {
+    const inputs = getDobInputs();
+    if (!inputs.length) return true;
+    return inputs.every((i) => {
+      if (!isVisible(i, uiSel) || i.closest('[data-rebel-dob-hidden]')) {
+        return !!readInputVal(i) || i.dataset.rebelDobOk === '1';
+      }
+      return !!readInputVal(i);
+    });
+  }
+
+  function isFormReadyForOtp(uiSel) {
+    const groups = collectFormGroups().filter((g) => g.controls);
+    const ngOk = groups.length === 0 || groups.every((g) => g.valid || g.status === 'VALID');
+    return isDobFilled(uiSel) && ngOk;
+  }
+
+  function getFormDiagnostics(uiSel) {
+    const groups = collectFormGroups().filter((g) => g.controls);
+    const sample = getDobInputs()[0];
     return {
       formCount: groups.length,
+      ngControls: collectNgControls().length,
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
+      ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
+      dobFilled: isDobFilled(uiSel),
       dobInputs: getDobInputs().map((i) => ({
-        val: (i.value || '').slice(0, 14),
+        val: readInputVal(i).slice(0, 14),
         hidden: !!i.closest('[data-rebel-dob-hidden]'),
+        ro: i.hasAttribute('readonly'),
+        ok: i.dataset.rebelDobOk === '1',
       })),
     };
   }
@@ -372,7 +547,10 @@
 
   function tryUidaiModeSwitch(uiSel, log) {
     const email = findOrEmailLink(uiSel);
-    if (!email) return Promise.resolve(false);
+    if (!email) {
+      log?.('warn', 'OR Email link not found');
+      return Promise.resolve(false);
+    }
     log?.('info', 'UIDAI mode: OR Enter Email', (email.textContent || '').trim().slice(0, 40));
     simulateClick(email);
     return new Promise((resolve) => {
@@ -381,10 +559,23 @@
         if (mobile) {
           log?.('info', 'UIDAI mode: OR Enter Mobile', (mobile.textContent || '').trim().slice(0, 40));
           simulateClick(mobile);
+        } else {
+          log?.('warn', 'OR Mobile link not found');
         }
-        setTimeout(() => resolve(!!mobile || true), 700);
-      }, 700);
+        setTimeout(() => resolve(!!mobile), 900);
+      }, 900);
     });
+  }
+
+  function runModeSwitchRetry(uiSel, log, times) {
+    let chain = Promise.resolve();
+    for (let i = 0; i < (times || 2); i++) {
+      chain = chain.then(() => tryUidaiModeSwitch(uiSel, log)).then(() => {
+        if (!getDobInputs().length) return false;
+        return new Promise((r) => setTimeout(r, 600));
+      });
+    }
+    return chain;
   }
 
   function startWatcher(uiSel, log, on) {
@@ -392,67 +583,69 @@
     if (watchTimer) clearTimeout(watchTimer);
     if (!on) return;
     dobWatcher = new MutationObserver(() => {
-      if (watchTimer) return;
+      if (syncingDom || watchTimer) return;
       watchTimer = setTimeout(() => {
         watchTimer = null;
-        if (getDobInputs().length && !isDobHidden(uiSel)) hideDob(uiSel, log);
-        patchAngularForms(log);
-      }, 350);
+        if (!getDobInputs().length) return;
+        if (!isDobFilled(uiSel)) patchAngularForms(log);
+        if (!isDobHidden(uiSel) && isDobFilled(uiSel)) hideDob(uiSel, log);
+      }, 500);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
   }
 
   function apply(uiSel, log) {
     startWatcher(uiSel, log, true);
-    return tryUidaiModeSwitch(uiSel, log).then(() => {
+    return runModeSwitchRetry(uiSel, log, 2).then(() => {
       return new Promise((resolve) => {
         setTimeout(() => {
-          const nativeGone = !getDobInputs().length || !dobFieldVisible(uiSel);
+          const nativeGone = !getDobInputs().length;
           if (nativeGone) {
-            log?.('info', 'UIDAI native mode — DOB removed', { dobCount: getDobInputs().length });
+            log?.('info', 'UIDAI native mode — DOB removed', {});
           } else {
-            hideDob(uiSel, log);
             patchAngularForms(log);
+            if (isDobFilled(uiSel)) hideDob(uiSel, log);
+            else log?.('warn', 'DOB fill fail — hide skipped', getFormDiagnostics(uiSel));
           }
-          const diag = getFormDiagnostics();
+          const diag = getFormDiagnostics(uiSel);
           const snap = getMatFields()
             .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
             .map((f) => ({
               type: classifyField(f),
               label: f.label.slice(0, 26),
-              val: (f.input.value || '').slice(0, 10),
+              val: readInputVal(f.input).slice(0, 10),
             }));
           const state = {
             dobHidden: isDobHidden(uiSel),
             nativeGone,
-            formOk: diag.formCount === 0 || diag.invalid === 0,
+            formOk: isFormReadyForOtp(uiSel),
             diag,
             snap,
           };
           log?.('info', 'Astik ON done', state);
           resolve(state);
-        }, 1100);
+        }, 1400);
       });
     });
   }
 
-  /** Click pe sirf Angular patch — DOM mat karo (OTP block hota tha) */
+  /** mousedown pe patch — click se pehle Angular ko value mile */
   function prepareSubmit(uiSel, log) {
-    const before = getFormDiagnostics();
-    const patch = patchAngularForms(log);
-    const after = getFormDiagnostics();
-    const state = {
-      dobHidden: isDobHidden(uiSel),
-      patch,
-      before,
-      after,
-      formOk: after.formCount === 0 || after.invalid === 0,
-    };
-    log?.('info', 'Send OTP prep', state);
-    if (!state.formOk && after.formCount > 0) {
-      log?.('warn', 'Form still INVALID — OTP may block', after);
-    }
-    return state;
+    return runModeSwitchRetry(uiSel, log, 1).then(() => {
+      const before = getFormDiagnostics(uiSel);
+      const patch = patchAngularForms(log);
+      const after = getFormDiagnostics(uiSel);
+      const state = {
+        dobHidden: isDobHidden(uiSel),
+        patch,
+        before,
+        after,
+        formOk: isFormReadyForOtp(uiSel),
+      };
+      log?.('info', 'Send OTP prep', state);
+      if (!state.formOk) log?.('error', 'DOB/Form not ready', after);
+      return state;
+    });
   }
 
   function formReady() {
@@ -502,6 +695,9 @@
     disableDob,
     patchAngularForms,
     getFormDiagnostics,
+    isFormReadyForOtp,
+    isDobFilled,
+    readInputVal,
     isDobHidden,
     isDobDisabled,
     dobFieldVisible,
@@ -603,7 +799,7 @@
       b.textContent = 'Copy Debug';
       b.style.cssText = 'position:fixed;right:10px;bottom:252px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#7c3aed;color:#fff;font:700 11px system-ui';
       b.onclick = function () {
-        const d = E.getFormDiagnostics ? E.getFormDiagnostics() : {};
+        const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
         const txt = JSON.stringify({ url: location.href, on: on, diag: d, logs: logs.slice(-15) }, null, 2);
         try { navigator.clipboard.writeText(txt); log('info', 'Debug copied'); } catch (_e) { log('info', 'Debug', txt); }
       };
@@ -655,23 +851,24 @@
   }
 
   function watchOtp() {
-    if (window.__rebelOtp3) return;
-    window.__rebelOtp3 = true;
-    document.addEventListener('click', function (e) {
+    if (window.__rebelOtp6) return;
+    window.__rebelOtp6 = true;
+    document.addEventListener('mousedown', function (e) {
       if (!on) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
       const before = netCount;
-      const prep = E.prepareSubmit(UI_SEL, log);
-      if (!prep.formOk && prep.after && prep.after.formCount > 0) log('error', 'Angular INVALID', prep.after);
-      setTimeout(function () {
-        if (netCount <= before) {
-          log('error', 'NO API CALL — fetch/xhr');
-          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics());
-        }
-      }, 3500);
+      Promise.resolve(E.prepareSubmit(UI_SEL, log)).then(function (prep) {
+        if (!prep.formOk) log('error', 'DOB/Form not ready', prep.after);
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL — fetch/xhr');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 3500);
+      });
     }, true);
   }
 
@@ -679,7 +876,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v5 ON — Angular OTP patch');
+    log('info', 'v6 ON — prod UIDAI OTP patch');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);

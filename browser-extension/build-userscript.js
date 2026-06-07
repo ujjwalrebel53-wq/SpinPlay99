@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      5.0.0
-// @description  Astik UI + Angular OTP fix — silent DOB, mobile + captcha → Send OTP
+// @version      6.0.0
+// @description  Prod UIDAI OTP fix — Material DOB + deep Angular scan
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -103,7 +103,7 @@ const ui = `
       b.textContent = 'Copy Debug';
       b.style.cssText = 'position:fixed;right:10px;bottom:252px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#7c3aed;color:#fff;font:700 11px system-ui';
       b.onclick = function () {
-        const d = E.getFormDiagnostics ? E.getFormDiagnostics() : {};
+        const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
         const txt = JSON.stringify({ url: location.href, on: on, diag: d, logs: logs.slice(-15) }, null, 2);
         try { navigator.clipboard.writeText(txt); log('info', 'Debug copied'); } catch (_e) { log('info', 'Debug', txt); }
       };
@@ -155,23 +155,24 @@ const ui = `
   }
 
   function watchOtp() {
-    if (window.__rebelOtp3) return;
-    window.__rebelOtp3 = true;
-    document.addEventListener('click', function (e) {
+    if (window.__rebelOtp6) return;
+    window.__rebelOtp6 = true;
+    document.addEventListener('mousedown', function (e) {
       if (!on) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
       const before = netCount;
-      const prep = E.prepareSubmit(UI_SEL, log);
-      if (!prep.formOk && prep.after && prep.after.formCount > 0) log('error', 'Angular INVALID', prep.after);
-      setTimeout(function () {
-        if (netCount <= before) {
-          log('error', 'NO API CALL — fetch/xhr');
-          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics());
-        }
-      }, 3500);
+      Promise.resolve(E.prepareSubmit(UI_SEL, log)).then(function (prep) {
+        if (!prep.formOk) log('error', 'DOB/Form not ready', prep.after);
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL — fetch/xhr');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 3500);
+      });
     }, true);
   }
 
@@ -179,7 +180,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v5 ON — Angular OTP patch');
+    log('info', 'v6 ON — prod UIDAI OTP patch');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
