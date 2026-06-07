@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      12.0.0
-// @description  Rebel Adhar v12 — PAGE context injection (Angular same world)
+// @version      12.1.0
+// @description  Rebel Adhar v12.1 — PAGE injection + strict UIDAI API detect
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none

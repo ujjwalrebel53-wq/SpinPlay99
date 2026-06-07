@@ -12,7 +12,7 @@
   const UI_SEL =
     '#rebel-adhar-log-panel,#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
-  let netCount = 0;
+  let uidaiNetCount = 0;
   let skipOtp = false;
   let otpRunning = false;
 
@@ -31,14 +31,17 @@
     console.log('[Rebel Adhar PAGE]', level, msg, data ?? '');
   }
 
+  function countUidaiHit(kind, method, url) {
+    if (!E.isUidaiOtpHit || !E.isUidaiOtpHit(url, method)) return false;
+    uidaiNetCount += 1;
+    emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
+    return true;
+  }
+
   E.installNetworkBypass({
     log: emit,
     enabled: isOn,
-    onHit: function (kind, method, url) {
-      if (!isOn()) return;
-      netCount += 1;
-      emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
-    },
+    onHit: countUidaiHit,
   });
 
   function isOtpBtn(el) {
@@ -49,13 +52,16 @@
     return btn;
   }
 
+  function uidaiNetSince(before) {
+    return uidaiNetCount > before;
+  }
+
   document.addEventListener(
     'pointerdown',
     function (e) {
       if (!isOn() || skipOtp) return;
       if (!isOtpBtn(e.target)) return;
       if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
-      else E.prepareSubmit(UI_SEL, emit);
     },
     true
   );
@@ -82,36 +88,37 @@
       }
       if (otpRunning) return;
 
-      const before = netCount;
+      const before = uidaiNetCount;
       otpRunning = true;
       emit('info', 'OTP PAGE click — Angular same world', { v: E.ENGINE_VERSION });
 
       setTimeout(function () {
-        otpRunning = false;
-        if (netCount > before) {
+        if (uidaiNetSince(before)) {
+          otpRunning = false;
           emit('info', 'OTP sent', { via: 'page-angular', v: E.ENGINE_VERSION });
           return;
         }
-        emit('warn', 'PAGE fallback pipeline');
+        emit('warn', 'UIDAI API nahi mili — pipeline retry');
         skipOtp = true;
         const run = E.invokeOtpPipeline
           ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
-              return netCount > before;
-            })
+              return uidaiNetSince(before);
+            }, { skipNative: true, lightPrep: true })
           : Promise.resolve({ ok: false });
         Promise.resolve(run)
           .then(function (result) {
-            if (result && result.ok) {
+            if (result && result.ok && uidaiNetSince(before)) {
               emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
-            } else if (netCount <= before) {
-              emit('error', 'NO API CALL — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
+            } else if (!uidaiNetSince(before)) {
+              emit('error', 'NO UIDAI API — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
               emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
             }
           })
           .finally(function () {
             skipOtp = false;
+            otpRunning = false;
           });
-      }, 4500);
+      }, 5500);
     },
     true
   );
