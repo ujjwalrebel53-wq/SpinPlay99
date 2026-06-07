@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      7.0.0
+// @version      7.0.1
 // @description  UIDAI type=date fix + always hide DOB (Astik)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -937,7 +937,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v6 ON — prod UIDAI OTP patch');
+    log('info', 'v7 ON — hide DOB + type=date fix');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
@@ -948,5 +948,5 @@
   installNet();
   watchOtp();
   if (on) runOn();
-  else log('info', 'Rebel Adhar OFF — ON dabao');
+  else log('info', 'Rebel Adhar v7.0.1 — ON dabao');
 })();
