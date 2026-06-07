@@ -1,0 +1,24 @@
+.astik-helper-hidden {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+html.astik-helper-active::before {
+  content: 'Astik Helper ON — DOB hidden, Mobile/Email mode';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483646;
+  background: #0052a5;
+  color: #fff;
+  font: 600 12px/1.4 system-ui, sans-serif;
+  text-align: center;
+  padding: 6px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}

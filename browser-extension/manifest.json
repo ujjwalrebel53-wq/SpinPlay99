@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Astik Helper — myAadhaar Form",
+  "version": "1.0.0",
+  "description": "Retrieve Aadhaar page par DOB hide karke Mobile/Email mode enable karta hai.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://myaadhaar.uidai.gov.in/*",
+    "https://*.uidai.gov.in/*"
+  ],
+  "action": {
+    "default_title": "Astik Helper — Click to toggle DOB hide mode",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://myaadhaar.uidai.gov.in/*",
+        "https://*.uidai.gov.in/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
