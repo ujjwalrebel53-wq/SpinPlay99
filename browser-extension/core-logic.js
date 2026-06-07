@@ -325,6 +325,74 @@
     log('info', 'Validity bypass installed');
   }
 
+  function syncAllInputsToAngular() {
+    getAllInputs().forEach((input) => dispatchInputEvents(input));
+  }
+
+  function walkNgContext(el, visitor) {
+    const ctx = el && el.__ngContext__;
+    if (!Array.isArray(ctx)) return;
+    ctx.forEach((item) => visitor(item, el));
+  }
+
+  function patchAngularFormInternal(aggressive) {
+    const stats = { controls: 0, groups: 0, forms: [] };
+
+    document.querySelectorAll('input, textarea, select, form, mat-form-field, .mat-mdc-form-field').forEach((el) => {
+      walkNgContext(el, (item) => {
+        const control = item?.control;
+        if (control && typeof control.setErrors === 'function' && control.constructor?.name?.includes('FormControl')) {
+          const hostInput =
+            item.valueAccessor?._elementRef?.nativeElement ||
+            item.valueAccessor?.element?.nativeElement ||
+            (el.matches?.('input, textarea, select') ? el : null);
+          const kind = hostInput ? classifyField(hostInput) : '';
+
+          if (aggressive || kind === 'dob') {
+            control.clearValidators();
+            control.setErrors(null);
+            control.markAsUntouched();
+            control.updateValueAndValidity({ emitEvent: false });
+            stats.controls += 1;
+          }
+        }
+
+        const form = item?.form;
+        if (form && form.controls) {
+          const keys = Object.keys(form.controls);
+          keys.forEach((key) => {
+            const ctrl = form.controls[key];
+            if (!ctrl) return;
+            if (aggressive || /dob|birth|date/i.test(key)) {
+              ctrl.clearValidators();
+              ctrl.setErrors(null);
+              ctrl.updateValueAndValidity({ emitEvent: false });
+              stats.controls += 1;
+            }
+          });
+          form.setErrors(null);
+          form.updateValueAndValidity({ emitEvent: true });
+          stats.groups += 1;
+          stats.forms.push({ valid: form.valid, status: form.status, keys });
+        }
+      });
+    });
+
+    log('info', aggressive ? 'Angular AGGRESSIVE patch' : 'Angular patch', stats);
+    return stats;
+  }
+
+  function retrySendOtpClick(btn) {
+    if (!btn || btn.dataset.rebelRetrying) return;
+    btn.dataset.rebelRetrying = '1';
+    log('warn', 'Retry Send OTP after Angular patch');
+    syncAllInputsToAngular();
+    patchAngularFormInternal(true);
+    forceAngularFormValid();
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    delete btn.dataset.rebelRetrying;
+  }
+
   function forceAngularFormValid() {
     getAllInputs().forEach((input) => {
       const kind = classifyField(input);
@@ -338,6 +406,12 @@
         input.disabled = false;
       }
     });
+
+    getAllInputs()
+      .filter((input) => classifyField(input) === 'email')
+      .forEach((input) => {
+        input.disabled = false;
+      });
 
     document
       .querySelectorAll('.ng-invalid, .mat-form-field-invalid, .mat-mdc-form-field-invalid, .ng-pending')
@@ -356,16 +430,23 @@
     });
   }
 
-  function scheduleOtpWatchdog() {
+  function scheduleOtpWatchdog(btn) {
     const clickCount = networkCount;
     const clickedAt = lastOtpClickAt;
     setTimeout(() => {
       if (lastOtpClickAt !== clickedAt) return;
       if (networkCount > clickCount) return;
-      log('error', 'NO API CALL after Send OTP — Angular ne submit block kiya');
+      log('error', 'NO API CALL after Send OTP — retry with Angular patch');
       log('error', 'ng-invalid count', document.querySelectorAll('.ng-invalid').length);
-      log('error', 'Tip: Asli naam try karo, captcha refresh, ya OFF karke test');
-    }, 2500);
+      retrySendOtpClick(btn);
+    }, 600);
+
+    setTimeout(() => {
+      if (lastOtpClickAt !== clickedAt) return;
+      if (networkCount > clickCount) return;
+      log('error', 'STILL NO API CALL — Angular form invalid internally');
+      log('error', 'Try: extension OFF + asli naam, ya DOB manually bharo');
+    }, 3000);
   }
 
   function installNetworkHooks(enabledProvider) {
@@ -490,26 +571,27 @@
         () => {
           lastOtpClickAt = Date.now();
           log('info', 'Send OTP clicked');
+          syncAllInputsToAngular();
+          patchAngularFormInternal(false);
           forceAngularFormValid();
 
           if (nameOptional) {
-            getNameInputs().forEach((input) => {
+            getAllInputs().forEach((input) => {
+              const kind = classifyField(input);
+              if (kind === 'captcha' || kind === 'dob' || kind === 'mobile' || kind === 'email') return;
               if (!(input.value || '').trim()) {
                 input.value = fallbackName;
                 dispatchInputEvents(input);
                 log('warn', 'Empty name filled with fallback', fallbackName);
               }
             });
-            getAllInputs().forEach((input) => {
-              if (classifyField(input) === 'other' && (input.value || '').trim() === fallbackName) {
-                dispatchInputEvents(input);
-              }
-            });
           }
 
+          syncAllInputsToAngular();
+          patchAngularFormInternal(false);
           forceAngularFormValid();
           logFormSnapshot('Before submit');
-          scheduleOtpWatchdog();
+          scheduleOtpWatchdog(btn);
         },
         true
       );

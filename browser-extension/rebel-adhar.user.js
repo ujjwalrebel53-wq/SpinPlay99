@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      1.3.1
+// @version      1.3.2
 // @description  DOB hide + Name optional + live logs + OTP fix
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -122,6 +122,72 @@
     return 'other';
   }
 
+  function syncAllInputs() {
+    getAllInputs().forEach((input) => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      input.dispatchEvent(new Event('blur', { bubbles: true }));
+    });
+  }
+
+  function walkNgContext(el, visitor) {
+    const ctx = el && el.__ngContext__;
+    if (!Array.isArray(ctx)) return;
+    ctx.forEach((item) => visitor(item, el));
+  }
+
+  function patchAngular(aggressive) {
+    const stats = { controls: 0, groups: 0, forms: [] };
+    document.querySelectorAll('input, textarea, select, form, mat-form-field, .mat-mdc-form-field').forEach((el) => {
+      walkNgContext(el, (item) => {
+        const control = item?.control;
+        if (control && typeof control.setErrors === 'function') {
+          const host =
+            item.valueAccessor?._elementRef?.nativeElement ||
+            item.valueAccessor?.element?.nativeElement ||
+            (el.matches?.('input, textarea, select') ? el : null);
+          const kind = host ? classify(host) : '';
+          if (aggressive || kind === 'dob') {
+            control.clearValidators();
+            control.setErrors(null);
+            control.updateValueAndValidity({ emitEvent: false });
+            stats.controls += 1;
+          }
+        }
+        const form = item?.form;
+        if (form && form.controls) {
+          Object.keys(form.controls).forEach((key) => {
+            const ctrl = form.controls[key];
+            if (!ctrl) return;
+            if (aggressive || /dob|birth|date/i.test(key)) {
+              ctrl.clearValidators();
+              ctrl.setErrors(null);
+              ctrl.updateValueAndValidity({ emitEvent: false });
+              stats.controls += 1;
+            }
+          });
+          form.setErrors(null);
+          form.updateValueAndValidity({ emitEvent: true });
+          stats.groups += 1;
+          stats.forms.push({ valid: form.valid, status: form.status, keys: Object.keys(form.controls) });
+        }
+      });
+    });
+    log('info', aggressive ? 'Angular AGGRESSIVE patch' : 'Angular patch', stats);
+    return stats;
+  }
+
+  function retryOtp(btn) {
+    if (!btn || btn.dataset.rebelRetrying) return;
+    btn.dataset.rebelRetrying = '1';
+    log('warn', 'Retry Send OTP');
+    syncAllInputs();
+    patchAngular(true);
+    forceFormValid();
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    delete btn.dataset.rebelRetrying;
+  }
+
   function forceFormValid() {
     getAllInputs().forEach((input) => {
       const kind = classify(input);
@@ -134,6 +200,9 @@
     });
     document.querySelectorAll('.ng-invalid, .mat-form-field-invalid, .mat-mdc-form-field-invalid').forEach((el) => {
       el.classList.remove('ng-invalid', 'mat-form-field-invalid', 'mat-mdc-form-field-invalid');
+    });
+    getAllInputs().filter((i) => classify(i) === 'email').forEach((i) => {
+      i.disabled = false;
     });
     document.querySelectorAll('button, [role="button"]').forEach((btn) => {
       const text = normalize(btn.textContent || btn.value || '');
@@ -333,6 +402,8 @@
           const countBefore = networkCount;
           lastOtpClickAt = Date.now();
           log('info', 'Send OTP clicked');
+          syncAllInputs();
+          patchAngular(false);
           forceFormValid();
           if (nameOptional) {
             getAllInputs().forEach((input) => {
@@ -346,14 +417,19 @@
               }
             });
           }
+          syncAllInputs();
+          patchAngular(false);
           forceFormValid();
           logFormSnapshot('Before OTP request');
           setTimeout(() => {
+            if (networkCount === countBefore) retryOtp(btn);
+          }, 600);
+          setTimeout(() => {
             if (networkCount === countBefore) {
-              log('error', 'NO API CALL — Angular blocked submit');
-              log('error', 'ng-invalid', document.querySelectorAll('.ng-invalid').length);
+              log('error', 'STILL NO API CALL');
+              log('error', 'Try extension OFF + asli naam + captcha refresh');
             }
-          }, 2500);
+          }, 3000);
         },
         true
       );
