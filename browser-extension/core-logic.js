@@ -49,9 +49,14 @@
 
   const logLines = [];
   let hooksInstalled = false;
+  let validityBypassInstalled = false;
   let originalFetch = null;
   let originalXhrOpen = null;
   let originalXhrSend = null;
+  let originalInputCheckValidity = null;
+  let originalFormReportValidity = null;
+  let networkCount = 0;
+  let lastOtpClickAt = 0;
 
   function normalize(text) {
     return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -192,19 +197,27 @@
       ].join(' ')
     );
 
+    const fc = input.getAttribute('formcontrolname') || '';
+
     if (
       textMatches(combined, DOB_PATTERNS) ||
       input.type === 'date' ||
-      /dob|birth/i.test(input.getAttribute('formcontrolname') || '')
+      /dob|birth/i.test(fc)
     ) {
       return 'dob';
     }
-    if (textMatches(combined, NAME_PATTERNS) || /fullname|residentname/i.test(input.getAttribute('formcontrolname') || '')) {
+    if (textMatches(combined, NAME_PATTERNS) || /name|full|resident/i.test(fc)) {
       return 'name';
     }
-    if (textMatches(combined, ['mobile', 'phone', 'mobileno', 'mobile number'])) return 'mobile';
-    if (textMatches(combined, ['email', 'e-mail', 'mail id'])) return 'email';
-    if (textMatches(combined, ['captcha', 'security code'])) return 'captcha';
+    if (textMatches(combined, ['mobile', 'phone', 'mobileno', 'mobile number']) || /mobile|phone|mob|contact/i.test(fc)) {
+      return 'mobile';
+    }
+    if (textMatches(combined, ['email', 'e-mail', 'mail id']) || /email|mail/i.test(fc)) {
+      return 'email';
+    }
+    if (textMatches(combined, ['captcha', 'security code']) || /captcha|security/i.test(fc)) {
+      return 'captcha';
+    }
     return 'other';
   }
 
@@ -285,6 +298,76 @@
     return removed;
   }
 
+  function noteNetworkActivity(source, url, bodyPreview) {
+    networkCount += 1;
+    log('req', `${source} ${url}`, bodyPreview || '');
+  }
+
+  function installValidityBypass() {
+    if (validityBypassInstalled) return;
+    validityBypassInstalled = true;
+
+    originalInputCheckValidity = HTMLInputElement.prototype.checkValidity;
+    HTMLInputElement.prototype.checkValidity = function () {
+      if (enabledState && classifyField(this) === 'dob') return true;
+      return originalInputCheckValidity.call(this);
+    };
+
+    originalFormReportValidity = HTMLFormElement.prototype.reportValidity;
+    HTMLFormElement.prototype.reportValidity = function () {
+      if (enabledState) {
+        getAllInputs().forEach((input) => input.setCustomValidity(''));
+        return true;
+      }
+      return originalFormReportValidity.call(this);
+    };
+
+    log('info', 'Validity bypass installed');
+  }
+
+  function forceAngularFormValid() {
+    getAllInputs().forEach((input) => {
+      const kind = classifyField(input);
+      input.setCustomValidity('');
+      if (kind === 'dob') {
+        input.removeAttribute('required');
+        input.setAttribute('aria-required', 'false');
+        input.disabled = false;
+      }
+      if (kind !== 'email' || (input.value || '').trim()) {
+        input.disabled = false;
+      }
+    });
+
+    document
+      .querySelectorAll('.ng-invalid, .mat-form-field-invalid, .mat-mdc-form-field-invalid, .ng-pending')
+      .forEach((el) => {
+        el.classList.remove('ng-invalid', 'mat-form-field-invalid', 'mat-mdc-form-field-invalid', 'ng-pending');
+      });
+
+    document.querySelectorAll('button, input[type="submit"], [role="button"]').forEach((btn) => {
+      const text = normalize(btn.textContent || btn.value || '');
+      if (!text.includes('send otp') && !text.includes('request otp')) return;
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+    });
+  }
+
+  function scheduleOtpWatchdog() {
+    const clickCount = networkCount;
+    const clickedAt = lastOtpClickAt;
+    setTimeout(() => {
+      if (lastOtpClickAt !== clickedAt) return;
+      if (networkCount > clickCount) return;
+      log('error', 'NO API CALL after Send OTP — Angular ne submit block kiya');
+      log('error', 'ng-invalid count', document.querySelectorAll('.ng-invalid').length);
+      log('error', 'Tip: Asli naam try karo, captcha refresh, ya OFF karke test');
+    }, 2500);
+  }
+
   function installNetworkHooks(enabledProvider) {
     if (hooksInstalled) return;
     hooksInstalled = true;
@@ -292,25 +375,27 @@
     originalFetch = window.fetch.bind(window);
     window.fetch = async function (input, init) {
       const url = String(typeof input === 'string' ? input : input?.url || '');
-      const method = init?.method || 'GET';
+      const method = (init?.method || 'GET').toUpperCase();
       let requestInit = init ? { ...init } : {};
 
-      if (enabledProvider() && requestInit.body) {
-        const patched = patchRequestBody(requestInit.body, true);
-        if (patched.changed) {
-          requestInit.body = patched.body;
-          log('patch', 'Removed DOB from fetch body', patched.removed);
+      if (enabledProvider()) {
+        if (requestInit.body) {
+          const patched = patchRequestBody(requestInit.body, true);
+          if (patched.changed) {
+            requestInit.body = patched.body;
+            log('patch', 'Removed DOB from fetch body', patched.removed);
+          }
         }
-        log('req', `${method} ${url}`, String(requestInit.body).slice(0, 500));
-      } else if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
-        log('req', `${method} ${url}`);
+        if (method !== 'GET' || requestInit.body) {
+          noteNetworkActivity(`FETCH ${method}`, url, String(requestInit.body || '').slice(0, 500));
+        }
       }
 
       try {
         const response = await originalFetch(input, requestInit);
-        if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
+        if (enabledProvider() && (method !== 'GET' || requestInit.body)) {
           const text = await response.clone().text().catch(() => '');
-          log(response.ok ? 'ok' : 'error', `Response ${response.status} ${url}`, text.slice(0, 400));
+          log(response.ok ? 'ok' : 'error', `FETCH ${response.status} ${url}`, text.slice(0, 400));
         }
         return response;
       } catch (error) {
@@ -330,21 +415,22 @@
 
     XMLHttpRequest.prototype.send = function (body) {
       const url = this.__rebelUrl || '';
+      const method = (this.__rebelMethod || 'POST').toUpperCase();
       let finalBody = body;
 
-      if (enabledProvider() && body != null) {
-        const patched = patchRequestBody(body, true);
-        if (patched.changed) {
-          finalBody = patched.body;
-          log('patch', 'Removed DOB from XHR body', patched.removed);
+      if (enabledProvider()) {
+        if (body != null) {
+          const patched = patchRequestBody(body, true);
+          if (patched.changed) {
+            finalBody = patched.body;
+            log('patch', 'Removed DOB from XHR body', patched.removed);
+          }
         }
-        log('req', `${this.__rebelMethod || 'POST'} ${url}`, String(finalBody).slice(0, 500));
-      } else if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
-        log('req', `${this.__rebelMethod || 'POST'} ${url}`);
+        noteNetworkActivity(`XHR ${method}`, url, String(finalBody || '').slice(0, 500));
       }
 
       this.addEventListener('load', () => {
-        if (!/uidai|otp|retrieve|aadhaar/i.test(url)) return;
+        if (!enabledProvider()) return;
         log(this.status >= 200 && this.status < 300 ? 'ok' : 'error', `XHR ${this.status} ${url}`, (this.responseText || '').slice(0, 400));
       });
 
@@ -402,7 +488,9 @@
       btn.addEventListener(
         'click',
         () => {
+          lastOtpClickAt = Date.now();
           log('info', 'Send OTP clicked');
+          forceAngularFormValid();
 
           if (nameOptional) {
             getNameInputs().forEach((input) => {
@@ -410,20 +498,18 @@
                 input.value = fallbackName;
                 dispatchInputEvents(input);
                 log('warn', 'Empty name filled with fallback', fallbackName);
-              } else {
-                log('info', 'Name kept as entered', input.value);
+              }
+            });
+            getAllInputs().forEach((input) => {
+              if (classifyField(input) === 'other' && (input.value || '').trim() === fallbackName) {
+                dispatchInputEvents(input);
               }
             });
           }
 
-          getAllInputs().forEach((input) => {
-            if (classifyField(input) === 'dob') {
-              input.removeAttribute('required');
-              input.setCustomValidity('');
-            }
-          });
-
+          forceAngularFormValid();
           logFormSnapshot('Before submit');
+          scheduleOtpWatchdog();
         },
         true
       );
@@ -433,9 +519,12 @@
   function logFormSnapshot(label) {
     const snapshot = getAllInputs().map((input) => ({
       type: classifyField(input),
+      fc: input.getAttribute('formcontrolname') || '',
+      id: input.id || '',
       value: (input.value || '').slice(0, 80),
       required: input.required,
       disabled: input.disabled,
+      valid: input.checkValidity ? input.checkValidity() : null,
       hidden: input.closest('[data-astik-hidden]') != null,
     }));
     log('info', label, snapshot);
@@ -472,6 +561,7 @@
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
       installNetworkHooks(() => enabledState);
+      installValidityBypass();
       hideDobVisualOnly();
       relaxNameField(nameOptional, fallbackName);
       log('info', 'Extension ON', { nameOptional, fallbackName });

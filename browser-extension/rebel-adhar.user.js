@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      1.3.0
+// @version      1.3.1
 // @description  DOB hide + Name optional + live logs + OTP fix
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -26,6 +26,9 @@
   let fallbackName = (localStorage.getItem(FALLBACK_NAME_KEY) || 'Mr').trim() || 'Mr';
   const logLines = [];
   let hooksInstalled = false;
+  let validityInstalled = false;
+  let networkCount = 0;
+  let lastOtpClickAt = 0;
 
   function normalize(text) {
     return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -109,10 +112,55 @@
   }
 
   function classify(input) {
-    const info = normalize([input.name, input.id, input.placeholder, input.getAttribute('formcontrolname'), getLabelText(input)].join(' '));
-    if (textMatches(info, DOB_PATTERNS) || input.type === 'date' || /dob|birth/i.test(input.getAttribute('formcontrolname') || '')) return 'dob';
-    if (textMatches(info, NAME_PATTERNS) || /fullname|residentname/i.test(input.getAttribute('formcontrolname') || '')) return 'name';
+    const fc = input.getAttribute('formcontrolname') || '';
+    const info = normalize([input.name, input.id, input.placeholder, fc, getLabelText(input)].join(' '));
+    if (textMatches(info, DOB_PATTERNS) || input.type === 'date' || /dob|birth/i.test(fc)) return 'dob';
+    if (textMatches(info, NAME_PATTERNS) || /name|full|resident/i.test(fc)) return 'name';
+    if (/mobile|phone|mob|contact/i.test(fc) || /mobile|phone/.test(info)) return 'mobile';
+    if (/email|mail/i.test(fc) || /email/.test(info)) return 'email';
+    if (/captcha|security/i.test(fc) || /captcha/.test(info)) return 'captcha';
     return 'other';
+  }
+
+  function forceFormValid() {
+    getAllInputs().forEach((input) => {
+      const kind = classify(input);
+      input.setCustomValidity('');
+      if (kind === 'dob') {
+        input.removeAttribute('required');
+        input.disabled = false;
+      }
+      if (kind !== 'email' || (input.value || '').trim()) input.disabled = false;
+    });
+    document.querySelectorAll('.ng-invalid, .mat-form-field-invalid, .mat-mdc-form-field-invalid').forEach((el) => {
+      el.classList.remove('ng-invalid', 'mat-form-field-invalid', 'mat-mdc-form-field-invalid');
+    });
+    document.querySelectorAll('button, [role="button"]').forEach((btn) => {
+      const text = normalize(btn.textContent || btn.value || '');
+      if (!text.includes('send otp') && !text.includes('request otp')) return;
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+    });
+  }
+
+  function installValidityBypass() {
+    if (validityInstalled) return;
+    validityInstalled = true;
+    const origCheck = HTMLInputElement.prototype.checkValidity;
+    HTMLInputElement.prototype.checkValidity = function () {
+      if (enabled && classify(this) === 'dob') return true;
+      return origCheck.call(this);
+    };
+    const origReport = HTMLFormElement.prototype.reportValidity;
+    HTMLFormElement.prototype.reportValidity = function () {
+      if (enabled) {
+        getAllInputs().forEach((i) => i.setCustomValidity(''));
+        return true;
+      }
+      return origReport.call(this);
+    };
+    log('info', 'Validity bypass ready');
   }
 
   function hardHide(el) {
@@ -176,20 +224,26 @@
     const origFetch = window.fetch.bind(window);
     window.fetch = async function (input, init) {
       const url = String(typeof input === 'string' ? input : input?.url || '');
+      const method = (init?.method || 'GET').toUpperCase();
       let requestInit = init ? { ...init } : {};
-      if (enabled && requestInit.body) {
-        const patched = patchBody(requestInit.body);
-        if (patched.changed) {
-          requestInit.body = patched.body;
-          log('patch', 'DOB removed from fetch', patched.removed);
+      if (enabled) {
+        if (requestInit.body) {
+          const patched = patchBody(requestInit.body);
+          if (patched.changed) {
+            requestInit.body = patched.body;
+            log('patch', 'DOB removed from fetch', patched.removed);
+          }
         }
-        log('req', url, String(requestInit.body).slice(0, 500));
+        if (method !== 'GET' || requestInit.body) {
+          networkCount += 1;
+          log('req', `FETCH ${method} ${url}`, String(requestInit.body || '').slice(0, 500));
+        }
       }
       try {
         const res = await origFetch(input, requestInit);
-        if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
+        if (enabled && (method !== 'GET' || requestInit.body)) {
           const text = await res.clone().text().catch(() => '');
-          log(res.ok ? 'ok' : 'error', `Response ${res.status}`, text.slice(0, 400));
+          log(res.ok ? 'ok' : 'error', `FETCH ${res.status} ${url}`, text.slice(0, 400));
         }
         return res;
       } catch (e) {
@@ -207,18 +261,20 @@
     };
     XMLHttpRequest.prototype.send = function (body) {
       let finalBody = body;
-      if (enabled && body != null) {
-        const patched = patchBody(body);
-        if (patched.changed) {
-          finalBody = patched.body;
-          log('patch', 'DOB removed from XHR', patched.removed);
+      if (enabled) {
+        if (body != null) {
+          const patched = patchBody(body);
+          if (patched.changed) {
+            finalBody = patched.body;
+            log('patch', 'DOB removed from XHR', patched.removed);
+          }
         }
-        log('req', this.__rebelUrl, String(finalBody).slice(0, 500));
+        networkCount += 1;
+        log('req', `XHR ${this.__rebelMethod || 'POST'} ${this.__rebelUrl}`, String(finalBody || '').slice(0, 500));
       }
       this.addEventListener('load', () => {
-        if (/uidai|otp|retrieve|aadhaar/i.test(this.__rebelUrl || '')) {
-          log(this.status >= 200 && this.status < 300 ? 'ok' : 'error', `XHR ${this.status}`, (this.responseText || '').slice(0, 400));
-        }
+        if (!enabled) return;
+        log(this.status >= 200 && this.status < 300 ? 'ok' : 'error', `XHR ${this.status} ${this.__rebelUrl}`, (this.responseText || '').slice(0, 400));
       });
       return origSend.call(this, finalBody);
     };
@@ -232,9 +288,11 @@
       label,
       getAllInputs().map((input) => ({
         type: classify(input),
+        fc: input.getAttribute('formcontrolname') || '',
         value: (input.value || '').slice(0, 80),
         required: input.required,
         disabled: input.disabled,
+        valid: input.checkValidity ? input.checkValidity() : null,
       }))
     );
   }
@@ -272,20 +330,30 @@
       btn.addEventListener(
         'click',
         () => {
+          const countBefore = networkCount;
+          lastOtpClickAt = Date.now();
           log('info', 'Send OTP clicked');
+          forceFormValid();
           if (nameOptional) {
-            getAllInputs()
-              .filter((input) => classify(input) === 'name')
-              .forEach((input) => {
-                if (!(input.value || '').trim()) {
-                  input.value = fallbackName;
-                  input.dispatchEvent(new Event('input', { bubbles: true }));
-                  input.dispatchEvent(new Event('change', { bubbles: true }));
-                  log('warn', 'Name auto-filled', fallbackName);
-                }
-              });
+            getAllInputs().forEach((input) => {
+              const kind = classify(input);
+              if (kind === 'captcha' || kind === 'dob' || kind === 'mobile' || kind === 'email') return;
+              if (!(input.value || '').trim()) {
+                input.value = fallbackName;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                log('warn', 'Name auto-filled', fallbackName);
+              }
+            });
           }
+          forceFormValid();
           logFormSnapshot('Before OTP request');
+          setTimeout(() => {
+            if (networkCount === countBefore) {
+              log('error', 'NO API CALL — Angular blocked submit');
+              log('error', 'ng-invalid', document.querySelectorAll('.ng-invalid').length);
+            }
+          }, 2500);
         },
         true
       );
@@ -354,6 +422,7 @@
 
     if (enabled) {
       installHooks();
+      installValidityBypass();
       hideDobOnly();
       setupNameOptional();
       log('info', 'Extension ON — DOB hidden, OTP payload patch active');
