@@ -99,7 +99,8 @@
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
-        engine.prepareSubmit(UI_SEL, engLog);
+        if (engine.prepareOtpLight) engine.prepareOtpLight(UI_SEL, engLog);
+        else engine.prepareSubmit(UI_SEL, engLog);
       },
       true
     );
@@ -113,7 +114,9 @@
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
 
-        const prep = engine.prepareSubmit(UI_SEL, engLog);
+        const prep = engine.prepareOtpLight
+          ? engine.prepareOtpLight(UI_SEL, engLog)
+          : engine.prepareSubmit(UI_SEL, engLog);
         if (!prep?.dobBypassed) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -129,7 +132,7 @@
         if (otpRunning) return;
 
         const before = networkCount;
-        log('info', 'OTP send native pass-through', { v: engine.ENGINE_VERSION });
+        log('info', 'OTP native — Angular ko click jayega', { v: engine.ENGINE_VERSION });
         otpRunning = true;
         if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
         otpFallbackTimer = setTimeout(() => {

