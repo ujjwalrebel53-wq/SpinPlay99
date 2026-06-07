@@ -1,6 +1,6 @@
 /**
- * UIDAI Engine v4.1 — Astik style: DOB hide/disable (video flow)
- * Tap → mode switch → DOB gone → mobile + captcha → Send OTP
+ * UIDAI Engine v5 — Astik UI + Angular OTP fix
+ * Mode switch / hide DOB + silent Angular DOB value so Send OTP API fires
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -12,8 +12,10 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
+  const SILENT_DOB = '01/01/1990';
 
   let dobWatcher = null;
+  let watchTimer = null;
 
   function norm(s) {
     return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -159,31 +161,111 @@
     ctx.forEach((item) => fn(item, el));
   }
 
-  function disableDobAngular(log) {
+  function isDobControlKey(key) {
+    return /dob|birth|dateofbirth|date_of_birth|dateOfBirth/i.test(key || '');
+  }
+
+  function isFormGroup(obj) {
+    return obj && typeof obj === 'object' && obj.controls && typeof obj.updateValueAndValidity === 'function';
+  }
+
+  function walkAllNg(fn) {
     const seen = new WeakSet();
-    let n = 0;
     qAll('*').forEach((el) => {
       walkNg(el, (item) => {
-        const form = item?.form;
-        if (!form?.controls) return;
-        Object.entries(form.controls).forEach(([key, ctrl]) => {
-          if (!/dob|birth|dateofbirth|date_of_birth|dateOfBirth/i.test(key)) return;
-          if (seen.has(ctrl)) return;
-          seen.add(ctrl);
-          ctrl.clearValidators?.();
-          ctrl.setErrors?.(null);
-          try {
-            ctrl.disable({ emitEvent: true });
-          } catch (_e) {
-            ctrl.updateValueAndValidity?.({ emitEvent: true });
-          }
-          n += 1;
-          log?.('info', 'Angular DOB disable', key);
-        });
-        form.updateValueAndValidity?.({ emitEvent: true });
+        if (!item || typeof item !== 'object' || seen.has(item)) return;
+        seen.add(item);
+        fn(item, el);
       });
     });
+  }
+
+  function collectFormGroups() {
+    const groups = [];
+    const seen = new WeakSet();
+    walkAllNg((item) => {
+      [item, item?.form].forEach((form) => {
+        if (!isFormGroup(form) || seen.has(form)) return;
+        seen.add(form);
+        groups.push(form);
+      });
+    });
+    return groups;
+  }
+
+  function dobControlEmpty(ctrl) {
+    const v = ctrl?.value;
+    return v == null || v === '' || (typeof v === 'string' && !v.trim());
+  }
+
+  function patchDobControl(ctrl, key, log) {
+    if (!ctrl?.setValue && !ctrl?.patchValue) return false;
+    if (!isDobControlKey(key)) return false;
+    try {
+      if (ctrl.disabled) ctrl.enable({ emitEvent: false });
+    } catch (_e) {}
+    ctrl.clearValidators?.();
+    ctrl.setErrors?.(null);
+    if (dobControlEmpty(ctrl)) {
+      try {
+        ctrl.setValue(SILENT_DOB, { emitEvent: false });
+      } catch (_e1) {
+        try {
+          ctrl.setValue(new Date(1990, 0, 1), { emitEvent: false });
+        } catch (_e2) {
+          ctrl.patchValue?.(SILENT_DOB, { emitEvent: false });
+        }
+      }
+    }
+    ctrl.updateValueAndValidity?.({ emitEvent: false });
+    log?.('info', 'Angular DOB patch', key);
+    return true;
+  }
+
+  function syncDobDom(log) {
+    let n = 0;
+    getDobInputs().forEach((input) => {
+      if ((input.value || '').trim()) return;
+      input.value = SILENT_DOB;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      n += 1;
+    });
+    if (n) log?.('info', 'DOB DOM sync', { count: n, val: SILENT_DOB });
     return n;
+  }
+
+  /** OTP fix: Angular form VALID + hidden DOB filled silently */
+  function patchAngularForms(log) {
+    let patched = 0;
+    const forms = [];
+    collectFormGroups().forEach((form) => {
+      const before = form.status;
+      const walk = (group) => {
+        Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
+          if (isFormGroup(ctrl)) walk(ctrl);
+          else if (patchDobControl(ctrl, key, log)) patched += 1;
+        });
+      };
+      walk(form);
+      form.updateValueAndValidity?.({ emitEvent: false });
+      forms.push({ before, after: form.status, valid: !!form.valid });
+    });
+    const dom = syncDobDom(log);
+    return { patched, dom, forms };
+  }
+
+  function getFormDiagnostics() {
+    const groups = collectFormGroups();
+    return {
+      formCount: groups.length,
+      invalid: groups.filter((g) => g.status === 'INVALID').length,
+      statuses: groups.slice(0, 5).map((g) => g.status),
+      dobInputs: getDobInputs().map((i) => ({
+        val: (i.value || '').slice(0, 14),
+        hidden: !!i.closest('[data-rebel-dob-hidden]'),
+      })),
+    };
   }
 
   function disableDobDom(block) {
@@ -213,9 +295,9 @@
       const box = fieldContainer(input);
       if (box) disableDobDom(box);
     });
-    const ng = disableDobAngular(log);
-    log?.('info', 'DOB disabled (Astik)', { blocks: blocks.length, inputs: getDobInputs().length, angular: ng });
-    return { blocks: blocks.length, angular: ng };
+    const ng = patchAngularForms(log);
+    log?.('info', 'DOB disabled (Astik)', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
+    return { blocks: blocks.length, patch: ng };
   }
 
   function isDobHidden(uiSel) {
@@ -296,63 +378,69 @@
 
   function startWatcher(uiSel, log, on) {
     if (dobWatcher) dobWatcher.disconnect();
+    if (watchTimer) clearTimeout(watchTimer);
     if (!on) return;
     dobWatcher = new MutationObserver(() => {
-      if (!isDobHidden(uiSel)) hideDob(uiSel, log);
-      const inputs = getDobInputs();
-      if (inputs.some((i) => !i.disabled && isVisible(i, uiSel))) disableDob(uiSel, log);
+      if (watchTimer) return;
+      watchTimer = setTimeout(() => {
+        watchTimer = null;
+        if (getDobInputs().length && !isDobHidden(uiSel)) hideDob(uiSel, log);
+        patchAngularForms(log);
+      }, 350);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
-  }
-
-  function enableOtpButtons() {
-    qAll('button, [role="button"], input[type="submit"]').forEach((btn) => {
-      const t = norm(btn.textContent || btn.value || '');
-      if (!t.includes('send otp') && !t.includes('request otp')) return;
-      btn.disabled = false;
-      btn.removeAttribute('disabled');
-      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
-    });
   }
 
   function apply(uiSel, log) {
     startWatcher(uiSel, log, true);
     return tryUidaiModeSwitch(uiSel, log).then(() => {
-      hideDob(uiSel, log);
-      disableDob(uiSel, log);
       return new Promise((resolve) => {
         setTimeout(() => {
-          hideDob(uiSel, log);
-          disableDob(uiSel, log);
+          const nativeGone = !getDobInputs().length || !dobFieldVisible(uiSel);
+          if (nativeGone) {
+            log?.('info', 'UIDAI native mode — DOB removed', { dobCount: getDobInputs().length });
+          } else {
+            hideDob(uiSel, log);
+            patchAngularForms(log);
+          }
+          const diag = getFormDiagnostics();
           const snap = getMatFields()
             .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
             .map((f) => ({
               type: classifyField(f),
               label: f.label.slice(0, 26),
-              dis: f.input.disabled,
+              val: (f.input.value || '').slice(0, 10),
             }));
-          const state = { dobHidden: isDobHidden(uiSel), dobDisabled: isDobDisabled(uiSel), snap };
+          const state = {
+            dobHidden: isDobHidden(uiSel),
+            nativeGone,
+            formOk: diag.formCount === 0 || diag.invalid === 0,
+            diag,
+            snap,
+          };
           log?.('info', 'Astik ON done', state);
           resolve(state);
-        }, 900);
+        }, 1100);
       });
     });
   }
 
+  /** Click pe sirf Angular patch — DOM mat karo (OTP block hota tha) */
   function prepareSubmit(uiSel, log) {
-    hideDob(uiSel, log);
-    disableDob(uiSel, log);
-    enableOtpButtons();
-    const snap = getMatFields()
-      .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
-      .map((f) => ({
-        type: classifyField(f),
-        label: f.label.slice(0, 22),
-        val: (f.input.value || '').slice(0, 14),
-        dis: f.input.disabled,
-      }));
-    const state = { dobHidden: isDobHidden(uiSel), dobDisabled: isDobDisabled(uiSel), snap };
+    const before = getFormDiagnostics();
+    const patch = patchAngularForms(log);
+    const after = getFormDiagnostics();
+    const state = {
+      dobHidden: isDobHidden(uiSel),
+      patch,
+      before,
+      after,
+      formOk: after.formCount === 0 || after.invalid === 0,
+    };
     log?.('info', 'Send OTP prep', state);
+    if (!state.formOk && after.formCount > 0) {
+      log?.('warn', 'Form still INVALID — OTP may block', after);
+    }
     return state;
   }
 
@@ -395,10 +483,14 @@
   }
 
   return {
+    norm,
+    SILENT_DOB,
     DISABLED_MARK,
     HIDDEN_MARK,
     hideDob,
     disableDob,
+    patchAngularForms,
+    getFormDiagnostics,
     isDobHidden,
     isDobDisabled,
     dobFieldVisible,

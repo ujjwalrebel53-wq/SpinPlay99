@@ -65,6 +65,10 @@
     body.scrollTop = body.scrollHeight;
   }
 
+  function isOtpUrl(url) {
+    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate/i.test(url || '');
+  }
+
   function installNetworkLog() {
     if (networkHooksInstalled) return;
     networkHooksInstalled = true;
@@ -72,11 +76,27 @@
     if (origFetch) {
       window.fetch = function (...args) {
         const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-        if (enabledState && /otp|uidai|aadhaar|retrieve|send|verify|auth/i.test(url)) {
+        if (enabledState && isOtpUrl(url)) {
           networkCount += 1;
           log('req', 'fetch', url.slice(0, 100));
         }
         return origFetch.apply(this, args);
+      };
+    }
+    const XHR = window.XMLHttpRequest;
+    if (XHR?.prototype) {
+      const open = XHR.prototype.open;
+      const send = XHR.prototype.send;
+      XHR.prototype.open = function (method, url) {
+        this.__rebelUrl = String(url || '');
+        return open.apply(this, arguments);
+      };
+      XHR.prototype.send = function () {
+        if (enabledState && isOtpUrl(this.__rebelUrl)) {
+          networkCount += 1;
+          log('req', 'xhr', (this.__rebelUrl || '').slice(0, 100));
+        }
+        return send.apply(this, arguments);
       };
     }
   }
@@ -94,10 +114,15 @@
         if (!t.includes('send otp') && !t.includes('request otp')) return;
         const before = networkCount;
         const prep = engine.prepareSubmit(UI_SEL, engLog);
-        if (!prep.dobDisabled) log('error', 'DOB abhi enabled hai', prep);
+        if (!prep.formOk && prep.after?.formCount > 0) {
+          log('error', 'Angular form INVALID', prep.after);
+        }
         setTimeout(() => {
-          if (networkCount <= before) log('error', 'NO API CALL');
-        }, 3000);
+          if (networkCount <= before) {
+            log('error', 'NO API CALL — fetch/xhr dono me kuch nahi');
+            log('info', 'Debug', engine.getFormDiagnostics?.());
+          }
+        }, 3500);
       },
       true
     );
@@ -118,7 +143,7 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      log('info', 'v4 Astik ON — DOB disable');
+      log('info', 'v5 ON — hide DOB + Angular OTP patch');
       applyAstikMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);

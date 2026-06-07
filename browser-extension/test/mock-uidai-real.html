@@ -47,14 +47,15 @@
         const mobile = document.querySelector('#mobile-field input').value.trim();
         const captcha = document.querySelector('#captcha-field input').value.trim();
         const dob = document.getElementById('dob-input');
-        const dobRequired = !dob.disabled && dob.offsetParent !== null;
+        const dobVisible = dob.offsetParent !== null && !dob.closest('[data-rebel-dob-hidden]');
+        const dobRequired = dobVisible && !dob.value.trim();
 
         if (!mobile || !captcha) {
           window.__otpBlocked = 'mobile or captcha missing';
           window.__otpSent = false;
           return;
         }
-        if (dobRequired && !dob.value.trim()) {
+        if (dobRequired) {
           window.__otpBlocked = 'dob required';
           window.__otpSent = false;
           return;

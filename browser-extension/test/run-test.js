@@ -43,7 +43,12 @@ async function run() {
   }, engineCode);
 
   console.log(JSON.stringify(result, null, 2));
-  const pass = result.dobHidden && !result.dobVisible && result.otpSent && !result.otpBlocked;
+  const pass =
+    result.dobHidden &&
+    !result.dobVisible &&
+    result.otpSent &&
+    !result.otpBlocked &&
+    (result.prep?.formOk !== false);
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();

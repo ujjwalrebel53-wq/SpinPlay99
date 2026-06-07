@@ -1,4 +1,4 @@
-# Rebel Adhar v4.1 — Astik style
+# Rebel Adhar v5.0 — Astik UI + OTP fix
 
 **Astik jaisa (video flow):** Tap → **DOB hat jata hai** → sirf **Name + Mobile + Captcha** → Send OTP.
 
@@ -6,13 +6,14 @@
 
 1. UIDAI `OR Enter Email` → `OR Enter Mobile` mode switch (Astik bookmark jaisa)
 2. DOB field **hide** (`display:none`) — screen pe dikhe hi nahi
-3. Backup: DOB **disable** + Angular `FormControl.disable()`
-4. Send OTP se pehle DOB dubara hide/disable ensure
+3. **OTP fix**: Angular form me DOB silently `01/01/1990` + validators clear (user fill nahi karta)
+4. Send OTP click pe sirf Angular patch — DOM change nahi (pehle isse API block hoti thi)
+5. Network log: **fetch + xhr** dono
 
 ## Install (Kiwi)
 
 1. Purana script delete
-2. `rebel-adhar.user.js` v4.1 load karo
+2. `rebel-adhar.user.js` v5.0 load karo
 3. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
 4. **Rebel Adhar ON** → DOB field **gayab** ho (jaise video me Astik ke baad)
 5. Mobile + Captcha → Send OTP
@@ -22,7 +23,10 @@
 ```
 DOB hidden (Astik) | blocks:1
 Astik ON done | dobHidden:true
-Send OTP prep | dobHidden:true
+Send OTP prep | formOk:true
+fetch/xhr ... (OTP API)
+
+OTP na aaye → **Copy Debug** button dabao, text mujhe bhejo
 fetch ...
 ```
 

@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      4.1.0
-// @description  Astik style — DOB hide/disable, mobile + captcha → Send OTP
+// @version      5.0.0
+// @description  Astik UI + Angular OTP fix — silent DOB, mobile + captcha → Send OTP
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -22,7 +22,7 @@ const ui = `
   const KEY = 'rebelAdharOn';
   const LOG_ID = 'rebel-adhar-log-panel';
   const LOG_BODY = 'rebel-adhar-log-body';
-  const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn';
+  const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn';
 
   let on = localStorage.getItem(KEY) === '1';
   const logs = [];
@@ -97,6 +97,18 @@ const ui = `
       };
       document.documentElement.appendChild(b);
     }
+    if (!document.getElementById('rebel-debug-btn')) {
+      const b = document.createElement('button');
+      b.id = 'rebel-debug-btn';
+      b.textContent = 'Copy Debug';
+      b.style.cssText = 'position:fixed;right:10px;bottom:252px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#7c3aed;color:#fff;font:700 11px system-ui';
+      b.onclick = function () {
+        const d = E.getFormDiagnostics ? E.getFormDiagnostics() : {};
+        const txt = JSON.stringify({ url: location.href, on: on, diag: d, logs: logs.slice(-15) }, null, 2);
+        try { navigator.clipboard.writeText(txt); log('info', 'Debug copied'); } catch (_e) { log('info', 'Debug', txt); }
+      };
+      document.documentElement.appendChild(b);
+    }
     updateBtns();
   }
 
@@ -108,18 +120,38 @@ const ui = `
     }
   }
 
+  function isOtpUrl(u) {
+    return /otp|uidai|aadhaar|retrieve|send|verify|auth|generate/i.test(u || '');
+  }
+
   function installNet() {
-    if (window.__rebelNet3) return;
-    window.__rebelNet3 = true;
+    if (window.__rebelNet5) return;
+    window.__rebelNet5 = true;
     const f = window.fetch;
     window.fetch = function () {
       const u = typeof arguments[0] === 'string' ? arguments[0] : arguments[0]?.url || '';
-      if (on && /otp|uidai|aadhaar|retrieve|send|verify|auth/i.test(u)) {
+      if (on && isOtpUrl(u)) {
         netCount += 1;
         log('req', 'fetch', u.slice(0, 100));
       }
       return f.apply(this, arguments);
     };
+    const XHR = window.XMLHttpRequest;
+    if (XHR && XHR.prototype) {
+      const open = XHR.prototype.open;
+      const send = XHR.prototype.send;
+      XHR.prototype.open = function (method, url) {
+        this.__rebelUrl = String(url || '');
+        return open.apply(this, arguments);
+      };
+      XHR.prototype.send = function () {
+        if (on && isOtpUrl(this.__rebelUrl)) {
+          netCount += 1;
+          log('req', 'xhr', (this.__rebelUrl || '').slice(0, 100));
+        }
+        return send.apply(this, arguments);
+      };
+    }
   }
 
   function watchOtp() {
@@ -133,8 +165,13 @@ const ui = `
       if (!t.includes('send otp') && !t.includes('request otp')) return;
       const before = netCount;
       const prep = E.prepareSubmit(UI_SEL, log);
-      if (prep.emptyDob > 0) log('error', 'DOB visible+empty', prep);
-      setTimeout(function () { if (netCount <= before) log('error', 'NO API CALL'); }, 3000);
+      if (!prep.formOk && prep.after && prep.after.formCount > 0) log('error', 'Angular INVALID', prep.after);
+      setTimeout(function () {
+        if (netCount <= before) {
+          log('error', 'NO API CALL — fetch/xhr');
+          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics());
+        }
+      }, 3500);
     }, true);
   }
 
@@ -142,7 +179,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v4 Astik ON — DOB disable');
+    log('info', 'v5 ON — Angular OTP patch');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
