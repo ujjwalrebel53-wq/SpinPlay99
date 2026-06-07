@@ -31,12 +31,12 @@ async function testExtension() {
     dobVisible: Array.from(document.querySelectorAll('input, label, mat-label, mat-form-field, div')).some((el) =>
       /date of birth|enter date of birth|dob/i.test(el.textContent || el.placeholder || '')
     ),
-    fab: !!document.getElementById('astik-helper-fab'),
+    fab: !!document.getElementById('rebel-adhar-fab'),
   }));
 
   console.log('Before toggle FAB click:', before);
 
-  const fab = page.locator('#astik-helper-fab');
+  const fab = page.locator('#rebel-adhar-fab');
   if (await fab.count()) {
     await fab.click();
     await page.waitForTimeout(3000);
@@ -48,13 +48,13 @@ async function testExtension() {
       .map((el) => ({
         tag: el.tagName,
         text: (el.textContent || el.placeholder || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-        hidden: window.getComputedStyle(el).display === 'none' || el.classList.contains('astik-helper-hidden'),
-        dataHidden: el.getAttribute('data-astik-hidden'),
+        hidden: window.getComputedStyle(el).display === 'none' || el.classList.contains('rebel-dob-hidden'),
+        dataHidden: el.getAttribute('data-rebel-dob-hidden'),
       }));
 
     return {
-      active: document.documentElement.classList.contains('astik-helper-active'),
-      fabText: document.getElementById('astik-helper-fab')?.textContent || '',
+      active: document.documentElement.classList.contains('rebel-adhar-active'),
+      fabText: document.getElementById('rebel-adhar-fab')?.textContent || '',
       dobNodes,
       body: document.body?.innerText || '',
     };

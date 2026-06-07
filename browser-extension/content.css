@@ -1,5 +1,5 @@
-html.astik-helper-active::before {
-  content: 'Rebel Adhar ON — Mobile/Email mode (Astik style)';
+html.rebel-adhar-active::before {
+  content: 'Rebel Adhar ON — DOB bypass, mobile + captcha';
   position: fixed;
   top: 0;
   left: 0;
@@ -12,7 +12,7 @@ html.astik-helper-active::before {
   padding: 6px 10px;
 }
 
-#astik-helper-fab.is-on {
+#rebel-adhar-fab.is-on {
   background: #0a7a2f;
 }
 

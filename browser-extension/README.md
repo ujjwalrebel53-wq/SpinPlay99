@@ -1,35 +1,33 @@
-# Rebel Adhar v7.0 — type=date + always hide DOB
+# Rebel Adhar v8.2
 
-**Astik jaisa (video flow):** Tap → **DOB hat jata hai** → sirf **Name + Mobile + Captcha** → Send OTP.
+**Rebel Adhar:** Tap ON → **DOB bypass** → sirf **Name + Mobile + Captcha** → Send OTP.
 
 ## Kya karta hai
 
-1. UIDAI `OR Enter Email` → `OR Enter Mobile` mode switch (Astik bookmark jaisa)
-2. DOB field **hide** (`display:none`) — screen pe dikhe hi nahi
-3. **OTP fix**: Angular form me DOB silently `01/01/1990` + validators clear (user fill nahi karta)
-4. Send OTP click pe sirf Angular patch — DOM change nahi (pehle isse API block hoti thi)
-5. Network log: **fetch + xhr** dono
+1. UIDAI `OR Enter Email` → `OR Enter Mobile` mode switch
+2. DOB field **hide** (bypass — fill nahi karna)
+3. Email field **neutralize** (mobile mode)
+4. Send OTP — sync prep + single submit click
 
 ## Install (Kiwi)
 
 1. Purana script delete
-2. `rebel-adhar.user.js` v7.0 load karo
+2. `rebel-adhar.user.js` v8.2 load karo
 3. https://myaadhaar.uidai.gov.in/retrieve-eid-uid
-4. **Rebel Adhar ON** → DOB field **gayab** ho (jaise video me Astik ke baad)
+4. **Rebel Adhar ON** → DOB field gayab
 5. Mobile + Captcha → Send OTP
 
 ## Success logs
 
 ```
-DOB hidden (Astik) | blocks:1
-Astik ON done | dobHidden:true
-Send OTP prep | formOk:true
-fetch/xhr ... (OTP API)
-
-OTP na aaye → **Copy Debug** button dabao, text mujhe bhejo
-fetch ...
+Rebel Adhar ready | dobBypassed:true
+Email neutralized
+OTP send
+fetch/xhr POST ...
 ```
 
 ## Download
 
 https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-form-helper-extension-95e1/browser-extension/rebel-adhar.user.js
+
+OTP na aaye → **Copy Debug** paste karo.

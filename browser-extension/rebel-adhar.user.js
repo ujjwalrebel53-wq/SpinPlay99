@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.1.0
-// @description  Astik bypass DOB + sync OTP click (no async block)
+// @version      8.2.0
+// @description  Rebel Adhar — DOB bypass + sync OTP click
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 /**
- * UIDAI Engine v8 — Astik bypass: mode switch removes DOB, sync OTP click
+ * UIDAI Engine v8 — Rebel Adhar: DOB bypass, sync OTP click
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -151,9 +151,9 @@
   }
 
   function injectCss() {
-    if (document.getElementById('rebel-astik-css')) return;
+    if (document.getElementById('rebel-engine-css')) return;
     const st = document.createElement('style');
-    st.id = 'rebel-astik-css';
+    st.id = 'rebel-engine-css';
     st.textContent =
       '.' +
       HIDDEN_MARK +
@@ -171,7 +171,7 @@
     (document.head || document.documentElement).appendChild(st);
   }
 
-  /** Video/Astik: DOB field screen se hat jaye */
+  /** DOB field screen se hat jaye */
   function hideBlocks(blocks, cssClass, dataAttr, log, msg) {
     injectCss();
     blocks.forEach((block) => {
@@ -584,7 +584,7 @@
     });
   }
 
-  /** Astik: DOB disable — user ko DOB fill nahi karna */
+  /** DOB bypass — user ko DOB fill nahi karna */
   function disableDob(uiSel, log) {
     injectCss();
     const blocks = findDobBlocks();
@@ -599,7 +599,7 @@
       if (box) disableDobDom(box);
     });
     const ng = patchAngularForms(log);
-    log?.('info', 'DOB disabled (Astik)', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
+    log?.('info', 'DOB bypass applied', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
     return { blocks: blocks.length, patch: ng };
   }
 
@@ -764,7 +764,7 @@
             diag,
             snap,
           };
-          log?.('info', 'Astik ON done', state);
+          log?.('info', 'Rebel Adhar ready', state);
           resolve(state);
         }, 1400);
       });
@@ -966,7 +966,7 @@
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar v8.1 ON' : 'Rebel Adhar v8.1 OFF';
+      fab.textContent = on ? 'Rebel Adhar ON' : 'Rebel Adhar OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
   }
@@ -1057,7 +1057,7 @@
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v8 ON — DOB bypass (Astik)');
+    log('info', 'Rebel Adhar ON — DOB bypass');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
@@ -1068,5 +1068,5 @@
   installNet();
   watchOtp();
   if (on) runOn();
-  else log('info', 'Rebel Adhar v8 — ON dabao');
+  else log('info', 'Rebel Adhar OFF — ON dabao');
 })();

@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'astikHelperEnabled';
+const STORAGE_KEY = 'rebelAdharEnabled';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ [STORAGE_KEY]: false });

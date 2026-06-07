@@ -1,5 +1,5 @@
 /**
- * UIDAI Engine v8 — Astik bypass: mode switch removes DOB, sync OTP click
+ * UIDAI Engine v8 — Rebel Adhar: DOB bypass, sync OTP click
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -140,9 +140,9 @@
   }
 
   function injectCss() {
-    if (document.getElementById('rebel-astik-css')) return;
+    if (document.getElementById('rebel-engine-css')) return;
     const st = document.createElement('style');
-    st.id = 'rebel-astik-css';
+    st.id = 'rebel-engine-css';
     st.textContent =
       '.' +
       HIDDEN_MARK +
@@ -160,7 +160,7 @@
     (document.head || document.documentElement).appendChild(st);
   }
 
-  /** Video/Astik: DOB field screen se hat jaye */
+  /** DOB field screen se hat jaye */
   function hideBlocks(blocks, cssClass, dataAttr, log, msg) {
     injectCss();
     blocks.forEach((block) => {
@@ -573,7 +573,7 @@
     });
   }
 
-  /** Astik: DOB disable — user ko DOB fill nahi karna */
+  /** DOB bypass — user ko DOB fill nahi karna */
   function disableDob(uiSel, log) {
     injectCss();
     const blocks = findDobBlocks();
@@ -588,7 +588,7 @@
       if (box) disableDobDom(box);
     });
     const ng = patchAngularForms(log);
-    log?.('info', 'DOB disabled (Astik)', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
+    log?.('info', 'DOB bypass applied', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
     return { blocks: blocks.length, patch: ng };
   }
 
@@ -753,7 +753,7 @@
             diag,
             snap,
           };
-          log?.('info', 'Astik ON done', state);
+          log?.('info', 'Rebel Adhar ready', state);
           resolve(state);
         }, 1400);
       });

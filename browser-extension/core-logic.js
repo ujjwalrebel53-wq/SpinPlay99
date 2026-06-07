@@ -1,15 +1,15 @@
 /**
- * Rebel Adhar v4 — Astik: DOB disable
+ * Rebel Adhar — extension core
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = factory();
   } else {
-    root.AstikHelperCore = factory();
+    root.RebelAdharCore = factory();
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const ACTIVE_CLASS = 'astik-helper-active';
-  const FAB_ID = 'astik-helper-fab';
+  const ACTIVE_CLASS = 'rebel-adhar-active';
+  const FAB_ID = 'rebel-adhar-fab';
   const LOG_PANEL_ID = 'rebel-adhar-log-panel';
   const LOG_BODY_ID = 'rebel-adhar-log-body';
   const UI_SEL = `#${LOG_PANEL_ID}, #${FAB_ID}, #rebel-fab, #rebel-switch-btn, #rebel-logs-btn`;
@@ -137,7 +137,7 @@
     );
   }
 
-  async function applyAstikMode() {
+  async function applyRebelMode() {
     if (!engine) return { ok: false };
     ensureLogPanel();
     await engine.waitForForm(25000);
@@ -152,8 +152,8 @@
 
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
-      log('info', 'v8 ON — DOB bypass (Astik)');
-      applyAstikMode();
+      log('info', 'Rebel Adhar ON — DOB bypass');
+      applyRebelMode();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);
       engine?.stopWatcher?.();
@@ -168,7 +168,7 @@
     FAB_ID,
     LOG_PANEL_ID,
     applyMode,
-    applyAstikMode,
+    applyRebelMode,
     isDobStillVisible: () => engine?.dobFieldVisible?.(UI_SEL) ?? false,
     isDobDisabled: () => engine?.isDobDisabled?.() ?? false,
     formReady: () => engine?.formReady?.() ?? false,

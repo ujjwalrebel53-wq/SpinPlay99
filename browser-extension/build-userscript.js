@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.1.0
-// @description  Astik bypass DOB + sync OTP click (no async block)
+// @version      8.2.0
+// @description  Rebel Adhar — DOB bypass + sync OTP click
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -115,7 +115,7 @@ const ui = `
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar v8.1 ON' : 'Rebel Adhar v8.1 OFF';
+      fab.textContent = on ? 'Rebel Adhar ON' : 'Rebel Adhar OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
   }
@@ -206,7 +206,7 @@ const ui = `
     ensureUI();
     installNet();
     watchOtp();
-    log('info', 'v8 ON — DOB bypass (Astik)');
+    log('info', 'Rebel Adhar ON — DOB bypass');
     const ready = await E.waitForForm(25000);
     if (!ready) { log('warn', 'Form timeout'); return; }
     await E.apply(UI_SEL, log);
@@ -217,7 +217,7 @@ const ui = `
   installNet();
   watchOtp();
   if (on) runOn();
-  else log('info', 'Rebel Adhar v8 — ON dabao');
+  else log('info', 'Rebel Adhar OFF — ON dabao');
 })();
 `;
 

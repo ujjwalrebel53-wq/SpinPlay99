@@ -1,8 +1,8 @@
 /**
  * Rebel Adhar content script v3
  */
-const STORAGE_KEY = 'astikHelperEnabled';
-const FAB_ID = 'astik-helper-fab';
+const STORAGE_KEY = 'rebelAdharEnabled';
+const FAB_ID = 'rebel-adhar-fab';
 
 let enabled = false;
 
@@ -26,9 +26,9 @@ function ensureFab() {
 }
 
 function apply() {
-  if (!window.AstikHelperCore) return;
+  if (!window.RebelAdharCore) return;
   ensureFab();
-  window.AstikHelperCore.applyMode(enabled);
+  window.RebelAdharCore.applyMode(enabled);
 }
 
 function boot() {
@@ -44,8 +44,8 @@ chrome.runtime.onMessage.addListener((msg, _s, res) => {
   if (msg?.type === 'GET_STATUS') {
     res({
       enabled,
-      dobVisible: window.AstikHelperCore?.isDobStillVisible?.(),
-      emailVisible: window.AstikHelperCore?.isEmailVisible?.(),
+      dobVisible: window.RebelAdharCore?.isDobStillVisible?.(),
+      emailVisible: window.RebelAdharCore?.isEmailVisible?.(),
     });
     return true;
   }
@@ -57,7 +57,7 @@ chrome.runtime.onMessage.addListener((msg, _s, res) => {
     return true;
   }
   if (msg?.type === 'APPLY_NOW') {
-    window.AstikHelperCore?.applyAstikMode?.(true);
+    window.RebelAdharCore?.applyRebelMode?.(true);
     res({ enabled });
     return true;
   }

@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Astik Helper — myAadhaar Form",
-  "version": "8.1.0",
-  "description": "Astik jaisa UIDAI form mode switch — DOB mode se Mobile/Email mode",
+  "name": "Rebel Adhar — myAadhaar Form",
+  "version": "8.2.0",
+  "description": "Rebel Adhar — UIDAI retrieve form DOB bypass, mobile + captcha → OTP",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",
     "https://*.uidai.gov.in/*"
   ],
   "action": {
-    "default_title": "Astik Helper — Click to toggle DOB hide mode",
+    "default_title": "Rebel Adhar — Toggle DOB bypass",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
