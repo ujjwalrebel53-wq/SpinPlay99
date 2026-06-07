@@ -317,9 +317,55 @@
     }
   }
 
+  /** DOB values EMPTY — fake date KABHI NAHI */
+  function clearDobValuesOnly(log) {
+    let n = 0;
+    syncingDom = true;
+    getDobInputs().forEach((input) => {
+      delete input.dataset.rebelDobOk;
+      delete input.dataset.rebelDobFail;
+      input.dataset.rebelDobTry = '0';
+      if (nativeInputSet) nativeInputSet.call(input, '');
+      else input.value = '';
+      try {
+        input.valueAsDate = null;
+      } catch (_e) {}
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      n += 1;
+    });
+    syncingDom = false;
+    collectFormGroups().forEach((form) => {
+      const walk = (group) => {
+        Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
+          if (isFormGroup(ctrl)) walk(ctrl);
+          else if (isDobControlKey(key)) {
+            ctrl.clearValidators?.();
+            ctrl.setErrors?.(null);
+            try {
+              ctrl.setValue(null, { emitEvent: false });
+            } catch (_e1) {
+              try {
+                ctrl.setValue('', { emitEvent: false });
+              } catch (_e2) {}
+            }
+            try {
+              ctrl.disable({ emitEvent: false });
+            } catch (_e3) {}
+          }
+        });
+      };
+      walk(form);
+      form.updateValueAndValidity?.({ emitEvent: false });
+    });
+    if (n) log?.('info', 'DOB cleared (empty, no fake date)', { inputs: n });
+    return n;
+  }
+
   /** DOB ko form se hatao — validators clear, hide, NO fake date */
   function neutralizeDobControls(uiSel, log) {
     injectCss();
+    clearDobValuesOnly(log);
     let n = 0;
     findDobBlocks().forEach((block) => {
       disableDobDom(block);
@@ -344,37 +390,56 @@
       }
       n += 1;
     });
-    collectFormGroups().forEach((form) => {
-      const walk = (group) => {
-        Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
-          if (isFormGroup(ctrl)) walk(ctrl);
-          else if (isDobControlKey(key)) {
-            ctrl.clearValidators?.();
-            ctrl.setErrors?.(null);
-            try {
-              ctrl.disable({ emitEvent: false });
-            } catch (_e) {}
-          }
-        });
-      };
-      walk(form);
-      form.updateValueAndValidity?.({ emitEvent: false });
-    });
-    patchAngularForms(log);
     if (n) log?.('info', 'DOB form logic neutralized', { count: n });
     return n;
   }
 
+  let lastModeClickAt = 0;
+
   function advancedBypass(uiSel, log) {
-    quickModeSwitch(uiSel, log);
-    neutralizeEmail(log);
+    const now = Date.now();
+    if (!isDobBypassed(uiSel) && now - lastModeClickAt > 2000) {
+      const links = discoverOrLinks(uiSel);
+      const email = links.find((l) => l.kind === 'email');
+      const mobile = links.find((l) => l.kind === 'mobile');
+      if (email) {
+        simulateClick(email.el);
+        lastModeClickAt = now;
+        log?.('info', 'Mode click', email.text);
+      } else if (mobile) {
+        simulateClick(mobile.el);
+        lastModeClickAt = now;
+        log?.('info', 'Mode click', mobile.text);
+      }
+    }
     if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
+    if (isDobBypassed(uiSel)) neutralizeEmail(log);
     enableOtpButtons();
     return {
       dobBypassed: isDobBypassed(uiSel),
       dobVisible: dobFieldVisible(uiSel),
       orLinks: discoverOrLinks(uiSel).map((l) => l.text),
     };
+  }
+
+  function forceSubmitOtp(btn, log) {
+    if (!btn) return false;
+    enableOtpButtons();
+    btn.disabled = false;
+    btn.removeAttribute('disabled');
+    btn.classList?.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+    btn.style.pointerEvents = 'auto';
+    const form = btn.closest('form');
+    if (form?.requestSubmit) {
+      try {
+        form.requestSubmit(btn);
+        log?.('info', 'OTP force — form.requestSubmit');
+        return true;
+      } catch (_e) {}
+    }
+    simulateClick(btn);
+    log?.('info', 'OTP force — button click');
+    return true;
   }
 
   function neutralizeEmail(log) {
@@ -799,9 +864,9 @@
       const box = fieldContainer(input);
       if (box) disableDobDom(box);
     });
-    const ng = patchAngularForms(log);
-    log?.('info', 'DOB bypass applied', { blocks: blocks.length, inputs: getDobInputs().length, patch: ng });
-    return { blocks: blocks.length, patch: ng };
+    clearDobValuesOnly(log);
+    log?.('info', 'DOB bypass applied', { blocks: blocks.length, inputs: getDobInputs().length });
+    return { blocks: blocks.length };
   }
 
   function isDobHidden(uiSel) {
@@ -897,6 +962,7 @@
   function discoverOrLinks(uiSel) {
     const found = [];
     const seen = new Set();
+    const seenText = new Set();
 
     function add(el, raw) {
       if (!el || seen.has(el)) return;
@@ -905,8 +971,12 @@
       const click = leafClickable(el);
       if (!click || seen.has(click)) return;
       if (!isInDom(click, uiSel)) return;
+      const kind = kindFromOrText(text);
+      const dedupeKey = kind + ':' + text;
+      if (seenText.has(dedupeKey)) return;
+      seenText.add(dedupeKey);
       seen.add(click);
-      found.push({ el: click, text, kind: kindFromOrText(text) });
+      found.push({ el: click, text, kind });
     }
 
     const sel =
@@ -1004,11 +1074,20 @@
     if (email) {
       await clickToggle(email, log);
       if (isDobBypassed(uiSel)) return true;
+      await waitMs(800);
     }
 
     const mobileAfter = discoverOrLinks(uiSel).find((l) => l.kind === 'mobile') || mobile;
     if (mobileAfter) {
       await clickToggle(mobileAfter, log);
+      if (isDobBypassed(uiSel)) return true;
+    }
+
+    const mobileLabel = discoverOrLinks(uiSel).find(
+      (l) => l.kind === 'mobile' || /enter\s*mobile/i.test(l.text)
+    );
+    if (mobileLabel && mobileLabel !== mobileAfter) {
+      await clickToggle(mobileLabel, log);
       if (isDobBypassed(uiSel)) return true;
     }
 
@@ -1228,7 +1307,9 @@
     classifyField,
     stopWatcher,
     neutralizeDobControls,
+    clearDobValuesOnly,
     advancedBypass,
+    forceSubmitOtp,
     installNetworkBypass,
     stripDobDeep,
   };

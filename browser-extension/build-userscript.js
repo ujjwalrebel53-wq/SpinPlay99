@@ -4,7 +4,7 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      10.0.0
+// @version      10.1.0
 // @description  Rebel Adhar Advanced — DOB bypass + OTP payload strip (no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -193,26 +193,15 @@ const ui = `
       otpNetWatch = true;
       setTimeout(function () { otpNetWatch = false; }, 8000);
 
-      const prepNow = E.prepareSubmit(UI_SEL, log);
-      if (prepNow.dobBypassed && prepNow.formOk) {
-        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
-        setTimeout(function () {
-          if (netCount <= before) {
-            log('error', 'NO API CALL');
-            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
-          }
-        }, 5000);
-        return;
-      }
-
       e.preventDefault();
       e.stopImmediatePropagation();
 
-      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(prepNow);
+      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(E.prepareSubmit(UI_SEL, log));
       runPrep.then(function (prep) {
         if (!prep.dobBypassed) {
-          log('error', 'DOB bypass nahi hua — Switch Mode dabao. Tumhe DOB yaad hona zaroori nahi.', {
+          log('error', 'DOB bypass nahi hua — Bypass DOB dabao. DOB mat bharo.', {
             dobInForm: prep.dobInForm,
+            dobVisible: prep.after?.dobVisible,
           });
           return;
         }
@@ -220,16 +209,17 @@ const ui = `
           log('error', 'Pehle naam + mobile + captcha bharo', prep.after);
           return;
         }
-        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+        log('info', 'OTP send', { dobBypassed: true, dobVisible: false });
         skipOtpHook = true;
-        btn.click();
-        setTimeout(function () { skipOtpHook = false; }, 400);
+        if (E.forceSubmitOtp) E.forceSubmitOtp(btn, log);
+        else btn.click();
+        setTimeout(function () { skipOtpHook = false; }, 600);
         setTimeout(function () {
           if (netCount <= before) {
-            log('error', 'NO API CALL');
+            log('error', 'NO API CALL — Bypass DOB dubara try karo');
             if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
           }
-        }, 5000);
+        }, 6000);
       });
     }, true);
   }

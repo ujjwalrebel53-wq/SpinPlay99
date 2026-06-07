@@ -97,43 +97,33 @@
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
         const before = networkCount;
-        const prepNow = engine.prepareSubmit(UI_SEL, engLog);
-        if (prepNow?.dobBypassed && prepNow?.formOk) {
-          log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
-          setTimeout(() => {
-            if (networkCount <= before) {
-              log('error', 'NO API CALL');
-              log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
-            }
-          }, 5000);
-          return;
-        }
         e.preventDefault();
         e.stopImmediatePropagation();
         const runPrep = engine.prepareSubmitAsync
           ? engine.prepareSubmitAsync(UI_SEL, engLog)
-          : Promise.resolve(prepNow);
+          : Promise.resolve(engine.prepareSubmit(UI_SEL, engLog));
         runPrep.then((prep) => {
           if (!prep?.dobBypassed) {
-            log('error', 'DOB bypass nahi hua — Switch Mode dabao', { dobInForm: prep?.dobInForm });
+            log('error', 'DOB bypass nahi hua — Bypass DOB dabao', { dobInForm: prep?.dobInForm });
             return;
           }
           if (!prep?.formOk) {
             log('error', 'Pehle naam + mobile + captcha bharo', prep?.after);
             return;
           }
-          log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+          log('info', 'OTP send', { dobBypassed: true });
           skipOtpHook = true;
-          btn.click();
+          if (engine.forceSubmitOtp) engine.forceSubmitOtp(btn, engLog);
+          else btn.click();
           setTimeout(() => {
             skipOtpHook = false;
-          }, 400);
+          }, 600);
           setTimeout(() => {
             if (networkCount <= before) {
               log('error', 'NO API CALL');
               log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
             }
-          }, 5000);
+          }, 6000);
         });
       },
       true
