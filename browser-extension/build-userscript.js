@@ -4,12 +4,12 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      10.1.0
-// @description  Rebel Adhar Advanced — DOB bypass + OTP payload strip (no fake date)
+// @version      10.2.0
+// @description  Rebel Adhar — server se DOB strip + OTP bypass (no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 `;
 
@@ -20,6 +20,15 @@ const ui = `
   'use strict';
   const E = UidaiRetrieveEngine;
   const KEY = 'rebelAdharOn';
+
+  window.__rebelNetHooks = {
+    log: function (level, msg, data) {
+      console.log('[Rebel Adhar]', level, msg, data ?? '');
+    },
+    enabled: function () { return localStorage.getItem(KEY) === '1'; },
+    onHit: function () {},
+  };
+  if (E.installNetworkBypass) E.installNetworkBypass(window.__rebelNetHooks);
   const LOG_ID = 'rebel-adhar-log-panel';
   const LOG_BODY = 'rebel-adhar-log-body';
   const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
@@ -164,16 +173,14 @@ const ui = `
   function installNet() {
     if (window.__rebelNet8) return;
     window.__rebelNet8 = true;
-    if (E.installNetworkBypass) {
-      E.installNetworkBypass({
-        log: log,
-        enabled: function () { return on; },
-        onHit: function (kind, method, url) {
-          if (!shouldLogNet(url, method)) return;
-          netCount += 1;
-          log('req', kind + ' ' + method, String(url || '').slice(0, 120));
-        },
-      });
+    if (window.__rebelNetHooks) {
+      window.__rebelNetHooks.log = log;
+      window.__rebelNetHooks.enabled = function () { return on; };
+      window.__rebelNetHooks.onHit = function (kind, method, url) {
+        if (!shouldLogNet(url, method)) return;
+        netCount += 1;
+        log('req', kind + ' ' + method, String(url || '').slice(0, 120));
+      };
     }
   }
 

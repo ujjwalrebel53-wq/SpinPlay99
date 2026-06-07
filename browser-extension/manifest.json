@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Rebel Adhar — myAadhaar Form",
-  "version": "10.1.0",
+  "version": "10.2.0",
   "description": "Rebel Adhar Advanced — DOB bypass + OTP payload strip",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [

