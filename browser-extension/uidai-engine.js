@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.2.0';
+  const ENGINE_VERSION = '12.3.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -615,6 +615,61 @@
     return false;
   }
 
+  function findNgControlFromElement(el) {
+    if (!el) return null;
+    let cur = el;
+    for (let depth = 0; depth < 28 && cur; depth++, cur = cur.parentElement) {
+      const ctx = cur.__ngContext__;
+      if (Array.isArray(ctx)) {
+        for (let i = 0; i < ctx.length; i++) {
+          const item = ctx[i];
+          if (item?.control?.setValue) return { control: item.control, name: item.name || item._parent?.name || '' };
+          if (item?.setValue && item?.status && typeof item.updateValueAndValidity === 'function') {
+            return { control: item, name: item._parent?.name || '' };
+          }
+        }
+      }
+      if (typeof window.ng?.getComponent === 'function') {
+        try {
+          const cmp = window.ng.getComponent(cur);
+          const fcn = el.getAttribute('formcontrolname') || el.getAttribute('ng-reflect-name') || '';
+          const forms = [cmp?.form, cmp?.formGroup, cmp?.retrieveForm, cmp?.aadhaarForm];
+          for (const form of forms) {
+            if (!form?.controls) continue;
+            if (fcn && form.controls[fcn]) return { control: form.controls[fcn], name: fcn };
+            for (const [key, ctrl] of Object.entries(form.controls)) {
+              if (ctrl?.valueAccessor?.nativeElement === el) return { control: ctrl, name: key };
+            }
+          }
+        } catch (_e) {}
+      }
+    }
+    return null;
+  }
+
+  function syncNgControlsFromDom(log) {
+    let n = 0;
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'dob' || type === 'toggle' || type === 'email') return;
+      const input = f.input;
+      if (!input || input.type === 'hidden') return;
+      const val = readInputVal(input);
+      if (!val) return;
+      const hit = findNgControlFromElement(input);
+      if (!hit?.control?.setValue) return;
+      try {
+        hit.control.setValue(val, { emitEvent: true });
+        hit.control.markAsDirty?.();
+        hit.control.markAsTouched?.();
+        hit.control.updateValueAndValidity?.({ emitEvent: true });
+        n += 1;
+      } catch (_e) {}
+    });
+    if (n) log?.('info', 'NgControl synced', { count: n });
+    return n;
+  }
+
   function syncAngularInputs(log) {
     let n = 0;
     getMatFields().forEach((f) => {
@@ -627,11 +682,19 @@
       try {
         nativeInputSet?.call(input, val);
       } catch (_e) {}
-      ['input', 'change', 'blur'].forEach((evt) => {
+      try {
+        input.dispatchEvent(
+          new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val })
+        );
+      } catch (_e1) {
+        input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      }
+      ['change', 'blur'].forEach((evt) => {
         input.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
       });
       n += 1;
     });
+    syncNgControlsFromDom(log);
     if (n) log?.('info', 'Angular inputs synced', { count: n });
     return n;
   }
@@ -1324,20 +1387,79 @@
       }
     });
 
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type !== 'name' && type !== 'mobile' && type !== 'captcha') return;
+      let el = f.input || f.mff;
+      for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
+        walkNg(el, (item) => {
+          [item, item?.form].forEach((form) => {
+            if (!isFormGroup(form) || seen.has(form)) return;
+            seen.add(form);
+            groups.push(form);
+          });
+        });
+        if (Array.isArray(el.__ngContext__)) deepScanObject(el.__ngContext__, groups, scanSeen, 0);
+        const cmp = getComponentFromElement(el);
+        [cmp, cmp?.form, cmp?.formGroup, cmp?.retrieveForm, cmp?.aadhaarForm].forEach((form) => {
+          if (!isFormGroup(form) || seen.has(form)) return;
+          seen.add(form);
+          groups.push(form);
+        });
+      }
+    });
+
     return groups;
+  }
+
+  function findOtpButton() {
+    return qAll('button, [role="button"], input[type="submit"]').find((btn) => {
+      const t = norm(btn.textContent || btn.value || '');
+      return t.includes('send otp') || t.includes('request otp');
+    });
+  }
+
+  function enableMatOtpButton(log) {
+    const btn = findOtpButton();
+    if (!btn) return false;
+    btn.disabled = false;
+    btn.removeAttribute('disabled');
+    btn.setAttribute('aria-disabled', 'false');
+    btn.classList.remove('mat-mdc-button-disabled', 'mat-button-disabled', 'disabled', 'mdc-button--disabled');
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  }
+
+  function prepForUserOtp(uiSel, log) {
+    if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
+    fixAngularValidators(log);
+    patchAngularControlValues(log);
+    syncAngularInputs(log);
+    syncNgControlsFromDom(log);
+    enableOtpButtons();
+    enableMatOtpButton(log);
+    return buildSubmitState(uiSel, log, { quiet: true });
   }
 
   function collectNgControls() {
     const out = [];
     const seen = new WeakSet();
+    function addCtrl(ctrl, key, el) {
+      if (!ctrl?.setValue || seen.has(ctrl)) return;
+      seen.add(ctrl);
+      out.push({ ctrl, key: key || 'ctrl', el });
+    }
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'toggle') return;
+      const hit = findNgControlFromElement(f.input);
+      if (hit?.control) addCtrl(hit.control, hit.name || type, f.input);
+    });
     getDobInputs().forEach((input) => {
       let el = input;
       for (let i = 0; i < 12 && el; i++, el = el.parentElement) {
         walkNg(el, (item) => {
-          if (item?.control?.setValue && !seen.has(item.control)) {
-            seen.add(item.control);
-            out.push({ ctrl: item.control, key: item.name || item._parent?.name || 'dob', el: input });
-          }
+          if (item?.control?.setValue) addCtrl(item.control, item.name || item._parent?.name || 'dob', input);
         });
         if (Array.isArray(el.__ngContext__)) {
           const scanSeen = new WeakSet();
@@ -1399,15 +1521,35 @@
     return !!(mobile?.ok && captcha?.ok);
   }
 
+  function ngCtxDepth(el) {
+    let cur = el;
+    for (let i = 0; i < 20 && cur; i++, cur = cur.parentElement) {
+      if (Array.isArray(cur.__ngContext__)) return { depth: i, type: 'array' };
+    }
+    return { depth: -1, type: 'none' };
+  }
+
   function getFormDiagnostics(uiSel) {
     const groups = collectFormGroups().filter((g) => g.controls);
-    const sample = getDobInputs()[0];
+    const mobileInput = getMatFields().find((f) => classifyField(f) === 'mobile')?.input;
+    const mobileCtx = mobileInput ? ngCtxDepth(mobileInput) : { depth: -1, type: 'none' };
+    const ngHits = getMatFields()
+      .filter((f) => {
+        const t = classifyField(f);
+        return t === 'name' || t === 'mobile' || t === 'captcha';
+      })
+      .map((f) => ({ type: classifyField(f), hasNg: !!findNgControlFromElement(f.input)?.control }));
+    const otpBtn = findOtpButton();
     return {
       formCount: groups.length,
       ngControls: collectNgControls().length,
+      ngFieldHits: ngHits,
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
-      ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
+      ngCtxType: mobileCtx.type,
+      ngCtxDepth: mobileCtx.depth,
+      hasNgApi: typeof window.ng?.getComponent === 'function',
+      otpBtnDisabled: !!(otpBtn?.disabled || otpBtn?.classList?.contains('mat-mdc-button-disabled')),
       dobBypassed: isDobBypassed(uiSel),
       dobInForm: getDobInputs().length,
       dobVisible: dobFieldVisible(uiSel),
@@ -1897,7 +2039,11 @@
     buildOtpPayload,
     buildRetrievePayloads,
     prepareOtpLight,
+    prepForUserOtp,
+    findOtpButton,
     syncAngularInputs,
+    syncNgControlsFromDom,
+    findNgControlFromElement,
     fixAngularValidators,
     patchAngularControlValues,
     invokeViaPageHttp,

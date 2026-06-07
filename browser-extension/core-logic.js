@@ -83,97 +83,10 @@
     }
   }
 
-  let skipOtpHook = false;
-  let otpRunning = false;
-  let otpFallbackTimer = null;
-
   function installOtpPrep() {
     if (otpPrepInstalled || !engine) return;
     otpPrepInstalled = true;
-
-    document.addEventListener(
-      'pointerdown',
-      (e) => {
-        if (!enabledState || skipOtpHook) return;
-        const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
-        if (!btn) return;
-        const t = (btn.textContent || btn.value || '').toLowerCase();
-        if (!t.includes('send otp') && !t.includes('request otp')) return;
-        if (engine.prepareOtpLight) engine.prepareOtpLight(UI_SEL, engLog);
-        else engine.prepareSubmit(UI_SEL, engLog);
-      },
-      true
-    );
-
-    document.addEventListener(
-      'click',
-      (e) => {
-        if (!enabledState || skipOtpHook) return;
-        const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
-        if (!btn) return;
-        const t = (btn.textContent || btn.value || '').toLowerCase();
-        if (!t.includes('send otp') && !t.includes('request otp')) return;
-
-        const prep = engine.prepareOtpLight
-          ? engine.prepareOtpLight(UI_SEL, engLog)
-          : engine.prepareSubmit(UI_SEL, engLog);
-        if (!prep?.dobBypassed) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          log('error', 'DOB bypass nahi hua — Bypass DOB dabao', { dobInForm: prep?.dobInForm });
-          return;
-        }
-        if (!prep?.formOk) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          log('error', 'Pehle naam + mobile + captcha bharo', prep?.after);
-          return;
-        }
-        if (otpRunning) return;
-
-        const before = networkCount;
-        log('info', 'OTP native — Angular ko click jayega', { v: engine.ENGINE_VERSION });
-        otpRunning = true;
-        if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
-        otpFallbackTimer = setTimeout(() => {
-          otpFallbackTimer = null;
-          if (networkCount > before) {
-            otpRunning = false;
-            return;
-          }
-          skipOtpHook = true;
-          const run = engine.invokeOtpPipeline
-            ? engine.invokeOtpPipeline(btn, UI_SEL, engLog, () => networkCount > before, { skipNative: true })
-            : Promise.resolve({ ok: false });
-          Promise.resolve(run)
-            .then((result) => {
-              if (result?.ok) {
-                log('info', 'OTP sent', { via: result.via || 'pipeline', v: engine.ENGINE_VERSION });
-                return;
-              }
-              if (networkCount <= before) {
-                log('error', 'NO API CALL');
-                log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
-              }
-            })
-            .finally(() => {
-              otpRunning = false;
-              setTimeout(() => {
-                skipOtpHook = false;
-              }, 400);
-            });
-        }, 4500);
-
-        setTimeout(() => {
-          if (networkCount > before) {
-            if (otpFallbackTimer) clearTimeout(otpFallbackTimer);
-            otpRunning = false;
-            log('info', 'OTP sent', { via: 'native', v: engine.ENGINE_VERSION });
-          }
-        }, 5000);
-      },
-      true
-    );
+    log('info', 'Hands-off OTP — user clicks Send OTP', { v: engine.ENGINE_VERSION });
   }
 
   async function applyRebelMode() {

