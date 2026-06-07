@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.2.0
+// @version      8.3.0
 // @description  Rebel Adhar — DOB bypass + sync OTP click
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -747,7 +747,7 @@
             ensureMobileModeSync(uiSel, log);
             hideDob(uiSel, log);
             neutralizeEmail(log);
-            if (!isDobBypassed(uiSel)) patchAngularForms(log);
+            syncDobDom(log);
           }
           const diag = getFormDiagnostics(uiSel);
           const snap = getMatFields()
@@ -771,26 +771,41 @@
     });
   }
 
-  /** Sync prep — OTP click se PEHLE (async nahi) */
+  function enableOtpButtons() {
+    qAll('button, [role="button"], input[type="submit"]').forEach((btn) => {
+      const t = norm(btn.textContent || btn.value || '');
+      if (!t.includes('send otp') && !t.includes('request otp')) return;
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      btn.style.pointerEvents = 'auto';
+    });
+  }
+
+  /** Sync prep — OTP click se PEHLE; user DOB nahi bharta, hidden field Angular ke liye */
   function prepareSubmit(uiSel, log) {
     ensureMobileModeSync(uiSel, log);
     hideDob(uiSel, log);
     neutralizeEmail(log);
 
+    const dobSync = syncDobDom(log);
+    if (dobSync) log?.('info', 'DOB silent sync (bypass)', { ok: dobSync });
+
     const bypassed = isDobBypassed(uiSel);
-    let patch = { bypassed, patched: 0, dom: 0 };
-    if (!bypassed) patch = patchAngularForms(log);
+    let patch = { bypassed, patched: 0, dom: dobSync };
+    patchAngularForms(log);
+    enableOtpButtons();
 
     const after = getFormDiagnostics(uiSel);
     const state = {
       dobBypassed: bypassed,
       dobHidden: isDobHidden(uiSel),
+      dobSynced: dobSync,
       patch,
       after,
       formOk: isFormReadyForOtp(uiSel),
     };
     log?.('info', 'Send OTP prep', state);
-    if (!bypassed) log?.('warn', 'DOB bypass fail — fallback fill');
     if (!state.formOk) {
       const miss = (after.fields || []).filter((f) => (f.type === 'mobile' || f.type === 'captcha') && !f.ok);
       log?.('error', 'Fill missing', miss.length ? miss : after.fields);
@@ -1016,40 +1031,34 @@
   }
 
   function watchOtp() {
-    if (window.__rebelOtp81) return;
-    window.__rebelOtp81 = true;
-    document.addEventListener('mousedown', function (e) {
-      if (!on || window.__rebelOtpReplay) return;
+    if (window.__rebelOtp83) return;
+    window.__rebelOtp83 = true;
+    document.addEventListener('click', function (e) {
+      if (!on) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
 
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
       const before = netCount;
       otpNetWatch = true;
-      setTimeout(function () { otpNetWatch = false; }, 6000);
+      setTimeout(function () { otpNetWatch = false; }, 8000);
 
       const prep = E.prepareSubmit(UI_SEL, log);
       if (!prep.formOk) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
         log('error', 'Pehle mobile + captcha bharo', prep.after);
         return;
       }
 
-      log('info', 'OTP send', { dobBypassed: prep.dobBypassed });
-      window.__rebelOtpReplay = true;
+      log('info', 'OTP send', { dobBypassed: prep.dobBypassed, dobSynced: prep.dobSynced });
       setTimeout(function () {
-        btn.click();
-        setTimeout(function () {
-          window.__rebelOtpReplay = false;
-          if (netCount <= before) {
-            log('error', 'NO API CALL');
-            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
-          }
-        }, 4000);
-      }, 100);
+        if (netCount <= before) {
+          log('error', 'NO API CALL');
+          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+        }
+      }, 5000);
     }, true);
   }
 

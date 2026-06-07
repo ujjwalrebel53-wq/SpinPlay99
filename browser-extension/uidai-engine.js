@@ -736,7 +736,7 @@
             ensureMobileModeSync(uiSel, log);
             hideDob(uiSel, log);
             neutralizeEmail(log);
-            if (!isDobBypassed(uiSel)) patchAngularForms(log);
+            syncDobDom(log);
           }
           const diag = getFormDiagnostics(uiSel);
           const snap = getMatFields()
@@ -760,26 +760,41 @@
     });
   }
 
-  /** Sync prep — OTP click se PEHLE (async nahi) */
+  function enableOtpButtons() {
+    qAll('button, [role="button"], input[type="submit"]').forEach((btn) => {
+      const t = norm(btn.textContent || btn.value || '');
+      if (!t.includes('send otp') && !t.includes('request otp')) return;
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      btn.style.pointerEvents = 'auto';
+    });
+  }
+
+  /** Sync prep — OTP click se PEHLE; user DOB nahi bharta, hidden field Angular ke liye */
   function prepareSubmit(uiSel, log) {
     ensureMobileModeSync(uiSel, log);
     hideDob(uiSel, log);
     neutralizeEmail(log);
 
+    const dobSync = syncDobDom(log);
+    if (dobSync) log?.('info', 'DOB silent sync (bypass)', { ok: dobSync });
+
     const bypassed = isDobBypassed(uiSel);
-    let patch = { bypassed, patched: 0, dom: 0 };
-    if (!bypassed) patch = patchAngularForms(log);
+    let patch = { bypassed, patched: 0, dom: dobSync };
+    patchAngularForms(log);
+    enableOtpButtons();
 
     const after = getFormDiagnostics(uiSel);
     const state = {
       dobBypassed: bypassed,
       dobHidden: isDobHidden(uiSel),
+      dobSynced: dobSync,
       patch,
       after,
       formOk: isFormReadyForOtp(uiSel),
     };
     log?.('info', 'Send OTP prep', state);
-    if (!bypassed) log?.('warn', 'DOB bypass fail — fallback fill');
     if (!state.formOk) {
       const miss = (after.fields || []).filter((f) => (f.type === 'mobile' || f.type === 'captcha') && !f.ok);
       log?.('error', 'Fill missing', miss.length ? miss : after.fields);

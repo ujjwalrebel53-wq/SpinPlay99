@@ -105,33 +105,28 @@
     if (otpPrepInstalled || !engine) return;
     otpPrepInstalled = true;
     document.addEventListener(
-      'mousedown',
+      'click',
       (e) => {
         if (!enabledState) return;
         const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
-        if (window.__rebelOtpReplay) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
         const before = networkCount;
         const prep = engine.prepareSubmit(UI_SEL, engLog);
         if (!prep?.formOk) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
           log('error', 'Pehle mobile + captcha bharo', prep?.after);
           return;
         }
-        window.__rebelOtpReplay = true;
+        log('info', 'OTP send', { dobSynced: prep?.dobSynced });
         setTimeout(() => {
-          btn.click();
-          setTimeout(() => {
-            window.__rebelOtpReplay = false;
-            if (networkCount <= before) {
-              log('error', 'NO API CALL');
-              log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
-            }
-          }, 4000);
-        }, 100);
+          if (networkCount <= before) {
+            log('error', 'NO API CALL');
+            log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
+          }
+        }, 5000);
       },
       true
     );
