@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      2.2.0
-// @description  Astik jaisa — UIDAI OR Enter Email mode switch + safe fallback
+// @version      2.3.0
+// @description  DOB hide + silent dummy DOB for Angular + OTP prep (Astik-style)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -17,8 +17,9 @@
   const LOG_BODY = 'rebel-adhar-log-body';
   const SWITCHED_KEY = 'rebelAdharModeSwitched';
   const HIDDEN = 'rebel-dob-hidden';
+  const DUMMY_DOB = '01/01/1990';
 
-  const MODE_PATTERNS = [/or\s*enter\s*e-?mail/i, /or\s*enter\s*email\s*id/i, /or\s*e-?mail/i];
+  const MODE_PATTERNS = [/or\s*enter\s*e-?mail/i, /or\s*enter\s*mobile/i, /or\s*e-?mail/i, /enter\s*e-?mail/i, /mobile\s*\/\s*e-?mail/i];
 
   let on = localStorage.getItem(KEY) === '1';
   const logs = [];
@@ -28,7 +29,7 @@
 
   function log(level, msg, data) {
     logs.push({ t: new Date().toLocaleTimeString(), level, msg, data });
-    if (logs.length > 100) logs.shift();
+    if (logs.length > 120) logs.shift();
     renderLogs();
     console.log('[Rebel Adhar]', level, msg, data ?? '');
   }
@@ -37,12 +38,10 @@
     ensureUI();
     const b = document.getElementById(LOG_BODY);
     if (!b) return;
-    b.textContent = logs
-      .map((l) => {
-        const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
-        return `[${l.t}] ${l.level.toUpperCase()} ${l.msg}${x}`;
-      })
-      .join('\n');
+    b.textContent = logs.map((l) => {
+      const x = l.data !== undefined ? ' | ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '';
+      return `[${l.t}] ${l.level.toUpperCase()} ${l.msg}${x}`;
+    }).join('\n');
     b.scrollTop = b.scrollHeight;
   }
 
@@ -64,15 +63,9 @@
     if (!document.getElementById(LOG_ID)) {
       const p = document.createElement('div');
       p.id = LOG_ID;
-      p.innerHTML =
-        '<div id="rebel-adhar-log-header"><strong>Rebel Adhar Logs</strong><span><button type="button" id="rebel-clr">Clear</button><button type="button" id="rebel-hid">Hide</button></span></div><pre id="' +
-        LOG_BODY +
-        '"></pre>';
+      p.innerHTML = '<div id="rebel-adhar-log-header"><strong>Rebel Adhar Logs</strong><span><button type="button" id="rebel-clr">Clear</button><button type="button" id="rebel-hid">Hide</button></span></div><pre id="' + LOG_BODY + '"></pre>';
       document.documentElement.appendChild(p);
-      document.getElementById('rebel-clr').onclick = () => {
-        logs.length = 0;
-        renderLogs();
-      };
+      document.getElementById('rebel-clr').onclick = () => { logs.length = 0; renderLogs(); };
       document.getElementById('rebel-hid').onclick = () => {
         const b = document.getElementById(LOG_BODY);
         b.style.display = b.style.display === 'none' ? 'block' : 'none';
@@ -84,14 +77,8 @@
       fab.onclick = () => {
         on = !on;
         localStorage.setItem(KEY, on ? '1' : '0');
-        if (on) {
-          sessionStorage.removeItem(SWITCHED_KEY);
-          netCount = 0;
-          applyAstikMode(true);
-          startRetryLoop();
-        } else {
-          log('info', 'OFF — page reload recommended');
-        }
+        if (on) { sessionStorage.removeItem(SWITCHED_KEY); netCount = 0; applyMode(); startRetry(); }
+        else log('info', 'OFF — page reload karo');
         updateBtns();
       };
       document.documentElement.appendChild(fab);
@@ -100,20 +87,14 @@
       const b = document.createElement('button');
       b.id = 'rebel-switch-btn';
       b.textContent = 'Switch Mode';
-      b.onclick = () => {
-        sessionStorage.removeItem(SWITCHED_KEY);
-        applyAstikMode(true);
-      };
+      b.onclick = () => { sessionStorage.removeItem(SWITCHED_KEY); applyMode(); };
       document.documentElement.appendChild(b);
     }
     if (!document.getElementById('rebel-logs-btn')) {
       const b = document.createElement('button');
       b.id = 'rebel-logs-btn';
       b.textContent = 'Logs';
-      b.onclick = () => {
-        const p = document.getElementById(LOG_ID);
-        p.style.display = p.style.display === 'none' ? 'block' : 'none';
-      };
+      b.onclick = () => { document.getElementById(LOG_ID).style.display = document.getElementById(LOG_ID).style.display === 'none' ? 'block' : 'none'; };
       document.documentElement.appendChild(b);
     }
     updateBtns();
@@ -121,31 +102,37 @@
 
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
-    if (fab) {
-      fab.textContent = on ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF';
-      fab.style.background = on ? '#0a7a2f' : '#b42318';
-    }
+    if (fab) { fab.textContent = on ? 'Rebel Adhar: ON' : 'Rebel Adhar: OFF'; fab.style.background = on ? '#0a7a2f' : '#b42318'; }
   }
 
+  function isUi(el) { return !!el?.closest('#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn'); }
+
   function isVisible(el) {
-    if (!el || el.closest('#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn')) return false;
+    if (!el || isUi(el)) return false;
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   }
 
   function directText(el) {
-    return norm(
-      Array.from(el.childNodes)
-        .filter((n) => n.nodeType === 3)
-        .map((n) => n.textContent)
-        .join(' ')
-    );
+    return norm(Array.from(el.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join(' '));
   }
 
-  function inputs() {
-    return Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea'));
+  function collectShadow(root, out) {
+    if (!root || out.includes(root)) return;
+    out.push(root);
+    root.querySelectorAll?.('*').forEach((el) => { if (el.shadowRoot) collectShadow(el.shadowRoot, out); });
   }
+
+  function qAll(sel) {
+    const roots = [document];
+    collectShadow(document.documentElement, roots);
+    const out = [];
+    roots.forEach((r) => r.querySelectorAll?.(sel).forEach((el) => out.push(el)));
+    return out;
+  }
+
+  function inputs() { return qAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea'); }
 
   function labelOf(el) {
     const l = el.closest('mat-form-field,.mat-mdc-form-field')?.querySelector('mat-label,label');
@@ -153,34 +140,28 @@
   }
 
   function isDobField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname'), el.name].join(' '));
-    return blob.includes('date of birth') || blob.includes('dob') || blob.includes('birth date') || el.type === 'date';
+    const b = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname'), el.name].join(' '));
+    return b.includes('date of birth') || b.includes('dob') || b.includes('birth date') || el.type === 'date';
   }
 
   function isEmailField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
-    return blob.includes('email') || /email|mail/i.test(el.getAttribute('formcontrolname') || '');
+    const b = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return b.includes('email') || /email|mail/i.test(el.getAttribute('formcontrolname') || '');
   }
 
   function isMobileField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
-    return blob.includes('mobile') && !blob.includes('email');
+    const b = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
+    return b.includes('mobile') && !b.includes('email');
   }
 
-  function dobVisible() {
-    return inputs().some((i) => isDobField(i) && isVisible(i));
-  }
+  function dobVisible() { return inputs().some((i) => isDobField(i) && isVisible(i)); }
+  function emailVisible() { return inputs().some((i) => isEmailField(i) && isVisible(i)); }
+  function formReady() { return inputs().length >= 2; }
 
-  function emailVisible() {
-    return inputs().some((i) => isEmailField(i) && isVisible(i));
-  }
-
-  function formReady() {
-    return inputs().length >= 2;
-  }
-
-  function modeOk() {
-    return !dobVisible() || emailVisible();
+  function dispatchEv(input) {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
   }
 
   function simulateClick(el) {
@@ -194,20 +175,33 @@
   }
 
   function matchesMode(text) {
-    if (!text || text.length > 60) return false;
-    if (/enter email address/i.test(text) && !/or\s/i.test(text)) return false;
+    if (!text || text.length > 80) return false;
     return MODE_PATTERNS.some((p) => p.test(text));
   }
 
-  function clickModeSwitch() {
-    const mobile = inputs().find(isMobileField);
-    if (mobile) {
-      let node = mobile.closest('mat-form-field,.mat-mdc-form-field,div');
-      for (let d = 0; d < 8 && node; d++) {
-        for (const el of node.querySelectorAll('a,span,button,label,p')) {
+  function scanLinks() {
+    const seen = new Set();
+    const items = [];
+    qAll('a,button,span,label,p,div,mat-radio-button').forEach((el) => {
+      if (!isVisible(el)) return;
+      const t = (directText(el) || norm(el.textContent || '')).slice(0, 55);
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      if (/or|email|mobile|mail|enter/i.test(t)) items.push(t);
+    });
+    log('info', 'Page links scan', items.slice(0, 25));
+  }
+
+  function clickToggle() {
+    for (const finder of [isMobileField, isDobField]) {
+      const field = inputs().find(finder);
+      if (!field) continue;
+      let node = field.closest('mat-form-field,.mat-mdc-form-field,div');
+      for (let d = 0; d < 10 && node; d++) {
+        for (const el of node.querySelectorAll('a,span,button,label,p,div')) {
           const text = directText(el) || norm(el.textContent || '');
           if (matchesMode(text) && isVisible(el)) {
-            log('info', 'Click near mobile', text);
+            log('info', 'Click toggle', text);
             simulateClick(el);
             return true;
           }
@@ -215,128 +209,127 @@
         node = node.parentElement;
       }
     }
-
     const hits = [];
-    document.querySelectorAll('a,button,span,label,p').forEach((el) => {
+    qAll('a,button,span,label,p,mat-radio-button').forEach((el) => {
       const text = directText(el) || norm(el.textContent || '');
       if (matchesMode(text) && isVisible(el)) hits.push({ el, text, len: text.length });
     });
     hits.sort((a, b) => a.len - b.len);
-    if (hits.length) {
-      log('info', 'Click mode switch', hits[0].text);
-      simulateClick(hits[0].el);
-      return true;
-    }
+    if (hits.length) { log('info', 'Click toggle', hits[0].text); simulateClick(hits[0].el); return true; }
+    scanLinks();
     return false;
   }
 
-  function patchDobOnly() {
-    inputs()
-      .filter(isDobField)
-      .forEach((input) => {
-        const box = input.closest('mat-form-field,.mat-mdc-form-field,div') || input;
-        box.classList.add(HIDDEN);
-        input.removeAttribute('required');
-        input.setCustomValidity('');
-        input.disabled = false;
-        const ctx = input.__ngContext__;
-        if (Array.isArray(ctx)) {
-          ctx.forEach((item) => {
-            const c = item?.control;
-            if (c?.clearValidators) {
-              c.clearValidators();
-              c.setErrors(null);
-              c.updateValueAndValidity({ emitEvent: true });
-            }
-          });
-        }
-      });
-    log('warn', 'Fallback: DOB hidden + validator cleared');
-  }
-
-  function applyAstikMode(force) {
-    if (!on && !force) return;
-    ensureUI();
-
-    if (!formReady()) {
-      log('warn', 'Form loading... wait');
-      return;
-    }
-
-    if (!force && sessionStorage.getItem(SWITCHED_KEY) === '1' && modeOk()) {
-      log('info', 'Already Mobile/Email mode');
-      return;
-    }
-
-    log('info', 'Applying mode switch', { dob: dobVisible(), email: emailVisible() });
-
-    if (dobVisible() || !emailVisible()) {
-      if (!clickModeSwitch()) {
-        log('warn', 'OR Enter Email not found — fallback');
-        patchDobOnly();
-        return;
+  function patchNg(input) {
+    const ctx = input.__ngContext__;
+    if (!Array.isArray(ctx)) return;
+    ctx.forEach((item) => {
+      const c = item?.control;
+      if (c?.setValue) {
+        try { c.setValue(input.value, { emitEvent: true }); } catch (_e) { c.patchValue?.(input.value); }
+        c.clearValidators?.(); c.setErrors(null); c.updateValueAndValidity?.({ emitEvent: true });
       }
-    }
-
-    setTimeout(() => {
-      const ok = modeOk();
-      log('info', 'After switch', { ok, dob: dobVisible(), email: emailVisible() });
-      if (!ok) patchDobOnly();
-      else sessionStorage.setItem(SWITCHED_KEY, '1');
-    }, 700);
+      const form = item?.form;
+      if (form?.controls) {
+        Object.keys(form.controls).forEach((k) => {
+          if (/dob|birth|date/i.test(k)) {
+            const x = form.controls[k];
+            x.clearValidators?.(); x.setErrors(null); x.updateValueAndValidity?.({ emitEvent: true });
+          }
+        });
+        form.setErrors?.(null); form.updateValueAndValidity?.({ emitEvent: true });
+      }
+    });
   }
 
-  function startRetryLoop() {
+  function applyDobBypass() {
+    inputs().filter(isDobField).forEach((input) => {
+      input.disabled = false;
+      input.removeAttribute('required');
+      input.setCustomValidity('');
+      input.value = DUMMY_DOB;
+      input.style.position = 'absolute';
+      input.style.left = '-9999px';
+      dispatchEv(input);
+      patchNg(input);
+      const box = input.closest('mat-form-field,.mat-mdc-form-field,div') || input;
+      box.classList.add(HIDDEN);
+    });
+    log('info', 'DOB bypass', { value: DUMMY_DOB, hidden: !dobVisible() });
+  }
+
+  function prepareSubmit() {
+    applyDobBypass();
+    inputs().forEach((i) => { i.disabled = false; i.setCustomValidity(''); dispatchEv(i); });
+    qAll('button,[role="button"]').forEach((btn) => {
+      const t = norm(btn.textContent || btn.value || '');
+      if (t.includes('send otp') || t.includes('request otp')) {
+        btn.disabled = false; btn.removeAttribute('disabled');
+        btn.classList.remove('mat-button-disabled', 'disabled');
+      }
+    });
+  }
+
+  function applyMode() {
+    if (!on) return;
+    ensureUI();
+    if (!formReady()) { log('warn', 'Form loading...'); return; }
+    log('info', 'Applying v2.3', { dob: dobVisible(), email: emailVisible() });
+    if (dobVisible()) clickToggle();
+    setTimeout(() => {
+      applyDobBypass();
+      sessionStorage.setItem(SWITCHED_KEY, '1');
+      log('info', 'Ready', { dob: dobVisible(), email: emailVisible() });
+    }, 800);
+  }
+
+  function startRetry() {
     let n = 0;
     const t = setInterval(() => {
       n += 1;
-      if (!on || n > 12) return clearInterval(t);
+      if (!on || n > 15) return clearInterval(t);
       if (!formReady()) return;
-      if (!modeOk()) applyAstikMode(true);
-      else clearInterval(t);
-    }, 1200);
+      applyMode();
+      if (n > 2) clearInterval(t);
+    }, 1500);
   }
 
-  function installNetLog() {
-    if (window.__rebelNet) return;
-    window.__rebelNet = true;
+  function installNet() {
+    if (window.__rebelNet23) return;
+    window.__rebelNet23 = true;
     const f = window.fetch;
     window.fetch = function (...a) {
       const u = typeof a[0] === 'string' ? a[0] : a[0]?.url || '';
-      if (on && /otp|uidai|aadhaar|retrieve/i.test(u)) {
+      if (on && u) {
         netCount += 1;
-        log('req', 'fetch', u.slice(0, 100));
+        if (/otp|uidai|aadhaar|retrieve|send|verify|auth/i.test(u)) log('req', 'fetch', u.slice(0, 100));
       }
       return f.apply(this, a);
     };
   }
 
   function watchOtp() {
-    document.addEventListener(
-      'click',
-      (e) => {
-        if (!on) return;
-        const t = norm(e.target?.textContent || e.target?.value || '');
-        if (!t.includes('send otp') && !t.includes('request otp')) return;
-        const before = netCount;
-        log('info', 'Send OTP', { dob: dobVisible(), email: emailVisible(), ngInv: document.querySelectorAll('.ng-invalid').length });
-        setTimeout(() => {
-          if (netCount === before) log('error', 'NO API CALL — Switch Mode dabao, asli naam + registered mobile use karo');
-        }, 2500);
-      },
-      false
-    );
+    document.addEventListener('click', (e) => {
+      if (!on) return;
+      const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
+      if (!btn) return;
+      const t = norm(btn.textContent || btn.value || '');
+      if (!t.includes('send otp') && !t.includes('request otp')) return;
+      const before = netCount;
+      prepareSubmit();
+      log('info', 'Send OTP prep', {
+        dob: dobVisible(),
+        fields: inputs().map((i) => ({ lbl: labelOf(i).slice(0, 20), val: (i.value || '').slice(0, 12), dob: isDobField(i) })),
+      });
+      setTimeout(() => {
+        if (netCount <= before) log('error', 'NO API CALL — page reload + asli naam + registered mobile');
+      }, 3000);
+    }, true);
   }
 
   ensureUI();
-  installNetLog();
+  installNet();
   watchOtp();
-
-  if (on) {
-    log('info', 'v2.2 — Astik mode switch');
-    applyAstikMode(true);
-    startRetryLoop();
-  } else {
-    log('info', 'Rebel Adhar OFF — ON button dabao');
-  }
+  if (on) { log('info', 'v2.3 ON'); applyMode(); startRetry(); }
+  else log('info', 'Rebel Adhar OFF — ON dabao');
 })();

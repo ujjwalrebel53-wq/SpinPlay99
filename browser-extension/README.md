@@ -1,12 +1,15 @@
-# Rebel Adhar v2.2
+# Rebel Adhar v2.3
 
-**Astik jaisa kaam** — UIDAI ka official **OR Enter Email** mode switch.
+**DOB hide + Angular bypass** — real UIDAI page par "OR Enter Email" link aksar nahi milta, isliye v2.3 **hidden dummy DOB** (`01/01/1990`) set karke Angular ko satisfy karta hai.
 
 ## Problem kya tha?
 
-Pehle wale version DOB ko CSS se chhupa dete the, lekin Angular form andar se DOB maangta rehta tha — isliye **Send OTP pe koi API call nahi hoti thi**.
+Sirf DOB CSS se hide karne se Angular andar se form invalid rehta tha → **Send OTP pe API call nahi hoti**.
 
-v2.2 pehle UIDAI ka **OR Enter Email** link click karta hai (Astik jaisa). Agar link na mile to safe fallback: sirf DOB validator clear + hide.
+v2.3:
+1. Toggle link dhundhta hai (shadow DOM + DOB/mobile ke paas)
+2. Toggle na mile to **DOB bypass**: chhupa ke dummy value + Angular FormControl sync
+3. Send OTP se **pehle** form prepare karta hai (capture phase)
 
 ## Kiwi Browser install
 
