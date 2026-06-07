@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      9.3.0
-// @description  Rebel Adhar — DOB bypass last fix (mode switch, no fake date)
+// @version      10.0.0
+// @description  Rebel Adhar Advanced — DOB bypass + OTP payload strip (no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -22,7 +22,7 @@ const ui = `
   const KEY = 'rebelAdharOn';
   const LOG_ID = 'rebel-adhar-log-panel';
   const LOG_BODY = 'rebel-adhar-log-body';
-  const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn';
+  const UI_SEL = '#' + LOG_ID + ',#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
   let on = localStorage.getItem(KEY) === '1';
   const logs = [];
@@ -57,7 +57,8 @@ const ui = `
         '#rebel-adhar-log-body{margin:0;padding:8px;max-height:calc(36vh - 32px);overflow:auto;white-space:pre-wrap}' +
         '#rebel-fab{position:fixed;right:10px;bottom:78px;z-index:2147483647;border:none;border-radius:999px;padding:12px 14px;color:#fff;font:700 12px system-ui;box-shadow:0 6px 18px rgba(0,0,0,.35)}' +
         '#rebel-switch-btn{position:fixed;right:10px;bottom:136px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#0052a5;color:#fff;font:700 11px system-ui}' +
-        '#rebel-logs-btn{position:fixed;right:10px;bottom:194px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#4b5563;color:#fff;font:700 11px system-ui}';
+        '#rebel-logs-btn{position:fixed;right:10px;bottom:194px;z-index:2147483647;border:none;border-radius:999px;padding:10px 12px;background:#4b5563;color:#fff;font:700 11px system-ui}' +
+        '#rebel-status-strip{position:fixed;top:0;left:0;right:0;z-index:2147483645;padding:6px 10px;text-align:center;font:700 12px system-ui;color:#fff;display:none}';
       document.documentElement.appendChild(st);
     }
     if (!document.getElementById(LOG_ID)) {
@@ -69,6 +70,11 @@ const ui = `
       document.getElementById('rebel-hid').onclick = function () {
         document.getElementById(LOG_BODY).style.display = document.getElementById(LOG_BODY).style.display === 'none' ? 'block' : 'none';
       };
+    }
+    if (!document.getElementById('rebel-status-strip')) {
+      const s = document.createElement('div');
+      s.id = 'rebel-status-strip';
+      document.documentElement.appendChild(s);
     }
     if (!document.getElementById('rebel-fab')) {
       const fab = document.createElement('button');
@@ -117,12 +123,30 @@ const ui = `
     updateBtns();
   }
 
+  function updateStatus() {
+    const strip = document.getElementById('rebel-status-strip');
+    if (!strip) return;
+    if (!on) { strip.style.display = 'none'; return; }
+    const bypassed = E.isDobBypassed ? E.isDobBypassed(UI_SEL) : false;
+    strip.style.display = 'block';
+    if (bypassed) {
+      strip.textContent = 'Rebel Adhar — DOB bypass OK | Name + Mobile + Captcha bharo → Send OTP';
+      strip.style.background = '#0a7a2f';
+    } else {
+      strip.textContent = 'Rebel Adhar — DOB abhi dikhe | Bypass DOB dabao';
+      strip.style.background = '#b45309';
+    }
+    const fab = document.getElementById('rebel-fab');
+    if (fab && on) fab.textContent = bypassed ? 'Rebel ON ✓' : 'Rebel ON ✗';
+  }
+
   function updateBtns() {
     const fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel Adhar ON' : 'Rebel Adhar OFF';
+      if (!on) fab.textContent = 'Rebel Adhar OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
+    updateStatus();
   }
 
   var otpNetWatch = false;
@@ -140,32 +164,16 @@ const ui = `
   function installNet() {
     if (window.__rebelNet8) return;
     window.__rebelNet8 = true;
-    const f = window.fetch;
-    window.fetch = function () {
-      const u = typeof arguments[0] === 'string' ? arguments[0] : arguments[0]?.url || '';
-      const m = (arguments[1] && arguments[1].method) || 'GET';
-      if (shouldLogNet(u, m)) {
-        netCount += 1;
-        log('req', 'fetch ' + m, u.slice(0, 120));
-      }
-      return f.apply(this, arguments);
-    };
-    const XHR = window.XMLHttpRequest;
-    if (XHR && XHR.prototype) {
-      const open = XHR.prototype.open;
-      const send = XHR.prototype.send;
-      XHR.prototype.open = function (method, url) {
-        this.__rebelUrl = String(url || '');
-        this.__rebelMethod = String(method || 'GET');
-        return open.apply(this, arguments);
-      };
-      XHR.prototype.send = function () {
-        if (shouldLogNet(this.__rebelUrl, this.__rebelMethod)) {
+    if (E.installNetworkBypass) {
+      E.installNetworkBypass({
+        log: log,
+        enabled: function () { return on; },
+        onHit: function (kind, method, url) {
+          if (!shouldLogNet(url, method)) return;
           netCount += 1;
-          log('req', 'xhr ' + this.__rebelMethod, (this.__rebelUrl || '').slice(0, 120));
-        }
-        return send.apply(this, arguments);
-      };
+          log('req', kind + ' ' + method, String(url || '').slice(0, 120));
+        },
+      });
     }
   }
 
@@ -234,11 +242,13 @@ const ui = `
     const ready = await E.waitForForm(30000);
     if (!ready) { log('warn', 'Form timeout — page reload karo'); return; }
     await E.apply(UI_SEL, log);
+    updateStatus();
     const bypassed = E.isDobBypassed ? E.isDobBypassed(UI_SEL) : false;
-    log('info', bypassed ? 'DOB bypass OK — ab naam+mobile+captcha bharo' : 'DOB abhi dikhe to Bypass DOB dabao', {
+    log('info', bypassed ? 'Advanced bypass OK — naam+mobile+captcha → Send OTP' : 'Bypass DOB dabao', {
       dobVisible: E.dobFieldVisible(UI_SEL),
       orLinks: E.discoverOrLinks ? E.discoverOrLinks(UI_SEL).map(function (l) { return l.text; }) : [],
     });
+    setInterval(function () { if (on) updateStatus(); }, 3000);
   }
 
   ensureUI();
