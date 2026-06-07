@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.1.0';
+  const ENGINE_VERSION = '12.2.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -324,6 +324,13 @@
     const log = hooks?.log;
     const enabled = hooks?.enabled || (() => true);
     const onHit = hooks?.onHit || (() => {});
+    const onSuccess = hooks?.onSuccess || onHit;
+
+    function notifySuccess(kind, method, url, status) {
+      if (!enabled() || !isUidaiOtpHit(url, method)) return;
+      if (status < 200 || status >= 300) return;
+      onSuccess(kind, method, url, status);
+    }
 
     function processPost(url, method, body) {
       if (!enabled() || String(method).toUpperCase() !== 'POST' || body == null) return { body, removed: [] };
@@ -361,10 +368,12 @@
                 redirect: req.redirect,
                 referrer: req.referrer,
                 integrity: req.integrity,
+              }).then(function (res) {
+                notifySuccess('fetch', method, url, res.status);
+                return res;
               });
             });
           }
-          if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
           return origFetch.call(this, input, init);
         }
 
@@ -375,8 +384,10 @@
           const r = processPost(url, method, opts.body);
           opts.body = r.body;
         }
-        if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
-        return origFetch.call(this, input, opts);
+        return origFetch.call(this, input, opts).then(function (res) {
+          notifySuccess('fetch', method, url, res.status);
+          return res;
+        });
       };
     }
 
@@ -399,11 +410,17 @@
       XHR.send = function (body) {
         const url = this.__rebelUrl || '';
         const method = this.__rebelMethod || 'GET';
+        const xhr = this;
+        if (!xhr.__rebelDirect && !xhr.__rebelLoadHook) {
+          xhr.__rebelLoadHook = true;
+          xhr.addEventListener('load', function () {
+            notifySuccess('xhr', method, url, xhr.status);
+          });
+        }
         if (body != null) {
           const r = processPost(url, method, body);
           body = r.body;
         }
-        if (enabled() && isUidaiOtpHit(url, method)) onHit('xhr', method, url);
         return origSend.call(this, body);
       };
     }
@@ -635,6 +652,42 @@
       form.updateValueAndValidity?.({ emitEvent: false });
     });
     if (n) log?.('info', 'Angular validators cleared', { count: n });
+    return n;
+  }
+
+  function patchAngularControlValues(log) {
+    const name = readFieldVal('name');
+    const mobile = readFieldVal('mobile');
+    const captcha = readFieldVal('captcha');
+    let n = 0;
+    collectFormGroups().forEach((form) => {
+      if (!form.controls) return;
+      Object.entries(form.controls).forEach(([key, ctrl]) => {
+        if (isDobControlKey(key) || /email/i.test(key)) {
+          ctrl.clearValidators?.();
+          ctrl.setErrors?.(null);
+          try {
+            ctrl.disable?.({ emitEvent: false });
+          } catch (_e) {}
+          return;
+        }
+        let val = '';
+        if (/name|fullname/i.test(key)) val = name;
+        else if (/mobile|phone/i.test(key)) val = mobile;
+        else if (/captcha/i.test(key)) val = captcha;
+        if (!val || !ctrl?.setValue) return;
+        try {
+          ctrl.setValue(val, { emitEvent: true });
+          ctrl.markAsDirty?.();
+          ctrl.markAsTouched?.();
+          n += 1;
+        } catch (_e) {}
+      });
+      try {
+        form.updateValueAndValidity?.({ emitEvent: true });
+      } catch (_e) {}
+    });
+    if (n) log?.('info', 'Angular controls patched', { count: n });
     return n;
   }
 
@@ -910,6 +963,7 @@
         payload = JSON.stringify(payload);
       }
       const xhr = new XMLHttpRequest();
+      xhr.__rebelDirect = true;
       xhr.open('POST', url, true);
       xhr.withCredentials = true;
       xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
@@ -997,6 +1051,7 @@
 
     log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION, skipNative: !!opts.skipNative });
 
+    patchAngularControlValues(log);
     syncAngularInputs(log);
     fixAngularValidators(log);
     enableOtpButtons();
@@ -1007,41 +1062,33 @@
           btn.click();
         } catch (_e) {}
       });
-      await waitMs(2200);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'native-click' };
       }
     }
 
     if (await invokeViaPageHttp(uiSel, log)) {
-      await waitMs(2000);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'http-client' };
       }
     }
 
     if (deepInvokeOtp(btn, log)) {
-      await waitMs(2200);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'angular' };
       }
     }
 
     forceSubmitOtp(btn, log);
-    await waitMs(2000);
+    await waitMs(2500);
     if (typeof netBefore === 'function' && netBefore()) {
       return { ok: true, prep, via: 'force-click' };
     }
 
-    const paths = await scrapeChunkEndpoints(log);
-    if (await directOtpRequest(uiSel, log, paths)) {
-      if (typeof netBefore === 'function' && netBefore()) {
-        return { ok: true, prep, via: 'direct-api' };
-      }
-      return { ok: true, prep, via: 'direct-api' };
-    }
-
-    log?.('error', 'OTP pipeline fail — sab try ho gaya');
+    log?.('error', 'OTP pipeline fail — Angular API 2xx nahi aaya (405=direct POST kaam nahi karta)');
     return { ok: false, prep };
   }
 
@@ -1083,6 +1130,7 @@
   function prepareOtpLight(uiSel, log) {
     if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
     fixAngularValidators(log);
+    patchAngularControlValues(log);
     syncAngularInputs(log);
     enableOtpButtons();
     return buildSubmitState(uiSel, log, { quiet: true });
@@ -1851,6 +1899,7 @@
     prepareOtpLight,
     syncAngularInputs,
     fixAngularValidators,
+    patchAngularControlValues,
     invokeViaPageHttp,
     prepareSubmit,
     prepareSubmitAsync,
@@ -1879,7 +1928,7 @@
 });
 
 /**
- * Runs inside PAGE context (injected <script>) — Angular + XHR same world.
+ * Runs inside PAGE context — Angular same world, zero click block when form OK.
  */
 (function () {
   if (window.__rebelPageBridge) return;
@@ -1892,9 +1941,9 @@
   const UI_SEL =
     '#rebel-adhar-log-panel,#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
-  let uidaiNetCount = 0;
+  let uidaiOkCount = 0;
   let skipOtp = false;
-  let otpRunning = false;
+  let otpWatch = null;
 
   function isOn() {
     try {
@@ -1911,17 +1960,18 @@
     console.log('[Rebel Adhar PAGE]', level, msg, data ?? '');
   }
 
-  function countUidaiHit(kind, method, url) {
-    if (!E.isUidaiOtpHit || !E.isUidaiOtpHit(url, method)) return false;
-    uidaiNetCount += 1;
-    emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
-    return true;
+  function uidaiOkSince(before) {
+    return uidaiOkCount > before;
   }
 
   E.installNetworkBypass({
     log: emit,
     enabled: isOn,
-    onHit: countUidaiHit,
+    onSuccess: function (kind, method, url, status) {
+      if (!isOn()) return;
+      uidaiOkCount += 1;
+      emit('req', kind + ' ' + method + ' ' + status, String(url || '').slice(0, 120));
+    },
   });
 
   function isOtpBtn(el) {
@@ -1932,16 +1982,54 @@
     return btn;
   }
 
-  function uidaiNetSince(before) {
-    return uidaiNetCount > before;
+  function quickPrepCheck() {
+    if (!E.isDobBypassed(UI_SEL)) return { ok: false, reason: 'dob' };
+    if (!E.isFormReadyForOtp(UI_SEL)) return { ok: false, reason: 'form' };
+    return { ok: true };
+  }
+
+  function armOtpWatch(btn) {
+    const before = uidaiOkCount;
+    if (otpWatch) clearTimeout(otpWatch.timer);
+    emit('info', 'OTP armed — Angular click free', { v: E.ENGINE_VERSION });
+    const timer = setTimeout(function () {
+      otpWatch = null;
+      if (uidaiOkSince(before)) {
+        emit('info', 'OTP sent', { via: 'angular-2xx', v: E.ENGINE_VERSION });
+        return;
+      }
+      emit('warn', 'Angular 2xx nahi — pipeline retry');
+      skipOtp = true;
+      const run = E.invokeOtpPipeline
+        ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
+            return uidaiOkSince(before);
+          }, { skipNative: true, lightPrep: true })
+        : Promise.resolve({ ok: false });
+      Promise.resolve(run)
+        .then(function (result) {
+          if (result && result.ok && uidaiOkSince(before)) {
+            emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
+          } else if (!uidaiOkSince(before)) {
+            emit('error', 'NO UIDAI 2xx — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
+            emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
+          }
+        })
+        .finally(function () {
+          skipOtp = false;
+        });
+    }, 6000);
+    otpWatch = { before: before, btn: btn, timer: timer };
   }
 
   document.addEventListener(
     'pointerdown',
     function (e) {
       if (!isOn() || skipOtp) return;
-      if (!isOtpBtn(e.target)) return;
+      const btn = isOtpBtn(e.target);
+      if (!btn) return;
       if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
+      const chk = quickPrepCheck();
+      if (chk.ok) armOtpWatch(btn);
     },
     true
   );
@@ -1952,60 +2040,27 @@
       if (!isOn() || skipOtp) return;
       const btn = isOtpBtn(e.target);
       if (!btn) return;
-
-      const prep = E.prepareOtpLight ? E.prepareOtpLight(UI_SEL, emit) : E.prepareSubmit(UI_SEL, emit);
-      if (!prep.dobBypassed) {
+      const chk = quickPrepCheck();
+      if (!chk.ok) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        emit('error', 'DOB bypass fail — Bypass DOB dabao', { dobInForm: prep.dobInForm });
-        return;
-      }
-      if (!prep.formOk) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        emit('error', 'Pehle naam + mobile + captcha bharo', prep.after);
-        return;
-      }
-      if (otpRunning) return;
-
-      const before = uidaiNetCount;
-      otpRunning = true;
-      emit('info', 'OTP PAGE click — Angular same world', { v: E.ENGINE_VERSION });
-
-      setTimeout(function () {
-        if (uidaiNetSince(before)) {
-          otpRunning = false;
-          emit('info', 'OTP sent', { via: 'page-angular', v: E.ENGINE_VERSION });
-          return;
+        if (otpWatch) {
+          clearTimeout(otpWatch.timer);
+          otpWatch = null;
         }
-        emit('warn', 'UIDAI API nahi mili — pipeline retry');
-        skipOtp = true;
-        const run = E.invokeOtpPipeline
-          ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
-              return uidaiNetSince(before);
-            }, { skipNative: true, lightPrep: true })
-          : Promise.resolve({ ok: false });
-        Promise.resolve(run)
-          .then(function (result) {
-            if (result && result.ok && uidaiNetSince(before)) {
-              emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
-            } else if (!uidaiNetSince(before)) {
-              emit('error', 'NO UIDAI API — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
-              emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
-            }
-          })
-          .finally(function () {
-            skipOtp = false;
-            otpRunning = false;
-          });
-      }, 5500);
+        if (chk.reason === 'dob') {
+          emit('error', 'DOB bypass fail — Bypass DOB dabao', {});
+        } else {
+          emit('error', 'Pehle naam + mobile + captcha bharo', E.getFormDiagnostics?.(UI_SEL));
+        }
+      }
     },
     true
   );
 
   function bootPage() {
     if (!isOn()) return;
-    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' injected — Angular world');
+    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' injected');
     E.waitForForm(30000).then(function (ready) {
       if (!ready) {
         emit('warn', 'Form timeout — page reload karo');

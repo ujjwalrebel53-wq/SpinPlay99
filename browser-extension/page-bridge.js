@@ -1,5 +1,5 @@
 /**
- * Runs inside PAGE context (injected <script>) — Angular + XHR same world.
+ * Runs inside PAGE context — Angular same world, zero click block when form OK.
  */
 (function () {
   if (window.__rebelPageBridge) return;
@@ -12,9 +12,9 @@
   const UI_SEL =
     '#rebel-adhar-log-panel,#rebel-fab,#rebel-switch-btn,#rebel-logs-btn,#rebel-debug-btn,#rebel-status-strip';
 
-  let uidaiNetCount = 0;
+  let uidaiOkCount = 0;
   let skipOtp = false;
-  let otpRunning = false;
+  let otpWatch = null;
 
   function isOn() {
     try {
@@ -31,17 +31,18 @@
     console.log('[Rebel Adhar PAGE]', level, msg, data ?? '');
   }
 
-  function countUidaiHit(kind, method, url) {
-    if (!E.isUidaiOtpHit || !E.isUidaiOtpHit(url, method)) return false;
-    uidaiNetCount += 1;
-    emit('req', kind + ' ' + String(method || ''), String(url || '').slice(0, 120));
-    return true;
+  function uidaiOkSince(before) {
+    return uidaiOkCount > before;
   }
 
   E.installNetworkBypass({
     log: emit,
     enabled: isOn,
-    onHit: countUidaiHit,
+    onSuccess: function (kind, method, url, status) {
+      if (!isOn()) return;
+      uidaiOkCount += 1;
+      emit('req', kind + ' ' + method + ' ' + status, String(url || '').slice(0, 120));
+    },
   });
 
   function isOtpBtn(el) {
@@ -52,16 +53,54 @@
     return btn;
   }
 
-  function uidaiNetSince(before) {
-    return uidaiNetCount > before;
+  function quickPrepCheck() {
+    if (!E.isDobBypassed(UI_SEL)) return { ok: false, reason: 'dob' };
+    if (!E.isFormReadyForOtp(UI_SEL)) return { ok: false, reason: 'form' };
+    return { ok: true };
+  }
+
+  function armOtpWatch(btn) {
+    const before = uidaiOkCount;
+    if (otpWatch) clearTimeout(otpWatch.timer);
+    emit('info', 'OTP armed — Angular click free', { v: E.ENGINE_VERSION });
+    const timer = setTimeout(function () {
+      otpWatch = null;
+      if (uidaiOkSince(before)) {
+        emit('info', 'OTP sent', { via: 'angular-2xx', v: E.ENGINE_VERSION });
+        return;
+      }
+      emit('warn', 'Angular 2xx nahi — pipeline retry');
+      skipOtp = true;
+      const run = E.invokeOtpPipeline
+        ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
+            return uidaiOkSince(before);
+          }, { skipNative: true, lightPrep: true })
+        : Promise.resolve({ ok: false });
+      Promise.resolve(run)
+        .then(function (result) {
+          if (result && result.ok && uidaiOkSince(before)) {
+            emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
+          } else if (!uidaiOkSince(before)) {
+            emit('error', 'NO UIDAI 2xx — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
+            emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
+          }
+        })
+        .finally(function () {
+          skipOtp = false;
+        });
+    }, 6000);
+    otpWatch = { before: before, btn: btn, timer: timer };
   }
 
   document.addEventListener(
     'pointerdown',
     function (e) {
       if (!isOn() || skipOtp) return;
-      if (!isOtpBtn(e.target)) return;
+      const btn = isOtpBtn(e.target);
+      if (!btn) return;
       if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
+      const chk = quickPrepCheck();
+      if (chk.ok) armOtpWatch(btn);
     },
     true
   );
@@ -72,60 +111,27 @@
       if (!isOn() || skipOtp) return;
       const btn = isOtpBtn(e.target);
       if (!btn) return;
-
-      const prep = E.prepareOtpLight ? E.prepareOtpLight(UI_SEL, emit) : E.prepareSubmit(UI_SEL, emit);
-      if (!prep.dobBypassed) {
+      const chk = quickPrepCheck();
+      if (!chk.ok) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        emit('error', 'DOB bypass fail — Bypass DOB dabao', { dobInForm: prep.dobInForm });
-        return;
-      }
-      if (!prep.formOk) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        emit('error', 'Pehle naam + mobile + captcha bharo', prep.after);
-        return;
-      }
-      if (otpRunning) return;
-
-      const before = uidaiNetCount;
-      otpRunning = true;
-      emit('info', 'OTP PAGE click — Angular same world', { v: E.ENGINE_VERSION });
-
-      setTimeout(function () {
-        if (uidaiNetSince(before)) {
-          otpRunning = false;
-          emit('info', 'OTP sent', { via: 'page-angular', v: E.ENGINE_VERSION });
-          return;
+        if (otpWatch) {
+          clearTimeout(otpWatch.timer);
+          otpWatch = null;
         }
-        emit('warn', 'UIDAI API nahi mili — pipeline retry');
-        skipOtp = true;
-        const run = E.invokeOtpPipeline
-          ? E.invokeOtpPipeline(btn, UI_SEL, emit, function () {
-              return uidaiNetSince(before);
-            }, { skipNative: true, lightPrep: true })
-          : Promise.resolve({ ok: false });
-        Promise.resolve(run)
-          .then(function (result) {
-            if (result && result.ok && uidaiNetSince(before)) {
-              emit('info', 'OTP sent', { via: result.via || 'pipeline', v: E.ENGINE_VERSION });
-            } else if (!uidaiNetSince(before)) {
-              emit('error', 'NO UIDAI API — v' + E.ENGINE_VERSION + ' Copy Debug bhejo');
-              emit('info', 'Debug', E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {});
-            }
-          })
-          .finally(function () {
-            skipOtp = false;
-            otpRunning = false;
-          });
-      }, 5500);
+        if (chk.reason === 'dob') {
+          emit('error', 'DOB bypass fail — Bypass DOB dabao', {});
+        } else {
+          emit('error', 'Pehle naam + mobile + captcha bharo', E.getFormDiagnostics?.(UI_SEL));
+        }
+      }
     },
     true
   );
 
   function bootPage() {
     if (!isOn()) return;
-    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' injected — Angular world');
+    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' injected');
     E.waitForForm(30000).then(function (ready) {
       if (!ready) {
         emit('warn', 'Form timeout — page reload karo');

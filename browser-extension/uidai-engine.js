@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.1.0';
+  const ENGINE_VERSION = '12.2.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -324,6 +324,13 @@
     const log = hooks?.log;
     const enabled = hooks?.enabled || (() => true);
     const onHit = hooks?.onHit || (() => {});
+    const onSuccess = hooks?.onSuccess || onHit;
+
+    function notifySuccess(kind, method, url, status) {
+      if (!enabled() || !isUidaiOtpHit(url, method)) return;
+      if (status < 200 || status >= 300) return;
+      onSuccess(kind, method, url, status);
+    }
 
     function processPost(url, method, body) {
       if (!enabled() || String(method).toUpperCase() !== 'POST' || body == null) return { body, removed: [] };
@@ -361,10 +368,12 @@
                 redirect: req.redirect,
                 referrer: req.referrer,
                 integrity: req.integrity,
+              }).then(function (res) {
+                notifySuccess('fetch', method, url, res.status);
+                return res;
               });
             });
           }
-          if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
           return origFetch.call(this, input, init);
         }
 
@@ -375,8 +384,10 @@
           const r = processPost(url, method, opts.body);
           opts.body = r.body;
         }
-        if (enabled() && isUidaiOtpHit(url, method)) onHit('fetch', method, url);
-        return origFetch.call(this, input, opts);
+        return origFetch.call(this, input, opts).then(function (res) {
+          notifySuccess('fetch', method, url, res.status);
+          return res;
+        });
       };
     }
 
@@ -399,11 +410,17 @@
       XHR.send = function (body) {
         const url = this.__rebelUrl || '';
         const method = this.__rebelMethod || 'GET';
+        const xhr = this;
+        if (!xhr.__rebelDirect && !xhr.__rebelLoadHook) {
+          xhr.__rebelLoadHook = true;
+          xhr.addEventListener('load', function () {
+            notifySuccess('xhr', method, url, xhr.status);
+          });
+        }
         if (body != null) {
           const r = processPost(url, method, body);
           body = r.body;
         }
-        if (enabled() && isUidaiOtpHit(url, method)) onHit('xhr', method, url);
         return origSend.call(this, body);
       };
     }
@@ -635,6 +652,42 @@
       form.updateValueAndValidity?.({ emitEvent: false });
     });
     if (n) log?.('info', 'Angular validators cleared', { count: n });
+    return n;
+  }
+
+  function patchAngularControlValues(log) {
+    const name = readFieldVal('name');
+    const mobile = readFieldVal('mobile');
+    const captcha = readFieldVal('captcha');
+    let n = 0;
+    collectFormGroups().forEach((form) => {
+      if (!form.controls) return;
+      Object.entries(form.controls).forEach(([key, ctrl]) => {
+        if (isDobControlKey(key) || /email/i.test(key)) {
+          ctrl.clearValidators?.();
+          ctrl.setErrors?.(null);
+          try {
+            ctrl.disable?.({ emitEvent: false });
+          } catch (_e) {}
+          return;
+        }
+        let val = '';
+        if (/name|fullname/i.test(key)) val = name;
+        else if (/mobile|phone/i.test(key)) val = mobile;
+        else if (/captcha/i.test(key)) val = captcha;
+        if (!val || !ctrl?.setValue) return;
+        try {
+          ctrl.setValue(val, { emitEvent: true });
+          ctrl.markAsDirty?.();
+          ctrl.markAsTouched?.();
+          n += 1;
+        } catch (_e) {}
+      });
+      try {
+        form.updateValueAndValidity?.({ emitEvent: true });
+      } catch (_e) {}
+    });
+    if (n) log?.('info', 'Angular controls patched', { count: n });
     return n;
   }
 
@@ -910,6 +963,7 @@
         payload = JSON.stringify(payload);
       }
       const xhr = new XMLHttpRequest();
+      xhr.__rebelDirect = true;
       xhr.open('POST', url, true);
       xhr.withCredentials = true;
       xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
@@ -997,6 +1051,7 @@
 
     log?.('info', 'OTP pipeline start', { v: ENGINE_VERSION, skipNative: !!opts.skipNative });
 
+    patchAngularControlValues(log);
     syncAngularInputs(log);
     fixAngularValidators(log);
     enableOtpButtons();
@@ -1007,41 +1062,33 @@
           btn.click();
         } catch (_e) {}
       });
-      await waitMs(2200);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'native-click' };
       }
     }
 
     if (await invokeViaPageHttp(uiSel, log)) {
-      await waitMs(2000);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'http-client' };
       }
     }
 
     if (deepInvokeOtp(btn, log)) {
-      await waitMs(2200);
+      await waitMs(2500);
       if (typeof netBefore === 'function' && netBefore()) {
         return { ok: true, prep, via: 'angular' };
       }
     }
 
     forceSubmitOtp(btn, log);
-    await waitMs(2000);
+    await waitMs(2500);
     if (typeof netBefore === 'function' && netBefore()) {
       return { ok: true, prep, via: 'force-click' };
     }
 
-    const paths = await scrapeChunkEndpoints(log);
-    if (await directOtpRequest(uiSel, log, paths)) {
-      if (typeof netBefore === 'function' && netBefore()) {
-        return { ok: true, prep, via: 'direct-api' };
-      }
-      return { ok: true, prep, via: 'direct-api' };
-    }
-
-    log?.('error', 'OTP pipeline fail — sab try ho gaya');
+    log?.('error', 'OTP pipeline fail — Angular API 2xx nahi aaya (405=direct POST kaam nahi karta)');
     return { ok: false, prep };
   }
 
@@ -1083,6 +1130,7 @@
   function prepareOtpLight(uiSel, log) {
     if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
     fixAngularValidators(log);
+    patchAngularControlValues(log);
     syncAngularInputs(log);
     enableOtpButtons();
     return buildSubmitState(uiSel, log, { quiet: true });
@@ -1851,6 +1899,7 @@
     prepareOtpLight,
     syncAngularInputs,
     fixAngularValidators,
+    patchAngularControlValues,
     invokeViaPageHttp,
     prepareSubmit,
     prepareSubmitAsync,

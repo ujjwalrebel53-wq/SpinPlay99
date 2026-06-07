@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Rebel Adhar — myAadhaar Form",
-  "version": "12.1.0",
-  "description": "Rebel Adhar v12.1 — PAGE injection + strict UIDAI API detect",
+  "version": "12.2.0",
+  "description": "Rebel Adhar v12.2 — Angular free click + 2xx OTP detect",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",
