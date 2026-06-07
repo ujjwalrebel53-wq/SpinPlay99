@@ -19,25 +19,23 @@ async function run() {
     const log = (level, msg, data) => logs.push({ level, msg, data });
 
     await UidaiRetrieveEngine.waitForForm(5000);
-    const r = await UidaiRetrieveEngine.apply(UI_SEL, log);
+    const apply = await UidaiRetrieveEngine.apply(UI_SEL, log);
 
     document.querySelector('#name-field input').value = 'Javed';
     document.querySelector('#mobile-field input').value = '7651892956';
     document.querySelector('#captcha-field input').value = 'abc123';
 
-    const prep = UidaiRetrieveEngine.prepareSubmit(UI_SEL, log);
+    const prep = await UidaiRetrieveEngine.prepareSubmitAsync(UI_SEL, log);
     document.getElementById('send-otp').click();
 
-    const dobInput = document.getElementById('dob-input');
     return {
-      dobHidden: UidaiRetrieveEngine.isDobHidden(UI_SEL),
-      dobDisabled: UidaiRetrieveEngine.isDobDisabled(UI_SEL),
-      dobInputDisabled: dobInput.disabled,
+      dobBypassed: UidaiRetrieveEngine.isDobBypassed(),
+      dobInForm: document.querySelectorAll('#dob-input').length,
       dobVisible: UidaiRetrieveEngine.dobFieldVisible(UI_SEL),
       prep,
       otpSent: !!window.__otpSent,
       otpBlocked: window.__otpBlocked,
-      apply: r,
+      apply,
       logs,
     };
   }, engineCode);
@@ -46,8 +44,9 @@ async function run() {
   const pass =
     result.otpSent &&
     !result.otpBlocked &&
-    result.prep?.formOk !== false &&
-    (result.prep?.after?.dobFilled !== false);
+    result.dobBypassed &&
+    result.dobInForm === 0 &&
+    result.prep?.formOk === true;
   console.log(pass ? 'PASS' : 'FAIL');
 
   await browser.close();

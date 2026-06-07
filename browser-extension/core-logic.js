@@ -101,32 +101,58 @@
     }
   }
 
+  let skipOtpHook = false;
+
   function installOtpPrep() {
     if (otpPrepInstalled || !engine) return;
     otpPrepInstalled = true;
     document.addEventListener(
       'click',
       (e) => {
-        if (!enabledState) return;
+        if (!enabledState || skipOtpHook) return;
         const btn = e.target?.closest?.('button, [role="button"], input[type="submit"], a');
         if (!btn) return;
         const t = (btn.textContent || btn.value || '').toLowerCase();
         if (!t.includes('send otp') && !t.includes('request otp')) return;
         const before = networkCount;
-        const prep = engine.prepareSubmit(UI_SEL, engLog);
-        if (!prep?.formOk) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          log('error', 'Pehle mobile + captcha bharo', prep?.after);
+        const prepNow = engine.prepareSubmit(UI_SEL, engLog);
+        if (prepNow?.dobBypassed && prepNow?.formOk) {
+          log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+          setTimeout(() => {
+            if (networkCount <= before) {
+              log('error', 'NO API CALL');
+              log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
+            }
+          }, 5000);
           return;
         }
-        log('info', 'OTP send', { dobSynced: prep?.dobSynced });
-        setTimeout(() => {
-          if (networkCount <= before) {
-            log('error', 'NO API CALL');
-            log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const runPrep = engine.prepareSubmitAsync
+          ? engine.prepareSubmitAsync(UI_SEL, engLog)
+          : Promise.resolve(prepNow);
+        runPrep.then((prep) => {
+          if (!prep?.dobBypassed) {
+            log('error', 'DOB bypass nahi hua — Switch Mode dabao', { dobInForm: prep?.dobInForm });
+            return;
           }
-        }, 5000);
+          if (!prep?.formOk) {
+            log('error', 'Pehle naam + mobile + captcha bharo', prep?.after);
+            return;
+          }
+          log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+          skipOtpHook = true;
+          btn.click();
+          setTimeout(() => {
+            skipOtpHook = false;
+          }, 400);
+          setTimeout(() => {
+            if (networkCount <= before) {
+              log('error', 'NO API CALL');
+              log('info', 'Debug', engine.getFormDiagnostics?.(UI_SEL));
+            }
+          }, 5000);
+        });
       },
       true
     );

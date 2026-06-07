@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.3.0
-// @description  Rebel Adhar — DOB bypass + sync OTP click
+// @version      9.1.0
+// @description  Rebel Adhar — true DOB bypass (mode switch only, no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -164,11 +164,13 @@ const ui = `
     }
   }
 
+  var skipOtpHook = false;
+
   function watchOtp() {
     if (window.__rebelOtp83) return;
     window.__rebelOtp83 = true;
     document.addEventListener('click', function (e) {
-      if (!on) return;
+      if (!on || skipOtpHook) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
@@ -178,21 +180,44 @@ const ui = `
       otpNetWatch = true;
       setTimeout(function () { otpNetWatch = false; }, 8000);
 
-      const prep = E.prepareSubmit(UI_SEL, log);
-      if (!prep.formOk) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        log('error', 'Pehle mobile + captcha bharo', prep.after);
+      const prepNow = E.prepareSubmit(UI_SEL, log);
+      if (prepNow.dobBypassed && prepNow.formOk) {
+        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 5000);
         return;
       }
 
-      log('info', 'OTP send', { dobBypassed: prep.dobBypassed, dobSynced: prep.dobSynced });
-      setTimeout(function () {
-        if (netCount <= before) {
-          log('error', 'NO API CALL');
-          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(prepNow);
+      runPrep.then(function (prep) {
+        if (!prep.dobBypassed) {
+          log('error', 'DOB bypass nahi hua — Switch Mode dabao. Tumhe DOB yaad hona zaroori nahi.', {
+            dobInForm: prep.dobInForm,
+          });
+          return;
         }
-      }, 5000);
+        if (!prep.formOk) {
+          log('error', 'Pehle naam + mobile + captcha bharo', prep.after);
+          return;
+        }
+        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+        skipOtpHook = true;
+        btn.click();
+        setTimeout(function () { skipOtpHook = false; }, 400);
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 5000);
+      });
     }, true);
   }
 

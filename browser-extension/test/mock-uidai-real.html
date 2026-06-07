@@ -42,13 +42,32 @@
     <button type="button" id="send-otp">Send OTP</button>
 
     <script>
+      document.getElementById('or-email-link').addEventListener('click', function () {
+        setTimeout(function () {
+          document.getElementById('dob-field')?.remove();
+          const mobileField = document.getElementById('mobile-field');
+          if (mobileField && !document.getElementById('or-mobile-link')) {
+            const orMobile = document.createElement('span');
+            orMobile.id = 'or-mobile-link';
+            orMobile.className = 'uidai-or-link';
+            orMobile.textContent = 'OR Enter Mobile';
+            mobileField.appendChild(orMobile);
+          }
+        }, 100);
+      });
+
+      document.body.addEventListener('click', function (e) {
+        if (e.target && e.target.id === 'or-mobile-link') {
+          document.getElementById('or-mobile-link')?.remove();
+        }
+      });
+
       document.getElementById('send-otp').addEventListener('click', function () {
         const name = document.querySelector('#name-field input').value.trim();
         const mobile = document.querySelector('#mobile-field input').value.trim();
         const captcha = document.querySelector('#captcha-field input').value.trim();
         const dob = document.getElementById('dob-input');
-        const dobVisible = dob.offsetParent !== null && !dob.closest('[data-rebel-dob-hidden]');
-        const dobRequired = dobVisible && !dob.value.trim();
+        const dobRequired = !!dob && dob.offsetParent !== null;
 
         if (!mobile || !captcha) {
           window.__otpBlocked = 'mobile or captcha missing';

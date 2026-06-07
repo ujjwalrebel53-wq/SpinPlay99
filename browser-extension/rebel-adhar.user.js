@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      8.3.0
-// @description  Rebel Adhar — DOB bypass + sync OTP click
+// @version      9.1.0
+// @description  Rebel Adhar — true DOB bypass (mode switch only, no fake date)
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 /**
- * UIDAI Engine v8 — Rebel Adhar: DOB bypass, sync OTP click
+ * UIDAI Engine v9 — True DOB bypass: UIDAI mode switch only, NO fake DOB fill
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -234,16 +234,30 @@
     return n;
   }
 
-  function isDobBypassed(uiSel) {
-    return getDobInputs().length === 0 || isDobHidden(uiSel);
+  /** Bypass = UIDAI ne DOB field DOM se hata diya (fake date fill NAHI) */
+  function isDobBypassed() {
+    return getDobInputs().length === 0;
+  }
+
+  /** OR Email → OR Mobile double tap (Astik bookmark jaisa) */
+  function quickModeSwitch(uiSel, log) {
+    const email = findOrEmailLink(uiSel);
+    const mobile = findOrMobileLink(uiSel);
+    if (email) {
+      log?.('info', 'Mode: OR Email', (email.textContent || '').trim().slice(0, 32));
+      simulateClick(email);
+    }
+    if (mobile) {
+      log?.('info', 'Mode: OR Mobile', (mobile.textContent || '').trim().slice(0, 32));
+      simulateClick(mobile);
+    }
+    return { email: !!email, mobile: !!mobile };
   }
 
   function ensureMobileModeSync(uiSel, log) {
+    if (getDobInputs().length) quickModeSwitch(uiSel, log);
     const mobile = findOrMobileLink(uiSel);
-    if (mobile && isVisible(mobile, uiSel)) {
-      log?.('info', 'Switch to mobile mode', (mobile.textContent || '').trim().slice(0, 30));
-      simulateClick(mobile);
-    }
+    if (mobile && isVisible(mobile, uiSel)) simulateClick(mobile);
     return neutralizeEmail(log) > 0 || !!mobile;
   }
 
@@ -533,20 +547,12 @@
       }));
   }
 
-  function isDobFilled(uiSel) {
-    if (isDobBypassed(uiSel)) return true;
-    const inputs = getDobInputs();
-    return inputs.every((i) => !!readInputVal(i) || i.dataset.rebelDobOk === '1');
-  }
-
   function isFormReadyForOtp(uiSel) {
+    if (!isDobBypassed()) return false;
     const snap = getFieldSnapshot(uiSel);
     const mobile = snap.find((f) => f.type === 'mobile');
     const captcha = snap.find((f) => f.type === 'captcha');
-    const hasMobile = mobile?.ok;
-    const hasCaptcha = captcha?.ok;
-    const dobOk = isDobBypassed(uiSel) || isDobFilled(uiSel);
-    return dobOk && hasMobile && hasCaptcha;
+    return !!(mobile?.ok && captcha?.ok);
   }
 
   function getFormDiagnostics(uiSel) {
@@ -558,8 +564,8 @@
       invalid: groups.filter((g) => g.status === 'INVALID').length,
       statuses: groups.slice(0, 5).map((g) => g.status),
       ngCtxType: sample ? typeof sample.__ngContext__ : 'none',
-      dobBypassed: isDobBypassed(uiSel),
-      dobFilled: isDobFilled(uiSel),
+      dobBypassed: isDobBypassed(),
+      dobInForm: getDobInputs().length,
       fields: getFieldSnapshot(uiSel),
       dobInputs: getDobInputs().map((i) => ({
         val: readInputVal(i).slice(0, 14),
@@ -651,10 +657,10 @@
       const hit = findLinkByText(p, uiSel);
       if (hit) return hit;
     }
-    const nodes = qAll('a, span, button, label, [role="button"], [role="link"]');
+    const nodes = qAll('a, span, button, [role="button"], [role="link"]');
     for (const el of nodes) {
       const t = norm(el.textContent || '');
-      if (t.length > 50) continue;
+      if (!/^or\s/.test(t) || t.length > 45) continue;
       if (!patterns.some((p) => p.test(t))) continue;
       if (!isVisible(el, uiSel)) continue;
       return leafClickable(el);
@@ -663,19 +669,11 @@
   }
 
   function findOrEmailLink(uiSel) {
-    return findToggleLink(uiSel, [
-      /^or\s*enter\s*e-?mail(\s*address)?$/i,
-      /^enter\s*e-?mail(\s*address)?$/i,
-      /or\s*e-?mail/i,
-    ]);
+    return findToggleLink(uiSel, [/^or\s*enter\s*e-?mail(\s*address)?$/i, /^or\s*e-?mail/i]);
   }
 
   function findOrMobileLink(uiSel) {
-    return findToggleLink(uiSel, [
-      /^or\s*enter\s*mobile(\s*number)?$/i,
-      /^enter\s*mobile(\s*number)?$/i,
-      /or\s*mobile/i,
-    ]);
+    return findToggleLink(uiSel, [/^or\s*enter\s*mobile(\s*number)?$/i, /^or\s*mobile(\s*number)?$/i]);
   }
 
   function simulateClick(el) {
@@ -703,17 +701,17 @@
         } else {
           log?.('warn', 'OR Mobile link not found');
         }
-        setTimeout(() => resolve(!!mobile), 900);
-      }, 900);
+        setTimeout(() => resolve(!!mobile), 1200);
+      }, 1200);
     });
   }
 
   function runModeSwitchRetry(uiSel, log, times) {
     let chain = Promise.resolve();
-    for (let i = 0; i < (times || 2); i++) {
+    for (let i = 0; i < (times || 3); i++) {
       chain = chain.then(() => tryUidaiModeSwitch(uiSel, log)).then(() => {
-        if (!getDobInputs().length) return false;
-        return new Promise((r) => setTimeout(r, 600));
+        if (isDobBypassed()) return false;
+        return new Promise((r) => setTimeout(r, 800));
       });
     }
     return chain;
@@ -724,49 +722,39 @@
     if (watchTimer) clearTimeout(watchTimer);
     if (!on) return;
     dobWatcher = new MutationObserver(() => {
-      if (syncingDom || watchTimer) return;
+      if (watchTimer) return;
       watchTimer = setTimeout(() => {
         watchTimer = null;
-        if (!getDobInputs().length && !findDobBlocks().length) return;
-        if (!isDobHidden(uiSel)) hideDob(uiSel, log);
-        if (!isDobFilled(uiSel)) patchAngularForms(log);
-      }, 600);
+        if (isDobBypassed()) return;
+        quickModeSwitch(uiSel, log);
+        neutralizeEmail(log);
+      }, 700);
     });
     dobWatcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
   }
 
   function apply(uiSel, log) {
     startWatcher(uiSel, log, true);
-    return runModeSwitchRetry(uiSel, log, 2).then(() => {
+    return runModeSwitchRetry(uiSel, log, 4).then(() => {
       return new Promise((resolve) => {
         setTimeout(() => {
-          const nativeGone = !getDobInputs().length;
-          if (nativeGone) {
-            log?.('info', 'UIDAI native mode — DOB removed', {});
+          neutralizeEmail(log);
+          if (!isDobBypassed()) {
+            quickModeSwitch(uiSel, log);
+            log?.('warn', 'DOB abhi form me — Switch Mode dubara try', { dobCount: getDobInputs().length });
           } else {
-            ensureMobileModeSync(uiSel, log);
-            hideDob(uiSel, log);
-            neutralizeEmail(log);
-            syncDobDom(log);
+            log?.('info', 'DOB bypass OK — UIDAI ne DOB hata diya', {});
           }
           const diag = getFormDiagnostics(uiSel);
-          const snap = getMatFields()
-            .filter((f) => classifyField(f) !== 'dob' || isVisible(f.input, uiSel))
-            .map((f) => ({
-              type: classifyField(f),
-              label: f.label.slice(0, 26),
-              val: readInputVal(f.input).slice(0, 10),
-            }));
           const state = {
-            dobHidden: isDobHidden(uiSel),
-            nativeGone,
+            dobBypassed: isDobBypassed(),
+            dobInForm: getDobInputs().length,
             formOk: isFormReadyForOtp(uiSel),
             diag,
-            snap,
           };
           log?.('info', 'Rebel Adhar ready', state);
           resolve(state);
-        }, 1400);
+        }, 1600);
       });
     });
   }
@@ -782,35 +770,54 @@
     });
   }
 
-  /** Sync prep — OTP click se PEHLE; user DOB nahi bharta, hidden field Angular ke liye */
-  function prepareSubmit(uiSel, log) {
-    ensureMobileModeSync(uiSel, log);
-    hideDob(uiSel, log);
-    neutralizeEmail(log);
-
-    const dobSync = syncDobDom(log);
-    if (dobSync) log?.('info', 'DOB silent sync (bypass)', { ok: dobSync });
-
-    const bypassed = isDobBypassed(uiSel);
-    let patch = { bypassed, patched: 0, dom: dobSync };
-    patchAngularForms(log);
-    enableOtpButtons();
-
+  function buildSubmitState(uiSel, log) {
     const after = getFormDiagnostics(uiSel);
+    const bypassed = isDobBypassed();
     const state = {
       dobBypassed: bypassed,
-      dobHidden: isDobHidden(uiSel),
-      dobSynced: dobSync,
-      patch,
+      dobInForm: getDobInputs().length,
       after,
       formOk: isFormReadyForOtp(uiSel),
     };
     log?.('info', 'Send OTP prep', state);
-    if (!state.formOk) {
-      const miss = (after.fields || []).filter((f) => (f.type === 'mobile' || f.type === 'captcha') && !f.ok);
+    if (!bypassed) {
+      log?.('error', 'DOB bypass fail — Switch Mode dabao (DOB fill mat karo, fake date kaam nahi karega)', {
+        dobInForm: state.dobInForm,
+      });
+    } else if (!state.formOk) {
+      const miss = (after.fields || []).filter(
+        (f) => (f.type === 'name' || f.type === 'mobile' || f.type === 'captcha') && !f.ok
+      );
       log?.('error', 'Fill missing', miss.length ? miss : after.fields);
     }
     return state;
+  }
+
+  /** OTP prep — sirf mode switch + email neutralize; DOB fill KABHI NAHI */
+  function prepareSubmit(uiSel, log) {
+    if (!isDobBypassed()) quickModeSwitch(uiSel, log);
+    neutralizeEmail(log);
+    enableOtpButtons();
+    return buildSubmitState(uiSel, log);
+  }
+
+  /** Mode switch ke baad wait — UIDAI DOM update async hota hai */
+  async function ensureDobBypassed(uiSel, log, tries) {
+    if (isDobBypassed()) return true;
+    const n = tries || 4;
+    for (let i = 0; i < n; i++) {
+      await tryUidaiModeSwitch(uiSel, log);
+      if (isDobBypassed()) return true;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    return isDobBypassed();
+  }
+
+  async function prepareSubmitAsync(uiSel, log) {
+    await ensureDobBypassed(uiSel, log, 4);
+    neutralizeEmail(log);
+    enableOtpButtons();
+    return buildSubmitState(uiSel, log);
   }
 
   function formReady() {
@@ -863,7 +870,7 @@
     getFormDiagnostics,
     isFormReadyForOtp,
     isDobBypassed,
-    isDobFilled,
+    quickModeSwitch,
     getFieldSnapshot,
     ensureMobileModeSync,
     neutralizeEmail,
@@ -873,6 +880,8 @@
     dobFieldVisible,
     apply,
     prepareSubmit,
+    prepareSubmitAsync,
+    ensureDobBypassed,
     formReady,
     waitForForm,
     getMatFields,
@@ -1030,11 +1039,13 @@
     }
   }
 
+  var skipOtpHook = false;
+
   function watchOtp() {
     if (window.__rebelOtp83) return;
     window.__rebelOtp83 = true;
     document.addEventListener('click', function (e) {
-      if (!on) return;
+      if (!on || skipOtpHook) return;
       const btn = e.target?.closest?.('button,[role="button"],a,input[type="submit"]');
       if (!btn) return;
       const t = E.norm(btn.textContent || btn.value || '');
@@ -1044,21 +1055,44 @@
       otpNetWatch = true;
       setTimeout(function () { otpNetWatch = false; }, 8000);
 
-      const prep = E.prepareSubmit(UI_SEL, log);
-      if (!prep.formOk) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        log('error', 'Pehle mobile + captcha bharo', prep.after);
+      const prepNow = E.prepareSubmit(UI_SEL, log);
+      if (prepNow.dobBypassed && prepNow.formOk) {
+        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 5000);
         return;
       }
 
-      log('info', 'OTP send', { dobBypassed: prep.dobBypassed, dobSynced: prep.dobSynced });
-      setTimeout(function () {
-        if (netCount <= before) {
-          log('error', 'NO API CALL');
-          if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      const runPrep = E.prepareSubmitAsync ? E.prepareSubmitAsync(UI_SEL, log) : Promise.resolve(prepNow);
+      runPrep.then(function (prep) {
+        if (!prep.dobBypassed) {
+          log('error', 'DOB bypass nahi hua — Switch Mode dabao. Tumhe DOB yaad hona zaroori nahi.', {
+            dobInForm: prep.dobInForm,
+          });
+          return;
         }
-      }, 5000);
+        if (!prep.formOk) {
+          log('error', 'Pehle naam + mobile + captcha bharo', prep.after);
+          return;
+        }
+        log('info', 'OTP send', { dobBypassed: true, dobInForm: 0 });
+        skipOtpHook = true;
+        btn.click();
+        setTimeout(function () { skipOtpHook = false; }, 400);
+        setTimeout(function () {
+          if (netCount <= before) {
+            log('error', 'NO API CALL');
+            if (E.getFormDiagnostics) log('info', 'Debug', E.getFormDiagnostics(UI_SEL));
+          }
+        }, 5000);
+      });
     }, true);
   }
 
