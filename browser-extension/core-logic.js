@@ -1,5 +1,5 @@
 /**
- * Rebel Adhar v2.3 — dummy DOB sync + expanded toggle search + OTP prep
+ * Rebel Adhar v2.4 — leaf toggle click + native DOB setter + verify
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -16,26 +16,13 @@
   const HIDDEN_CLASS = 'astik-helper-hidden';
   const DUMMY_DOB = '01/01/1990';
 
-  const MODE_PATTERNS = [
-    /or\s*enter\s*e-?mail/i,
-    /or\s*enter\s*email\s*id/i,
-    /or\s*e-?mail/i,
-    /or\s*enter\s*mobile/i,
-    /enter\s*e-?mail/i,
-    /verify\s*(with|using)\s*(e-?mail|mobile)/i,
-    /mobile\s*\/\s*e-?mail/i,
-    /ई-?मेल/i,
-    /मोबाइल/i,
-  ];
-
-  const DOB_PATTERNS = ['date of birth', 'dob', 'birth date', 'जन्म'];
-
   const logs = [];
   let enabledState = false;
   let networkHooksInstalled = false;
   let otpPrepInstalled = false;
   let networkCount = 0;
   let lastOtpClickNet = 0;
+  let modeApplied = false;
 
   function norm(s) {
     return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -109,22 +96,33 @@
     });
   }
 
-  function allRoots() {
+  function queryAll(selector) {
     const roots = [document];
     collectRoots(document.documentElement, roots);
-    return roots;
-  }
-
-  function queryAll(selector) {
     const out = [];
-    allRoots().forEach((root) => {
-      root.querySelectorAll?.(selector).forEach((el) => out.push(el));
-    });
+    roots.forEach((root) => root.querySelectorAll?.(selector).forEach((el) => out.push(el)));
     return out;
   }
 
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  const nativeTextSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+
   function getInputs() {
     return queryAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea');
+  }
+
+  function fieldMeta(el) {
+    return norm(
+      [
+        labelOf(el),
+        el.placeholder,
+        el.getAttribute('formcontrolname'),
+        el.getAttribute('ng-reflect-name'),
+        el.name,
+        el.id,
+        el.getAttribute('aria-label'),
+      ].join(' ')
+    );
   }
 
   function labelOf(el) {
@@ -138,22 +136,31 @@
   }
 
   function isDobField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname'), el.name, el.id].join(' '));
-    return DOB_PATTERNS.some((p) => blob.includes(p)) || el.type === 'date' || /dob|birth|dateofbirth/i.test(el.getAttribute('formcontrolname') || '');
+    const blob = fieldMeta(el);
+    const fc = (el.getAttribute('formcontrolname') || '').toLowerCase();
+    return (
+      blob.includes('date of birth') ||
+      blob.includes('dob') ||
+      blob.includes('birth date') ||
+      el.type === 'date' ||
+      /dob|birth|dateofbirth|date_of_birth/.test(fc)
+    );
   }
 
   function isEmailField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
-    return blob.includes('email') || /email|mail/i.test(el.getAttribute('formcontrolname') || '');
+    const blob = fieldMeta(el);
+    const fc = (el.getAttribute('formcontrolname') || '').toLowerCase();
+    return blob.includes('email') || /email|mailid|mail_id/.test(fc);
   }
 
   function isMobileField(el) {
-    const blob = norm([labelOf(el), el.placeholder, el.getAttribute('formcontrolname')].join(' '));
-    return (blob.includes('mobile') || /mobile|phone|mob/i.test(el.getAttribute('formcontrolname') || '')) && !blob.includes('email');
+    const blob = fieldMeta(el);
+    const fc = (el.getAttribute('formcontrolname') || '').toLowerCase();
+    return (blob.includes('mobile') || /mobile|phone|mob/.test(fc)) && !blob.includes('email');
   }
 
   function dobVisible() {
-    return getInputs().some((i) => isDobField(i) && isVisible(i));
+    return getDobInputs().some((i) => isVisible(i.closest('mat-form-field,.mat-mdc-form-field,div') || i));
   }
 
   function emailVisible() {
@@ -164,10 +171,31 @@
     return getInputs().length >= 2;
   }
 
+  function getDobInputs() {
+    const seen = new Set();
+    const out = [];
+    getInputs().forEach((input) => {
+      if (!isDobField(input)) return;
+      const key = input.getAttribute('formcontrolname') + '|' + input.placeholder + '|' + input.type;
+      if (seen.has(key) && !(input.value || '').trim()) return;
+      seen.add(key);
+      out.push(input);
+    });
+    return out;
+  }
+
   function dispatchInputEvents(input) {
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: input.value }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     input.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function setNativeValue(input, value) {
+    input.removeAttribute('readonly');
+    input.disabled = false;
+    if (input.tagName === 'TEXTAREA' && nativeTextSet) nativeTextSet.call(input, value);
+    else if (nativeSet) nativeSet.call(input, value);
+    else input.value = value;
   }
 
   function simulateClick(el) {
@@ -180,7 +208,7 @@
       el.dispatchEvent(new PointerEvent('pointerup', opts));
       el.dispatchEvent(new MouseEvent('mouseup', opts));
       el.dispatchEvent(new MouseEvent('click', opts));
-      if (typeof el.click === 'function') el.click();
+      el.click?.();
       return true;
     } catch (_e) {
       try {
@@ -192,79 +220,42 @@
     }
   }
 
-  function matchesModeText(text) {
-    if (!text || text.length > 80) return false;
-    if (/enter email address|email address/i.test(text) && !/or\s/i.test(text)) return false;
-    return MODE_PATTERNS.some((p) => p.test(text));
+  /** Only leaf "OR Enter Email" — NOT parent with mobile+email combined text */
+  function isOrEmailToggle(text) {
+    const t = norm(text).replace(/\s+/g, ' ');
+    if (!t || t.length > 40) return false;
+    if (t.includes('mobile number') && t.includes('email')) return false;
+    if (t.includes('enter name') || t.includes('captcha')) return false;
+    return /^or\s*enter\s*e-?mail(\s*address)?$/i.test(t) || /^or\s*e-?mail$/i.test(t) || t === 'or enter email address';
   }
 
-  function scanPageLinks() {
-    const seen = new Set();
-    const items = [];
-    queryAll('a, button, span, label, p, div, mat-radio-button, mat-slide-toggle, [role="button"], [style*="cursor: pointer"]').forEach((el) => {
-      if (!isVisible(el)) return;
-      const text = (directText(el) || norm(el.textContent || '')).slice(0, 60);
-      if (!text || text.length < 2 || seen.has(text)) return;
-      seen.add(text);
-      if (/or|email|mobile|mail|verify|enter/i.test(text)) items.push(text);
-    });
-    log('info', 'Page links scan', items.slice(0, 25));
-    return items;
-  }
-
-  function findModeSwitchCandidates() {
-    const found = [];
-    queryAll('a, button, span, label, p, div[role="button"], mat-radio-button, mat-slide-toggle, [class*="link"], [class*="toggle"]').forEach((el) => {
+  function findOrEmailToggle() {
+    const hits = [];
+    queryAll('a, span, button, label, p, div').forEach((el) => {
       if (!isVisible(el)) return;
       const own = directText(el);
-      const full = norm(el.textContent || '');
-      const text = own.length >= 2 ? own : full;
-      if (!matchesModeText(text)) return;
-      found.push({ el, text, score: text.length });
-    });
-    found.sort((a, b) => a.score - b.score);
-    return found;
-  }
-
-  function findToggleNearField(matcher) {
-    const field = getInputs().find(matcher);
-    if (!field) return null;
-    let node = field.closest('mat-form-field,.mat-mdc-form-field,.form-group,div');
-    for (let depth = 0; depth < 10 && node; depth++) {
-      for (const el of node.querySelectorAll('a, span, button, label, p, div, mat-radio-button')) {
-        if (!isVisible(el)) continue;
-        const text = directText(el) || norm(el.textContent || '');
-        if (matchesModeText(text)) return el;
+      if (own && isOrEmailToggle(own)) {
+        hits.push({ el, text: own, score: own.length });
+        return;
       }
-      node = node.parentElement;
-    }
-    return null;
+      const kids = el.querySelectorAll('a, span, button, label, p');
+      if (kids.length) return;
+      const full = norm(el.textContent || '');
+      if (isOrEmailToggle(full)) hits.push({ el, text: full, score: full.length });
+    });
+    hits.sort((a, b) => a.score - b.score);
+    return hits[0]?.el || null;
   }
 
-  function clickModeSwitch() {
-    const nearMobile = findToggleNearField(isMobileField);
-    if (nearMobile) {
-      log('info', 'Click near mobile', directText(nearMobile) || nearMobile.textContent?.trim());
-      simulateClick(nearMobile);
-      return true;
+  function clickOrEmailToggle() {
+    const el = findOrEmailToggle();
+    if (!el) {
+      log('warn', 'OR Enter Email leaf not found');
+      return false;
     }
-
-    const nearDob = findToggleNearField(isDobField);
-    if (nearDob) {
-      log('info', 'Click near DOB', directText(nearDob) || nearDob.textContent?.trim());
-      simulateClick(nearDob);
-      return true;
-    }
-
-    const candidates = findModeSwitchCandidates();
-    if (candidates.length) {
-      log('info', 'Click mode switch', candidates[0].text);
-      simulateClick(candidates[0].el);
-      return true;
-    }
-
-    scanPageLinks();
-    return false;
+    log('info', 'Click OR Enter Email', directText(el) || el.textContent?.trim());
+    simulateClick(el);
+    return true;
   }
 
   function walkNgContext(el, visitor) {
@@ -273,231 +264,200 @@
     ctx.forEach((item) => visitor(item, el));
   }
 
-  function patchAngularForms(aggressive) {
-    let patched = 0;
-    queryAll('input, textarea, select, form, mat-form-field, .mat-mdc-form-field, button').forEach((el) => {
-      walkNgContext(el, (item) => {
-        const ctrl = item?.control;
-        if (ctrl && typeof ctrl.setErrors === 'function' && /FormControl/i.test(ctrl.constructor?.name || '')) {
-          const host =
-            item.valueAccessor?._elementRef?.nativeElement ||
-            item.valueAccessor?.element?.nativeElement ||
-            (el.matches?.('input, textarea, select') ? el : null);
-          const kind = host ? (isDobField(host) ? 'dob' : '') : '';
-          if (aggressive || kind === 'dob') {
-            ctrl.clearValidators?.();
-            ctrl.setErrors(null);
-            ctrl.updateValueAndValidity?.({ emitEvent: true });
-            patched += 1;
+  function syncToAngular(input, value) {
+    walkNgContext(input, (item) => {
+      const ctrl = item?.control;
+      if (ctrl?.setValue) {
+        try {
+          ctrl.setValue(value, { emitEvent: true });
+        } catch (_e) {
+          ctrl.patchValue?.(value, { emitEvent: true });
+        }
+        ctrl.clearValidators?.();
+        ctrl.setErrors(null);
+        ctrl.updateValueAndValidity?.({ emitEvent: true });
+      }
+      const form = item?.form;
+      if (form?.controls) {
+        Object.keys(form.controls).forEach((key) => {
+          if (!/dob|birth|date/i.test(key)) return;
+          const c = form.controls[key];
+          try {
+            c.setValue?.(value, { emitEvent: true });
+          } catch (_e) {
+            c.patchValue?.(value);
           }
-        }
-        const form = item?.form;
-        if (form?.controls) {
-          Object.keys(form.controls).forEach((key) => {
-            if (!aggressive && !/dob|birth|date/i.test(key)) return;
-            const c = form.controls[key];
-            c.clearValidators?.();
-            c.setErrors?.(null);
-            c.updateValueAndValidity?.({ emitEvent: true });
-            patched += 1;
-          });
-          form.setErrors?.(null);
-          form.updateValueAndValidity?.({ emitEvent: true });
-        }
-      });
+          c.clearValidators?.();
+          c.setErrors?.(null);
+          c.updateValueAndValidity?.({ emitEvent: true });
+        });
+        form.setErrors?.(null);
+        form.updateValueAndValidity?.({ emitEvent: true });
+      }
     });
-    return patched;
   }
 
-  function setDobValue(value) {
-    let set = 0;
-    getInputs()
-      .filter(isDobField)
-      .forEach((input) => {
-        input.disabled = false;
-        input.removeAttribute('readonly');
-        input.removeAttribute('required');
-        input.setCustomValidity('');
-        input.value = value;
+  function fillAllDob(value) {
+    const formats = [value, '01-01-1990', '1990-01-01'];
+    let filled = 0;
+    getDobInputs().forEach((input) => {
+      formats.forEach((f) => {
+        setNativeValue(input, f);
         dispatchInputEvents(input);
-
-        walkNgContext(input, (item) => {
-          const ctrl = item?.control;
-          if (ctrl?.setValue) {
-            try {
-              ctrl.setValue(value, { emitEvent: true });
-            } catch (_e) {
-              ctrl.patchValue?.(value, { emitEvent: true });
-            }
-            ctrl.clearValidators?.();
-            ctrl.setErrors(null);
-            ctrl.updateValueAndValidity?.({ emitEvent: true });
-            set += 1;
-          }
-        });
-        set += 1;
+        syncToAngular(input, f);
       });
-    return set;
+      if ((input.value || '').trim()) filled += 1;
+    });
+    return { total: getDobInputs().length, filled };
   }
 
   function hideDobVisual() {
-    getInputs()
-      .filter(isDobField)
-      .forEach((input) => {
-        const box = input.closest('mat-form-field,.mat-mdc-form-field,.form-group,div') || input;
-        box.classList.add(HIDDEN_CLASS);
-        box.style.setProperty('display', 'none', 'important');
-        box.style.setProperty('visibility', 'hidden', 'important');
-        box.style.setProperty('height', '0', 'important');
-        box.style.setProperty('overflow', 'hidden', 'important');
-        input.style.setProperty('position', 'absolute', 'important');
-        input.style.setProperty('left', '-9999px', 'important');
-        input.disabled = false;
-      });
+    getDobInputs().forEach((input) => {
+      const box = input.closest('mat-form-field,.mat-mdc-form-field,.form-group,div') || input;
+      box.classList.add(HIDDEN_CLASS);
+      box.style.setProperty('display', 'none', 'important');
+      box.style.setProperty('visibility', 'hidden', 'important');
+      box.style.setProperty('height', '0', 'important');
+      box.style.setProperty('overflow', 'hidden', 'important');
+    });
   }
 
   function applyDobBypass() {
-    const formats = [DUMMY_DOB, '01-01-1990', '1990-01-01'];
-    let n = 0;
-    formats.forEach((f) => {
-      n += setDobValue(f);
-    });
+    const before = fillAllDob(DUMMY_DOB);
     hideDobVisual();
-    const patched = patchAngularForms(true);
-    log('info', 'DOB bypass', { dobSet: n, patched, dobValue: formats[0] });
+    const after = getDobInputs().map((i) => ({
+      fc: i.getAttribute('formcontrolname') || '',
+      val: (i.value || '').slice(0, 12),
+    }));
+    const empty = after.filter((x) => !x.val).length;
+    log('info', 'DOB bypass', { ...before, empty, fields: after });
+    if (empty > 0) log('warn', 'Some DOB inputs still empty after set');
+    return empty === 0;
   }
 
-  function modeSwitchSucceeded() {
+  function modeOk() {
     return !dobVisible() || emailVisible();
   }
 
-  function syncAllInputs() {
-    getInputs().forEach((input) => {
-      input.disabled = false;
-      input.setCustomValidity('');
-      dispatchInputEvents(input);
-    });
-  }
-
-  function enableOtpButtons() {
-    queryAll('button, input[type="submit"], [role="button"], a.mat-mdc-button, a.mat-button').forEach((btn) => {
-      const text = norm(btn.textContent || btn.value || '');
-      if (!text.includes('send otp') && !text.includes('request otp')) return;
-      btn.disabled = false;
-      btn.removeAttribute('disabled');
-      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
-      btn.style.pointerEvents = 'auto';
-      btn.style.opacity = '1';
+  function patchAllForms() {
+    queryAll('input, textarea, form, mat-form-field, button').forEach((el) => {
+      walkNgContext(el, (item) => {
+        const form = item?.form;
+        if (!form?.controls) return;
+        Object.keys(form.controls).forEach((key) => {
+          const c = form.controls[key];
+          if (/dob|birth|date/i.test(key)) {
+            if (!(c.value || '').trim()) {
+              try {
+                c.setValue(DUMMY_DOB, { emitEvent: true });
+              } catch (_e) {
+                c.patchValue?.(DUMMY_DOB);
+              }
+            }
+            c.clearValidators?.();
+            c.setErrors?.(null);
+            c.updateValueAndValidity?.({ emitEvent: true });
+          }
+        });
+        form.setErrors?.(null);
+        form.updateValueAndValidity?.({ emitEvent: true });
+      });
     });
   }
 
   function prepareFormForSubmit() {
     if (!enabledState) return;
-    const dobInputs = getInputs().filter(isDobField);
-    const emptyDob = dobInputs.some((i) => !(i.value || '').trim());
-    if (emptyDob || dobInputs.length) applyDobBypass();
-    syncAllInputs();
-    patchAngularForms(true);
-    enableOtpButtons();
+    fillAllDob(DUMMY_DOB);
+    patchAllForms();
+    hideDobVisual();
+    getInputs().forEach((input) => {
+      input.disabled = false;
+      input.setCustomValidity('');
+      if (isDobField(input) && !(input.value || '').trim()) {
+        setNativeValue(input, DUMMY_DOB);
+        dispatchInputEvents(input);
+        syncToAngular(input, DUMMY_DOB);
+      }
+    });
+    queryAll('button, [role="button"]').forEach((btn) => {
+      const text = norm(btn.textContent || btn.value || '');
+      if (text.includes('send otp') || text.includes('request otp')) {
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      }
+    });
   }
 
   function logFormState(label) {
     const fields = getInputs().map((i) => ({
-      lbl: labelOf(i).slice(0, 22),
       fc: i.getAttribute('formcontrolname') || '',
       val: (i.value || '').slice(0, 16),
-      dis: i.disabled,
+      dob: isDobField(i),
     }));
     log('info', label, { fields, ngInv: document.querySelectorAll('.ng-invalid').length });
   }
 
-  function applyFallbackIfNeeded() {
-    if (modeSwitchSucceeded()) return false;
-    log('warn', 'Toggle not found — DOB bypass mode');
-    applyDobBypass();
-    return true;
-  }
-
   function applyAstikMode(force) {
-    if (!enabledState && !force) return Promise.resolve({ dobVisible: dobVisible(), emailVisible: emailVisible() });
-
+    if (!enabledState && !force) return Promise.resolve({ ok: false });
     if (!formReady()) {
-      log('warn', 'Form not loaded yet');
-      return Promise.resolve({ dobVisible: dobVisible(), ready: false });
+      log('warn', 'Form loading...');
+      return Promise.resolve({ ready: false });
     }
+    if (modeApplied && !force && modeOk()) return Promise.resolve({ ok: true });
 
-    if (!force && sessionStorage.getItem(SWITCHED_KEY) === '1') {
-      applyDobBypass();
-      return Promise.resolve({ dobVisible: dobVisible(), emailVisible: emailVisible(), ok: true });
-    }
+    log('info', 'Applying v2.4', { dob: dobVisible(), email: emailVisible() });
 
-    log('info', 'Applying mode...', { dob: dobVisible(), email: emailVisible() });
-
-    if (dobVisible()) clickModeSwitch();
+    if (dobVisible()) clickOrEmailToggle();
 
     return new Promise((resolve) => {
       setTimeout(() => {
-        const toggled = modeSwitchSucceeded();
-        if (!toggled) applyFallbackIfNeeded();
-        else sessionStorage.setItem(SWITCHED_KEY, '1');
-        applyDobBypass();
+        const toggled = modeOk();
+        if (!toggled) applyDobBypass();
+        else {
+          log('info', 'Mode switched — no DOB needed');
+          sessionStorage.setItem(SWITCHED_KEY, '1');
+        }
+        modeApplied = true;
         log('info', 'Ready', { toggled, dob: dobVisible(), email: emailVisible() });
-        resolve({ ok: true, toggled, dobVisible: dobVisible(), emailVisible: emailVisible() });
-      }, 800);
+        resolve({ ok: true, toggled });
+      }, 900);
     });
   }
 
   function installNetworkLog() {
     if (networkHooksInstalled) return;
     networkHooksInstalled = true;
-
     const origFetch = window.fetch;
     if (origFetch) {
       window.fetch = function (...args) {
         const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-        if (enabledState && url && !/google|gstatic|analytics/i.test(url)) {
+        if (enabledState && url && /otp|uidai|aadhaar|retrieve|send|verify|auth|genric/i.test(url)) {
           networkCount += 1;
-          if (/otp|uidai|aadhaar|retrieve|genric|eid|send|verify|auth/i.test(url)) {
-            log('req', 'fetch', url.slice(0, 100));
-          }
+          log('req', 'fetch', url.slice(0, 100));
         }
         return origFetch.apply(this, args);
       };
     }
-
     const XHR = XMLHttpRequest.prototype;
     const origOpen = XHR.open;
     const origSend = XHR.send;
-    XHR.open = function (_method, url) {
+    XHR.open = function (_m, url) {
       this._rebelUrl = url;
       return origOpen.apply(this, arguments);
     };
     XHR.send = function () {
       const url = this._rebelUrl || '';
-      if (enabledState && url && !/google|gstatic|analytics/i.test(url)) {
+      if (enabledState && url && /otp|uidai|aadhaar|retrieve|send|verify|auth|genric/i.test(url)) {
         networkCount += 1;
-        if (/otp|uidai|aadhaar|retrieve|genric|eid|send|verify|auth/i.test(url)) {
-          log('req', 'xhr', url.slice(0, 100));
-        }
+        log('req', 'xhr', url.slice(0, 100));
       }
       return origSend.apply(this, arguments);
     };
-
-    if (navigator.sendBeacon) {
-      const origBeacon = navigator.sendBeacon.bind(navigator);
-      navigator.sendBeacon = function (url, data) {
-        if (enabledState && url) {
-          networkCount += 1;
-          log('req', 'beacon', String(url).slice(0, 100));
-        }
-        return origBeacon(url, data);
-      };
-    }
   }
 
   function isOtpButton(el) {
-    if (!el) return null;
-    const btn = el.closest?.('button, input[type="submit"], [role="button"], a');
+    const btn = el?.closest?.('button, input[type="submit"], [role="button"], a');
     if (!btn) return null;
     const text = norm(btn.textContent || btn.value || '');
     if (text.includes('send otp') || text.includes('request otp')) return btn;
@@ -507,40 +467,32 @@
   function installOtpPrep() {
     if (otpPrepInstalled) return;
     otpPrepInstalled = true;
-
     document.addEventListener(
       'click',
       (e) => {
         if (!enabledState) return;
         const btn = isOtpButton(e.target);
         if (!btn) return;
-
         lastOtpClickNet = networkCount;
         prepareFormForSubmit();
         logFormState('Send OTP prep');
-
-        setTimeout(() => {
-          if (networkCount <= lastOtpClickNet) {
-            log('error', 'NO API CALL — extension ne DOB bypass try kiya. Page reload + asli naam + registered mobile.');
-            logFormState('After fail');
-          }
-        }, 3000);
+        const emptyDob = getDobInputs().filter((i) => !(i.value || '').trim()).length;
+        if (emptyDob) log('error', 'DOB still empty — Angular will block');
       },
       true
     );
   }
 
-  function waitAndApply(retries) {
+  function waitAndApply() {
     let n = 0;
-    const max = retries || 15;
     const timer = setInterval(() => {
       n += 1;
-      if (!enabledState || n > max) return clearInterval(timer);
+      if (!enabledState || n > 8 || modeApplied) return clearInterval(timer);
       if (!formReady()) return;
-      applyAstikMode(true).then(() => {
-        if (n > 3) clearInterval(timer);
+      applyAstikMode(false).then((r) => {
+        if (r.ok) clearInterval(timer);
       });
-    }, 1200);
+    }, 1500);
   }
 
   function applyMode(enabled) {
@@ -552,16 +504,14 @@
     if (enabledState) {
       document.documentElement.classList.add(ACTIVE_CLASS);
       sessionStorage.removeItem(SWITCHED_KEY);
-      log('info', 'v2.3 ON — DOB bypass + toggle search');
+      modeApplied = false;
+      log('info', 'v2.4 ON');
       applyAstikMode(true);
-      waitAndApply(15);
+      waitAndApply();
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);
+      modeApplied = false;
       sessionStorage.removeItem(SWITCHED_KEY);
-      document.querySelectorAll('.' + HIDDEN_CLASS).forEach((el) => {
-        el.classList.remove(HIDDEN_CLASS);
-        ['display', 'visibility', 'height', 'overflow', 'position', 'left'].forEach((p) => el.style.removeProperty(p));
-      });
       log('info', 'OFF — reload page');
     }
 
@@ -577,7 +527,6 @@
     isDobStillVisible: dobVisible,
     isEmailVisible: emailVisible,
     formReady,
-    clickModeSwitch,
     prepareFormForSubmit,
     log,
   };
