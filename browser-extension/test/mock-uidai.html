@@ -19,7 +19,8 @@
     <form>
       <mat-form-field class="name-field">
         <mat-label>Enter Name as per Aadhaar</mat-label>
-        <input matInput formcontrolname="fullName" placeholder="Enter Name as per Aadhaar" />
+        <input matInput formcontrolname="fullName" placeholder="Enter Name as per Aadhaar" required minlength="3" />
+        <mat-error>Name is required</mat-error>
       </mat-form-field>
 
       <mat-form-field class="dob-field mat-mdc-form-field">

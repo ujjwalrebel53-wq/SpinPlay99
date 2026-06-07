@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Astik Helper — myAadhaar DOB Hide
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      1.1.0
-// @description  Retrieve Aadhaar page par DOB hide + Mobile/Email mode (Kiwi friendly)
+// @version      1.2.0
+// @description  DOB hide + Name optional (Mr) + Mobile/Email mode
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -11,21 +11,17 @@
 
 (function () {
   const STORAGE_KEY = 'astikHelperEnabled';
+  const NAME_OPTIONAL_KEY = 'astikHelperNameOptional';
+  const FALLBACK_NAME_KEY = 'astikHelperFallbackName';
   const FAB_ID = 'astik-helper-fab';
 
-  const DOB_PATTERNS = [
-    'date of birth',
-    'enter date of birth',
-    'dateofbirth',
-    'dob',
-    'birth date',
-    'birthdate',
-    'जन्म तिथि',
-  ];
-
+  const DOB_PATTERNS = ['date of birth', 'enter date of birth', 'dateofbirth', 'dob', 'birth date', 'जन्म तिथि'];
+  const NAME_PATTERNS = ['name as per aadhaar', 'enter name as per', 'enter name', 'full name', 'aadhaar name'];
   const EMAIL_TOGGLE_PATTERNS = ['enter email', 'or enter email', 'email address', 'or email'];
 
   let enabled = localStorage.getItem(STORAGE_KEY) === '1';
+  let nameOptional = localStorage.getItem(NAME_OPTIONAL_KEY) !== '0';
+  let fallbackName = (localStorage.getItem(FALLBACK_NAME_KEY) || 'Mr').trim() || 'Mr';
 
   function normalize(text) {
     return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -62,11 +58,57 @@
     return el.closest('mat-form-field, .mat-mdc-form-field, .form-group, .mb-3, .mb-4, div') || el.parentElement;
   }
 
-  function isDobInput(input) {
+  function classify(input) {
     const info = normalize(
       [input.name, input.id, input.placeholder, input.getAttribute('formcontrolname'), getLabelText(input)].join(' ')
     );
-    return textMatches(info, DOB_PATTERNS) || input.type === 'date' || /dob|birth/i.test(input.getAttribute('formcontrolname') || '');
+    if (textMatches(info, DOB_PATTERNS) || input.type === 'date' || /dob|birth/i.test(input.getAttribute('formcontrolname') || '')) return 'dob';
+    if (textMatches(info, NAME_PATTERNS) || /fullname|residentname/i.test(input.getAttribute('formcontrolname') || '')) return 'name';
+    return 'other';
+  }
+
+  function dispatchInputEvents(input) {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function makeNameOptional() {
+    getAllInputs()
+      .filter((input) => classify(input) === 'name')
+      .forEach((input) => {
+        input.removeAttribute('required');
+        input.setAttribute('aria-required', 'false');
+        input.removeAttribute('minlength');
+        input.setCustomValidity('');
+        input.setAttribute('placeholder', 'Mr ya apna naam likho');
+        showElement(findContainer(input));
+        showElement(input);
+
+        const container = findContainer(input);
+        container?.querySelectorAll('mat-error, .mat-mdc-form-field-error').forEach(hardHide);
+      });
+
+    document.querySelectorAll('button, input[type="submit"], a, [role="button"]').forEach((btn) => {
+      if (btn.dataset.astikOtpHooked) return;
+      const text = normalize(btn.textContent || btn.value || '');
+      if (!text.includes('send otp') && !text.includes('otp')) return;
+      btn.dataset.astikOtpHooked = '1';
+      btn.addEventListener(
+        'click',
+        () => {
+          getAllInputs()
+            .filter((input) => classify(input) === 'name')
+            .forEach((input) => {
+              if (!(input.value || '').trim()) {
+                input.value = fallbackName;
+                dispatchInputEvents(input);
+              }
+            });
+        },
+        true
+      );
+    });
   }
 
   function clickEmailToggle() {
@@ -83,9 +125,8 @@
 
   function hideDob() {
     clickEmailToggle();
-
     getAllInputs().forEach((input) => {
-      if (!isDobInput(input)) return;
+      if (classify(input) !== 'dob') return;
       hardHide(findContainer(input));
       input.disabled = true;
       input.value = '';
@@ -109,12 +150,11 @@
   function apply() {
     if (!/uidai\.gov\.in/i.test(location.href)) return;
     ensureFab();
+
     if (enabled) {
       document.documentElement.classList.add('astik-helper-active');
       hideDob();
-      setTimeout(hideDob, 500);
-      setTimeout(hideDob, 1500);
-      setTimeout(hideDob, 3000);
+      if (nameOptional) makeNameOptional();
     } else {
       document.documentElement.classList.remove('astik-helper-active');
       restore();
@@ -124,17 +164,39 @@
 
   function ensureFab() {
     if (document.getElementById(FAB_ID)) return;
+
     const fab = document.createElement('button');
     fab.id = FAB_ID;
     fab.type = 'button';
     fab.style.cssText =
-      'position:fixed;right:12px;bottom:88px;z-index:2147483647;border:none;border-radius:999px;padding:14px 18px;background:#b42318;color:#fff;font:700 14px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.3);';
+      'position:fixed;right:12px;bottom:88px;z-index:2147483647;border:none;border-radius:999px;padding:14px 18px;background:#b42318;color:#fff;font:700 13px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:70vw;';
     fab.addEventListener('click', () => {
       enabled = !enabled;
       localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
       apply();
     });
     document.documentElement.appendChild(fab);
+
+    const nameBtn = document.createElement('button');
+    nameBtn.id = 'astik-helper-name-btn';
+    nameBtn.type = 'button';
+    nameBtn.style.cssText =
+      'position:fixed;right:12px;bottom:150px;z-index:2147483647;border:none;border-radius:999px;padding:12px 14px;background:#0052a5;color:#fff;font:700 12px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.3);';
+    nameBtn.addEventListener('click', () => {
+      nameOptional = !nameOptional;
+      localStorage.setItem(NAME_OPTIONAL_KEY, nameOptional ? '1' : '0');
+      if (enabled) apply();
+      updateNameBtn();
+    });
+    document.documentElement.appendChild(nameBtn);
+    updateNameBtn();
+  }
+
+  function updateNameBtn() {
+    const btn = document.getElementById('astik-helper-name-btn');
+    if (!btn) return;
+    btn.textContent = nameOptional ? 'Name: Optional (Mr OK)' : 'Name: Required';
+    btn.style.background = nameOptional ? '#0052a5' : '#6b7280';
   }
 
   function updateFab() {
@@ -148,11 +210,17 @@
   let n = 0;
   const timer = setInterval(() => {
     n += 1;
-    if (enabled) hideDob();
+    if (enabled) {
+      hideDob();
+      if (nameOptional) makeNameOptional();
+    }
     if (n >= 25) clearInterval(timer);
   }, 1000);
 
   new MutationObserver(() => {
-    if (enabled) hideDob();
+    if (enabled) {
+      hideDob();
+      if (nameOptional) makeNameOptional();
+    }
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();

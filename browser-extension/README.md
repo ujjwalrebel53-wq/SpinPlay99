@@ -2,6 +2,13 @@
 
 Retrieve Aadhaar page par **DOB hide** + **Mobile/Email mode**.
 
+## Name optional (Mr)
+
+- Name field **required nahi** rahega (client-side)
+- Khud naam likh sakte ho **ya sirf `Mr`**
+- Khali chhodoge aur **Send OTP** dabayoge → auto **`Mr`** fill hoga
+- **Note:** UIDAI server galat naam par OTP nahi bhej sakta — ye sirf form validation ease karta hai
+
 ## ⭐ Kiwi / Phone ke liye BEST (userscript)
 
 Extension se zyada reliable:

@@ -11,30 +11,37 @@ async function run() {
   const page = await browser.newPage();
 
   await page.goto(mockUrl);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
 
-  const before = await page.evaluate(() => ({
-    dobVisible: !!document.querySelector('.dob-field') && getComputedStyle(document.querySelector('.dob-field')).display !== 'none',
-    body: document.body.innerText,
-  }));
-
-  const after = await page.evaluate((code) => {
+  const result = await page.evaluate((code) => {
     eval(code);
-    const result = AstikHelperCore.applyMode(true);
-    return {
-      result,
+
+    const before = {
       dobVisible: AstikHelperCore.isDobStillVisible(),
-      dobDisplay: document.querySelector('.dob-field')?.style.display || getComputedStyle(document.querySelector('.dob-field')).display,
-      body: document.body.innerText,
+      nameRequired: document.querySelector('[formcontrolname="fullName"]')?.required,
     };
+
+    AstikHelperCore.applyMode(true, { nameOptional: true, fallbackName: 'Mr' });
+
+    const nameInput = document.querySelector('[formcontrolname="fullName"]');
+    nameInput.value = '';
+    AstikHelperCore.fillNameIfEmpty(nameInput, 'Mr');
+
+    const after = {
+      dobVisible: AstikHelperCore.isDobStillVisible(),
+      nameRequired: nameInput?.required,
+      nameValue: nameInput?.value,
+      nameInputs: AstikHelperCore.getNameInputs().length,
+    };
+
+    return { before, after, pass: !after.dobVisible && after.nameValue === 'Mr' };
   }, coreCode);
 
-  console.log('BEFORE:', before);
-  console.log('AFTER:', after);
-  console.log(after.dobVisible ? 'FAIL: DOB still visible' : 'PASS: DOB hidden');
+  console.log(JSON.stringify(result, null, 2));
+  console.log(result.pass ? 'PASS' : 'FAIL');
 
   await browser.close();
-  process.exit(after.dobVisible ? 1 : 0);
+  process.exit(result.pass ? 0 : 1);
 }
 
 run().catch((e) => {
