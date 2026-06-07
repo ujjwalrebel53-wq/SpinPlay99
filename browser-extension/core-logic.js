@@ -11,6 +11,7 @@
   const HIDDEN_CLASS = 'astik-helper-hidden';
   const ACTIVE_CLASS = 'astik-helper-active';
   const FAB_ID = 'astik-helper-fab';
+  const TOAST_ID = 'astik-helper-toast';
 
   const DOB_PATTERNS = [
     'date of birth',
@@ -188,7 +189,7 @@
       btn.addEventListener(
         'click',
         () => {
-          getNameInputs().forEach((input) => fillNameIfEmpty(input, fallbackName));
+          prepareForOtpSubmit(fallbackName);
         },
         true
       );
@@ -215,6 +216,108 @@
     });
 
     hookSendOtpButtons(fallbackName);
+  }
+
+  function showToast(message, kind) {
+    let toast = document.getElementById(TOAST_ID);
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = TOAST_ID;
+      toast.style.cssText =
+        'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;padding:12px 14px;border-radius:10px;font:600 12px/1.4 system-ui;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);';
+      document.documentElement.appendChild(toast);
+    }
+    toast.style.background = kind === 'error' ? '#b42318' : kind === 'ok' ? '#0a7a2f' : '#0052a5';
+    toast.textContent = message;
+  }
+
+  function enableSendOtpButtons() {
+    document.querySelectorAll('button, input[type="submit"], a, [role="button"]').forEach((btn) => {
+      const text = normalize(btn.textContent || btn.value || '');
+      if (!text.includes('send otp') && !text.includes('request otp') && !text.includes('otp')) return;
+
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+    });
+  }
+
+  function relaxHiddenDobInputs() {
+    getAllInputs().forEach((input) => {
+      if (classifyField(input) !== 'dob') return;
+      input.disabled = false;
+      input.removeAttribute('required');
+      input.setAttribute('aria-required', 'false');
+      input.setCustomValidity('');
+      input.removeAttribute('readonly');
+    });
+  }
+
+  function relaxAllVisibleInputs() {
+    getAllInputs().forEach((input) => {
+      input.disabled = false;
+      input.setCustomValidity('');
+      const container = findFieldContainer(input);
+      container?.classList.remove('mat-form-field-invalid', 'ng-invalid', 'mat-mdc-form-field-invalid');
+      input.classList.remove('ng-invalid', 'is-invalid');
+    });
+  }
+
+  function prepareForOtpSubmit(fallbackName) {
+    clickEmailToggle();
+    relaxHiddenDobInputs();
+    relaxAllVisibleInputs();
+    getNameInputs().forEach((input) => fillNameIfEmpty(input, fallbackName));
+    enableSendOtpButtons();
+  }
+
+  function hookApiResponses() {
+    if (window.__astikApiHooked) return;
+    window.__astikApiHooked = true;
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async function (...args) {
+      const response = await originalFetch(...args);
+      const url = String(args[0] || '');
+
+      if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
+        try {
+          const clone = response.clone();
+          const body = await clone.text();
+          if (body && body.length < 500) {
+            showToast('UIDAI response: ' + body.slice(0, 180), response.ok ? 'ok' : 'error');
+          } else if (!response.ok) {
+            showToast('UIDAI request failed: ' + response.status, 'error');
+          }
+        } catch (_error) {
+          // ignore parse issues
+        }
+      }
+
+      return response;
+    };
+
+    const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      this.__astikUrl = String(url || '');
+      return originalOpen.call(this, method, url, ...rest);
+    };
+
+    XMLHttpRequest.prototype.send = function (...args) {
+      this.addEventListener('load', function () {
+        const url = this.__astikUrl || '';
+        if (!/uidai|otp|retrieve|aadhaar/i.test(url)) return;
+        const body = (this.responseText || '').slice(0, 180);
+        if (body) {
+          showToast('UIDAI response: ' + body, this.status >= 200 && this.status < 300 ? 'ok' : 'error');
+        }
+      });
+      return originalSend.apply(this, args);
+    };
   }
 
   function hideContainerForInput(input) {
@@ -266,9 +369,10 @@
     getAllInputs().forEach((input) => {
       if (classifyField(input) !== 'dob') return;
       hideContainerForInput(input);
-      input.disabled = true;
       input.removeAttribute('required');
-      input.value = '';
+      input.setAttribute('aria-required', 'false');
+      input.setCustomValidity('');
+      input.disabled = false;
     });
 
     document.querySelectorAll('mat-datepicker, .mat-datepicker-toggle, .mat-mdc-datepicker-toggle').forEach(hardHide);
@@ -311,13 +415,17 @@
 
     if (enabled) {
       document.documentElement.classList.add(ACTIVE_CLASS);
+      hookApiResponses();
       clickEmailToggle();
       hideDobFields();
       ensureMobileEmailMode();
       hideDobFields();
+      relaxHiddenDobInputs();
+      enableSendOtpButtons();
       if (nameOptional) {
         makeNameOptional(fallbackName);
       }
+      hookSendOtpButtons(fallbackName);
     } else {
       document.documentElement.classList.remove(ACTIVE_CLASS);
       restoreForm();

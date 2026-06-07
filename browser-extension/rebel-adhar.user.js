@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      1.2.0
+// @version      1.2.1
 // @description  DOB hide + Name optional (Mr) + Mobile/Email mode
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
@@ -14,6 +14,7 @@
   const NAME_OPTIONAL_KEY = 'astikHelperNameOptional';
   const FALLBACK_NAME_KEY = 'astikHelperFallbackName';
   const FAB_ID = 'astik-helper-fab';
+  const TOAST_ID = 'astik-helper-toast';
 
   const DOB_PATTERNS = ['date of birth', 'enter date of birth', 'dateofbirth', 'dob', 'birth date', 'जन्म तिथि'];
   const NAME_PATTERNS = ['name as per aadhaar', 'enter name as per', 'enter name', 'full name', 'aadhaar name'];
@@ -67,10 +68,74 @@
     return 'other';
   }
 
+  function showToast(message, kind) {
+    let toast = document.getElementById(TOAST_ID);
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = TOAST_ID;
+      toast.style.cssText =
+        'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;padding:12px 14px;border-radius:10px;font:600 12px/1.4 system-ui;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);';
+      document.documentElement.appendChild(toast);
+    }
+    toast.style.background = kind === 'error' ? '#b42318' : kind === 'ok' ? '#0a7a2f' : '#0052a5';
+    toast.textContent = message;
+  }
+
+  function enableSendOtpButtons() {
+    document.querySelectorAll('button, input[type="submit"], a, [role="button"]').forEach((btn) => {
+      const text = normalize(btn.textContent || btn.value || '');
+      if (!text.includes('send otp') && !text.includes('request otp') && !text.includes('otp')) return;
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+      btn.classList.remove('mat-button-disabled', 'mat-mdc-button-disabled', 'disabled');
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+    });
+  }
+
+  function hookApiResponses() {
+    if (window.__astikApiHooked) return;
+    window.__astikApiHooked = true;
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async function (...args) {
+      const response = await originalFetch(...args);
+      const url = String(args[0] || '');
+      if (/uidai|otp|retrieve|aadhaar/i.test(url)) {
+        try {
+          const body = await response.clone().text();
+          if (body) showToast('UIDAI: ' + body.slice(0, 180), response.ok ? 'ok' : 'error');
+        } catch (_e) {}
+      }
+      return response;
+    };
+  }
+
   function dispatchInputEvents(input) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     input.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function prepareForOtpSubmit() {
+    clickEmailToggle();
+    getAllInputs().forEach((input) => {
+      input.disabled = false;
+      input.setCustomValidity('');
+      if (classify(input) === 'dob') {
+        input.removeAttribute('required');
+        input.setAttribute('aria-required', 'false');
+      }
+      if (classify(input) === 'name' && nameOptional) {
+        input.removeAttribute('required');
+        input.setCustomValidity('');
+        if (!(input.value || '').trim()) {
+          input.value = fallbackName;
+          dispatchInputEvents(input);
+        }
+      }
+    });
+    enableSendOtpButtons();
   }
 
   function makeNameOptional() {
@@ -94,20 +159,7 @@
       const text = normalize(btn.textContent || btn.value || '');
       if (!text.includes('send otp') && !text.includes('otp')) return;
       btn.dataset.astikOtpHooked = '1';
-      btn.addEventListener(
-        'click',
-        () => {
-          getAllInputs()
-            .filter((input) => classify(input) === 'name')
-            .forEach((input) => {
-              if (!(input.value || '').trim()) {
-                input.value = fallbackName;
-                dispatchInputEvents(input);
-              }
-            });
-        },
-        true
-      );
+      btn.addEventListener('click', () => prepareForOtpSubmit(), true);
     });
   }
 
@@ -128,8 +180,10 @@
     getAllInputs().forEach((input) => {
       if (classify(input) !== 'dob') return;
       hardHide(findContainer(input));
-      input.disabled = true;
-      input.value = '';
+      input.removeAttribute('required');
+      input.setAttribute('aria-required', 'false');
+      input.setCustomValidity('');
+      input.disabled = false;
     });
 
     document.querySelectorAll('mat-form-field, .mat-mdc-form-field, label, mat-label, span, div').forEach((node) => {
@@ -153,8 +207,10 @@
 
     if (enabled) {
       document.documentElement.classList.add('astik-helper-active');
+      hookApiResponses();
       hideDob();
       if (nameOptional) makeNameOptional();
+      enableSendOtpButtons();
     } else {
       document.documentElement.classList.remove('astik-helper-active');
       restore();
