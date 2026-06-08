@@ -119,6 +119,14 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes emojiSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
     .i3d-anim-bolt .em-a{animation:emojiBolt 1.8s ease-in-out infinite}
     @keyframes emojiBolt{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:1;filter:brightness(1.45) drop-shadow(0 0 6px rgba(255,200,0,0.8))}}
+    @media (prefers-reduced-motion:reduce){
+      .i3d,.logo-icon-3d,.orb,.i3d-anim .em-a,.i3d-swap .em-a,.i3d-swap .em-b{animation:none!important}
+      #particleCanvas{opacity:0.15}
+    }
+    @media (max-width:900px){
+      #particleCanvas{opacity:0.22}
+      .orb{opacity:0.18}
+    }
 
     /* ─── LOGIN ─── */
     #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
@@ -443,7 +451,7 @@ header('Content-Type: text/html; charset=UTF-8');
       </div>
     </div>
     <div class="sidebar-search">
-      <input placeholder="Search phone / device..." id="devSearch" oninput="renderSidebar()" autocomplete="off"/>
+      <input placeholder="Search phone / device..." id="devSearch" oninput="onDevSearch()" autocomplete="off"/>
     </div>
     <div class="dev-list" id="devList">
       <div class="dev-empty"><span class="i3d i3d-blue i3d-lg">📡</span><br>No devices connected</div>
@@ -753,7 +761,7 @@ function initAllFirebase(){
   renderFirebaseSwitcher();
   updateSidebarTitle();
 }
-(function(){initAllFirebase();init3DScene();})();
+(function(){initAllFirebase();})();
 
 function getFilteredDevs(){
   if(!activeFbId) return allDevs;
@@ -809,34 +817,50 @@ function applyFbTheme(fbId){
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
 }
+var scene3dStarted=false;
 function init3DScene(){
+  if(scene3dStarted) return;
+  scene3dStarted=true;
+  if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   var c=document.getElementById('particleCanvas');
   if(!c) return;
-  var ctx=c.getContext('2d'), pts=[], W,H;
+  var ctx=c.getContext('2d'), pts=[], W,H, running=true, frame=0;
   function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;}
   resize(); window.addEventListener('resize',resize);
-  for(var i=0;i<90;i++) pts.push({x:Math.random()*W,y:Math.random()*H,z:Math.random()*W,vx:(Math.random()-0.5)*0.4,vy:(Math.random()-0.5)*0.4});
+  document.addEventListener('visibilitychange',function(){running=!document.hidden;});
+  for(var i=0;i<38;i++) pts.push({x:Math.random()*W,y:Math.random()*H,z:Math.random()*W,vx:(Math.random()-0.5)*0.35,vy:(Math.random()-0.5)*0.35});
   function draw(){
+    requestAnimationFrame(draw);
+    if(!running) return;
+    frame++;
+    if(frame%2!==0) return;
     ctx.clearRect(0,0,W,H);
     pts.forEach(function(p){
       p.x+=p.vx; p.y+=p.vy;
       if(p.x<0)p.x=W; if(p.x>W)p.x=0; if(p.y<0)p.y=H; if(p.y>H)p.y=0;
-      var s=1.5+p.z/W*2;
+      var s=1.2+p.z/W*1.6;
       ctx.beginPath(); ctx.arc(p.x,p.y,s,0,Math.PI*2);
-      ctx.fillStyle='rgba(255,60,60,'+(0.15+p.z/W*0.35)+')'; ctx.fill();
+      ctx.fillStyle='rgba(255,60,60,'+(0.12+p.z/W*0.28)+')'; ctx.fill();
     });
-    for(var i=0;i<pts.length;i++) for(var j=i+1;j<pts.length;j++){
-      var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.sqrt(dx*dx+dy*dy);
-      if(d<100){ctx.strokeStyle='rgba(255,60,60,'+(0.08*(1-d/100))+')';ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.stroke();}
+    for(var i=0;i<pts.length;i+=2){
+      for(var j=i+1;j<i+3&&j<pts.length;j++){
+        var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=dx*dx+dy*dy;
+        if(d<8100){d=Math.sqrt(d);ctx.strokeStyle='rgba(255,60,60,'+(0.06*(1-d/90))+')';ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.stroke();}
+      }
     }
-    requestAnimationFrame(draw);
   }
   draw();
+  var mxPending=false, lastMx=0, lastMy=0;
   document.addEventListener('mousemove',function(e){
-    var ox=(e.clientX/window.innerWidth-0.5)*12;
-    var oy=(e.clientY/window.innerHeight-0.5)*8;
-    document.querySelectorAll('.orb').forEach(function(o,i){
-      o.style.transform='translate3d('+(ox*(i+1))+ 'px,'+(oy*(i+1))+'px,0)';
+    lastMx=e.clientX; lastMy=e.clientY;
+    if(mxPending) return;
+    mxPending=true;
+    requestAnimationFrame(function(){
+      mxPending=false;
+      var ox=(lastMx/window.innerWidth-0.5)*10;
+      var oy=(lastMy/window.innerHeight-0.5)*6;
+      var orbs=document.querySelectorAll('.orb');
+      for(var i=0;i<orbs.length;i++) orbs[i].style.transform='translate3d('+(ox*(i+1))+'px,'+(oy*(i+1))+'px,0)';
     });
   });
 }
@@ -1111,6 +1135,7 @@ function openPanel(){
   updateSidebarTitle();
   applyFbTheme(activeFbId);
   updateApiKeyWarnings();
+  init3DScene();
   fetchAllFirebaseData();
 }
 
@@ -1240,10 +1265,10 @@ function attachRestPolling(inst){
       fetchNodeViaSdk(inst,'devices_status');
     }
     sdkPoll();
-    inst.pollTimer=setInterval(sdkPoll,8000);
+    inst.pollTimer=setInterval(sdkPoll,20000);
     return;
   }
-  var pollMs=inst.schema==='rabel'?3000:8000;
+  var pollMs=inst.schema==='rabel'?6000:10000;
   function poll(){
     restJson(inst.restUrl+'/clients.json').then(function(raw){
       if(!raw) return;
@@ -1326,6 +1351,35 @@ function mergeClientMaps(a,b){
   return out;
 }
 
+var _processUiTimer=null, _lastDevHash='', _searchTimer=null;
+function devListHash(list){
+  list=list||getFilteredDevs();
+  return list.map(function(d){return d.id+'|'+d.status+'|'+d.battery+'|'+d.displayPhone+'|'+d.network+'|'+d.smsCount;}).join(';;');
+}
+function onDevSearch(){
+  clearTimeout(_searchTimer);
+  _searchTimer=setTimeout(renderSidebar,180);
+}
+function flushProcessClientsUI(fromCache){
+  var list=getFilteredDevs();
+  var hash=devListHash(list);
+  if(hash!==_lastDevHash){
+    _lastDevHash=hash;
+    renderFirebaseSwitcher();
+    renderSidebar();
+    updateStats();
+  }
+  if(fromCache) updateCacheBadge(true);
+  if(selDev){
+    var dev=allDevs.find(function(d){return d.id===selDev;});
+    if(dev&&document.getElementById('deviceDetail')&&!document.getElementById('deviceDetail').classList.contains('hidden'))
+      updateHero(dev);
+  }
+}
+function scheduleProcessClientsUI(fromCache){
+  clearTimeout(_processUiTimer);
+  _processUiTimer=setTimeout(function(){flushProcessClientsUI(fromCache);},280);
+}
 function processClientsData(raw,fromCache){
   allDevs=[];
   if(!raw){ renderSidebar(); updateStats(); return; }
@@ -1370,17 +1424,7 @@ function processClientsData(raw,fromCache){
   if(!selDev&&filtered.length>0) selDev=filtered[0].id;
   if(selDev&&!filtered.find(function(d){return d.id===selDev;}))
     selDev=filtered.length>0?filtered[0].id:'';
-  requestAnimationFrame(function(){
-    renderFirebaseSwitcher();
-    renderSidebar();
-    updateStats();
-    if(fromCache) updateCacheBadge(true);
-    if(selDev){
-      var dev=allDevs.find(function(d){return d.id===selDev;});
-      if(dev&&document.getElementById('deviceDetail')&&!document.getElementById('deviceDetail').classList.contains('hidden'))
-        updateHero(dev);
-    }
-  });
+  scheduleProcessClientsUI(fromCache);
 }
 
 // ═══ SIDEBAR ═══
@@ -1405,7 +1449,7 @@ function renderSidebar(){
     return '<div class="dev-item'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="openDeviceByIdx('+i+')">'+
       '<div class="dev-top"><span class="dev-name">'+ico('📞','i3d-green i3d-sm i3d-static')+' '+esc(d.displayPhone)+'</span><span class="dev-dot '+d.status+'"></span></div>'+
       '<div class="dev-uid">'+esc(d.name)+' · '+esc(d.rawId.substring(0,16))+'</div>'+
-      '<div class="dev-chips"><span class="dchip '+bc+'">'+icoAnim('bolt','i3d-orange i3d-sm')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
+      '<div class="dev-chips"><span class="dchip '+bc+'">'+ico('⚡','i3d-orange i3d-sm i3d-static')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
       '<span class="dchip">'+esc(d.network)+'</span>'+
       '<span class="dchip">'+d.smsCount+' SMS</span>'+(d.status==="online"?'<span class="dchip" style="color:var(--success);border-color:rgba(0,255,157,0.2)">● ACTIVE</span>':'')+'</div></div>';
   }).join('');
@@ -1556,7 +1600,7 @@ function loadRabelSms(dev){
     devOn(dev.fbId,path,function(snap){ingestRabelSms(dev,snap.val());});
     return;
   }
-  restPoll(dev.fbId,path,function(data){ingestRabelSms(dev,data);},3000);
+  restPoll(dev.fbId,path,function(data){ingestRabelSms(dev,data);},5000);
 }
 function loadSmsRest(dev){
   var ref=dev.deviceNode+'/'+dev.rawId;
@@ -2030,14 +2074,15 @@ function doLogin(){
   else{document.getElementById('loginError').style.display='block';document.getElementById('loginPass').value='';}
 }
 document.addEventListener('keydown',function(e){if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter')doLogin();});
+setInterval(function(){document.getElementById('footerTime').textContent=new Date().toLocaleString();},5000);
 setInterval(function(){
-  document.getElementById('footerTime').textContent=new Date().toLocaleString();
   clearClientsCacheIfExpired();
   if(selDev){
     var dev=allDevs.find(function(d){return d.id===selDev;});
     if(dev) renderLastSeen(dev);
   }
-},1000);
+},5000);
+document.getElementById('footerTime').textContent=new Date().toLocaleString();
 </script>
 </body>
 </html>
