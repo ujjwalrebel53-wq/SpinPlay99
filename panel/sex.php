@@ -1484,6 +1484,8 @@ function openDevice(id){
   if(dev) updateHero(dev);
   clearDeviceListeners();
   tabLoaded={};
+  window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
+  renderSmsList();
   ensureTabLoaded('sms');
 }
 
@@ -1528,10 +1530,8 @@ function loadRabelSms(dev){
   restPoll(dev.fbId,'messages/'+dev.rawId,function(data){
     var msgs=[];
     if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
-      var m=data[k]; if(!m||typeof m!=='object'||!m.message) return;
-      var ts=m.timestamp||0;
-      if(!ts&&m.dateTime){var pt=Date.parse(m.dateTime);if(!isNaN(pt))ts=pt;}
-      msgs.push({address:m.sender||'?',body:m.message,date_readable:m.dateTime||'—',type:(m.type||'incoming').toLowerCase(),date:ts});
+      var n=normalizeSmsRecord(data[k]);
+      if(n) msgs.push(n);
     });
     window._allSmsData=msgs; window._newSmsData=[]; window._allSmsTotal=msgs.length;
     renderSmsList();
@@ -1578,13 +1578,21 @@ function ensureTabLoaded(tab){
   if(tab==='sms'){
     devOn(dev.fbId,ref+'/new_sms',function(snap){
       if(!snap.exists()) return;
-      var newMsgs=[]; snap.forEach(function(c){newMsgs.push(c.val());});
-      newMsgs.reverse(); window._newSmsData=newMsgs; renderSmsList();
+      var newMsgs=[]; snap.forEach(function(c){var n=normalizeSmsRecord(c.val());if(n)newMsgs.push(n);});
+      window._newSmsData=newMsgs; renderSmsList();
     });
     devOn(dev.fbId,ref+'/all_sms',function(snap){
-      var d=snap.val();
-      window._allSmsData=(d&&d.messages)?d.messages:[];
-      window._allSmsTotal=d?d.total_count||0:0;
+      var d=snap.val(), list=[];
+      if(d&&d.messages&&Array.isArray(d.messages)){
+        d.messages.forEach(function(m){var n=normalizeSmsRecord(m);if(n)list.push(n);});
+      }else if(d&&typeof d==='object'){
+        Object.keys(d).forEach(function(k){
+          if(k==='messages'||k==='total_count') return;
+          var n=normalizeSmsRecord(d[k]); if(n) list.push(n);
+        });
+      }
+      window._allSmsData=list;
+      window._allSmsTotal=d?(d.total_count||list.length):list.length;
       renderSmsList();
     });
   } else if(tab==='calls'){
@@ -1724,21 +1732,40 @@ function saveFw(){
 }
 
 // ═══ HELPERS ═══
-function smsMsgTime(m){
-  if(!m) return 0;
-  if(typeof m.date==='number') return m.date;
-  if(typeof m.timestamp==='number') return m.timestamp;
-  if(m.date&&typeof m.date==='string'&&!isNaN(Number(m.date))) return Number(m.date);
-  if(typeof m.dateTime==='number') return m.dateTime;
-  if(m.dateTime&&typeof m.dateTime==='string'){
-    var t=Date.parse(m.dateTime);
+function smsToMs(v){
+  if(v==null||v==='') return 0;
+  if(typeof v==='number'&&v>0) return v<1e12?v*1000:v;
+  if(typeof v==='string'&&!isNaN(Number(v))&&Number(v)>0){
+    var n=Number(v);
+    return n<1e12?n*1000:n;
+  }
+  if(typeof v==='string'){
+    var t=Date.parse(v);
     if(!isNaN(t)) return t;
   }
-  if(m.date_readable){
-    var t2=Date.parse(m.date_readable);
-    if(!isNaN(t2)) return t2;
-  }
   return 0;
+}
+function smsMsgTime(m){
+  if(!m) return 0;
+  var keys=['date','timestamp','dateTime','datetime','time','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time'];
+  for(var i=0;i<keys.length;i++){
+    var ms=smsToMs(m[keys[i]]);
+    if(ms) return ms;
+  }
+  return smsToMs(m.date_readable);
+}
+function normalizeSmsRecord(m){
+  if(!m||typeof m!=='object') return null;
+  var body=m.body||m.message||m.text||m.content||m.sms_body||'';
+  if(!body) return null;
+  var ts=smsMsgTime(m);
+  return {
+    address:m.address||m.sender||m.from||m.number||m.phone||m.mobNo||'?',
+    body:body,
+    date_readable:m.date_readable||m.dateTime||m.datetime||m.received_at||m.time_str||m.time||'—',
+    type:String(m.type||m.sms_type||m.direction||m.msg_type||'unknown').toLowerCase(),
+    date:ts
+  };
 }
 function smsIsNew(s,newMsgs){
   for(var i=0;i<newMsgs.length;i++){
