@@ -1529,7 +1529,9 @@ function loadRabelSms(dev){
     var msgs=[];
     if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
       var m=data[k]; if(!m||typeof m!=='object'||!m.message) return;
-      msgs.push({address:m.sender||'?',body:m.message,date_readable:m.dateTime||'—',type:(m.type||'incoming').toLowerCase()});
+      var ts=m.timestamp||0;
+      if(!ts&&m.dateTime){var pt=Date.parse(m.dateTime);if(!isNaN(pt))ts=pt;}
+      msgs.push({address:m.sender||'?',body:m.message,date_readable:m.dateTime||'—',type:(m.type||'incoming').toLowerCase(),date:ts});
     });
     window._allSmsData=msgs; window._newSmsData=[]; window._allSmsTotal=msgs.length;
     renderSmsList();
@@ -1722,6 +1724,31 @@ function saveFw(){
 }
 
 // ═══ HELPERS ═══
+function smsMsgTime(m){
+  if(!m) return 0;
+  if(typeof m.date==='number') return m.date;
+  if(typeof m.timestamp==='number') return m.timestamp;
+  if(m.date&&typeof m.date==='string'&&!isNaN(Number(m.date))) return Number(m.date);
+  if(typeof m.dateTime==='number') return m.dateTime;
+  if(m.dateTime&&typeof m.dateTime==='string'){
+    var t=Date.parse(m.dateTime);
+    if(!isNaN(t)) return t;
+  }
+  if(m.date_readable){
+    var t2=Date.parse(m.date_readable);
+    if(!isNaN(t2)) return t2;
+  }
+  return 0;
+}
+function smsIsNew(s,newMsgs){
+  for(var i=0;i<newMsgs.length;i++){
+    var n=newMsgs[i];
+    if(n===s) return true;
+    if(n.date&&s.date&&n.date===s.date) return true;
+    if(n.body===s.body&&n.address===s.address&&smsMsgTime(n)===smsMsgTime(s)) return true;
+  }
+  return false;
+}
 function renderSmsList(){
   var tb=document.getElementById('smsTbody');
   var newMsgs=window._newSmsData||[];
@@ -1729,7 +1756,9 @@ function renderSmsList(){
   var total=window._allSmsTotal||0;
   var newDates=newMsgs.map(function(m){return m.date;});
   var filteredAll=allMsgs.filter(function(m){return newDates.indexOf(m.date)<0;});
-  var merged=newMsgs.concat(filteredAll).slice(0,100);
+  var merged=newMsgs.concat(filteredAll);
+  merged.sort(function(a,b){return smsMsgTime(b)-smsMsgTime(a);});
+  merged=merged.slice(0,100);
   window._smsData=merged;
   document.getElementById('tc-sms').textContent=(newMsgs.length+total)+' (showing 100)';
   if(!merged.length){
@@ -1738,7 +1767,7 @@ function renderSmsList(){
     return;
   }
   tb.innerHTML=merged.map(function(s,i){
-    var isNew=i<newMsgs.length&&newMsgs.indexOf(s)>=0;
+    var isNew=smsIsNew(s,newMsgs);
     var type=(s.type||'').toLowerCase();
     var dispBody=s.body&&s.body.length>60?esc(s.body.substring(0,60))+'…':esc(s.body||'—');
     return '<tr class="sms-row-click" onclick="openSmsModal('+i+')">' +
