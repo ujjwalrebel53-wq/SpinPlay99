@@ -708,7 +708,7 @@ var REBEL_WIZARD_STEPS=[
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
    prompt:'Last step — <strong>App ID</strong> bhejo. Iske baad main connect kar dunga.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> agar optional hai.'}
 ];
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81'];
+var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
   apiKey:'',
@@ -739,6 +739,15 @@ var DEFAULT_FIREBASES=[{
   storageBucket:'spinplay99.firebasestorage.app',
   messagingSenderId:'8121733414',
   appId:'1:8121733414:web:04b9ae5df1b6bc413e31e7'
+},{
+  id:'nsx1_7f7aa', name:'NSX1', schema:'rabel',
+  apiKey:'AIzaSyBnfbREOJVIVrN2K7KJX4TTPbKcMIFasDQ',
+  authDomain:'nsx1-7f7aa.firebaseapp.com',
+  databaseURL:'https://nsx1-7f7aa-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId:'nsx1-7f7aa',
+  storageBucket:'nsx1-7f7aa.firebasestorage.app',
+  messagingSenderId:'1025305009086',
+  appId:'1:1025305009086:android:b3c3d28d5f6bf44f2b77ef'
 }];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
@@ -950,7 +959,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100','nsx1_7f7aa':'255,140,0'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
