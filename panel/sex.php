@@ -1052,6 +1052,7 @@ function isValidDeviceRecord(raw){
   if(!raw||typeof raw!=='object'||Array.isArray(raw)) return false;
   if(raw.password||raw.Pass||raw.ExpDate||raw.expiry||raw.userName) return false;
   if(raw.message&&raw.sender&&raw.dateTime) return false;
+  if(typeof raw.status==='boolean') return true;
   if(!raw.modelName&&!raw.deviceId&&!raw.device_model&&!raw.device_info&&!raw.live_data&&!raw.name) return false;
   return true;
 }
@@ -1193,7 +1194,10 @@ function markFetchDone(){
   showFetchMs(Math.round(performance.now()-fetchStartMs));
 }
 function ingestDeviceData(fbId,nodeName,devId,data){
-  var norm=normalizeClientRecord(data);
+  var payload=Object.assign({_fbId:fbId},data);
+  if(!payload.modelName&&!payload.name&&!payload.deviceId&&!payload.device_model)
+    payload.name=String(devId).substring(0,16);
+  var norm=normalizeClientRecord(payload);
   if(!norm) return;
   var key=makeDevKey(fbId,devId);
   norm._node=nodeName; norm._fbId=fbId;
