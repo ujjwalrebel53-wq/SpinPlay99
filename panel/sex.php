@@ -698,13 +698,22 @@ var REBEL_WIZARD_STEPS=[
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
    prompt:'Last step — <strong>App ID</strong> bhejo. Iske baad main connect kar dunga.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> agar optional hai.'}
 ];
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc'];
+var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
   apiKey:'',
   authDomain:'rabel-raand.firebaseapp.com',
   databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
   projectId:'rabel-raand'
+},{
+  id:'monster_green_c5e81', name:'Monster Green', schema:'rabel',
+  apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',
+  authDomain:'monster-green-c5e81.firebaseapp.com',
+  databaseURL:'https://monster-green-c5e81-default-rtdb.firebaseio.com',
+  projectId:'monster-green-c5e81',
+  storageBucket:'monster-green-c5e81.firebasestorage.app',
+  messagingSenderId:'411242045978',
+  appId:'1:411242045978:android:1748043e0e030b348067a3'
 },{
   id:'pmfg_ccccc', name:'PMFG', schema:'spinplay',
   apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',
@@ -931,7 +940,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
