@@ -1498,6 +1498,8 @@ function openDevice(id){
   clearDeviceListeners();
   tabLoaded={};
   window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
+  window._rabelSmsSeenKeys={};
+  window._rabelSmsHydrated=false;
   renderSmsList();
   ensureTabLoaded('sms');
 }
@@ -1532,12 +1534,12 @@ function clearDeviceListeners(){
   });
   activeListeners={};
 }
-function restPoll(fbId,path,cb){
+function restPoll(fbId,path,cb,intervalMs){
   var inst=getFbInstance(fbId);
   if(!inst) return;
   function tick(){restJson(inst.restUrl+'/'+path+'.json').then(function(d){cb(d);});}
   tick();
-  activeListeners[fbId+'::rest::'+path]={type:'rest',timer:setInterval(tick,12000)};
+  activeListeners[fbId+'::rest::'+path]={type:'rest',timer:setInterval(tick,intervalMs||12000)};
 }
 function smsAsList(raw){
   if(!raw) return [];
@@ -1553,7 +1555,7 @@ function smsAsList(raw){
 }
 function parseDdMmYyyy(s){
   if(!s||typeof s!=='string') return 0;
-  var m=String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
+  var m=String(s).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[|\s]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
   if(!m) return 0;
   var dd=+m[1], MM=+m[2], yyyy=+m[3], hh=+(m[4]||0), mi=+(m[5]||0), ss=+(m[6]||0), ap=m[7];
   if(ap){var p=ap.toUpperCase(); if(p==='PM'&&hh<12)hh+=12; if(p==='AM'&&hh===12)hh=0;}
@@ -1590,16 +1592,41 @@ function ingestNewSmsPayload(d){
   }
   return list;
 }
-function loadRabelSms(dev){
-  restPoll(dev.fbId,'messages/'+dev.rawId,function(data){
-    var msgs=[];
-    if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
-      var n=normalizeSmsRecord(data[k]);
-      if(n){n._sortKey=k; msgs.push(n);}
-    });
-    window._allSmsData=msgs; window._newSmsData=[]; window._allSmsTotal=msgs.length;
-    renderSmsList();
+function ingestRabelSms(dev,data){
+  var msgs=[];
+  if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
+    var n=normalizeSmsRecord(data[k]);
+    if(n){n._sortKey=k; msgs.push(n);}
   });
+  if(!window._rabelSmsSeenKeys) window._rabelSmsSeenKeys={};
+  var isInitial=!window._rabelSmsHydrated;
+  var newMsgs=[];
+  msgs.forEach(function(m){
+    var sk=dev.rawId+'::'+m._sortKey;
+    if(!window._rabelSmsSeenKeys[sk]){
+      window._rabelSmsSeenKeys[sk]=1;
+      if(!isInitial) newMsgs.push(m);
+    }
+  });
+  window._rabelSmsHydrated=true;
+  if(!isInitial&&newMsgs.length){
+    var prev=window._newSmsData||[];
+    var seen={};
+    prev.concat(newMsgs).forEach(function(m){seen[smsDedupKey(m)]=m;});
+    window._newSmsData=Object.keys(seen).map(function(k){return seen[k];});
+  } else if(isInitial) window._newSmsData=[];
+  window._allSmsData=msgs;
+  window._allSmsTotal=msgs.length;
+  renderSmsList();
+}
+function loadRabelSms(dev){
+  var path='messages/'+dev.rawId;
+  var inst=getFbInstance(dev.fbId);
+  if(inst&&inst.db){
+    devOn(dev.fbId,path,function(snap){ingestRabelSms(dev,snap.val());});
+    return;
+  }
+  restPoll(dev.fbId,path,function(data){ingestRabelSms(dev,data);},3000);
 }
 function loadSmsRest(dev){
   var ref=dev.deviceNode+'/'+dev.rawId;
@@ -1608,11 +1635,11 @@ function loadSmsRest(dev){
     window._allSmsData=p.list;
     window._allSmsTotal=p.total;
     renderSmsList();
-  });
+  },5000);
   restPoll(dev.fbId,ref+'/new_sms',function(d){
     window._newSmsData=ingestNewSmsPayload(d);
     renderSmsList();
-  });
+  },3000);
 }
 function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
@@ -1826,11 +1853,13 @@ function smsToMs(v){
 }
 function smsMsgTime(m){
   if(!m) return 0;
-  var keys=['date','timestamp','dateTime','datetime','time','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time'];
+  var keys=['date','timestamp','dateTime','datetime','time','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','id'];
   for(var i=0;i<keys.length;i++){
     var ms=smsToMs(m[keys[i]]);
     if(ms) return ms;
   }
+  var sk=smsToMs(m._sortKey);
+  if(sk) return sk;
   return smsToMs(m.date_readable);
 }
 function normalizeSmsRecord(m){
