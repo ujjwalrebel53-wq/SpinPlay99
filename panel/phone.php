@@ -1,7 +1,9 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
+require_once __DIR__ . '/rebel_app_lib.php';
 
 if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
+  if (rebel_app_is_apk_request()) rebel_app_require_attest();
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) $body = [];
   $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));
@@ -673,8 +675,21 @@ function switchTab(name,btn){
 }
 
 /* AUTH */
+function rebelApkHeaders(){
+  var h={};
+  if(window.RebelAndroid){
+    try{
+      h['X-Rebel-Attest']=RebelAndroid.getAttest();
+      h['X-Rebel-Device']=RebelAndroid.getDevice();
+    }catch(e){}
+  }
+  return h;
+}
 function authFetch(body){
-  return fetch(AUTH_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+  var hdr={'Content-Type':'application/json'};
+  var apk=rebelApkHeaders();
+  for(var k in apk)hdr[k]=apk[k];
+  return fetch(AUTH_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
     .then(function(r){return r.json().then(function(j){return{ok:r.ok,data:j};});});
 }
 function getSession(){try{return JSON.parse(localStorage.getItem('rbl_session')||sessionStorage.getItem('rbl_session')||'null');}catch(e){return null;}}
@@ -707,7 +722,10 @@ document.getElementById('loginKey').addEventListener('input',function(){this.val
 var _autoTokenOn=false;
 function smsTokenFetch(body){
   var s=getSession();body=body||{};if(s&&s.token)body.token=s.token;
-  return fetch(SMS_TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  var hdr={'Content-Type':'application/json'};
+  var apk=rebelApkHeaders();
+  for(var k in apk)hdr[k]=apk[k];
+  return fetch(SMS_TOKEN_URL,{method:'POST',headers:hdr,body:JSON.stringify(body)})
     .then(function(r){return r.json();});
 }
 function loadAutoTokenState(){
