@@ -47,6 +47,13 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
   rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
 }
 
+function rebel_avatar_url() {
+  if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
+  if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
+  return 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg';
+}
+$REBEL_AVATAR_URL = rebel_avatar_url();
+
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!DOCTYPE html>
@@ -95,27 +102,25 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
 /* REBEL ANIMATED AVATAR */
-.rebel-avatar{position:relative;flex-shrink:0;animation:avatarFloat 4.5s ease-in-out infinite}
-.rebel-avatar-glow{position:absolute;inset:-12px;border-radius:inherit;background:radial-gradient(circle,rgba(255,60,60,.22) 0%,rgba(123,47,255,.12) 45%,transparent 72%);animation:avatarGlow 3.2s ease-in-out infinite;z-index:0;pointer-events:none}
-.rebel-avatar-frame{position:relative;width:100%;height:100%;border-radius:50%;padding:2.5px;background:conic-gradient(from 0deg,#ff3c3c,#ff9500,#7b2fff,#00ff9d,#ff3c3c);animation:avatarSpin 5s linear infinite;z-index:1}
-.rebel-avatar-inner{position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;background:#0a0a0f}
-.rebel-avatar img{width:100%;height:100%;object-fit:cover;display:block;animation:avatarBreath 6s ease-in-out infinite}
-.rebel-avatar-scan{position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(255,60,60,.12) 48%,transparent 56%);background-size:100% 220%;animation:avatarScan 2.8s ease-in-out infinite;pointer-events:none;mix-blend-mode:screen;opacity:.65}
-.rebel-avatar-shine{position:absolute;top:0;left:-120%;width:60%;height:100%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.18),transparent);animation:avatarShine 4s ease-in-out infinite;pointer-events:none;z-index:3}
-.rebel-avatar-lg{width:132px;height:132px;margin:0 auto 18px;border-radius:50%;box-shadow:0 14px 40px rgba(0,0,0,.55)}
-.rebel-avatar-sm{width:38px;height:38px;border-radius:50%;animation-duration:5s}
-.rebel-avatar-sm .rebel-avatar-frame{padding:1.5px;animation-duration:7s}
-.rebel-avatar-sm .rebel-avatar-scan,.rebel-avatar-sm .rebel-avatar-shine{display:none}
-.rebel-avatar-sm .rebel-avatar-glow{inset:-6px}
+.rebel-avatar{position:relative;flex-shrink:0;display:block}
+.rebel-avatar-lg{width:140px;height:140px;margin:0 auto 18px;animation:avatarFloat 4.5s ease-in-out infinite}
+.rebel-avatar-sm{width:40px;height:40px;animation:avatarFloat 5s ease-in-out infinite}
+.rebel-avatar-ring{position:absolute;inset:0;border-radius:50%;padding:3px;background:conic-gradient(from 0deg,#ff3c3c,#ff9500,#7b2fff,#00ff9d,#ff3c3c);animation:avatarSpin 5s linear infinite;z-index:1;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.rebel-avatar-glow{position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle,rgba(255,60,60,.28),rgba(123,47,255,.1) 50%,transparent 72%);animation:avatarGlow 3s ease-in-out infinite;z-index:0;pointer-events:none}
+.rebel-avatar-img{position:relative;z-index:2;display:block;width:100%;height:100%;border-radius:50%;object-fit:cover;background:#111;animation:avatarBreath 5s ease-in-out infinite;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.rebel-avatar-lg .rebel-avatar-scan{position:absolute;inset:3px;border-radius:50%;z-index:3;pointer-events:none;overflow:hidden}
+.rebel-avatar-lg .rebel-avatar-scan::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(255,60,60,.15) 50%,transparent 100%);background-size:100% 200%;animation:avatarScan 2.5s ease-in-out infinite;mix-blend-mode:screen}
+.rebel-avatar-sm .rebel-avatar-ring{padding:2px}
+.rebel-avatar-sm .rebel-avatar-glow{inset:-8px}
+.rebel-avatar-sm .rebel-avatar-scan{display:none}
 .login-hero{text-align:center;margin-bottom:8px}
 .login-hero h1{font-size:22px;font-weight:800;margin-top:4px}
 .login-hero em{color:var(--accent);font-style:normal}
-@keyframes avatarFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-@keyframes avatarGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes avatarFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes avatarGlow{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
 @keyframes avatarSpin{to{transform:rotate(360deg)}}
-@keyframes avatarBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
-@keyframes avatarScan{0%{background-position:0 -120%}100%{background-position:0 220%}}
-@keyframes avatarShine{0%,75%{left:-120%;opacity:0}85%{opacity:1}100%{left:140%;opacity:0}}
+@keyframes avatarBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+@keyframes avatarScan{0%{background-position:0 -100%}100%{background-position:0 200%}}
 
 /* HEADER */
 .hdr{flex-shrink:0;height:calc(var(--hdr-h) + var(--safe-t));padding-top:var(--safe-t);padding-left:16px;padding-right:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(12px);background:rgba(5,5,8,0.85);z-index:10}
@@ -229,13 +234,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <div class="login-hero">
       <div class="rebel-avatar rebel-avatar-lg">
         <div class="rebel-avatar-glow"></div>
-        <div class="rebel-avatar-frame">
-          <div class="rebel-avatar-inner">
-            <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
-            <div class="rebel-avatar-scan"></div>
-            <div class="rebel-avatar-shine"></div>
-          </div>
-        </div>
+        <img class="rebel-avatar-img" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+        <div class="rebel-avatar-scan"></div>
       </div>
       <h1><em>Rebel</em> Mobile</h1>
     </div>
@@ -253,11 +253,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <div class="hdr-left">
       <div class="rebel-avatar rebel-avatar-sm">
         <div class="rebel-avatar-glow"></div>
-        <div class="rebel-avatar-frame">
-          <div class="rebel-avatar-inner">
-            <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
-          </div>
-        </div>
+        <div class="rebel-avatar-ring"></div>
+        <img class="rebel-avatar-img" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
         <div class="hdr-title">Rebel Mobile</div>
