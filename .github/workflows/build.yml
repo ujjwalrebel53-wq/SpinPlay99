@@ -4,6 +4,9 @@ on:
     branches: [cursor/rebel-panel-apk-1641, main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,8 +23,9 @@ jobs:
     - name: Build APK
       run: |
         chmod +x gradlew
-        ./gradlew clean assembleDebug assembleRelease --stacktrace
+        ./gradlew clean assembleDebug --stacktrace
         cp app/build/outputs/apk/debug/app-debug.apk RebelPanel.apk
+        ls -lh RebelPanel.apk
 
     - uses: actions/upload-artifact@v4
       with:
@@ -29,21 +33,13 @@ jobs:
         path: RebelPanel.apk
         retention-days: 90
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: RebelPanel-release
-        path: app/build/outputs/apk/release/app-release.apk
-        retention-days: 90
-
     - name: GitHub Release
       uses: softprops/action-gh-release@v2
-      if: github.ref == 'refs/heads/cursor/rebel-panel-apk-1641'
+      continue-on-error: true
       with:
         tag_name: rebel-panel-${{ github.run_number }}
-        name: Rebel Panel APK v1.2
+        name: Rebel Panel APK
         body: |
-          Install **RebelPanel.apk** on Android.
-          Panel URL: https://rebelbhaiya.alwaysdata.net/phone.php
+          **RebelPanel.apk** — Android install karo.
+          Panel: https://rebelbhaiya.alwaysdata.net/phone.php
         files: RebelPanel.apk
-        draft: false
-        prerelease: false
