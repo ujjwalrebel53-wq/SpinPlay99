@@ -3,8 +3,7 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/rebel_bg"
-    android:keepScreenOn="true">
+    android:background="@color/rebel_bg">
 
     <WebView
         android:id="@+id/webview"
@@ -14,10 +13,41 @@
         android:overScrollMode="never"
         android:scrollbars="none" />
 
-    <FrameLayout
-        android:id="@+id/splash"
+    <LinearLayout
+        android:id="@+id/error_panel"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/rebel_bg" />
+        android:background="@color/rebel_bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rebel Panel"
+            android:textColor="@color/rebel_accent"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/error_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:textColor="#99FFFFFF"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/retry_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:backgroundTint="@color/rebel_accent"
+            android:text="Retry"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
 
 </FrameLayout>

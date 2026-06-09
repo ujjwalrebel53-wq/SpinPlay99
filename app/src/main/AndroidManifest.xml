@@ -12,8 +12,8 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_rebel_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SpinPlay99"
-        android:usesCleartextTraffic="false"
+        android:theme="@style/Theme.RebelPanel"
+        android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
 
         <activity
@@ -21,7 +21,7 @@
             android:exported="true"
             android:hardwareAccelerated="true"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.SpinPlay99"
+            android:theme="@style/Theme.RebelPanel"
             android:configChanges="orientation|screenSize|keyboardHidden|density|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

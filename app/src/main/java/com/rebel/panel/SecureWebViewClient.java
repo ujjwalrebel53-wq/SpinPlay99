@@ -3,7 +3,9 @@ package com.rebel.panel;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -12,20 +14,18 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * Blocks login bypass via local file / random URLs — only panel + Firebase allowed.
- */
 public class SecureWebViewClient extends WebViewClient {
 
     private final MainActivity activity;
     private final Set<String> allowedHosts = new HashSet<>(Arrays.asList(
-        "spinplay99.com", "firebaseio.com", "firebasedatabase.app",
-        "googleapis.com", "gstatic.com", "firebaseapp.com", "google.com",
-        "githubusercontent.com"
+        "firebaseio.com", "firebasedatabase.app", "googleapis.com",
+        "gstatic.com", "firebaseapp.com", "google.com", "githubusercontent.com"
     ));
 
     public SecureWebViewClient(MainActivity activity) {
         this.activity = activity;
+        String host = hostOf(RebelConfig.getPanelUrl(activity));
+        if (host != null) allowedHosts.add(host);
     }
 
     public void addAllowedHost(String host) {
@@ -42,13 +42,31 @@ public class SecureWebViewClient extends WebViewClient {
     @Override
     public void onPageCommitVisible(WebView view, String url) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            activity.onPageVisible();
+            activity.onPageReady();
         }
     }
 
     @Override
     public void onPageFinished(WebView view, String url) {
-        activity.onPageLoadDone(url);
+        activity.onPageReady();
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        if (request == null || !request.isForMainFrame()) return;
+        String msg = "Cannot load panel";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && error != null) {
+            msg = error.getDescription() != null ? error.getDescription().toString() : msg;
+        }
+        activity.onLoadError(msg + "\n\nURL: " + RebelConfig.getPanelUrl(activity));
+    }
+
+    @Override
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+        if (request != null && request.isForMainFrame() && errorResponse != null && errorResponse.getStatusCode() >= 400) {
+            activity.onLoadError("Server error " + errorResponse.getStatusCode()
+                + "\n\nURL: " + RebelConfig.getPanelUrl(activity));
+        }
     }
 
     @Override
@@ -61,7 +79,7 @@ public class SecureWebViewClient extends WebViewClient {
         return false;
     }
 
-    boolean isAllowed(Uri uri) {
+    private boolean isAllowed(Uri uri) {
         if (uri == null) return false;
         String scheme = uri.getScheme();
         if (scheme == null) return false;
@@ -74,11 +92,14 @@ public class SecureWebViewClient extends WebViewClient {
         for (String h : allowedHosts) {
             if (host.endsWith("." + h)) return true;
         }
-        String panel = RebelConfig.getPanelUrl(activity);
-        try {
-            String panelHost = Uri.parse(panel).getHost();
-            if (panelHost != null && host.equals(panelHost.toLowerCase(Locale.US))) return true;
-        } catch (Exception ignored) {}
         return false;
+    }
+
+    private static String hostOf(String url) {
+        try {
+            return Uri.parse(url).getHost();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
