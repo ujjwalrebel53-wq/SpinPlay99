@@ -55,6 +55,8 @@ function rebel_avatar_url() {
 $REBEL_AVATAR_URL = rebel_avatar_url();
 
 header('Content-Type: text/html; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -101,16 +103,40 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
-/* REBEL AVATAR — circle fixed, image animates inside */
-.avatar-stage{width:180px;height:210px;margin:0 auto 10px;position:relative}
-.avatar-face-ring{width:130px;height:130px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#0a0a10;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2}
-.avatar-face{width:118%;height:118%;object-fit:cover;object-position:50% 28%;display:block;margin:-9%;transition:transform .55s cubic-bezier(.34,1.2,.64,1),object-position .55s ease;will-change:transform,object-position}
-.avatar-face.look-right{transform:translateX(-14px);object-position:58% 28%}
-.avatar-face.look-left{transform:translateX(14px);object-position:42% 28%}
-.avatar-face.look-down{transform:translateY(12px);object-position:50% 42%}
-.avatar-laptop{position:absolute;left:50%;bottom:0;width:118px;z-index:5;pointer-events:none;opacity:0;transform:translate3d(-50%,36px,0) scale(.55);transition:opacity .3s ease,transform .5s cubic-bezier(.34,1.56,.64,1)}
-.avatar-laptop.show{opacity:1;transform:translate3d(-50%,0,0) scale(1)}
-.avatar-laptop.pop{transform:translate3d(-50%,-4px,0) scale(1.06)}
+/* REBEL AVATAR — circle fixed, image animates (pure CSS, no JS needed) */
+.avatar-stage{width:180px;height:215px;margin:0 auto 10px;position:relative}
+.avatar-face-ring{width:132px;height:132px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#0a0a10;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2}
+.avatar-img-wrap{width:100%;height:100%;animation:rebelImgLook 9s ease-in-out infinite;-webkit-animation:rebelImgLook 9s ease-in-out infinite}
+.avatar-face{width:145%;height:145%;max-width:none;object-fit:cover;object-position:50% 30%;display:block;margin:-22.5%}
+.avatar-laptop{position:absolute;left:50%;bottom:0;width:120px;z-index:5;pointer-events:none;animation:rebelLaptop 9s ease-in-out infinite;-webkit-animation:rebelLaptop 9s ease-in-out infinite}
+@keyframes rebelImgLook{
+  0%,10%{transform:translate(0,0)}
+  14%,26%{transform:translate(-26px,0)}
+  30%,42%{transform:translate(26px,0)}
+  46%,50%{transform:translate(0,0)}
+  54%,76%{transform:translate(0,20px)}
+  80%,100%{transform:translate(0,0)}
+}
+@-webkit-keyframes rebelImgLook{
+  0%,10%{-webkit-transform:translate(0,0)}
+  14%,26%{-webkit-transform:translate(-26px,0)}
+  30%,42%{-webkit-transform:translate(26px,0)}
+  46%,50%{-webkit-transform:translate(0,0)}
+  54%,76%{-webkit-transform:translate(0,20px)}
+  80%,100%{-webkit-transform:translate(0,0)}
+}
+@keyframes rebelLaptop{
+  0%,50%{opacity:0;transform:translate3d(-50%,48px,0) scale(.45)}
+  54%,58%{opacity:1;transform:translate3d(-50%,0,0) scale(1.08)}
+  62%,76%{opacity:1;transform:translate3d(-50%,0,0) scale(1)}
+  80%,100%{opacity:0;transform:translate3d(-50%,48px,0) scale(.45)}
+}
+@-webkit-keyframes rebelLaptop{
+  0%,50%{opacity:0;-webkit-transform:translate3d(-50%,48px,0) scale(.45)}
+  54%,58%{opacity:1;-webkit-transform:translate3d(-50%,0,0) scale(1.08)}
+  62%,76%{opacity:1;-webkit-transform:translate3d(-50%,0,0) scale(1)}
+  80%,100%{opacity:0;-webkit-transform:translate3d(-50%,48px,0) scale(.45)}
+}
 .laptop-lid{background:linear-gradient(180deg,#2a2a35,#1a1a22);border:2px solid #3a3a48;border-radius:6px 6px 2px 2px;padding:6px 7px 4px;transform-origin:bottom center}
 .laptop-screen{background:#0a0f14;border-radius:3px;padding:6px 7px;min-height:42px;overflow:hidden;border:1px solid #1e3a2f}
 .laptop-code{font-family:'Space Mono',monospace;font-size:7px;line-height:1.6;color:#00ff9d}
@@ -118,10 +144,15 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .laptop-code .hi{color:#7b9cff}
 .laptop-cursor{display:inline-block;width:4px;height:9px;background:#00ff9d;margin-left:1px;animation:blinkCursor .55s step-end infinite;vertical-align:middle}
 .laptop-base{height:6px;background:linear-gradient(180deg,#3a3a48,#252530);border-radius:0 0 8px 8px;margin:0 5px;border:1px solid #4a4a58;border-top:none}
-.laptop-line{display:block;opacity:0;transform:translateX(-6px);transition:opacity .25s ease,transform .25s ease}
-.laptop-line.visible{opacity:1;transform:none}
-.laptop-glow{position:absolute;inset:auto -8px -6px -8px;height:20px;background:radial-gradient(ellipse,rgba(0,255,157,.18),transparent 70%);opacity:0;transition:opacity .35s ease;pointer-events:none}
-.avatar-laptop.show .laptop-glow{opacity:1}
+.laptop-line{display:block;opacity:0;transform:translateX(-6px)}
+.laptop-line.l1{animation:rebelCode1 9s ease-in-out infinite}
+.laptop-line.l2{animation:rebelCode2 9s ease-in-out infinite}
+.laptop-line.l3{animation:rebelCode3 9s ease-in-out infinite}
+@keyframes rebelCode1{0%,56%{opacity:0;transform:translateX(-6px)}60%,76%{opacity:1;transform:none}80%,100%{opacity:0}}
+@keyframes rebelCode2{0%,62%{opacity:0;transform:translateX(-6px)}66%,76%{opacity:1;transform:none}80%,100%{opacity:0}}
+@keyframes rebelCode3{0%,68%{opacity:0;transform:translateX(-6px)}72%,76%{opacity:1;transform:none}80%,100%{opacity:0}}
+.laptop-glow{position:absolute;inset:auto -8px -6px -8px;height:20px;background:radial-gradient(ellipse,rgba(0,255,157,.18),transparent 70%);pointer-events:none;animation:rebelLaptopGlow 9s ease-in-out infinite}
+@keyframes rebelLaptopGlow{0%,52%{opacity:0}56%,78%{opacity:1}82%,100%{opacity:0}}
 .rebel-avatar-sm{width:40px;height:40px;flex-shrink:0}
 .rebel-avatar-sm img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;border:1px solid var(--border);background:#111}
 .login-hero{text-align:center;margin-bottom:8px}
@@ -239,11 +270,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-hero">
-      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="6">
+      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
         <div class="avatar-face-ring">
-          <img class="avatar-face" id="avatarFaceImg" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+          <div class="avatar-img-wrap">
+            <img class="avatar-face" id="avatarFaceImg" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+          </div>
         </div>
-        <div class="avatar-laptop" id="avatarLaptop">
+        <div class="avatar-laptop">
           <div class="laptop-glow"></div>
           <div class="laptop-lid">
             <div class="laptop-screen">
@@ -695,64 +728,8 @@ function useSelForAutoToken(){
   });
 }
 
-/* REBEL AVATAR ANIMATION */
-function startRebelAvatarAnim(){
-  var stage=document.getElementById('rebelAvatarStage');
-  var img=document.getElementById('avatarFaceImg');
-  var laptop=document.getElementById('avatarLaptop');
-  if(!stage||!img||!laptop)return;
-  var lines=stage.querySelectorAll('.laptop-line');
-  var timer=null;
-  function clearLook(){
-    img.classList.remove('look-right','look-left','look-down');
-  }
-  function look(dir){
-    clearLook();
-    if(dir==='right')img.classList.add('look-right');
-    else if(dir==='left')img.classList.add('look-left');
-  }
-  function resetCode(){
-    for(var i=0;i<lines.length;i++)lines[i].classList.remove('visible');
-  }
-  function typeCode(cb){
-    resetCode();
-    var i=0;
-    function next(){
-      if(i>=lines.length){if(cb)cb();return;}
-      lines[i].classList.add('visible');
-      i++;
-      timer=setTimeout(next,420);
-    }
-    next();
-  }
-  function hideLaptop(){
-    laptop.classList.remove('show','pop');
-    img.classList.remove('look-down');
-    resetCode();
-  }
-  function showLaptop(){
-    laptop.classList.add('show');
-    timer=setTimeout(function(){laptop.classList.add('pop');},60);
-    img.classList.add('look-down');
-  }
-  function runScene(){
-    hideLaptop();
-    clearLook();
-    timer=setTimeout(function(){look('right');},500);
-    timer=setTimeout(function(){look('left');},1700);
-    timer=setTimeout(function(){look('right');},2900);
-    timer=setTimeout(function(){clearLook();},4100);
-    timer=setTimeout(function(){showLaptop();},4500);
-    timer=setTimeout(function(){typeCode();},4900);
-    timer=setTimeout(function(){hideLaptop();clearLook();},8200);
-    timer=setTimeout(runScene,9000);
-  }
-  runScene();
-}
-
 /* BOOT */
 (function(){
-  startRebelAvatarAnim();
   var s=getSession();
   if(s&&s.token){
     authFetch({action:'check',token:s.token}).then(function(res){
