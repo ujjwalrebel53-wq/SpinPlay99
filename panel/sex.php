@@ -44,14 +44,13 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
   if ($action === 'check') {
     $token = trim((string)($body['token'] ?? ''));
     if ($token === '') rebel_json_out(['ok' => false, 'error' => 'No session'], 401);
-    $hash = hash('sha256', $token);
-    $sess = $data['sessions'][$hash] ?? null;
-    if (!$sess || time() > (int)($sess['expires'] ?? 0)) {
-      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
+    $valid = rebel_session_valid($data, $token);
+    if (!$valid) {
       rebel_keys_save($data);
-      rebel_json_out(['ok' => false, 'error' => 'Session expired'], 401);
+      rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
     }
-    rebel_json_out(['ok' => true, 'expires' => (int)$sess['expires']]);
+    rebel_keys_save($data);
+    rebel_json_out(['ok' => true, 'expires' => (int)$valid['expires']]);
   }
 
   if ($action === 'logout') {
@@ -66,12 +65,19 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
 
   $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
   if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
-  $valid = rebel_key_valid($data, $key);
+  $valid = rebel_key_login_allowed($data, $key);
   if (!$valid) {
     rebel_keys_save($data);
+    $row = $data['keys'][$key] ?? null;
+    if ($row && (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1)) {
+      rebel_json_out(['ok' => false, 'error' => 'Key already used — one-time only'], 403);
+    }
+    if ($row && !empty($row['revoked'])) {
+      rebel_json_out(['ok' => false, 'error' => 'Key revoked by admin'], 403);
+    }
     rebel_json_out(['ok' => false, 'error' => 'Invalid or expired key'], 403);
   }
-  $data['keys'][$key]['uses'] = (int)($data['keys'][$key]['uses'] ?? 0) + 1;
+  rebel_consume_key($data, $key);
   $remember = !empty($body['remember']);
   $session = rebel_create_session($data, $key, $remember);
   rebel_keys_save($data);
@@ -529,7 +535,7 @@ header('Content-Type: text/html; charset=UTF-8');
         <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">SECURE ACCESS GATE</div></div>
       </div>
       <h2>Access <span>Key</span></h2>
-      <p class="login-sub">Username / password disabled. Telegram bot se generate hui <strong>Rebel Key</strong> yahan paste karo — panel unlock ho jayega.</p>
+      <p class="login-sub">Username / password disabled. Telegram bot se <strong>one-time Rebel Key</strong> lo — har key sirf <strong>ek baar</strong> use hogi.</p>
       <div id="loginError" class="login-error">❌ Invalid or expired access key!</div>
       <div class="key-field-wrap">
         <label>Rebel Access Key</label>
@@ -2900,17 +2906,39 @@ function setLoginLoading(on){
 }
 function unlockPanel(token,expires,remember){
   if(remember&&token)localStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
-  else localStorage.removeItem('rbl_session');
+  else if(token) sessionStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
   localStorage.removeItem('rbl_login');
   document.getElementById('loginError').style.display='none';
   document.getElementById('loginPage').classList.add('hidden');
   openPanel();
 }
+function getRebelSession(){
+  var s=null;
+  try{s=JSON.parse(localStorage.getItem('rbl_session')||sessionStorage.getItem('rbl_session')||'null');}catch(e){}
+  return s;
+}
+function lockPanel(msg){
+  localStorage.removeItem('rbl_session');
+  sessionStorage.removeItem('rbl_session');
+  panelInitialized=false;
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('mainLayout').style.display='none';
+  var err=document.getElementById('loginError');
+  if(err&&msg){err.textContent='❌ '+msg;err.style.display='block';}
+  setLoginLoading(false);
+  showToast('error',msg||'Session ended');
+}
+function verifyRebelSession(){
+  var s=getRebelSession();
+  if(!s||!s.token) return;
+  rebelAuthFetch({action:'check',token:s.token}).then(function(res){
+    if(!res.ok||!res.data||!res.data.ok) lockPanel((res.data&&res.data.error)||'Key revoked — login again');
+  }).catch(function(){});
+}
 (function(){
   clearClientsCacheIfExpired();
   init3DScene();
-  var s=null;
-  try{s=JSON.parse(localStorage.getItem('rbl_session'));}catch(e){}
+  var s=getRebelSession();
   if(s&&s.token){
     setLoginLoading(true);
     rebelAuthFetch({action:'check',token:s.token}).then(function(res){
@@ -2953,7 +2981,7 @@ document.addEventListener('keydown',function(e){
 document.getElementById('loginKey').addEventListener('input',function(){
   this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');
 });
-var _perfTickLast=0, _cacheSweepLast=0;
+var _perfTickLast=0, _cacheSweepLast=0, _authCheckLast=0;
 function perfMainLoop(now){
   requestAnimationFrame(perfMainLoop);
   if(!now) now=performance.now();
@@ -2964,6 +2992,10 @@ function perfMainLoop(now){
       var dev=allDevs.find(function(d){return d.id===selDev;});
       if(dev) renderLastSeen(dev);
     }
+  }
+  if(now-_authCheckLast>=15000){
+    _authCheckLast=now;
+    if(document.getElementById('loginPage').classList.contains('hidden')) verifyRebelSession();
   }
   if(now-_cacheSweepLast>=1800000){
     _cacheSweepLast=now;

@@ -52,16 +52,63 @@ function rebel_norm_key($key) {
   return preg_replace('/\s+/', '', $key);
 }
 
-function rebel_key_valid(&$data, $key) {
+function rebel_key_login_allowed(&$data, $key) {
   $key = rebel_norm_key($key);
   if ($key === '' || !isset($data['keys'][$key])) return false;
   $row = $data['keys'][$key];
+  if (!empty($row['revoked'])) return false;
+  if (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1) return false;
   if (empty($row['active'])) return false;
   if (!empty($row['expires']) && time() > (int)$row['expires']) {
     $data['keys'][$key]['active'] = false;
     return false;
   }
   return $key;
+}
+
+function rebel_consume_key(&$data, $key) {
+  if (!isset($data['keys'][$key])) return;
+  $data['keys'][$key]['used'] = true;
+  $data['keys'][$key]['uses'] = 1;
+  $data['keys'][$key]['active'] = false;
+  $data['keys'][$key]['used_at'] = time();
+}
+
+function rebel_purge_sessions_for_key(&$data, $key) {
+  foreach ($data['sessions'] as $hash => $sess) {
+    if (($sess['key_ref'] ?? '') === $key) unset($data['sessions'][$hash]);
+  }
+}
+
+function rebel_revoke_key(&$data, $key) {
+  $key = rebel_norm_key($key);
+  if (!isset($data['keys'][$key])) return false;
+  $data['keys'][$key]['active'] = false;
+  $data['keys'][$key]['revoked'] = true;
+  $data['keys'][$key]['revoked_at'] = time();
+  rebel_purge_sessions_for_key($data, $key);
+  return true;
+}
+
+function rebel_session_valid(&$data, $token) {
+  $token = trim((string)$token);
+  if ($token === '') return false;
+  $hash = hash('sha256', $token);
+  $sess = $data['sessions'][$hash] ?? null;
+  if (!$sess || time() > (int)($sess['expires'] ?? 0)) {
+    if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
+    return false;
+  }
+  $keyRef = $sess['key_ref'] ?? '';
+  if ($keyRef === '' || !isset($data['keys'][$keyRef])) {
+    unset($data['sessions'][$hash]);
+    return false;
+  }
+  if (!empty($data['keys'][$keyRef]['revoked'])) {
+    unset($data['sessions'][$hash]);
+    return false;
+  }
+  return ['expires' => (int)$sess['expires'], 'key_ref' => $keyRef];
 }
 
 function rebel_create_session(&$data, $key, $remember) {
@@ -146,7 +193,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — New access key (default 30 days)\n/keys — List active keys\n/revoke RBL-XXX — Revoke key\n/status — Bot status\n/poll — Start polling mode\n/webhook — Enable webhook mode");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — New one-time access key\n/keys — List keys\n/revoke RBL-XXX — Revoke key + kick session\n/status — Bot status\n/poll — Start polling mode\n/webhook — Enable webhook mode");
     return true;
   }
 
@@ -185,12 +232,14 @@ function rebel_bot_handle($update) {
       'created' => time(),
       'expires' => $days > 0 ? time() + ($days * 86400) : 0,
       'active' => true,
+      'used' => false,
+      'revoked' => false,
       'uses' => 0,
       'label' => 'tg-' . date('dM-Hi')
     ];
     rebel_keys_save($data);
     $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
-    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b>\n\n<code>" . $key . "</code>" . $exp . "\n\nPanel me yahi key paste karo.");
+    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b> (one-time)\n\n<code>" . $key . "</code>" . $exp . "\n\n⚠️ Sirf <b>1 baar</b> use hogi. Panel me paste karo.");
     return true;
   }
 
@@ -198,26 +247,32 @@ function rebel_bot_handle($update) {
     $data = rebel_keys_load();
     $lines = [];
     foreach ($data['keys'] as $k => $row) {
-      if (empty($row['active'])) continue;
-      if (!empty($row['expires']) && time() > (int)$row['expires']) continue;
       $mask = substr($k, 0, 8) . '••••';
-      $uses = (int)($row['uses'] ?? 0);
-      $lines[] = '• <code>' . $mask . '</code> · uses ' . $uses;
+      if (!empty($row['revoked'])) {
+        $lines[] = '• <code>' . $mask . '</code> · revoked';
+        continue;
+      }
+      if (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1) {
+        $lines[] = '• <code>' . $mask . '</code> · used';
+        continue;
+      }
+      if (!empty($row['expires']) && time() > (int)$row['expires']) continue;
+      if (empty($row['active'])) continue;
+      $lines[] = '• <code>' . $mask . '</code> · unused';
     }
-    rebel_tg_send($chatId, $lines ? ("📋 <b>Active Keys</b>\n\n" . implode("\n", $lines)) : "📋 No active keys.");
+    rebel_tg_send($chatId, $lines ? ("📋 <b>Keys</b>\n\n" . implode("\n", $lines)) : "📋 No keys.");
     return true;
   }
 
   if (preg_match('/^\/revoke\s+(RBL-[A-Z0-9\-]+)/i', $text, $m)) {
     $key = rebel_norm_key($m[1]);
     $data = rebel_keys_load();
-    if (!isset($data['keys'][$key])) {
+    if (!rebel_revoke_key($data, $key)) {
       rebel_tg_send($chatId, "❌ Key not found.");
       return true;
     }
-    $data['keys'][$key]['active'] = false;
     rebel_keys_save($data);
-    rebel_tg_send($chatId, "✅ Revoked:\n<code>" . $key . "</code>");
+    rebel_tg_send($chatId, "✅ Revoked + session killed:\n<code>" . $key . "</code>");
     return true;
   }
 
