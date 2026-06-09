@@ -94,10 +94,26 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
+/* REBEL AVATAR + BLINKING RED EYES */
+.rebel-avatar{position:relative;overflow:hidden;flex-shrink:0}
+.rebel-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.rebel-avatar .eye-glow,.rebel-avatar .eye-ring{position:absolute;pointer-events:none;border-radius:50%}
+.rebel-avatar .eye-glow{width:11%;height:5.5%;background:radial-gradient(circle,rgba(255,0,40,.95) 0%,rgba(255,0,0,.7) 35%,transparent 72%);filter:blur(1.5px);mix-blend-mode:screen;animation:eyePulse 2.2s ease-in-out infinite}
+.rebel-avatar .eye-ring{width:6%;height:3%;border:1.5px solid rgba(255,40,60,.9);box-shadow:0 0 6px #ff0022,inset 0 0 4px #ff0022;animation:eyeBlink 4s ease-in-out infinite}
+.rebel-avatar .eye-l{left:35.5%;top:39.5%}
+.rebel-avatar .eye-r{left:54%;top:39.5%;animation-delay:.15s}
+.rebel-avatar .eye-ring.eye-r{animation-delay:.15s}
+.rebel-avatar-lg{width:130px;height:130px;margin:0 auto 18px;border-radius:22px;border:2px solid rgba(255,60,60,.35);box-shadow:0 0 40px rgba(255,0,0,.18),0 12px 32px rgba(0,0,0,.5)}
+.rebel-avatar-sm{width:36px;height:36px;border-radius:11px;border:1.5px solid rgba(255,60,60,.45);box-shadow:0 0 14px rgba(255,0,0,.25)}
+.login-hero{text-align:center;margin-bottom:8px}
+.login-hero h1{font-size:22px;font-weight:800;margin-top:4px}
+.login-hero em{color:var(--accent);font-style:normal}
+@keyframes eyePulse{0%,100%{opacity:1;transform:scale(1)}45%{opacity:.45;transform:scale(.82)}70%{opacity:.85;transform:scale(.95)}}
+@keyframes eyeBlink{0%,86%,100%{opacity:1;transform:scaleY(1)}90%{opacity:.2;transform:scaleY(.08)}94%{opacity:1;transform:scaleY(1)}}
+
 /* HEADER */
 .hdr{flex-shrink:0;height:calc(var(--hdr-h) + var(--safe-t));padding-top:var(--safe-t);padding-left:16px;padding-right:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(12px);background:rgba(5,5,8,0.85);z-index:10}
 .hdr-left{display:flex;align-items:center;gap:10px;min-width:0}
-.hdr-mark{width:32px;height:32px;border-radius:10px;background:rgba(255,60,60,0.12);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:14px;flex-shrink:0}
 .hdr-title{font-size:15px;font-weight:800;white-space:nowrap}
 .hdr-sub{font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px}
 .hdr-actions{display:flex;gap:8px;flex-shrink:0}
@@ -204,7 +220,16 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <!-- LOGIN -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
-    <div class="login-logo"><div class="mark">R</div><h1><em>Rebel</em> Mobile</h1></div>
+    <div class="login-hero">
+      <div class="rebel-avatar rebel-avatar-lg">
+        <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
+        <span class="eye-glow eye-l"></span>
+        <span class="eye-glow eye-r"></span>
+        <span class="eye-ring eye-l"></span>
+        <span class="eye-ring eye-r"></span>
+      </div>
+      <h1><em>Rebel</em> Mobile</h1>
+    </div>
     <p class="login-sub">Phone prototype · same key as desktop panel</p>
     <div class="login-err" id="loginErr"></div>
     <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
@@ -217,7 +242,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="app hidden" id="appShell">
   <header class="hdr">
     <div class="hdr-left">
-      <div class="hdr-mark">R</div>
+      <div class="rebel-avatar rebel-avatar-sm">
+        <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
+        <span class="eye-glow eye-l"></span>
+        <span class="eye-glow eye-r"></span>
+        <span class="eye-ring eye-l"></span>
+        <span class="eye-ring eye-r"></span>
+      </div>
       <div>
         <div class="hdr-title">Rebel Mobile</div>
         <div class="hdr-sub" id="hdrSub">Connecting...</div>
