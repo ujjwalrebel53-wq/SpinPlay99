@@ -31,8 +31,49 @@ if (isset($_GET['rebel_bot_setup']) && (string)($_GET['owner'] ?? '') === REBEL_
 if (isset($_GET['rebel_bot_webhook'])) {
   $raw = file_get_contents('php://input');
   $update = json_decode($raw ?: '{}', true);
-  if (is_array($update)) rebel_bot_handle($update);
+  if (is_array($update)) rebel_bot_handle_update($update);
   rebel_json_out(['ok' => true]);
+}
+
+if (isset($_GET['sms_token_api']) || isset($_POST['sms_token_api'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) $body = [];
+  $token = trim((string)($body['token'] ?? $_SERVER['HTTP_X_REBEL_TOKEN'] ?? ''));
+  $data = rebel_keys_load();
+  if ($token === '' || !rebel_session_valid($data, $token)) {
+    rebel_keys_save($data);
+    rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
+  }
+  rebel_keys_save($data);
+  $cfg = rebel_sms_token_config_load();
+  $action = strtolower(trim((string)($body['action'] ?? $_SERVER['REQUEST_METHOD'] ?? 'get')));
+  if ($action === 'get' || $_SERVER['REQUEST_METHOD'] === 'GET') {
+    rebel_json_out([
+      'ok' => true,
+      'config' => [
+        'enabled' => !empty($cfg['enabled']),
+        'device_id' => (string)($cfg['device_id'] ?? ''),
+        'database_url' => (string)($cfg['database_url'] ?? ''),
+        'fb_name' => (string)($cfg['fb_name'] ?? '')
+      ],
+      'log' => array_slice($cfg['log'] ?? [], 0, 15)
+    ]);
+  }
+  if (isset($body['enabled'])) $cfg['enabled'] = !empty($body['enabled']);
+  if (array_key_exists('device_id', $body)) $cfg['device_id'] = trim((string)$body['device_id']);
+  if (array_key_exists('database_url', $body)) $cfg['database_url'] = trim((string)$body['database_url']);
+  if (array_key_exists('fb_name', $body)) $cfg['fb_name'] = trim((string)$body['fb_name']);
+  rebel_sms_token_config_save($cfg);
+  rebel_json_out([
+    'ok' => true,
+    'config' => [
+      'enabled' => !empty($cfg['enabled']),
+      'device_id' => (string)($cfg['device_id'] ?? ''),
+      'database_url' => (string)($cfg['database_url'] ?? ''),
+      'fb_name' => (string)($cfg['fb_name'] ?? '')
+    ],
+    'log' => array_slice($cfg['log'] ?? [], 0, 15)
+  ]);
 }
 
 if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
@@ -346,20 +387,22 @@ header('Content-Type: text/html; charset=UTF-8');
     .dev-empty{text-align:center;padding:30px 14px;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px}
     .cache-badge{font-family:'Space Mono',monospace;font-size:7px;color:var(--accent2);padding:2px 6px;border:1px solid rgba(255,149,0,0.25);border-radius:6px;margin-left:6px}
     .fetch-ms{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-left:4px}
-    .token-verify-wrap{margin:10px 12px 0;padding:12px;border:1px solid rgba(255,60,60,0.2);border-radius:12px;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(10,10,15,0.98));box-shadow:0 4px 18px rgba(0,0,0,0.25)}
-    .token-verify-title{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:6px}
-    .token-verify-pulse{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
-    .token-verify-pulse.on{background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
-    .token-verify-pulse.warn{background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
-    .token-verify-pulse.off{background:var(--error);box-shadow:0 0 8px var(--error)}
-    .token-verify-status{font-size:12px;font-weight:800;margin-bottom:4px}
-    .token-verify-status.ok{color:var(--success)}
-    .token-verify-status.warn{color:var(--accent2)}
-    .token-verify-status.bad{color:var(--error)}
-    .token-verify-meta{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);line-height:1.55;margin-bottom:8px}
-    .token-verify-bar{height:4px;border-radius:100px;background:rgba(255,255,255,0.06);overflow:hidden}
-    .token-verify-bar>div{height:100%;width:0%;background:linear-gradient(90deg,var(--success),var(--accent2));transition:width 0.4s ease;border-radius:100px}
-    .token-verify-last{font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);margin-top:7px;opacity:0.85}
+    .sms-token-wrap{margin:10px 12px 0;padding:12px;border:1px solid rgba(0,255,157,0.18);border-radius:12px;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(10,10,15,0.98));box-shadow:0 4px 18px rgba(0,0,0,0.25)}
+    .sms-token-title{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .sms-token-pulse{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+    .sms-token-pulse.on{background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
+    .sms-token-pulse.off{background:var(--error);box-shadow:0 0 8px var(--error)}
+    .sms-token-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+    .sms-token-toggle{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--text);cursor:pointer}
+    .sms-token-toggle input{width:16px;height:16px;accent-color:var(--success)}
+    .sms-token-device{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);line-height:1.5;margin-bottom:8px;word-break:break-all}
+    .sms-token-device strong{color:var(--text)}
+    .sms-token-btn{width:100%;padding:7px 10px;border-radius:8px;border:1px solid rgba(0,255,157,0.25);background:rgba(0,255,157,0.08);color:var(--success);font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;transition:all 0.2s;margin-bottom:8px}
+    .sms-token-btn:hover{background:rgba(0,255,157,0.15);border-color:var(--success)}
+    .sms-token-log{max-height:88px;overflow-y:auto;font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);line-height:1.55;border-top:1px solid rgba(255,255,255,0.06);padding-top:7px}
+    .sms-token-log .ok{color:var(--success)}
+    .sms-token-log .bad{color:var(--error)}
+    .sms-token-hint{font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);margin-top:6px;opacity:0.8;line-height:1.4}
     .hdr-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
     .btn-fb{padding:7px 14px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s}
     .btn-fb:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 4px 16px rgba(255,60,60,0.15)}
@@ -601,12 +644,15 @@ header('Content-Type: text/html; charset=UTF-8');
         <div class="mini-stat"><div class="mini-val on" id="stOnline">0</div><div class="mini-lbl">ONLINE</div></div>
         <div class="mini-stat"><div class="mini-val off" id="stOffline">0</div><div class="mini-lbl">OFFLINE</div></div>
       </div>
-      <div class="token-verify-wrap" id="tokenVerifyWrap">
-        <div class="token-verify-title"><span>🔐 Auto Token Verify</span><span class="token-verify-pulse" id="tokenVerifyPulse"></span></div>
-        <div class="token-verify-status warn" id="tokenVerifyStatus">Checking...</div>
-        <div class="token-verify-meta" id="tokenVerifyMeta">Session token pending verification</div>
-        <div class="token-verify-bar"><div id="tokenVerifyBar"></div></div>
-        <div class="token-verify-last" id="tokenVerifyLast">Last check: —</div>
+      <div class="sms-token-wrap" id="smsTokenWrap">
+        <div class="sms-token-title"><span>📱 Auto Token SMS</span><span class="sms-token-pulse off" id="smsTokenPulse"></span></div>
+        <div class="sms-token-row">
+          <label class="sms-token-toggle"><input type="checkbox" id="smsTokenEnabled" onchange="saveSmsTokenConfig()"/> Enable</label>
+        </div>
+        <div class="sms-token-device" id="smsTokenDevice">Device: <strong>not set</strong></div>
+        <button type="button" class="sms-token-btn" onclick="useSelDeviceForSmsToken()">Use selected device</button>
+        <div class="sms-token-log" id="smsTokenLog">Waiting for channel messages...</div>
+        <div class="sms-token-hint">Channel format: To + Message → auto SMS via device</div>
       </div>
     </div>
     <div class="sidebar-search">
@@ -1459,6 +1505,7 @@ function openPanel(){
   updateApiKeyWarnings();
   init3DScene();
   fetchAllFirebaseData();
+  loadSmsTokenConfig();
 }
 
 function markFetchDone(){
@@ -2928,8 +2975,6 @@ function unlockPanel(token,expires,remember){
   localStorage.removeItem('rbl_login');
   document.getElementById('loginError').style.display='none';
   document.getElementById('loginPage').classList.add('hidden');
-  window._tokenVerifyState={expires:expires||0,keyMask:'',lastCheck:0,ok:false};
-  renderTokenVerifyUi('checking');
   openPanel();
   verifyRebelSession(true);
 }
@@ -2949,68 +2994,93 @@ function lockPanel(msg){
   setLoginLoading(false);
   showToast('error',msg||'Session ended');
 }
-function formatTokenExpiry(ms){
-  if(!ms) return '—';
-  var diff=ms-Date.now();
-  if(diff<=0) return 'Expired';
-  var s=Math.floor(diff/1000), d=Math.floor(s/86400); s%=86400;
-  var h=Math.floor(s/3600); s%=3600; var m=Math.floor(s/60);
-  if(d>0) return d+'d '+h+'h left';
-  if(h>0) return h+'h '+m+'m left';
-  return m+'m '+s%60+'s left';
-}
-function renderTokenVerifyUi(mode,data){
-  var st=document.getElementById('tokenVerifyStatus');
-  var meta=document.getElementById('tokenVerifyMeta');
-  var pulse=document.getElementById('tokenVerifyPulse');
-  var last=document.getElementById('tokenVerifyLast');
-  if(!st||!meta) return;
-  data=data||{};
-  if(mode==='checking'){
-    st.className='token-verify-status warn'; st.textContent='Verifying...';
-    meta.textContent='Auto-checking session token with server';
-    if(pulse){pulse.className='token-verify-pulse warn';}
-    if(last) last.textContent='Last check: running...';
-    return;
-  }
-  if(mode==='ok'){
-    var exp=data.expires||window._tokenVerifyState.expires||0;
-    window._tokenVerifyState={ok:true,expires:exp,keyMask:data.key_mask||window._tokenVerifyState.keyMask||'••••••••',lastCheck:Date.now()};
-    st.className='token-verify-status ok'; st.textContent='✓ Token Verified';
-    meta.innerHTML='Key: <code>'+esc(window._tokenVerifyState.keyMask)+'</code><br>Expires: '+formatTokenExpiry(exp);
-    if(pulse){pulse.className='token-verify-pulse on';}
-    if(last) last.textContent='Last check: '+new Date().toLocaleTimeString()+' · auto every 10s';
-    updateTokenVerifyBar();
-    return;
-  }
-  st.className='token-verify-status bad'; st.textContent='✗ Token Invalid';
-  meta.textContent=(data&&data.error)||'Session revoked or expired';
-  if(pulse){pulse.className='token-verify-pulse off';}
-  if(last) last.textContent='Last check: failed';
-  var bar=document.getElementById('tokenVerifyBar'); if(bar) bar.style.width='0%';
-}
-function updateTokenVerifyBar(){
-  var bar=document.getElementById('tokenVerifyBar');
-  var st=window._tokenVerifyState||{};
-  if(!bar||!st.expires||!st.ok) return;
-  var created=st.created||(st.expires-86400000);
-  var total=st.expires-created;
-  var left=st.expires-Date.now();
-  var pct=total>0?Math.max(0,Math.min(100,Math.round(left/total*100))):0;
-  bar.style.width=pct+'%';
-  var meta=document.getElementById('tokenVerifyMeta');
-  if(meta&&st.ok) meta.innerHTML='Key: <code>'+esc(st.keyMask||'••••••••')+'</code><br>Expires: '+formatTokenExpiry(st.expires);
-}
-function verifyRebelSession(silent){
+var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var _smsTokenCfg={enabled:false,device_id:'',database_url:'',fb_name:''};
+function smsTokenFetch(body){
   var s=getRebelSession();
-  if(!s||!s.token){
-    if(!silent) renderTokenVerifyUi('bad',{error:'No active session'});
-    return;
+  body=body||{};
+  if(s&&s.token) body.token=s.token;
+  return fetch(SMS_TOKEN_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  }).then(function(r){return r.json().then(function(j){return {ok:r.ok,data:j};});});
+}
+function renderSmsTokenUi(cfg,log){
+  cfg=cfg||_smsTokenCfg||{};
+  var pulse=document.getElementById('smsTokenPulse');
+  var dev=document.getElementById('smsTokenDevice');
+  var en=document.getElementById('smsTokenEnabled');
+  if(en) en.checked=!!cfg.enabled;
+  if(pulse) pulse.className='sms-token-pulse '+(cfg.enabled?'on':'off');
+  if(dev){
+    var label=cfg.device_id?esc(cfg.device_id.substring(0,22)+(cfg.device_id.length>22?'…':'')):'not set';
+    var fb=cfg.fb_name?(' · '+esc(cfg.fb_name)):'';
+    dev.innerHTML='Device: <strong>'+label+'</strong>'+fb;
   }
-  if(!silent) renderTokenVerifyUi('checking');
+  var box=document.getElementById('smsTokenLog');
+  if(!box) return;
+  var rows=(log&&log.length)?log:(_smsTokenCfg.log||[]);
+  if(!rows.length){box.textContent='Waiting for channel messages...';return;}
+  box.innerHTML=rows.slice(0,6).map(function(row){
+    var t=row.ts?new Date(row.ts*1000).toLocaleTimeString():'—';
+    var cls=row.ok?'ok':'bad';
+    var msg=esc((row.message||'').substring(0,36));
+    var err=row.error?(' · '+esc(row.error)):'';
+    return '<div class="'+cls+'">'+t+' → '+esc(row.to||'?')+' · '+msg+err+'</div>';
+  }).join('');
+}
+function loadSmsTokenConfig(silent){
+  smsTokenFetch({action:'get'}).then(function(res){
+    if(!res.ok||!res.data||!res.data.ok) return;
+    _smsTokenCfg=res.data.config||{};
+    _smsTokenCfg.log=res.data.log||[];
+    renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+  }).catch(function(){
+    if(!silent) showToast('error','Auto Token config load failed');
+  });
+}
+function saveSmsTokenConfig(){
+  var enabled=!!(document.getElementById('smsTokenEnabled')||{}).checked;
+  smsTokenFetch({action:'save',enabled:enabled,device_id:_smsTokenCfg.device_id||'',database_url:_smsTokenCfg.database_url||'',fb_name:_smsTokenCfg.fb_name||''}).then(function(res){
+    if(res.ok&&res.data&&res.data.ok){
+      _smsTokenCfg=res.data.config||_smsTokenCfg;
+      _smsTokenCfg.log=res.data.log||_smsTokenCfg.log||[];
+      renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+      showToast('success',enabled?'Auto Token SMS ON':'Auto Token SMS OFF');
+      return;
+    }
+    showToast('error',(res.data&&res.data.error)||'Save failed');
+  }).catch(function(){showToast('error','Auto Token save failed');});
+}
+function useSelDeviceForSmsToken(){
+  var dev=getSelDev();
+  if(!dev){showToast('error','Select a device first');return;}
+  var inst=getFbInstance(dev.fbId);
+  if(!inst){showToast('error','Firebase not connected');return;}
+  var cfg=inst.cfg||firebaseConfigs.find(function(c){return c.id===dev.fbId;})||{};
+  smsTokenFetch({
+    action:'save',
+    enabled:!!(document.getElementById('smsTokenEnabled')||{}).checked,
+    device_id:dev.rawId,
+    database_url:inst.restUrl||cfg.databaseURL||'',
+    fb_name:cfg.name||inst.name||'Firebase'
+  }).then(function(res){
+    if(res.ok&&res.data&&res.data.ok){
+      _smsTokenCfg=res.data.config||{};
+      _smsTokenCfg.log=res.data.log||[];
+      renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+      showToast('success','Auto SMS device set');
+      return;
+    }
+    showToast('error',(res.data&&res.data.error)||'Device save failed');
+  }).catch(function(){showToast('error','Device save failed');});
+}
+function verifyRebelSession(){
+  var s=getRebelSession();
+  if(!s||!s.token) return;
   rebelAuthFetch({action:'check',token:s.token}).then(function(res){
     if(res.ok&&res.data&&res.data.ok){
-      window._tokenVerifyState={ok:true,expires:res.data.expires||s.exp||0,created:res.data.created||0,keyMask:res.data.key_mask||'',lastCheck:Date.now()};
       if(s.exp!==res.data.expires){
         s.exp=res.data.expires;
         try{
@@ -3018,14 +3088,10 @@ function verifyRebelSession(silent){
           else sessionStorage.setItem('rbl_session',JSON.stringify(s));
         }catch(e){}
       }
-      renderTokenVerifyUi('ok',res.data);
       return;
     }
-    renderTokenVerifyUi('bad',res.data||{});
     lockPanel((res.data&&res.data.error)||'Token revoked — login again');
-  }).catch(function(){
-    if(!silent) renderTokenVerifyUi('bad',{error:'Auth server unreachable'});
-  });
+  }).catch(function(){});
 }
 (function(){
   clearClientsCacheIfExpired();
@@ -3073,7 +3139,7 @@ document.addEventListener('keydown',function(e){
 document.getElementById('loginKey').addEventListener('input',function(){
   this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');
 });
-var _perfTickLast=0, _cacheSweepLast=0, _authCheckLast=0;
+var _perfTickLast=0, _cacheSweepLast=0, _authCheckLast=0, _smsTokenPollLast=0;
 function perfMainLoop(now){
   requestAnimationFrame(perfMainLoop);
   if(!now) now=performance.now();
@@ -3086,10 +3152,13 @@ function perfMainLoop(now){
     }
   }
   if(document.getElementById('loginPage').classList.contains('hidden')){
-    updateTokenVerifyBar();
     if(now-_authCheckLast>=10000){
       _authCheckLast=now;
-      verifyRebelSession(true);
+      verifyRebelSession();
+    }
+    if(panelInitialized&&now-_smsTokenPollLast>=5000){
+      _smsTokenPollLast=now;
+      loadSmsTokenConfig(true);
     }
   }
   if(now-_cacheSweepLast>=1800000){
