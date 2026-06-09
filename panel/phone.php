@@ -101,26 +101,59 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
-/* REBEL ANIMATED AVATAR */
-.rebel-avatar{position:relative;flex-shrink:0;display:block}
-.rebel-avatar-lg{width:140px;height:140px;margin:0 auto 18px;animation:avatarFloat 4.5s ease-in-out infinite}
-.rebel-avatar-sm{width:40px;height:40px;animation:avatarFloat 5s ease-in-out infinite}
-.rebel-avatar-ring{position:absolute;inset:0;border-radius:50%;padding:3px;background:conic-gradient(from 0deg,#ff3c3c,#ff9500,#7b2fff,#00ff9d,#ff3c3c);animation:avatarSpin 5s linear infinite;z-index:1;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.rebel-avatar-glow{position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle,rgba(255,60,60,.28),rgba(123,47,255,.1) 50%,transparent 72%);animation:avatarGlow 3s ease-in-out infinite;z-index:0;pointer-events:none}
-.rebel-avatar-img{position:relative;z-index:2;display:block;width:100%;height:100%;border-radius:50%;object-fit:cover;background:#111;animation:avatarBreath 5s ease-in-out infinite;box-shadow:0 10px 30px rgba(0,0,0,.5)}
-.rebel-avatar-lg .rebel-avatar-scan{position:absolute;inset:3px;border-radius:50%;z-index:3;pointer-events:none;overflow:hidden}
-.rebel-avatar-lg .rebel-avatar-scan::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(255,60,60,.15) 50%,transparent 100%);background-size:100% 200%;animation:avatarScan 2.5s ease-in-out infinite;mix-blend-mode:screen}
-.rebel-avatar-sm .rebel-avatar-ring{padding:2px}
-.rebel-avatar-sm .rebel-avatar-glow{inset:-8px}
-.rebel-avatar-sm .rebel-avatar-scan{display:none}
+/* REBEL CHARACTER AVATAR (login scene) */
+.avatar-stage{width:168px;height:188px;margin:0 auto 10px;position:relative}
+.avatar-face-ring{width:118px;height:118px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#111;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2}
+.avatar-face{width:125%;height:100%;object-fit:cover;display:block;margin-left:-12%;animation:faceLook 14s ease-in-out infinite}
+.avatar-laptop{position:absolute;left:50%;bottom:2px;width:108px;margin-left:-54px;z-index:4;animation:laptopScene 14s ease-in-out infinite;pointer-events:none}
+.laptop-lid{background:linear-gradient(180deg,#2a2a35,#1a1a22);border:2px solid #3a3a48;border-radius:6px 6px 2px 2px;padding:5px 6px 3px;transform-origin:bottom center}
+.laptop-screen{background:#0a0f14;border-radius:3px;padding:5px 6px;min-height:38px;overflow:hidden;border:1px solid #1e3a2f}
+.laptop-code{font-family:'Space Mono',monospace;font-size:6.5px;line-height:1.55;color:#00ff9d}
+.laptop-code .dim{color:#4a6a5a}
+.laptop-code .hi{color:#7b9cff}
+.laptop-cursor{display:inline-block;width:4px;height:8px;background:#00ff9d;margin-left:1px;animation:blinkCursor .6s step-end infinite;vertical-align:middle}
+.laptop-base{height:5px;background:linear-gradient(180deg,#3a3a48,#252530);border-radius:0 0 8px 8px;margin:0 4px;border:1px solid #4a4a58;border-top:none}
+.laptop-hands{position:absolute;bottom:18px;left:50%;width:90px;height:14px;margin-left:-45px;background:radial-gradient(ellipse,rgba(0,0,0,.35),transparent 70%);opacity:0;animation:handsOn 14s ease-in-out infinite}
+.rebel-avatar-sm{width:40px;height:40px;flex-shrink:0}
+.rebel-avatar-sm img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;border:1px solid var(--border);background:#111}
 .login-hero{text-align:center;margin-bottom:8px}
 .login-hero h1{font-size:22px;font-weight:800;margin-top:4px}
 .login-hero em{color:var(--accent);font-style:normal}
-@keyframes avatarFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-@keyframes avatarGlow{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
-@keyframes avatarSpin{to{transform:rotate(360deg)}}
-@keyframes avatarBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
-@keyframes avatarScan{0%{background-position:0 -100%}100%{background-position:0 200%}}
+@keyframes faceLook{
+  0%,8%{transform:translateX(0) scale(1.08);object-position:50% 38%}
+  12%,22%{transform:translateX(10%) scale(1.14);object-position:62% 38%}
+  26%,36%{transform:translateX(-10%) scale(1.14);object-position:38% 38%}
+  40%,44%{transform:translateX(0) scale(1.06);object-position:50% 38%}
+  48%,78%{transform:translateX(0) scale(1.02);object-position:50% 42%}
+  82%,100%{transform:translateX(0) scale(1.08);object-position:50% 38%}
+}
+@keyframes laptopScene{
+  0%,42%{opacity:0;transform:translateY(40px) scale(.7)}
+  46%{opacity:1;transform:translateY(0) scale(1.05)}
+  50%,76%{opacity:1;transform:translateY(0) scale(1)}
+  80%{opacity:1;transform:translateY(0) scale(1)}
+  86%,100%{opacity:0;transform:translateY(50px) scale(.8)}
+}
+@keyframes handsOn{
+  0%,44%{opacity:0}
+  48%,78%{opacity:1}
+  84%,100%{opacity:0}
+}
+@keyframes blinkCursor{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes codeType{
+  0%,50%{max-height:0;opacity:0}
+  52%,78%{max-height:40px;opacity:1}
+  82%,100%{opacity:0}
+}
+.laptop-line{display:block;opacity:0;animation:lineIn 14s ease-in-out infinite}
+.laptop-line.l1{animation-delay:0s}
+.laptop-line.l2{animation-delay:0s}
+.laptop-line.l3{animation-delay:0s}
+@keyframes lineIn{
+  0%,48%{opacity:0;transform:translateX(-4px)}
+  52%,76%{opacity:1;transform:none}
+  82%,100%{opacity:0}
+}
 
 /* HEADER */
 .hdr{flex-shrink:0;height:calc(var(--hdr-h) + var(--safe-t));padding-top:var(--safe-t);padding-left:16px;padding-right:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(12px);background:rgba(5,5,8,0.85);z-index:10}
@@ -232,10 +265,23 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-hero">
-      <div class="rebel-avatar rebel-avatar-lg">
-        <div class="rebel-avatar-glow"></div>
-        <img class="rebel-avatar-img" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
-        <div class="rebel-avatar-scan"></div>
+      <div class="avatar-stage">
+        <div class="avatar-face-ring">
+          <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+        </div>
+        <div class="avatar-laptop">
+          <div class="laptop-lid">
+            <div class="laptop-screen">
+              <div class="laptop-code">
+                <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
+                <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
+                <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
+              </div>
+            </div>
+          </div>
+          <div class="laptop-base"></div>
+        </div>
+        <div class="laptop-hands"></div>
       </div>
       <h1><em>Rebel</em> Mobile</h1>
     </div>
@@ -251,10 +297,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="app hidden" id="appShell">
   <header class="hdr">
     <div class="hdr-left">
-      <div class="rebel-avatar rebel-avatar-sm">
-        <div class="rebel-avatar-glow"></div>
-        <div class="rebel-avatar-ring"></div>
-        <img class="rebel-avatar-img" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+      <div class="rebel-avatar-sm">
+        <img src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
         <div class="hdr-title">Rebel Mobile</div>
