@@ -2,23 +2,20 @@ package com.rebel.panel;
 
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
-import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Display;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
-import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import java.util.HashMap;
 import java.util.Locale;
@@ -27,36 +24,30 @@ import java.util.Map;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
-    private ProgressBar progressBar;
-    private SwipeRefreshLayout swipeRefresh;
+    private FrameLayout splash;
     private SecureWebViewClient secureClient;
     private String panelUrl = RebelConfig.DEFAULT_PANEL_URL;
     private boolean securityOk = false;
+    private boolean firstPaintDone = false;
+    private String loadedUrl = "";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(0xFF050508);
+            getWindow().setNavigationBarColor(0xFF050508);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
             getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         }
+        enableHighRefreshRate();
 
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#050508"));
-        swipeRefresh = new SwipeRefreshLayout(this);
-        webView = new WebView(this);
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setMax(100);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-        FrameLayout.LayoutParams pb = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, 8);
-        pb.topMargin = 0;
-        swipeRefresh.addView(webView, lp);
-        root.addView(swipeRefresh, lp);
-        root.addView(progressBar, pb);
-        setContentView(root);
+        setContentView(R.layout.activity_main);
+        webView = findViewById(R.id.webview);
+        splash = findViewById(R.id.splash);
 
         try {
             RebelGuard.enforce(this);
@@ -67,21 +58,51 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setupWebView();
-        swipeRefresh.setColorSchemeColors(0xFFFF3C3C, 0xFFFF9500);
-        swipeRefresh.setOnRefreshListener(() -> RebelUpdateManager.check(this, updateCallback()));
 
+        panelUrl = RebelConfig.getPanelUrl(this);
+        try {
+            String host = android.net.Uri.parse(panelUrl).getHost();
+            if (host != null) secureClient.addAllowedHost(host);
+        } catch (Exception ignored) {}
+
+        loadPanel(panelUrl, 0);
         RebelUpdateManager.check(this, updateCallback());
+    }
+
+    private void enableHighRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            Display display = getDisplay();
+            if (display == null) return;
+            float bestHz = 60f;
+            int bestMode = 0;
+            for (Display.Mode mode : display.getSupportedModes()) {
+                if (mode.getRefreshRate() > bestHz) {
+                    bestHz = mode.getRefreshRate();
+                    bestMode = mode.getModeId();
+                }
+            }
+            if (bestMode != 0 && bestHz >= 90f) {
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.preferredDisplayModeId = bestMode;
+                lp.preferredRefreshRate = bestHz;
+                getWindow().setAttributes(lp);
+            }
+        } catch (Exception ignored) {}
     }
 
     private RebelUpdateManager.Callback updateCallback() {
         return new RebelUpdateManager.Callback() {
             @Override
             public void onPanelUrl(String url, int panelVersion) {
+                if (url == null || url.isEmpty()) return;
+                if (url.equals(panelUrl) && firstPaintDone) return;
                 panelUrl = url;
                 try {
                     String host = android.net.Uri.parse(url).getHost();
                     if (host != null) secureClient.addAllowedHost(host);
                 } catch (Exception ignored) {}
+                if (!firstPaintDone) return;
                 loadPanel(url, panelVersion);
             }
 
@@ -97,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(String msg) {
-                loadPanel(RebelConfig.getPanelUrl(MainActivity.this), 0);
+                /* keep current panel — no reload flash */
             }
         };
     }
@@ -121,6 +142,11 @@ public class MainActivity extends AppCompatActivity {
         s.setSupportZoom(false);
         s.setTextZoom(100);
         s.setMediaPlaybackRequiresUserGesture(false);
+        s.setLoadsImagesAutomatically(true);
+        s.setBlockNetworkImage(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            s.setOffscreenPreRaster(true);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             s.setSafeBrowsingEnabled(true);
         }
@@ -130,39 +156,55 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(false);
         }
+
+        webView.setBackgroundColor(0xFF050508);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
+
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
         secureClient = new SecureWebViewClient(this);
         webView.setWebViewClient(secureClient);
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
-                progressBar.setProgress(newProgress);
-            }
-        });
+        webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new RebelBridge(), "RebelAndroid");
     }
 
     private void loadPanel(String url, int panelVersion) {
-        if (!securityOk) return;
+        if (!securityOk || url == null || url.isEmpty()) return;
         String bust = panelVersion > 0 ? ("?v=" + panelVersion) : ("?t=" + (System.currentTimeMillis() / 60000L));
         String full = url.contains("?") ? (url + "&_rv=" + panelVersion) : (url + bust);
+        if (full.equals(loadedUrl)) return;
+        loadedUrl = full;
         Map<String, String> headers = new HashMap<>();
         headers.put(RebelAttest.HEADER, RebelAttest.buildHeader(this));
         headers.put("X-Rebel-Device", RebelAttest.deviceIdHash(this));
         webView.loadUrl(full, headers);
     }
 
-    void onPageLoadStart() {
-        progressBar.setVisibility(View.VISIBLE);
+    void onPageVisible() {
+        if (firstPaintDone) return;
+        firstPaintDone = true;
+        hideSplash();
+        injectSecureBridge();
     }
 
     void onPageLoadDone(String url) {
-        progressBar.setVisibility(View.GONE);
-        swipeRefresh.setRefreshing(false);
+        if (!firstPaintDone) {
+            firstPaintDone = true;
+            hideSplash();
+        }
         injectSecureBridge();
+    }
+
+    private void hideSplash() {
+        if (splash == null || splash.getVisibility() != View.VISIBLE) return;
+        splash.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+            splash.setVisibility(View.GONE);
+            splash.setAlpha(1f);
+        }).start();
     }
 
     void onBlockedNavigation(String url) {
@@ -173,6 +215,8 @@ public class MainActivity extends AppCompatActivity {
         String js = "(function(){"
             + "if(window.__rebelApk)return;"
             + "window.__rebelApk=true;"
+            + "document.documentElement.style.background='#050508';"
+            + "document.body.style.background='#050508';"
             + "var _f=window.fetch;"
             + "window.fetch=function(u,o){"
             + "o=o||{};o.headers=o.headers||{};"

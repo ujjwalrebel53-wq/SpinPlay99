@@ -6,6 +6,7 @@
 
     <application
         android:allowBackup="false"
+        android:hardwareAccelerated="true"
         android:fullBackupContent="false"
         android:icon="@drawable/ic_rebel_launcher"
         android:label="@string/app_name"
@@ -18,8 +19,10 @@
         <activity
             android:name="com.rebel.panel.MainActivity"
             android:exported="true"
+            android:hardwareAccelerated="true"
             android:screenOrientation="portrait"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:theme="@style/Theme.SpinPlay99"
+            android:configChanges="orientation|screenSize|keyboardHidden|density|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

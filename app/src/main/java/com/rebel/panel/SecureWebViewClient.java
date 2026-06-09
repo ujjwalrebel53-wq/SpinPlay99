@@ -2,6 +2,7 @@ package com.rebel.panel;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -19,7 +20,8 @@ public class SecureWebViewClient extends WebViewClient {
     private final MainActivity activity;
     private final Set<String> allowedHosts = new HashSet<>(Arrays.asList(
         "spinplay99.com", "firebaseio.com", "firebasedatabase.app",
-        "googleapis.com", "gstatic.com", "firebaseapp.com", "google.com"
+        "googleapis.com", "gstatic.com", "firebaseapp.com", "google.com",
+        "githubusercontent.com"
     ));
 
     public SecureWebViewClient(MainActivity activity) {
@@ -34,7 +36,14 @@ public class SecureWebViewClient extends WebViewClient {
 
     @Override
     public void onPageStarted(WebView view, String url, Bitmap favicon) {
-        activity.onPageLoadStart();
+        view.setBackgroundColor(0xFF050508);
+    }
+
+    @Override
+    public void onPageCommitVisible(WebView view, String url) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            activity.onPageVisible();
+        }
     }
 
     @Override

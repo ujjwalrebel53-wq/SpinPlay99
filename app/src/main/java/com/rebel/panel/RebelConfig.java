@@ -11,7 +11,7 @@ public final class RebelConfig {
     public static final String DEFAULT_PANEL_URL = "https://spinplay99.com/www/phone.php";
     public static final String DEFAULT_UPDATE_API = "https://spinplay99.com/www/rebel_app_api.php";
     public static final String APP_USER_AGENT_TAG = "RebelPanel/1.0";
-    public static final int APK_VERSION_CODE = 2;
+    public static final int APK_VERSION_CODE = 3;
 
     private static final String VAULT_PANEL = "panel_url";
     private static final String VAULT_UPDATE = "update_api";
