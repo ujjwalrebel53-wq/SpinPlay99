@@ -525,35 +525,21 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="login-shell">
     <div class="login-card">
       <div class="login-scanline"></div>
-      <div class="login-badge-row">
-        <span class="login-badge">🔐 Secure Gate</span>
-        <span class="login-badge purple">🤖 Bot Keys</span>
-        <span class="login-badge green">⚡ Live Access</span>
-      </div>
       <div class="login-logo">
         <svg class="logo-icon-3d" width="38" height="38" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
-        <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">SECURE ACCESS GATE</div></div>
+        <div><div class="rebel"><em>Rebel</em> Panel</div></div>
       </div>
       <h2>Access <span>Key</span></h2>
-      <p class="login-sub">Username / password disabled. Get a <strong>one-time Rebel Key</strong> from the Telegram bot — each key works <strong>only once</strong>.</p>
       <div id="loginError" class="login-error">❌ Invalid or expired access key!</div>
       <div class="key-field-wrap">
-        <label>Rebel Access Key</label>
         <div class="key-input-box">
           <span class="key-prefix">🔑</span>
           <input type="text" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" spellcheck="false" maxlength="32"/>
           <button type="button" class="key-paste-btn" onclick="pasteLoginKey()">Paste</button>
         </div>
       </div>
-      <div class="login-features">
-        <span class="login-feat">🛡️ AES Gate</span>
-        <span class="login-feat">🔒 One-Time Verify</span>
-        <span class="login-feat">📡 Real-Time</span>
-      </div>
-      <div class="remember-row"><input type="checkbox" id="rememberMe" checked/><label for="rememberMe">Remember this device (30 days)</label></div>
-      <button class="btn btn-login-advanced" id="loginBtn" onclick="doLogin()"><span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel</button>
-      <div class="login-hint">Need a key? Ask the owner to run <strong>/genkey</strong> on the Telegram bot.<br>Format: <code>RBL-XXXXXX-XXXXXX</code></div>
-      <div class="login-status"><span class="login-status-dot"></span> Auth server ready</div>
+      <div class="remember-row"><input type="checkbox" id="rememberMe" checked/><label for="rememberMe">Remember device</label></div>
+      <button class="btn btn-login-advanced" id="loginBtn" onclick="doLogin()"><span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock</button>
     </div>
   </div>
 </div>
