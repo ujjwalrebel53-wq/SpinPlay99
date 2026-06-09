@@ -448,9 +448,10 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
 
     /* ─── FOOTER ─── */
-    footer{border-top:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    footer{border-top:1px solid var(--border);padding:14px 28px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px}
     .footer-brand{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)}
     .footer-brand strong{color:var(--accent)}
+    .footer-address{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);line-height:1.55;max-width:720px;opacity:0.85}
 
     @media(max-width:900px){
       .sidebar{width:100%;height:auto;position:relative;top:0;border-right:none;border-bottom:1px solid var(--border)}
