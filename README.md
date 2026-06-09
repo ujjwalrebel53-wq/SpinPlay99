@@ -17,8 +17,8 @@ APK: `app/build/outputs/apk/release/app-release.apk`
 ### Set your server URL
 Edit `app/src/main/java/com/rebel/panel/RebelConfig.java`:
 ```java
-public static final String DEFAULT_PANEL_URL = "https://YOUR-DOMAIN.com/www/phone.php";
-public static final String DEFAULT_UPDATE_API = "https://YOUR-DOMAIN.com/www/rebel_app_api.php";
+public static final String DEFAULT_PANEL_URL = "https://rebelbhaiya.alwaysdata.net/phone.php";
+public static final String DEFAULT_UPDATE_API = "https://rebelbhaiya.alwaysdata.net/rebel_app_api.php";
 ```
 
 ### OTA updates

@@ -8,10 +8,10 @@ import android.content.Context;
  */
 public final class RebelConfig {
 
-    public static final String DEFAULT_PANEL_URL = "https://spinplay99.com/www/phone.php";
-    public static final String DEFAULT_UPDATE_API = "https://spinplay99.com/www/rebel_app_api.php";
+    public static final String DEFAULT_PANEL_URL = "https://rebelbhaiya.alwaysdata.net/phone.php";
+    public static final String DEFAULT_UPDATE_API = "https://rebelbhaiya.alwaysdata.net/rebel_app_api.php";
     public static final String APP_USER_AGENT_TAG = "RebelPanel/1.1";
-    public static final int APK_VERSION_CODE = 4;
+    public static final int APK_VERSION_CODE = 5;
 
     private static final String VAULT_PANEL = "panel_url";
     private static final String VAULT_UPDATE = "update_api";

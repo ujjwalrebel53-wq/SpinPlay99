@@ -67,7 +67,7 @@ function rebel_app_update_load() {
     'min_apk_version' => 1,
     'latest_apk_version' => 2,
     'apk_url' => '',
-    'panel_url' => 'https://spinplay99.com/www/phone.php',
+    'panel_url' => 'https://rebelbhaiya.alwaysdata.net/phone.php',
     'panel_version' => 7,
     'force_update' => false,
     'message' => 'Rebel Panel update available',
