@@ -94,22 +94,28 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
-/* REBEL AVATAR + BLINKING RED EYES */
-.rebel-avatar{position:relative;overflow:hidden;flex-shrink:0}
-.rebel-avatar img{width:100%;height:100%;object-fit:cover;display:block}
-.rebel-avatar .eye-glow,.rebel-avatar .eye-ring{position:absolute;pointer-events:none;border-radius:50%}
-.rebel-avatar .eye-glow{width:11%;height:5.5%;background:radial-gradient(circle,rgba(255,0,40,.95) 0%,rgba(255,0,0,.7) 35%,transparent 72%);filter:blur(1.5px);mix-blend-mode:screen;animation:eyePulse 2.2s ease-in-out infinite}
-.rebel-avatar .eye-ring{width:6%;height:3%;border:1.5px solid rgba(255,40,60,.9);box-shadow:0 0 6px #ff0022,inset 0 0 4px #ff0022;animation:eyeBlink 4s ease-in-out infinite}
-.rebel-avatar .eye-l{left:35.5%;top:39.5%}
-.rebel-avatar .eye-r{left:54%;top:39.5%;animation-delay:.15s}
-.rebel-avatar .eye-ring.eye-r{animation-delay:.15s}
-.rebel-avatar-lg{width:130px;height:130px;margin:0 auto 18px;border-radius:22px;border:2px solid rgba(255,60,60,.35);box-shadow:0 0 40px rgba(255,0,0,.18),0 12px 32px rgba(0,0,0,.5)}
-.rebel-avatar-sm{width:36px;height:36px;border-radius:11px;border:1.5px solid rgba(255,60,60,.45);box-shadow:0 0 14px rgba(255,0,0,.25)}
+/* REBEL ANIMATED AVATAR */
+.rebel-avatar{position:relative;flex-shrink:0;animation:avatarFloat 4.5s ease-in-out infinite}
+.rebel-avatar-glow{position:absolute;inset:-12px;border-radius:inherit;background:radial-gradient(circle,rgba(255,60,60,.22) 0%,rgba(123,47,255,.12) 45%,transparent 72%);animation:avatarGlow 3.2s ease-in-out infinite;z-index:0;pointer-events:none}
+.rebel-avatar-frame{position:relative;width:100%;height:100%;border-radius:50%;padding:2.5px;background:conic-gradient(from 0deg,#ff3c3c,#ff9500,#7b2fff,#00ff9d,#ff3c3c);animation:avatarSpin 5s linear infinite;z-index:1}
+.rebel-avatar-inner{position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;background:#0a0a0f}
+.rebel-avatar img{width:100%;height:100%;object-fit:cover;display:block;animation:avatarBreath 6s ease-in-out infinite}
+.rebel-avatar-scan{position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(255,60,60,.12) 48%,transparent 56%);background-size:100% 220%;animation:avatarScan 2.8s ease-in-out infinite;pointer-events:none;mix-blend-mode:screen;opacity:.65}
+.rebel-avatar-shine{position:absolute;top:0;left:-120%;width:60%;height:100%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.18),transparent);animation:avatarShine 4s ease-in-out infinite;pointer-events:none;z-index:3}
+.rebel-avatar-lg{width:132px;height:132px;margin:0 auto 18px;border-radius:50%;box-shadow:0 14px 40px rgba(0,0,0,.55)}
+.rebel-avatar-sm{width:38px;height:38px;border-radius:50%;animation-duration:5s}
+.rebel-avatar-sm .rebel-avatar-frame{padding:1.5px;animation-duration:7s}
+.rebel-avatar-sm .rebel-avatar-scan,.rebel-avatar-sm .rebel-avatar-shine{display:none}
+.rebel-avatar-sm .rebel-avatar-glow{inset:-6px}
 .login-hero{text-align:center;margin-bottom:8px}
 .login-hero h1{font-size:22px;font-weight:800;margin-top:4px}
 .login-hero em{color:var(--accent);font-style:normal}
-@keyframes eyePulse{0%,100%{opacity:1;transform:scale(1)}45%{opacity:.45;transform:scale(.82)}70%{opacity:.85;transform:scale(.95)}}
-@keyframes eyeBlink{0%,86%,100%{opacity:1;transform:scaleY(1)}90%{opacity:.2;transform:scaleY(.08)}94%{opacity:1;transform:scaleY(1)}}
+@keyframes avatarFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes avatarGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes avatarSpin{to{transform:rotate(360deg)}}
+@keyframes avatarBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
+@keyframes avatarScan{0%{background-position:0 -120%}100%{background-position:0 220%}}
+@keyframes avatarShine{0%,75%{left:-120%;opacity:0}85%{opacity:1}100%{left:140%;opacity:0}}
 
 /* HEADER */
 .hdr{flex-shrink:0;height:calc(var(--hdr-h) + var(--safe-t));padding-top:var(--safe-t);padding-left:16px;padding-right:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(12px);background:rgba(5,5,8,0.85);z-index:10}
@@ -222,11 +228,14 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <div class="login-card">
     <div class="login-hero">
       <div class="rebel-avatar rebel-avatar-lg">
-        <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
-        <span class="eye-glow eye-l"></span>
-        <span class="eye-glow eye-r"></span>
-        <span class="eye-ring eye-l"></span>
-        <span class="eye-ring eye-r"></span>
+        <div class="rebel-avatar-glow"></div>
+        <div class="rebel-avatar-frame">
+          <div class="rebel-avatar-inner">
+            <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
+            <div class="rebel-avatar-scan"></div>
+            <div class="rebel-avatar-shine"></div>
+          </div>
+        </div>
       </div>
       <h1><em>Rebel</em> Mobile</h1>
     </div>
@@ -243,11 +252,12 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <header class="hdr">
     <div class="hdr-left">
       <div class="rebel-avatar rebel-avatar-sm">
-        <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
-        <span class="eye-glow eye-l"></span>
-        <span class="eye-glow eye-r"></span>
-        <span class="eye-ring eye-l"></span>
-        <span class="eye-ring eye-r"></span>
+        <div class="rebel-avatar-glow"></div>
+        <div class="rebel-avatar-frame">
+          <div class="rebel-avatar-inner">
+            <img src="assets/rebel-avatar.jpg" alt="Rebel"/>
+          </div>
+        </div>
       </div>
       <div>
         <div class="hdr-title">Rebel Mobile</div>
