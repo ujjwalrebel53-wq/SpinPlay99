@@ -617,7 +617,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('aadharModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:8px"><span class="i3d i3d-green i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar <span>Bot</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Mobile number dalo — API response se sirf <strong>aadhar</strong> field fetch hogi.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Enter a mobile number — only the <strong>aadhar</strong> field will be fetched from the API response.</p>
     <div class="config-card" style="max-width:100%">
       <div class="input-group">
         <div><label><span class="i3d i3d-blue i3d-sm">📱</span> Mobile Number</label><input type="tel" id="aadharNum" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/></div>
@@ -1472,7 +1472,7 @@ function renderSidebar(){
     if(inst&&inst.connError){
       errMsg='<br><span style="color:var(--error);margin-top:8px;display:block;font-size:9px">⚠ '+esc(inst.connError)+'</span>';
       if(/deactivated|suspended/i.test(inst.connError)){
-        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK mein purana cached data dikh sakta hai. Firebase Console se database enable karo.</span>';
+        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK may show old cached data. Enable the database in Firebase Console.</span>';
       }
     }
     el.innerHTML='<div class="dev-empty">'+icoAnim('satellite','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
@@ -2080,7 +2080,7 @@ function parseAadharApiResponse(r){
   return r.text().then(function(txt){
     var t=String(txt||'').trim();
     if(!t) throw new Error('Empty API response');
-    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy nahi chal raha - sex.php ko PHP server par host karo');
+    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy not running — host ty.php on a PHP server');
     var d=null;
     try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
     if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
@@ -2124,7 +2124,7 @@ function lookupAadhar(){
   var st=document.getElementById('aadharStatus');
   var tb=document.getElementById('aadharTbody');
   if(!num||num.length<10){
-    st.innerHTML='<span style="color:var(--error)">Valid 10-digit mobile number dalo</span>';
+    st.innerHTML='<span style="color:var(--error)">Enter a valid 10-digit mobile number</span>';
     return;
   }
   st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
@@ -2141,11 +2141,11 @@ function lookupAadhar(){
       aadhars.push(a);
     });
     if(!aadhars.length){
-      st.innerHTML='<span style="color:var(--error)">Is number ke liye aadhar field nahi mili</span>';
+      st.innerHTML='<span style="color:var(--error)">No aadhar field found for this number</span>';
       tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No aadhar in API response</td></tr>';
       return;
     }
-    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar mila</span>';
+    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar found</span>';
     tb.innerHTML=aadhars.map(function(a,i){
       return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
     }).join('');

