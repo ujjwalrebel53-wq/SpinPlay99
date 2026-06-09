@@ -1,205 +1,29 @@
 <?php
-define('REBEL_BOT_TOKEN', '8952674967:AAGivOmzdznNBdRK2j_trdnnwv5lCDX8caA');
-define('REBEL_OWNER_ID', '8432393497');
-define('REBEL_KEYS_FILE', __DIR__ . '/data/rebel_keys.json');
+require_once __DIR__ . '/rebel_bot_lib.php';
 
-function rebel_json_out($data, $code = 200) {
-  http_response_code($code);
-  header('Content-Type: application/json; charset=UTF-8');
-  header('Cache-Control: no-store');
-  echo json_encode($data);
-  exit;
-}
-
-function rebel_keys_load() {
-  if (!is_file(REBEL_KEYS_FILE)) {
-    $dir = dirname(REBEL_KEYS_FILE);
-    if (!is_dir($dir)) @mkdir($dir, 0755, true);
-    file_put_contents(REBEL_KEYS_FILE, json_encode(['keys' => [], 'sessions' => []], JSON_PRETTY_PRINT));
-  }
-  $raw = @file_get_contents(REBEL_KEYS_FILE);
-  $data = json_decode($raw ?: '{}', true);
-  if (!is_array($data)) $data = [];
-  if (!isset($data['keys']) || !is_array($data['keys'])) $data['keys'] = [];
-  if (!isset($data['sessions']) || !is_array($data['sessions'])) $data['sessions'] = [];
-  return $data;
-}
-
-function rebel_keys_save($data) {
-  $dir = dirname(REBEL_KEYS_FILE);
-  if (!is_dir($dir)) @mkdir($dir, 0755, true);
-  $fp = fopen(REBEL_KEYS_FILE, 'c+');
-  if (!$fp) return false;
-  flock($fp, LOCK_EX);
-  ftruncate($fp, 0);
-  fwrite($fp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-  fflush($fp);
-  flock($fp, LOCK_UN);
-  fclose($fp);
-  return true;
-}
-
-function rebel_make_key() {
-  $a = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
-  $b = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
-  return 'RBL-' . $a . '-' . $b;
-}
-
-function rebel_norm_key($key) {
-  $key = strtoupper(trim((string)$key));
-  $key = preg_replace('/\s+/', '', $key);
-  return $key;
-}
-
-function rebel_key_valid(&$data, $key) {
-  $key = rebel_norm_key($key);
-  if ($key === '' || !isset($data['keys'][$key])) return false;
-  $row = $data['keys'][$key];
-  if (empty($row['active'])) return false;
-  if (!empty($row['expires']) && time() > (int)$row['expires']) {
-    $data['keys'][$key]['active'] = false;
-    return false;
-  }
-  return $key;
-}
-
-function rebel_create_session(&$data, $key, $remember) {
-  $token = bin2hex(random_bytes(24));
-  $hash = hash('sha256', $token);
-  $ttl = $remember ? (30 * 86400) : (24 * 3600);
-  $data['sessions'][$hash] = [
-    'created' => time(),
-    'expires' => time() + $ttl,
-    'key_ref' => $key
-  ];
-  return ['token' => $token, 'expires' => time() + $ttl];
-}
-
-function rebel_tg_send($chatId, $text) {
-  $url = 'https://api.telegram.org/bot' . REBEL_BOT_TOKEN . '/sendMessage';
-  $payload = json_encode([
-    'chat_id' => $chatId,
-    'text' => $text,
-    'parse_mode' => 'HTML',
-    'disable_web_page_preview' => true
+if (isset($_GET['rebel_bot_status'])) {
+  rebel_json_out([
+    'ok' => true,
+    'bot' => rebel_tg_api('getMe', []),
+    'webhook' => rebel_tg_api('getWebhookInfo', []),
+    'setup_webhook' => 'sex.php?rebel_bot_setup=1&owner=' . REBEL_OWNER_ID,
+    'setup_poll' => 'rebel_bot.php?action=start&owner=' . REBEL_OWNER_ID,
+    'cron_poll' => 'rebel_bot.php?poll=1&owner=' . REBEL_OWNER_ID
   ]);
-  if (function_exists('curl_init')) {
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-      CURLOPT_RETURNTRANSFER => true,
-      CURLOPT_POST => true,
-      CURLOPT_POSTFIELDS => $payload,
-      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-      CURLOPT_TIMEOUT => 20
-    ]);
-    curl_exec($ch);
-    curl_close($ch);
-    return;
-  }
-  $ctx = stream_context_create([
-    'http' => [
-      'method' => 'POST',
-      'header' => "Content-Type: application/json\r\n",
-      'content' => $payload,
-      'timeout' => 20
-    ]
-  ]);
-  @file_get_contents($url, false, $ctx);
-}
-
-function rebel_tg_set_webhook($hookUrl) {
-  $url = 'https://api.telegram.org/bot' . REBEL_BOT_TOKEN . '/setWebhook';
-  $payload = json_encode(['url' => $hookUrl, 'drop_pending_updates' => true]);
-  if (function_exists('curl_init')) {
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-      CURLOPT_RETURNTRANSFER => true,
-      CURLOPT_POST => true,
-      CURLOPT_POSTFIELDS => $payload,
-      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-      CURLOPT_TIMEOUT => 20
-    ]);
-    $raw = curl_exec($ch);
-    curl_close($ch);
-    return json_decode($raw ?: '{}', true);
-  }
-  return null;
-}
-
-function rebel_bot_handle($update) {
-  $msg = $update['message'] ?? null;
-  if (!$msg) return;
-  $chatId = (string)($msg['chat']['id'] ?? '');
-  $fromId = (string)($msg['from']['id'] ?? '');
-  $text = trim((string)($msg['text'] ?? ''));
-  if ($fromId !== REBEL_OWNER_ID) {
-    rebel_tg_send($chatId, "⛔ Unauthorized.\nOnly owner can use this bot.");
-    return;
-  }
-  if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b>\n\n/genkey [days] — New access key (default 30 days)\n/keys — List active keys\n/revoke RBL-XXX — Revoke key\n/setwebhook — Register bot webhook");
-    return;
-  }
-  if (preg_match('/^\/setwebhook\b/i', $text)) {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $script = $_SERVER['SCRIPT_NAME'] ?? '/panel/sex.php';
-    $hook = $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
-    $res = rebel_tg_set_webhook($hook);
-    $ok = !empty($res['ok']);
-    rebel_tg_send($chatId, $ok ? "✅ Webhook set:\n<code>" . htmlspecialchars($hook, ENT_QUOTES, 'UTF-8') . "</code>" : "❌ Webhook failed.");
-    return;
-  }
-  if (preg_match('/^\/genkey(?:@\w+)?(?:\s+(\d+))?\s*$/i', $text, $m)) {
-    $days = isset($m[1]) ? max(0, (int)$m[1]) : 30;
-    $data = rebel_keys_load();
-    $key = rebel_make_key();
-    while (isset($data['keys'][$key])) $key = rebel_make_key();
-    $data['keys'][$key] = [
-      'created' => time(),
-      'expires' => $days > 0 ? time() + ($days * 86400) : 0,
-      'active' => true,
-      'uses' => 0,
-      'label' => 'tg-' . date('dM-Hi')
-    ];
-    rebel_keys_save($data);
-    $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
-    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b>\n\n<code>" . $key . "</code>" . $exp . "\n\nPanel me yahi key paste karo.");
-    return;
-  }
-  if (preg_match('/^\/keys\b/i', $text)) {
-    $data = rebel_keys_load();
-    $lines = [];
-    foreach ($data['keys'] as $k => $row) {
-      if (empty($row['active'])) continue;
-      if (!empty($row['expires']) && time() > (int)$row['expires']) continue;
-      $mask = substr($k, 0, 8) . '••••';
-      $uses = (int)($row['uses'] ?? 0);
-      $lines[] = '• <code>' . $mask . '</code> · uses ' . $uses;
-    }
-    rebel_tg_send($chatId, $lines ? ("📋 <b>Active Keys</b>\n\n" . implode("\n", $lines)) : "📋 No active keys.");
-    return;
-  }
-  if (preg_match('/^\/revoke\s+(RBL-[A-Z0-9\-]+)/i', $text, $m)) {
-    $key = rebel_norm_key($m[1]);
-    $data = rebel_keys_load();
-    if (!isset($data['keys'][$key])) {
-      rebel_tg_send($chatId, "❌ Key not found.");
-      return;
-    }
-    $data['keys'][$key]['active'] = false;
-    rebel_keys_save($data);
-    rebel_tg_send($chatId, "✅ Revoked:\n<code>" . $key . "</code>");
-    return;
-  }
-  rebel_tg_send($chatId, "Unknown command. Send /start for help.");
 }
 
 if (isset($_GET['rebel_bot_setup']) && (string)($_GET['owner'] ?? '') === REBEL_OWNER_ID) {
-  $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-  $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-  $script = $_SERVER['SCRIPT_NAME'] ?? '/panel/sex.php';
-  $hook = $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
+  $hook = rebel_bot_webhook_url();
+  if (strpos($hook, 'https://') !== 0) {
+    rebel_tg_api('deleteWebhook', ['drop_pending_updates' => false]);
+    rebel_json_out([
+      'ok' => false,
+      'error' => 'HTTPS required for webhook. Use polling instead.',
+      'webhook' => $hook,
+      'poll_cli' => 'php rebel_bot.php',
+      'poll_url' => 'rebel_bot.php?action=start&owner=' . REBEL_OWNER_ID
+    ], 400);
+  }
   $res = rebel_tg_set_webhook($hook);
   rebel_json_out(['ok' => !empty($res['ok']), 'webhook' => $hook, 'telegram' => $res]);
 }
