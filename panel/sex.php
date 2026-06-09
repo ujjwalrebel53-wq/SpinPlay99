@@ -50,7 +50,14 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
       rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
     }
     rebel_keys_save($data);
-    rebel_json_out(['ok' => true, 'expires' => (int)$valid['expires']]);
+    $mask = strlen($valid['key_ref']) > 8 ? substr($valid['key_ref'], 0, 8) . '••••' : '••••••••';
+    rebel_json_out([
+      'ok' => true,
+      'expires' => (int)$valid['expires'],
+      'created' => (int)$valid['created'],
+      'key_mask' => $mask,
+      'verified_at' => time()
+    ]);
   }
 
   if ($action === 'logout') {
@@ -339,6 +346,20 @@ header('Content-Type: text/html; charset=UTF-8');
     .dev-empty{text-align:center;padding:30px 14px;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px}
     .cache-badge{font-family:'Space Mono',monospace;font-size:7px;color:var(--accent2);padding:2px 6px;border:1px solid rgba(255,149,0,0.25);border-radius:6px;margin-left:6px}
     .fetch-ms{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-left:4px}
+    .token-verify-wrap{margin:10px 12px 0;padding:12px;border:1px solid rgba(255,60,60,0.2);border-radius:12px;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(10,10,15,0.98));box-shadow:0 4px 18px rgba(0,0,0,0.25)}
+    .token-verify-title{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .token-verify-pulse{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+    .token-verify-pulse.on{background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
+    .token-verify-pulse.warn{background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+    .token-verify-pulse.off{background:var(--error);box-shadow:0 0 8px var(--error)}
+    .token-verify-status{font-size:12px;font-weight:800;margin-bottom:4px}
+    .token-verify-status.ok{color:var(--success)}
+    .token-verify-status.warn{color:var(--accent2)}
+    .token-verify-status.bad{color:var(--error)}
+    .token-verify-meta{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);line-height:1.55;margin-bottom:8px}
+    .token-verify-bar{height:4px;border-radius:100px;background:rgba(255,255,255,0.06);overflow:hidden}
+    .token-verify-bar>div{height:100%;width:0%;background:linear-gradient(90deg,var(--success),var(--accent2));transition:width 0.4s ease;border-radius:100px}
+    .token-verify-last{font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);margin-top:7px;opacity:0.85}
     .hdr-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
     .btn-fb{padding:7px 14px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s}
     .btn-fb:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 4px 16px rgba(255,60,60,0.15)}
@@ -580,6 +601,13 @@ header('Content-Type: text/html; charset=UTF-8');
         <div class="mini-stat"><div class="mini-val on" id="stOnline">0</div><div class="mini-lbl">ONLINE</div></div>
         <div class="mini-stat"><div class="mini-val off" id="stOffline">0</div><div class="mini-lbl">OFFLINE</div></div>
       </div>
+      <div class="token-verify-wrap" id="tokenVerifyWrap">
+        <div class="token-verify-title"><span>🔐 Auto Token Verify</span><span class="token-verify-pulse" id="tokenVerifyPulse"></span></div>
+        <div class="token-verify-status warn" id="tokenVerifyStatus">Checking...</div>
+        <div class="token-verify-meta" id="tokenVerifyMeta">Session token pending verification</div>
+        <div class="token-verify-bar"><div id="tokenVerifyBar"></div></div>
+        <div class="token-verify-last" id="tokenVerifyLast">Last check: —</div>
+      </div>
     </div>
     <div class="sidebar-search">
       <input placeholder="Search phone / device..." id="devSearch" oninput="onDevSearch()" autocomplete="off"/>
@@ -721,7 +749,10 @@ header('Content-Type: text/html; charset=UTF-8');
 </div><!-- /main-layout -->
 
 <footer>
-  <div class="footer-brand"><strong>Rebel Panel</strong> — SpinPlay99 Real-Time Dashboard</div>
+  <div>
+    <div class="footer-brand"><strong>Rebel Panel</strong> — SpinPlay99 Real-Time Dashboard</div>
+    <div class="footer-address">Next building to A.P. Diagnostics Pvt.Ltd, 128/5, K Block, Kidwai Nagar, Kanpur — Near Gaushala Usmanpur crossing (SBI), Usmanpur, Kanpur, Uttar Pradesh 208011</div>
+  </div>
   <div class="footer-brand" id="footerTime"></div>
 </footer>
 </div><!-- /wrapper -->
@@ -2897,7 +2928,10 @@ function unlockPanel(token,expires,remember){
   localStorage.removeItem('rbl_login');
   document.getElementById('loginError').style.display='none';
   document.getElementById('loginPage').classList.add('hidden');
+  window._tokenVerifyState={expires:expires||0,keyMask:'',lastCheck:0,ok:false};
+  renderTokenVerifyUi('checking');
   openPanel();
+  verifyRebelSession(true);
 }
 function getRebelSession(){
   var s=null;
@@ -2915,12 +2949,83 @@ function lockPanel(msg){
   setLoginLoading(false);
   showToast('error',msg||'Session ended');
 }
-function verifyRebelSession(){
+function formatTokenExpiry(ms){
+  if(!ms) return '—';
+  var diff=ms-Date.now();
+  if(diff<=0) return 'Expired';
+  var s=Math.floor(diff/1000), d=Math.floor(s/86400); s%=86400;
+  var h=Math.floor(s/3600); s%=3600; var m=Math.floor(s/60);
+  if(d>0) return d+'d '+h+'h left';
+  if(h>0) return h+'h '+m+'m left';
+  return m+'m '+s%60+'s left';
+}
+function renderTokenVerifyUi(mode,data){
+  var st=document.getElementById('tokenVerifyStatus');
+  var meta=document.getElementById('tokenVerifyMeta');
+  var pulse=document.getElementById('tokenVerifyPulse');
+  var last=document.getElementById('tokenVerifyLast');
+  if(!st||!meta) return;
+  data=data||{};
+  if(mode==='checking'){
+    st.className='token-verify-status warn'; st.textContent='Verifying...';
+    meta.textContent='Auto-checking session token with server';
+    if(pulse){pulse.className='token-verify-pulse warn';}
+    if(last) last.textContent='Last check: running...';
+    return;
+  }
+  if(mode==='ok'){
+    var exp=data.expires||window._tokenVerifyState.expires||0;
+    window._tokenVerifyState={ok:true,expires:exp,keyMask:data.key_mask||window._tokenVerifyState.keyMask||'••••••••',lastCheck:Date.now()};
+    st.className='token-verify-status ok'; st.textContent='✓ Token Verified';
+    meta.innerHTML='Key: <code>'+esc(window._tokenVerifyState.keyMask)+'</code><br>Expires: '+formatTokenExpiry(exp);
+    if(pulse){pulse.className='token-verify-pulse on';}
+    if(last) last.textContent='Last check: '+new Date().toLocaleTimeString()+' · auto every 10s';
+    updateTokenVerifyBar();
+    return;
+  }
+  st.className='token-verify-status bad'; st.textContent='✗ Token Invalid';
+  meta.textContent=(data&&data.error)||'Session revoked or expired';
+  if(pulse){pulse.className='token-verify-pulse off';}
+  if(last) last.textContent='Last check: failed';
+  var bar=document.getElementById('tokenVerifyBar'); if(bar) bar.style.width='0%';
+}
+function updateTokenVerifyBar(){
+  var bar=document.getElementById('tokenVerifyBar');
+  var st=window._tokenVerifyState||{};
+  if(!bar||!st.expires||!st.ok) return;
+  var created=st.created||(st.expires-86400000);
+  var total=st.expires-created;
+  var left=st.expires-Date.now();
+  var pct=total>0?Math.max(0,Math.min(100,Math.round(left/total*100))):0;
+  bar.style.width=pct+'%';
+  var meta=document.getElementById('tokenVerifyMeta');
+  if(meta&&st.ok) meta.innerHTML='Key: <code>'+esc(st.keyMask||'••••••••')+'</code><br>Expires: '+formatTokenExpiry(st.expires);
+}
+function verifyRebelSession(silent){
   var s=getRebelSession();
-  if(!s||!s.token) return;
+  if(!s||!s.token){
+    if(!silent) renderTokenVerifyUi('bad',{error:'No active session'});
+    return;
+  }
+  if(!silent) renderTokenVerifyUi('checking');
   rebelAuthFetch({action:'check',token:s.token}).then(function(res){
-    if(!res.ok||!res.data||!res.data.ok) lockPanel((res.data&&res.data.error)||'Key revoked — login again');
-  }).catch(function(){});
+    if(res.ok&&res.data&&res.data.ok){
+      window._tokenVerifyState={ok:true,expires:res.data.expires||s.exp||0,created:res.data.created||0,keyMask:res.data.key_mask||'',lastCheck:Date.now()};
+      if(s.exp!==res.data.expires){
+        s.exp=res.data.expires;
+        try{
+          if(localStorage.getItem('rbl_session')) localStorage.setItem('rbl_session',JSON.stringify(s));
+          else sessionStorage.setItem('rbl_session',JSON.stringify(s));
+        }catch(e){}
+      }
+      renderTokenVerifyUi('ok',res.data);
+      return;
+    }
+    renderTokenVerifyUi('bad',res.data||{});
+    lockPanel((res.data&&res.data.error)||'Token revoked — login again');
+  }).catch(function(){
+    if(!silent) renderTokenVerifyUi('bad',{error:'Auth server unreachable'});
+  });
 }
 (function(){
   clearClientsCacheIfExpired();
@@ -2980,9 +3085,12 @@ function perfMainLoop(now){
       if(dev) renderLastSeen(dev);
     }
   }
-  if(now-_authCheckLast>=15000){
-    _authCheckLast=now;
-    if(document.getElementById('loginPage').classList.contains('hidden')) verifyRebelSession();
+  if(document.getElementById('loginPage').classList.contains('hidden')){
+    updateTokenVerifyBar();
+    if(now-_authCheckLast>=10000){
+      _authCheckLast=now;
+      verifyRebelSession(true);
+    }
   }
   if(now-_cacheSweepLast>=1800000){
     _cacheSweepLast=now;

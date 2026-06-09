@@ -122,7 +122,11 @@ function rebel_session_valid(&$data, $token) {
     unset($data['sessions'][$hash]);
     return false;
   }
-  return ['expires' => (int)$sess['expires'], 'key_ref' => $keyRef];
+  return [
+    'expires' => (int)$sess['expires'],
+    'created' => (int)($sess['created'] ?? 0),
+    'key_ref' => $keyRef
+  ];
 }
 
 function rebel_create_session(&$data, $key, $remember) {
