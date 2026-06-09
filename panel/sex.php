@@ -906,7 +906,7 @@ var REBEL_WIZARD_STEPS=[
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
    prompt:'Last step — send <strong>App ID</strong>. I will connect after this.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> if optional.'}
 ];
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa'];
+var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa','stormapk_9edea'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
   apiKey:'AIzaSyB5Fmk4HgxDLmkfSegOW2TBdtJeCpM-nuw',
@@ -949,6 +949,15 @@ var DEFAULT_FIREBASES=[{
   storageBucket:'nsx1-7f7aa.firebasestorage.app',
   messagingSenderId:'1025305009086',
   appId:'1:1025305009086:android:b3c3d28d5f6bf44f2b77ef'
+},{
+  id:'stormapk_9edea', name:'Storm APK', schema:'rabel',
+  apiKey:'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',
+  authDomain:'stormapk-9edea.firebaseapp.com',
+  databaseURL:'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId:'stormapk-9edea',
+  storageBucket:'stormapk-9edea.firebasestorage.app',
+  messagingSenderId:'353810391693',
+  appId:'1:353810391693:android:291dcbff91823c3866f8c4'
 }];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
