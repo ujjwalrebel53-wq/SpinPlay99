@@ -90,6 +90,20 @@ function rebel_revoke_key(&$data, $key) {
   return true;
 }
 
+function rebel_revoke_all_keys(&$data) {
+  $revoked = 0;
+  $now = time();
+  foreach (array_keys($data['keys'] ?? []) as $k) {
+    $data['keys'][$k]['active'] = false;
+    $data['keys'][$k]['revoked'] = true;
+    $data['keys'][$k]['revoked_at'] = $now;
+    $revoked++;
+  }
+  $sessions = count($data['sessions'] ?? []);
+  $data['sessions'] = [];
+  return ['keys_revoked' => $revoked, 'sessions_cleared' => $sessions];
+}
+
 function rebel_session_valid(&$data, $token) {
   $token = trim((string)$token);
   if ($token === '') return false;
@@ -193,7 +207,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — New one-time access key\n/keys — List keys\n/revoke RBL-XXX — Revoke key + kick session\n/status — Bot status\n/poll — Start polling mode\n/webhook — Enable webhook mode");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — New one-time access key\n/keys — List keys\n/revoke RBL-XXX — Revoke one key\n/revokeall — Revoke ALL keys + kick everyone\n/status — Bot status\n/poll — Start polling mode\n/webhook — Enable webhook mode");
     return true;
   }
 
@@ -261,6 +275,14 @@ function rebel_bot_handle($update) {
       $lines[] = '• <code>' . $mask . '</code> · unused';
     }
     rebel_tg_send($chatId, $lines ? ("📋 <b>Keys</b>\n\n" . implode("\n", $lines)) : "📋 No keys.");
+    return true;
+  }
+
+  if (preg_match('/^\/revokeall\b/i', $text)) {
+    $data = rebel_keys_load();
+    $res = rebel_revoke_all_keys($data);
+    rebel_keys_save($data);
+    rebel_tg_send($chatId, "🚫 <b>All keys revoked</b>\n\nKeys: " . (int)$res['keys_revoked'] . "\nSessions killed: " . (int)$res['sessions_cleared'] . "\n\nSab panels lock ho jayenge.");
     return true;
   }
 

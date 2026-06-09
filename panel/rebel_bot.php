@@ -3,6 +3,14 @@
 require_once __DIR__ . '/rebel_bot_lib.php';
 
 if (php_sapi_name() === 'cli') {
+  $cmd = strtolower(trim((string)($argv[1] ?? '')));
+  if ($cmd === 'revokeall') {
+    $data = rebel_keys_load();
+    $res = rebel_revoke_all_keys($data);
+    rebel_keys_save($data);
+    echo json_encode(['ok' => true] + $res, JSON_PRETTY_PRINT) . "\n";
+    exit(0);
+  }
   rebel_bot_run_forever();
   exit;
 }
@@ -31,6 +39,14 @@ if ($action === 'status') {
 if ($action === 'start') {
   rebel_tg_api('deleteWebhook', ['drop_pending_updates' => false]);
   echo json_encode(['ok' => true, 'mode' => 'polling', 'message' => 'Webhook removed. Use poll action or CLI php rebel_bot.php']);
+  exit;
+}
+
+if ($action === 'revokeall') {
+  $data = rebel_keys_load();
+  $res = rebel_revoke_all_keys($data);
+  rebel_keys_save($data);
+  echo json_encode(['ok' => true] + $res);
   exit;
 }
 
