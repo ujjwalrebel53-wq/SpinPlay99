@@ -717,10 +717,13 @@ var REBEL_WIZARD_STEPS=[
 var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa'];
 var DEFAULT_FIREBASES=[{
   id:'rabel_raand', name:'Rebel', schema:'rabel',
-  apiKey:'',
+  apiKey:'AIzaSyB5Fmk4HgxDLmkfSegOW2TBdtJeCpM-nuw',
   authDomain:'rabel-raand.firebaseapp.com',
   databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
-  projectId:'rabel-raand'
+  projectId:'rabel-raand',
+  storageBucket:'rabel-raand.firebasestorage.app',
+  messagingSenderId:'574630053774',
+  appId:'1:574630053774:android:aa7475de67c935821806df'
 },{
   id:'monster_green_c5e81', name:'Monster Green', schema:'rabel',
   apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',
