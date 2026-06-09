@@ -103,14 +103,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
 /* REBEL CHARACTER AVATAR (login scene — JS driven) */
 .avatar-stage{width:180px;height:210px;margin:0 auto 10px;position:relative;overflow:visible}
-.avatar-face-ring{width:120px;height:120px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#111;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2;transition:transform .45s cubic-bezier(.34,1.2,.64,1);transform-origin:center bottom}
-.avatar-face-ring.look-right{transform:rotate(10deg) translateX(4px)}
-.avatar-face-ring.look-left{transform:rotate(-10deg) translateX(-4px)}
-.avatar-face-ring.typing{transform:translateY(-6px) scale(.94)}
-.avatar-face-pan{width:155%;height:100%;transition:transform .45s cubic-bezier(.34,1.2,.64,1);transform:translate3d(-18%,0,0)}
-.avatar-face-pan.look-right{transform:translate3d(-32%,0,0)}
+.avatar-face-ring{width:120px;height:120px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#111;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2}
+.avatar-face-pan{width:160%;height:100%;transition:transform .5s cubic-bezier(.34,1.2,.64,1);transform:translate3d(-19%,0,0)}
+.avatar-face-pan.look-right{transform:translate3d(-34%,0,0)}
 .avatar-face-pan.look-left{transform:translate3d(-4%,0,0)}
-.avatar-face{width:100%;height:100%;object-fit:cover;object-position:50% 28%;display:block}
+.avatar-face-pan.look-down{transform:translate3d(-19%,6%,0)}
+.avatar-face{width:100%;height:100%;object-fit:cover;object-position:50% 26%;display:block;transition:object-position .5s ease}
+.avatar-face-pan.look-down .avatar-face{object-position:50% 40%}
 .avatar-laptop{position:absolute;left:50%;bottom:0;width:118px;z-index:5;pointer-events:none;opacity:0;transform:translate3d(-50%,36px,0) scale(.55);transition:opacity .3s ease,transform .5s cubic-bezier(.34,1.56,.64,1)}
 .avatar-laptop.show{opacity:1;transform:translate3d(-50%,0,0) scale(1)}
 .avatar-laptop.pop{transform:translate3d(-50%,-4px,0) scale(1.06)}
@@ -242,8 +241,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-hero">
-      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="3">
-        <div class="avatar-face-ring look-center" id="avatarFaceRing">
+      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="4">
+        <div class="avatar-face-ring" id="avatarFaceRing">
           <div class="avatar-face-pan look-center" id="avatarFacePan">
             <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
           </div>
@@ -710,15 +709,13 @@ function startRebelAvatarAnim(){
   var lines=stage.querySelectorAll('.laptop-line');
   var timer=null;
   function clearLook(){
-    ring.classList.remove('look-right','look-left','typing');
-    pan.classList.remove('look-right','look-left');
-    ring.classList.add('look-center');
+    pan.classList.remove('look-right','look-left','look-down');
     pan.classList.add('look-center');
   }
   function look(dir){
     clearLook();
-    if(dir==='right'){ring.classList.add('look-right');pan.classList.add('look-right');}
-    else if(dir==='left'){ring.classList.add('look-left');pan.classList.add('look-left');}
+    if(dir==='right')pan.classList.add('look-right');
+    else if(dir==='left')pan.classList.add('look-left');
   }
   function resetCode(){
     for(var i=0;i<lines.length;i++)lines[i].classList.remove('visible');
@@ -736,13 +733,13 @@ function startRebelAvatarAnim(){
   }
   function hideLaptop(){
     laptop.classList.remove('show','pop');
-    ring.classList.remove('typing');
+    pan.classList.remove('look-down');
     resetCode();
   }
   function showLaptop(){
     laptop.classList.add('show');
     timer=setTimeout(function(){laptop.classList.add('pop');},60);
-    ring.classList.add('typing');
+    pan.classList.add('look-down');
   }
   function runScene(){
     hideLaptop();
