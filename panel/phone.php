@@ -1,9 +1,36 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
-require_once __DIR__ . '/rebel_app_lib.php';
+$REBEL_HAS_APP_LIB = is_file(__DIR__ . '/rebel_app_lib.php');
+if ($REBEL_HAS_APP_LIB) require_once __DIR__ . '/rebel_app_lib.php';
+
+if (isset($_GET['rebel_app_api'])) {
+  header('Content-Type: application/json; charset=UTF-8');
+  header('Cache-Control: no-store');
+  $cfg = $REBEL_HAS_APP_LIB ? rebel_app_update_load() : [
+    'min_apk_version' => 1,
+    'latest_apk_version' => 6,
+    'apk_url' => '',
+    'panel_url' => 'https://rebelbhaiya.alwaysdata.net/phone.php',
+    'panel_version' => 8,
+    'force_update' => false,
+    'message' => 'Rebel Panel OK',
+  ];
+  echo json_encode([
+    'ok' => true,
+    'min_apk_version' => (int)($cfg['min_apk_version'] ?? 1),
+    'latest_apk_version' => (int)($cfg['latest_apk_version'] ?? 6),
+    'apk_url' => (string)($cfg['apk_url'] ?? ''),
+    'panel_url' => (string)($cfg['panel_url'] ?? 'https://rebelbhaiya.alwaysdata.net/phone.php'),
+    'panel_version' => (int)($cfg['panel_version'] ?? 8),
+    'force_update' => !empty($cfg['force_update']),
+    'message' => (string)($cfg['message'] ?? 'OK'),
+    'server_time' => time(),
+  ]);
+  exit;
+}
 
 if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
-  if (rebel_app_is_apk_request()) rebel_app_require_attest();
+  if ($REBEL_HAS_APP_LIB && rebel_app_is_apk_request()) rebel_app_require_attest();
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) $body = [];
   $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));

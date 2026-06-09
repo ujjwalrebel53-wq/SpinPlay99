@@ -6,7 +6,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Display;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -21,9 +20,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -33,7 +30,6 @@ public class MainActivity extends AppCompatActivity {
     private SecureWebViewClient secureClient;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean pageLoaded = false;
-    private boolean securityOk = false;
     private Runnable loadTimeout;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -46,26 +42,16 @@ public class MainActivity extends AppCompatActivity {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
-        }
-        enableHighRefreshRate();
 
         webView = findViewById(R.id.webview);
         errorPanel = findViewById(R.id.error_panel);
         errorText = findViewById(R.id.error_text);
         Button retryBtn = findViewById(R.id.retry_btn);
-        retryBtn.setOnClickListener(v -> startPanel());
-
-        try {
-            RebelGuard.enforce(this);
-            securityOk = true;
-        } catch (RebelGuard.Blocked e) {
-            showFatal(e.getMessage());
-            return;
-        }
+        retryBtn.setOnClickListener(v -> loadPanel());
 
         setupWebView();
+        loadPanel();
+
         RebelUpdateManager.check(this, new RebelUpdateManager.Callback() {
             @Override
             public void onPanelUrl(String url, int panelVersion) {
@@ -80,21 +66,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onForceApkUpdate(String apkUrl, String message) {
                 new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Update Required")
+                    .setTitle("Update")
                     .setMessage(message)
-                    .setCancelable(false)
-                    .setPositiveButton("Update", (d, w) -> RebelUpdateManager.openApkInstall(MainActivity.this, apkUrl))
+                    .setPositiveButton("OK", null)
                     .show();
             }
             @Override
-            public void onError(String msg) { /* use cached URL */ }
+            public void onError(String msg) { }
         });
-
-        startPanel();
     }
 
-    private void startPanel() {
-        if (!securityOk) return;
+    private void loadPanel() {
         pageLoaded = false;
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
@@ -107,35 +89,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (loadTimeout != null) handler.removeCallbacks(loadTimeout);
         loadTimeout = () -> {
-            if (!pageLoaded) showError("Panel load timeout.\nCheck internet or panel URL in RebelConfig.");
+            if (!pageLoaded) {
+                showError("Load timeout.\n\n" + url + "\n\nCheck net & update phone.php on server.");
+            }
         };
-        handler.postDelayed(loadTimeout, 20000);
+        handler.postDelayed(loadTimeout, 25000);
 
-        Map<String, String> headers = new HashMap<>();
-        headers.put(RebelAttest.HEADER, RebelAttest.buildHeader(this));
-        headers.put("X-Rebel-Device", RebelAttest.deviceIdHash(this));
-        webView.loadUrl(url, headers);
-    }
-
-    private void enableHighRefreshRate() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-        try {
-            Display display = getDisplay();
-            if (display == null) return;
-            float bestHz = 60f;
-            int bestMode = 0;
-            for (Display.Mode mode : display.getSupportedModes()) {
-                if (mode.getRefreshRate() > bestHz) {
-                    bestHz = mode.getRefreshRate();
-                    bestMode = mode.getModeId();
-                }
-            }
-            if (bestMode != 0 && bestHz >= 90f) {
-                WindowManager.LayoutParams lp = getWindow().getAttributes();
-                lp.preferredDisplayModeId = bestMode;
-                getWindow().setAttributes(lp);
-            }
-        } catch (Exception ignored) {}
+        webView.loadUrl(url);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -149,24 +109,19 @@ public class MainActivity extends AppCompatActivity {
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         s.setAllowFileAccess(false);
-        s.setAllowContentAccess(false);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setSupportZoom(false);
         s.setTextZoom(100);
         s.setLoadsImagesAutomatically(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            s.setOffscreenPreRaster(true);
-        }
         s.setUserAgentString(s.getUserAgentString() + " " + RebelConfig.APP_USER_AGENT_TAG);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+            WebView.setWebContentsDebuggingEnabled(false);
         }
 
         webView.setBackgroundColor(0xFF050508);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -197,44 +152,27 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void onBlockedNavigation(String url) {
-        Toast.makeText(this, "Blocked URL", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Blocked", Toast.LENGTH_SHORT).show();
     }
 
     private void injectBridge() {
         webView.evaluateJavascript(
             "(function(){if(window.__rebelApk)return;window.__rebelApk=true;"
-                + "document.documentElement.style.background='#050508';"
-                + "document.body.style.background='#050508';"
                 + "var f=window.fetch;window.fetch=function(u,o){o=o||{};o.headers=o.headers||{};"
-                + "if(o.headers instanceof Headers){o.headers.set('X-Rebel-Attest',RebelAndroid.getAttest());o.headers.set('X-Rebel-Device',RebelAndroid.getDevice());}"
-                + "else{o.headers['X-Rebel-Attest']=RebelAndroid.getAttest();o.headers['X-Rebel-Device']=RebelAndroid.getDevice();}"
+                + "try{o.headers['X-Rebel-Attest']=RebelAndroid.getAttest();o.headers['X-Rebel-Device']=RebelAndroid.getDevice();}catch(e){}"
                 + "return f(u,o);};})();", null);
-    }
-
-    private void showFatal(String reason) {
-        new AlertDialog.Builder(this)
-            .setTitle("Rebel Panel")
-            .setMessage("Security: " + reason)
-            .setCancelable(false)
-            .setPositiveButton("Exit", (d, w) -> finish())
-            .show();
     }
 
     @Override
     public void onBackPressed() {
         if (webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
-            String url = webView.getUrl();
-            if (url != null && url.toLowerCase(Locale.US).contains("phone.php")) {
-                new AlertDialog.Builder(this)
-                    .setTitle("Exit Rebel Panel?")
-                    .setPositiveButton("Yes", (d, w) -> finish())
-                    .setNegativeButton("No", null)
-                    .show();
-            } else {
-                webView.goBack();
-            }
+            webView.goBack();
         } else {
-            super.onBackPressed();
+            new AlertDialog.Builder(this)
+                .setTitle("Exit Rebel Panel?")
+                .setPositiveButton("Yes", (d, w) -> finish())
+                .setNegativeButton("No", null)
+                .show();
         }
     }
 
