@@ -101,59 +101,36 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .remember{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--muted)}
 .remember input{width:18px;height:18px;accent-color:var(--accent)}
 
-/* REBEL CHARACTER AVATAR (login scene) */
-.avatar-stage{width:168px;height:188px;margin:0 auto 10px;position:relative}
-.avatar-face-ring{width:118px;height:118px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#111;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2}
-.avatar-face{width:125%;height:100%;object-fit:cover;display:block;margin-left:-12%;animation:faceLook 14s ease-in-out infinite}
-.avatar-laptop{position:absolute;left:50%;bottom:2px;width:108px;margin-left:-54px;z-index:4;animation:laptopScene 14s ease-in-out infinite;pointer-events:none}
-.laptop-lid{background:linear-gradient(180deg,#2a2a35,#1a1a22);border:2px solid #3a3a48;border-radius:6px 6px 2px 2px;padding:5px 6px 3px;transform-origin:bottom center}
-.laptop-screen{background:#0a0f14;border-radius:3px;padding:5px 6px;min-height:38px;overflow:hidden;border:1px solid #1e3a2f}
-.laptop-code{font-family:'Space Mono',monospace;font-size:6.5px;line-height:1.55;color:#00ff9d}
+/* REBEL CHARACTER AVATAR (login scene — JS driven) */
+.avatar-stage{width:180px;height:210px;margin:0 auto 10px;position:relative;overflow:visible}
+.avatar-face-ring{width:120px;height:120px;margin:0 auto;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:#111;box-shadow:0 8px 24px rgba(0,0,0,.45);position:relative;z-index:2;transition:transform .45s cubic-bezier(.34,1.2,.64,1);transform-origin:center bottom}
+.avatar-face-ring.look-right{transform:rotate(10deg) translateX(4px)}
+.avatar-face-ring.look-left{transform:rotate(-10deg) translateX(-4px)}
+.avatar-face-ring.typing{transform:translateY(-6px) scale(.94)}
+.avatar-face-pan{width:155%;height:100%;transition:transform .45s cubic-bezier(.34,1.2,.64,1);transform:translate3d(-18%,0,0)}
+.avatar-face-pan.look-right{transform:translate3d(-32%,0,0)}
+.avatar-face-pan.look-left{transform:translate3d(-4%,0,0)}
+.avatar-face{width:100%;height:100%;object-fit:cover;object-position:50% 28%;display:block}
+.avatar-laptop{position:absolute;left:50%;bottom:0;width:118px;z-index:5;pointer-events:none;opacity:0;transform:translate3d(-50%,36px,0) scale(.55);transition:opacity .3s ease,transform .5s cubic-bezier(.34,1.56,.64,1)}
+.avatar-laptop.show{opacity:1;transform:translate3d(-50%,0,0) scale(1)}
+.avatar-laptop.pop{transform:translate3d(-50%,-4px,0) scale(1.06)}
+.laptop-lid{background:linear-gradient(180deg,#2a2a35,#1a1a22);border:2px solid #3a3a48;border-radius:6px 6px 2px 2px;padding:6px 7px 4px;transform-origin:bottom center}
+.laptop-screen{background:#0a0f14;border-radius:3px;padding:6px 7px;min-height:42px;overflow:hidden;border:1px solid #1e3a2f}
+.laptop-code{font-family:'Space Mono',monospace;font-size:7px;line-height:1.6;color:#00ff9d}
 .laptop-code .dim{color:#4a6a5a}
 .laptop-code .hi{color:#7b9cff}
-.laptop-cursor{display:inline-block;width:4px;height:8px;background:#00ff9d;margin-left:1px;animation:blinkCursor .6s step-end infinite;vertical-align:middle}
-.laptop-base{height:5px;background:linear-gradient(180deg,#3a3a48,#252530);border-radius:0 0 8px 8px;margin:0 4px;border:1px solid #4a4a58;border-top:none}
-.laptop-hands{position:absolute;bottom:18px;left:50%;width:90px;height:14px;margin-left:-45px;background:radial-gradient(ellipse,rgba(0,0,0,.35),transparent 70%);opacity:0;animation:handsOn 14s ease-in-out infinite}
+.laptop-cursor{display:inline-block;width:4px;height:9px;background:#00ff9d;margin-left:1px;animation:blinkCursor .55s step-end infinite;vertical-align:middle}
+.laptop-base{height:6px;background:linear-gradient(180deg,#3a3a48,#252530);border-radius:0 0 8px 8px;margin:0 5px;border:1px solid #4a4a58;border-top:none}
+.laptop-line{display:block;opacity:0;transform:translateX(-6px);transition:opacity .25s ease,transform .25s ease}
+.laptop-line.visible{opacity:1;transform:none}
+.laptop-glow{position:absolute;inset:auto -8px -6px -8px;height:20px;background:radial-gradient(ellipse,rgba(0,255,157,.18),transparent 70%);opacity:0;transition:opacity .35s ease;pointer-events:none}
+.avatar-laptop.show .laptop-glow{opacity:1}
 .rebel-avatar-sm{width:40px;height:40px;flex-shrink:0}
 .rebel-avatar-sm img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;border:1px solid var(--border);background:#111}
 .login-hero{text-align:center;margin-bottom:8px}
 .login-hero h1{font-size:22px;font-weight:800;margin-top:4px}
 .login-hero em{color:var(--accent);font-style:normal}
-@keyframes faceLook{
-  0%,8%{transform:translateX(0) scale(1.08);object-position:50% 38%}
-  12%,22%{transform:translateX(10%) scale(1.14);object-position:62% 38%}
-  26%,36%{transform:translateX(-10%) scale(1.14);object-position:38% 38%}
-  40%,44%{transform:translateX(0) scale(1.06);object-position:50% 38%}
-  48%,78%{transform:translateX(0) scale(1.02);object-position:50% 42%}
-  82%,100%{transform:translateX(0) scale(1.08);object-position:50% 38%}
-}
-@keyframes laptopScene{
-  0%,42%{opacity:0;transform:translateY(40px) scale(.7)}
-  46%{opacity:1;transform:translateY(0) scale(1.05)}
-  50%,76%{opacity:1;transform:translateY(0) scale(1)}
-  80%{opacity:1;transform:translateY(0) scale(1)}
-  86%,100%{opacity:0;transform:translateY(50px) scale(.8)}
-}
-@keyframes handsOn{
-  0%,44%{opacity:0}
-  48%,78%{opacity:1}
-  84%,100%{opacity:0}
-}
 @keyframes blinkCursor{0%,100%{opacity:1}50%{opacity:0}}
-@keyframes codeType{
-  0%,50%{max-height:0;opacity:0}
-  52%,78%{max-height:40px;opacity:1}
-  82%,100%{opacity:0}
-}
-.laptop-line{display:block;opacity:0;animation:lineIn 14s ease-in-out infinite}
-.laptop-line.l1{animation-delay:0s}
-.laptop-line.l2{animation-delay:0s}
-.laptop-line.l3{animation-delay:0s}
-@keyframes lineIn{
-  0%,48%{opacity:0;transform:translateX(-4px)}
-  52%,76%{opacity:1;transform:none}
-  82%,100%{opacity:0}
-}
 
 /* HEADER */
 .hdr{flex-shrink:0;height:calc(var(--hdr-h) + var(--safe-t));padding-top:var(--safe-t);padding-left:16px;padding-right:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(12px);background:rgba(5,5,8,0.85);z-index:10}
@@ -265,14 +242,17 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-hero">
-      <div class="avatar-stage">
-        <div class="avatar-face-ring">
-          <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="3">
+        <div class="avatar-face-ring look-center" id="avatarFaceRing">
+          <div class="avatar-face-pan look-center" id="avatarFacePan">
+            <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+          </div>
         </div>
-        <div class="avatar-laptop">
+        <div class="avatar-laptop" id="avatarLaptop">
+          <div class="laptop-glow"></div>
           <div class="laptop-lid">
             <div class="laptop-screen">
-              <div class="laptop-code">
+              <div class="laptop-code" id="laptopCode">
                 <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
                 <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
                 <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
@@ -281,7 +261,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
           </div>
           <div class="laptop-base"></div>
         </div>
-        <div class="laptop-hands"></div>
       </div>
       <h1><em>Rebel</em> Mobile</h1>
     </div>
@@ -721,8 +700,68 @@ function useSelForAutoToken(){
   });
 }
 
+/* REBEL AVATAR ANIMATION */
+function startRebelAvatarAnim(){
+  var stage=document.getElementById('rebelAvatarStage');
+  var ring=document.getElementById('avatarFaceRing');
+  var pan=document.getElementById('avatarFacePan');
+  var laptop=document.getElementById('avatarLaptop');
+  if(!stage||!ring||!pan||!laptop)return;
+  var lines=stage.querySelectorAll('.laptop-line');
+  var timer=null;
+  function clearLook(){
+    ring.classList.remove('look-right','look-left','typing');
+    pan.classList.remove('look-right','look-left');
+    ring.classList.add('look-center');
+    pan.classList.add('look-center');
+  }
+  function look(dir){
+    clearLook();
+    if(dir==='right'){ring.classList.add('look-right');pan.classList.add('look-right');}
+    else if(dir==='left'){ring.classList.add('look-left');pan.classList.add('look-left');}
+  }
+  function resetCode(){
+    for(var i=0;i<lines.length;i++)lines[i].classList.remove('visible');
+  }
+  function typeCode(cb){
+    resetCode();
+    var i=0;
+    function next(){
+      if(i>=lines.length){if(cb)cb();return;}
+      lines[i].classList.add('visible');
+      i++;
+      timer=setTimeout(next,420);
+    }
+    next();
+  }
+  function hideLaptop(){
+    laptop.classList.remove('show','pop');
+    ring.classList.remove('typing');
+    resetCode();
+  }
+  function showLaptop(){
+    laptop.classList.add('show');
+    timer=setTimeout(function(){laptop.classList.add('pop');},60);
+    ring.classList.add('typing');
+  }
+  function runScene(){
+    hideLaptop();
+    clearLook();
+    timer=setTimeout(function(){look('right');},500);
+    timer=setTimeout(function(){look('left');},1700);
+    timer=setTimeout(function(){look('right');},2900);
+    timer=setTimeout(function(){clearLook();},4100);
+    timer=setTimeout(function(){showLaptop();},4500);
+    timer=setTimeout(function(){typeCode();},4900);
+    timer=setTimeout(function(){hideLaptop();clearLook();},8200);
+    timer=setTimeout(runScene,9000);
+  }
+  runScene();
+}
+
 /* BOOT */
 (function(){
+  startRebelAvatarAnim();
   var s=getSession();
   if(s&&s.token){
     authFetch({action:'check',token:s.token}).then(function(res){
