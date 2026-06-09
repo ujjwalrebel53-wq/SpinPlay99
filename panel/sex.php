@@ -1,4 +1,259 @@
 <?php
+define('REBEL_BOT_TOKEN', '8952674967:AAGivOmzdznNBdRK2j_trdnnwv5lCDX8caA');
+define('REBEL_OWNER_ID', '8432393497');
+define('REBEL_KEYS_FILE', __DIR__ . '/data/rebel_keys.json');
+
+function rebel_json_out($data, $code = 200) {
+  http_response_code($code);
+  header('Content-Type: application/json; charset=UTF-8');
+  header('Cache-Control: no-store');
+  echo json_encode($data);
+  exit;
+}
+
+function rebel_keys_load() {
+  if (!is_file(REBEL_KEYS_FILE)) {
+    $dir = dirname(REBEL_KEYS_FILE);
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    file_put_contents(REBEL_KEYS_FILE, json_encode(['keys' => [], 'sessions' => []], JSON_PRETTY_PRINT));
+  }
+  $raw = @file_get_contents(REBEL_KEYS_FILE);
+  $data = json_decode($raw ?: '{}', true);
+  if (!is_array($data)) $data = [];
+  if (!isset($data['keys']) || !is_array($data['keys'])) $data['keys'] = [];
+  if (!isset($data['sessions']) || !is_array($data['sessions'])) $data['sessions'] = [];
+  return $data;
+}
+
+function rebel_keys_save($data) {
+  $dir = dirname(REBEL_KEYS_FILE);
+  if (!is_dir($dir)) @mkdir($dir, 0755, true);
+  $fp = fopen(REBEL_KEYS_FILE, 'c+');
+  if (!$fp) return false;
+  flock($fp, LOCK_EX);
+  ftruncate($fp, 0);
+  fwrite($fp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+  fflush($fp);
+  flock($fp, LOCK_UN);
+  fclose($fp);
+  return true;
+}
+
+function rebel_make_key() {
+  $a = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+  $b = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+  return 'RBL-' . $a . '-' . $b;
+}
+
+function rebel_norm_key($key) {
+  $key = strtoupper(trim((string)$key));
+  $key = preg_replace('/\s+/', '', $key);
+  return $key;
+}
+
+function rebel_key_valid(&$data, $key) {
+  $key = rebel_norm_key($key);
+  if ($key === '' || !isset($data['keys'][$key])) return false;
+  $row = $data['keys'][$key];
+  if (empty($row['active'])) return false;
+  if (!empty($row['expires']) && time() > (int)$row['expires']) {
+    $data['keys'][$key]['active'] = false;
+    return false;
+  }
+  return $key;
+}
+
+function rebel_create_session(&$data, $key, $remember) {
+  $token = bin2hex(random_bytes(24));
+  $hash = hash('sha256', $token);
+  $ttl = $remember ? (30 * 86400) : (24 * 3600);
+  $data['sessions'][$hash] = [
+    'created' => time(),
+    'expires' => time() + $ttl,
+    'key_ref' => $key
+  ];
+  return ['token' => $token, 'expires' => time() + $ttl];
+}
+
+function rebel_tg_send($chatId, $text) {
+  $url = 'https://api.telegram.org/bot' . REBEL_BOT_TOKEN . '/sendMessage';
+  $payload = json_encode([
+    'chat_id' => $chatId,
+    'text' => $text,
+    'parse_mode' => 'HTML',
+    'disable_web_page_preview' => true
+  ]);
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_POST => true,
+      CURLOPT_POSTFIELDS => $payload,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+      CURLOPT_TIMEOUT => 20
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+    return;
+  }
+  $ctx = stream_context_create([
+    'http' => [
+      'method' => 'POST',
+      'header' => "Content-Type: application/json\r\n",
+      'content' => $payload,
+      'timeout' => 20
+    ]
+  ]);
+  @file_get_contents($url, false, $ctx);
+}
+
+function rebel_tg_set_webhook($hookUrl) {
+  $url = 'https://api.telegram.org/bot' . REBEL_BOT_TOKEN . '/setWebhook';
+  $payload = json_encode(['url' => $hookUrl, 'drop_pending_updates' => true]);
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_POST => true,
+      CURLOPT_POSTFIELDS => $payload,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+      CURLOPT_TIMEOUT => 20
+    ]);
+    $raw = curl_exec($ch);
+    curl_close($ch);
+    return json_decode($raw ?: '{}', true);
+  }
+  return null;
+}
+
+function rebel_bot_handle($update) {
+  $msg = $update['message'] ?? null;
+  if (!$msg) return;
+  $chatId = (string)($msg['chat']['id'] ?? '');
+  $fromId = (string)($msg['from']['id'] ?? '');
+  $text = trim((string)($msg['text'] ?? ''));
+  if ($fromId !== REBEL_OWNER_ID) {
+    rebel_tg_send($chatId, "⛔ Unauthorized.\nOnly owner can use this bot.");
+    return;
+  }
+  if (preg_match('/^\/start\b/i', $text)) {
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b>\n\n/genkey [days] — New access key (default 30 days)\n/keys — List active keys\n/revoke RBL-XXX — Revoke key\n/setwebhook — Register bot webhook");
+    return;
+  }
+  if (preg_match('/^\/setwebhook\b/i', $text)) {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $script = $_SERVER['SCRIPT_NAME'] ?? '/panel/sex.php';
+    $hook = $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
+    $res = rebel_tg_set_webhook($hook);
+    $ok = !empty($res['ok']);
+    rebel_tg_send($chatId, $ok ? "✅ Webhook set:\n<code>" . htmlspecialchars($hook, ENT_QUOTES, 'UTF-8') . "</code>" : "❌ Webhook failed.");
+    return;
+  }
+  if (preg_match('/^\/genkey(?:@\w+)?(?:\s+(\d+))?\s*$/i', $text, $m)) {
+    $days = isset($m[1]) ? max(0, (int)$m[1]) : 30;
+    $data = rebel_keys_load();
+    $key = rebel_make_key();
+    while (isset($data['keys'][$key])) $key = rebel_make_key();
+    $data['keys'][$key] = [
+      'created' => time(),
+      'expires' => $days > 0 ? time() + ($days * 86400) : 0,
+      'active' => true,
+      'uses' => 0,
+      'label' => 'tg-' . date('dM-Hi')
+    ];
+    rebel_keys_save($data);
+    $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
+    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b>\n\n<code>" . $key . "</code>" . $exp . "\n\nPanel me yahi key paste karo.");
+    return;
+  }
+  if (preg_match('/^\/keys\b/i', $text)) {
+    $data = rebel_keys_load();
+    $lines = [];
+    foreach ($data['keys'] as $k => $row) {
+      if (empty($row['active'])) continue;
+      if (!empty($row['expires']) && time() > (int)$row['expires']) continue;
+      $mask = substr($k, 0, 8) . '••••';
+      $uses = (int)($row['uses'] ?? 0);
+      $lines[] = '• <code>' . $mask . '</code> · uses ' . $uses;
+    }
+    rebel_tg_send($chatId, $lines ? ("📋 <b>Active Keys</b>\n\n" . implode("\n", $lines)) : "📋 No active keys.");
+    return;
+  }
+  if (preg_match('/^\/revoke\s+(RBL-[A-Z0-9\-]+)/i', $text, $m)) {
+    $key = rebel_norm_key($m[1]);
+    $data = rebel_keys_load();
+    if (!isset($data['keys'][$key])) {
+      rebel_tg_send($chatId, "❌ Key not found.");
+      return;
+    }
+    $data['keys'][$key]['active'] = false;
+    rebel_keys_save($data);
+    rebel_tg_send($chatId, "✅ Revoked:\n<code>" . $key . "</code>");
+    return;
+  }
+  rebel_tg_send($chatId, "Unknown command. Send /start for help.");
+}
+
+if (isset($_GET['rebel_bot_setup']) && (string)($_GET['owner'] ?? '') === REBEL_OWNER_ID) {
+  $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+  $script = $_SERVER['SCRIPT_NAME'] ?? '/panel/sex.php';
+  $hook = $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
+  $res = rebel_tg_set_webhook($hook);
+  rebel_json_out(['ok' => !empty($res['ok']), 'webhook' => $hook, 'telegram' => $res]);
+}
+
+if (isset($_GET['rebel_bot_webhook'])) {
+  $raw = file_get_contents('php://input');
+  $update = json_decode($raw ?: '{}', true);
+  if (is_array($update)) rebel_bot_handle($update);
+  rebel_json_out(['ok' => true]);
+}
+
+if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) $body = [];
+  $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));
+  $data = rebel_keys_load();
+
+  if ($action === 'check') {
+    $token = trim((string)($body['token'] ?? ''));
+    if ($token === '') rebel_json_out(['ok' => false, 'error' => 'No session'], 401);
+    $hash = hash('sha256', $token);
+    $sess = $data['sessions'][$hash] ?? null;
+    if (!$sess || time() > (int)($sess['expires'] ?? 0)) {
+      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
+      rebel_keys_save($data);
+      rebel_json_out(['ok' => false, 'error' => 'Session expired'], 401);
+    }
+    rebel_json_out(['ok' => true, 'expires' => (int)$sess['expires']]);
+  }
+
+  if ($action === 'logout') {
+    $token = trim((string)($body['token'] ?? ''));
+    if ($token !== '') {
+      $hash = hash('sha256', $token);
+      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
+      rebel_keys_save($data);
+    }
+    rebel_json_out(['ok' => true]);
+  }
+
+  $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
+  if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
+  $valid = rebel_key_valid($data, $key);
+  if (!$valid) {
+    rebel_keys_save($data);
+    rebel_json_out(['ok' => false, 'error' => 'Invalid or expired key'], 403);
+  }
+  $data['keys'][$key]['uses'] = (int)($data['keys'][$key]['uses'] ?? 0) + 1;
+  $remember = !empty($body['remember']);
+  $session = rebel_create_session($data, $key, $remember);
+  rebel_keys_save($data);
+  rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
+}
+
 if (isset($_GET['aadhar_api']) || isset($_GET['rbl_aadhar']) || isset($_POST['aadhar_api']) || isset($_POST['rbl_aadhar'])) {
   header('Content-Type: application/json; charset=UTF-8');
   header('Cache-Control: no-store');
@@ -134,24 +389,49 @@ header('Content-Type: text/html; charset=UTF-8');
       .orb{opacity:0.18}
     }
 
-    /* ─── LOGIN ─── */
-    #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
+    /* ─── LOGIN (Advanced Key Gate) ─── */
+    #loginPage{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at 20% 20%,rgba(255,60,60,0.12),transparent 50%),radial-gradient(ellipse at 80% 80%,rgba(123,47,255,0.1),transparent 45%),rgba(5,5,8,0.92);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:center;padding:24px}
     #loginPage.hidden{display:none!important}
-    .login-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(12,12,18,0.98));border:1px solid rgba(255,60,60,0.2);border-radius:22px;padding:40px 36px;width:100%;max-width:400px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 40px var(--glow),inset 0 1px 0 rgba(255,255,255,0.06);transition:box-shadow 0.35s ease}
-    .login-card:hover{box-shadow:0 40px 100px rgba(0,0,0,0.8),0 0 60px var(--glow)}
-    .login-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:22px 0 0 22px}
-    .login-logo{display:flex;align-items:center;gap:14px;margin-bottom:28px}
-    .login-logo .rebel{font-size:24px;font-weight:800;letter-spacing:-1px}
+    .login-shell{display:grid;grid-template-columns:1fr;gap:0;width:100%;max-width:460px;position:relative}
+    .login-card{background:linear-gradient(155deg,rgba(24,24,34,0.96),rgba(10,10,16,0.98));border:1px solid rgba(255,60,60,0.22);border-radius:26px;padding:38px 34px 32px;width:100%;position:relative;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.75),0 0 60px var(--glow),inset 0 1px 0 rgba(255,255,255,0.07)}
+    .login-card::before{content:'';position:absolute;inset:-1px;border-radius:26px;padding:1px;background:linear-gradient(135deg,rgba(255,60,60,0.55),rgba(123,47,255,0.35),rgba(255,149,0,0.4));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;animation:loginBorderSpin 8s linear infinite}
+    .login-card::after{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2),#7b2fff);border-radius:26px 0 0 26px}
+    @keyframes loginBorderSpin{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(360deg)}}
+    .login-scanline{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.012) 2px,rgba(255,255,255,0.012) 4px);pointer-events:none;opacity:0.35}
+    .login-badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+    .login-badge{font-family:'Space Mono',monospace;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:100px;border:1px solid rgba(255,60,60,0.25);color:var(--accent);background:rgba(255,60,60,0.08)}
+    .login-badge.purple{border-color:rgba(123,47,255,0.35);color:#b794ff;background:rgba(123,47,255,0.1)}
+    .login-badge.green{border-color:rgba(0,255,157,0.3);color:var(--success);background:rgba(0,255,157,0.08)}
+    .login-logo{display:flex;align-items:center;gap:14px;margin-bottom:22px;position:relative;z-index:1}
+    .login-logo .rebel{font-size:26px;font-weight:800;letter-spacing:-1px}
     .login-logo .rebel em{font-style:normal;color:var(--accent)}
     .login-logo .panel-sub{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:3px;margin-top:2px}
-    .login-card h2{font-size:20px;font-weight:800;margin-bottom:4px}
-    .login-card h2 span{color:var(--accent)}
-    .login-card .login-sub{color:var(--muted);font-size:12px;margin-bottom:24px}
-    .login-error{background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.3);color:var(--error);border-radius:8px;padding:10px 14px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:14px;display:none}
-    .remember-row{display:flex;align-items:center;gap:10px;margin:14px 0 18px}
+    .login-card h2{font-size:22px;font-weight:800;margin-bottom:6px;position:relative;z-index:1}
+    .login-card h2 span{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .login-card .login-sub{color:var(--muted);font-size:12px;margin-bottom:22px;line-height:1.55;position:relative;z-index:1}
+    .login-error{background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.35);color:var(--error);border-radius:10px;padding:11px 14px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:14px;display:none;position:relative;z-index:1}
+    .key-field-wrap{margin-bottom:16px;position:relative;z-index:1}
+    .key-field-wrap label{font-size:9px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:2px;display:block;margin-bottom:8px;text-transform:uppercase}
+    .key-input-box{display:flex;align-items:center;gap:8px;background:rgba(8,8,14,0.9);border:1px solid rgba(255,60,60,0.25);border-radius:14px;padding:6px 8px 6px 14px;transition:border-color 0.25s,box-shadow 0.25s}
+    .key-input-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,60,60,0.12),0 0 24px rgba(255,60,60,0.15)}
+    .key-prefix{font-size:18px;opacity:0.85}
+    .key-input-box input{flex:1;border:none;background:transparent;padding:12px 4px;font-family:'Space Mono',monospace;font-size:14px;letter-spacing:1.5px;color:var(--text);outline:none;text-transform:uppercase}
+    .key-input-box input::placeholder{color:rgba(107,107,136,0.65);text-transform:none;letter-spacing:0.5px;font-size:12px}
+    .key-paste-btn{border:none;background:rgba(255,60,60,0.12);color:var(--accent);font-family:'Space Mono',monospace;font-size:9px;padding:8px 12px;border-radius:10px;cursor:pointer;transition:all 0.2s;white-space:nowrap}
+    .key-paste-btn:hover{background:rgba(255,60,60,0.22)}
+    .login-features{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;position:relative;z-index:1}
+    .login-feat{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.02)}
+    .remember-row{display:flex;align-items:center;gap:10px;margin:12px 0 18px;position:relative;z-index:1}
     .remember-row input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
     .remember-row label{font-size:11px;color:var(--muted);cursor:pointer}
-    .login-hint{margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)}
+    .btn-login-advanced{position:relative;z-index:1;overflow:hidden}
+    .btn-login-advanced:disabled{opacity:0.65;cursor:wait;transform:none!important}
+    .btn-login-advanced .btn-shine{position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.18),transparent);animation:btnShine 3s ease-in-out infinite}
+    @keyframes btnShine{0%{left:-100%}40%,100%{left:140%}}
+    .login-hint{margin-top:18px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);line-height:1.6;position:relative;z-index:1}
+    .login-hint strong{color:var(--accent2)}
+    .login-status{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-family:'Space Mono',monospace;font-size:9px;color:var(--success);opacity:0.85;position:relative;z-index:1}
+    .login-status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
     label{font-size:9px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:1.5px;display:block;margin-bottom:5px;text-transform:uppercase}
     input,textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:13px;outline:none;transition:border-color 0.2s}
     input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,60,60,0.1)}
@@ -412,21 +692,39 @@ header('Content-Type: text/html; charset=UTF-8');
 
 <!-- LOGIN -->
 <div id="loginPage">
-  <div class="login-card">
-    <div class="login-logo">
-      <svg class="logo-icon-3d" width="34" height="34" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
-      <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">REAL-TIME DASHBOARD</div></div>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="login-scanline"></div>
+      <div class="login-badge-row">
+        <span class="login-badge">🔐 Secure Gate</span>
+        <span class="login-badge purple">🤖 Bot Keys</span>
+        <span class="login-badge green">⚡ Live Access</span>
+      </div>
+      <div class="login-logo">
+        <svg class="logo-icon-3d" width="38" height="38" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+        <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">SECURE ACCESS GATE</div></div>
+      </div>
+      <h2>Access <span>Key</span></h2>
+      <p class="login-sub">Username / password disabled. Telegram bot se generate hui <strong>Rebel Key</strong> yahan paste karo — panel unlock ho jayega.</p>
+      <div id="loginError" class="login-error">❌ Invalid or expired access key!</div>
+      <div class="key-field-wrap">
+        <label>Rebel Access Key</label>
+        <div class="key-input-box">
+          <span class="key-prefix">🔑</span>
+          <input type="text" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" spellcheck="false" maxlength="32"/>
+          <button type="button" class="key-paste-btn" onclick="pasteLoginKey()">Paste</button>
+        </div>
+      </div>
+      <div class="login-features">
+        <span class="login-feat">🛡️ AES Gate</span>
+        <span class="login-feat">🔒 One-Time Verify</span>
+        <span class="login-feat">📡 Real-Time</span>
+      </div>
+      <div class="remember-row"><input type="checkbox" id="rememberMe" checked/><label for="rememberMe">Remember this device (30 days)</label></div>
+      <button class="btn btn-login-advanced" id="loginBtn" onclick="doLogin()"><span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel</button>
+      <div class="login-hint">Key chahiye? Telegram bot par owner se <strong>/genkey</strong> bhejo.<br>Format: <code>RBL-XXXXXX-XXXXXX</code></div>
+      <div class="login-status"><span class="login-status-dot"></span> Auth server ready</div>
     </div>
-    <h2>Admin <span>Login</span></h2>
-    <p class="login-sub">Enter credentials to access panel.</p>
-    <div id="loginError" class="login-error">❌ Wrong credentials!</div>
-    <div class="input-group">
-      <div><label>Username</label><input type="text" id="loginUser" placeholder="admin" autocomplete="username"/></div>
-      <div><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password"/></div>
-    </div>
-    <div class="remember-row"><input type="checkbox" id="rememberMe"/><label for="rememberMe">Remember me</label></div>
-    <button class="btn" onclick="doLogin()"><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Login</button>
-    <div class="login-hint">Default: admin / rebel2024</div>
   </div>
 </div>
 
@@ -2754,34 +3052,83 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function filterRows(id,q){q=q.toLowerCase();document.querySelectorAll('#'+id+' tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});}
 function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':'❌')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
 
-// ═══ LOGIN ═══
-var AU='admin',AP='rebel2024';
+// ═══ LOGIN (Key-based) ═══
+var REBEL_AUTH_URL='sex.php?rebel_auth=1';
+function rebelAuthFetch(body){
+  return fetch(REBEL_AUTH_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})
+  }).then(function(r){return r.json().then(function(j){return {ok:r.ok,data:j};});});
+}
+function pasteLoginKey(){
+  if(!navigator.clipboard) return;
+  navigator.clipboard.readText().then(function(t){
+    var el=document.getElementById('loginKey');
+    if(el) el.value=String(t||'').trim().toUpperCase();
+  }).catch(function(){});
+}
+function setLoginLoading(on){
+  var btn=document.getElementById('loginBtn');
+  if(!btn) return;
+  btn.disabled=!!on;
+  btn.innerHTML=on?'<span class="btn-shine"></span> Verifying key...':'<span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel';
+}
+function unlockPanel(token,expires,remember){
+  if(remember&&token)localStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
+  else localStorage.removeItem('rbl_session');
+  localStorage.removeItem('rbl_login');
+  document.getElementById('loginError').style.display='none';
+  document.getElementById('loginPage').classList.add('hidden');
+  openPanel();
+}
 (function(){
   clearClientsCacheIfExpired();
+  init3DScene();
   var s=null;
-  try{s=JSON.parse(localStorage.getItem('rbl_login'));}catch(e){}
-  if(s&&s.u){
-    document.getElementById('loginUser').value=s.u;
-    document.getElementById('loginPass').value=s.p;
-    document.getElementById('rememberMe').checked=true;
-    if(s.u===AU&&s.p===AP){
-      document.getElementById('loginPage').classList.add('hidden');
-      openPanel();
-    }
+  try{s=JSON.parse(localStorage.getItem('rbl_session'));}catch(e){}
+  if(s&&s.token){
+    setLoginLoading(true);
+    rebelAuthFetch({action:'check',token:s.token}).then(function(res){
+      setLoginLoading(false);
+      if(res.ok&&res.data&&res.data.ok) unlockPanel(s.token,s.exp,true);
+      else localStorage.removeItem('rbl_session');
+    }).catch(function(){setLoginLoading(false);});
   }
 })();
 function doLogin(){
-  var u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
-  if(u===AU&&p===AP){
-    if(document.getElementById('rememberMe').checked)localStorage.setItem('rbl_login',JSON.stringify({u:u,p:p}));
-    else localStorage.removeItem('rbl_login');
-    document.getElementById('loginError').style.display='none';
-    document.getElementById('loginPage').classList.add('hidden');
-    openPanel();
+  var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
+  var err=document.getElementById('loginError');
+  if(!key){
+    err.textContent='❌ Please enter your Rebel access key!';
+    err.style.display='block';
+    return;
   }
-  else{document.getElementById('loginError').style.display='block';document.getElementById('loginPass').value='';}
+  err.style.display='none';
+  setLoginLoading(true);
+  var remember=document.getElementById('rememberMe').checked;
+  rebelAuthFetch({action:'login',key:key,remember:remember}).then(function(res){
+    setLoginLoading(false);
+    if(res.ok&&res.data&&res.data.ok){
+      unlockPanel(res.data.token,res.data.expires,remember);
+      document.getElementById('loginKey').value='';
+      return;
+    }
+    err.textContent='❌ '+(res.data&&res.data.error?res.data.error:'Invalid or expired access key!');
+    err.style.display='block';
+    document.getElementById('loginKey').value='';
+  }).catch(function(){
+    setLoginLoading(false);
+    err.textContent='❌ Auth server unreachable. Try again.';
+    err.style.display='block';
+  });
 }
-document.addEventListener('keydown',function(e){if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter')doLogin();});
+document.addEventListener('keydown',function(e){
+  if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter') doLogin();
+});
+document.getElementById('loginKey').addEventListener('input',function(){
+  this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');
+});
 var _perfTickLast=0, _cacheSweepLast=0;
 function perfMainLoop(now){
   requestAnimationFrame(perfMainLoop);
