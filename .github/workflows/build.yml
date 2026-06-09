@@ -10,16 +10,10 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
-    - name: Setup Gradle wrapper
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq wget unzip
-        wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip -O /tmp/gradle.zip
-        sudo unzip -q /tmp/gradle.zip -d /opt
-        /opt/gradle-8.2/bin/gradle wrapper --gradle-version 8.2
-        chmod +x gradlew
     - name: Build Release APK
-      run: ./gradlew clean assembleRelease --stacktrace
+      run: |
+        chmod +x gradlew
+        ./gradlew clean assembleRelease --stacktrace
     - uses: actions/upload-artifact@v4
       with:
         name: RebelPanel-APK
