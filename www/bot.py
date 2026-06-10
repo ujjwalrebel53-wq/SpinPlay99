@@ -2,6 +2,8 @@
 """
 Telegram bot — UIDAI retrieve page live + captcha Telegram se bharo.
 
+Python-first OTP (no extension bundle) — dob:null direct API.
+
 Usage:
   bash setup.sh
   pip install -r requirements.txt
@@ -21,6 +23,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from browser_session import UidaiBrowserSession
+from uidai_api import BOT_ENGINE_VERSION
 
 load_dotenv(Path(__file__).parent / '.env')
 
@@ -45,9 +48,6 @@ else:
     AUTO_INDIA = False
 DEFAULT_NAME = os.getenv('UIDAI_NAME', 'KAMAR JAHAN').strip()
 DEFAULT_MOBILE = os.getenv('UIDAI_MOBILE', '7651892956').strip()
-BUNDLE = Path(os.getenv('REBEL_BUNDLE_PATH', '../browser-extension/page-bundle.js'))
-if not BUNDLE.is_absolute():
-    BUNDLE = (Path(__file__).parent / BUNDLE).resolve()
 
 CAPTCHA_RE = re.compile(r'^[a-zA-Z0-9]{4,8}$')
 MOBILE_RE = re.compile(r'^[6-9]\d{9}$')
@@ -154,7 +154,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
     await update.message.reply_text(
-        'Rebel Adhar — UIDAI Live Bot\n\n'
+        f'Rebel Adhar — UIDAI Live Bot (v{BOT_ENGINE_VERSION})\n\n'
         'Commands:\n'
         '/open — naam + mobile puchega, phir site khulegi\n'
         '/open KAMAR JAHAN 7651892956 — seedha naam/mobile ke saath\n'
@@ -162,7 +162,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        'Pre-warm browser + fast commit load\n'
+        'Python OTP — extension bundle ki zaroorat nahi\n'
         'Flow: /open → naam → mobile → captcha reply'
     )
 
@@ -188,7 +188,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text('Koi session nahi — /open chalao.')
         return
     draft = FLOW.get(cid, {})
-    lines = [f'Flow step: {step or "none"}']
+    lines = [f'Engine: v{BOT_ENGINE_VERSION}', f'Flow step: {step or "none"}']
     if draft.get('name'):
         lines.append(f'Draft name: {draft["name"]}')
     if draft.get('mobile'):
@@ -199,7 +199,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'VPN: {sess.proxy_label or PROXY or "auto India"}',
             f'Name: {sess.name}',
             f'Mobile: {sess.mobile}',
-            f'Bundle: {BUNDLE.name}',
+            f'captchaTxn: {sess.captcha_txn_id[:12] + "…" if sess.captcha_txn_id else "—"}',
         ])
     await update.message.reply_text('\n'.join(lines))
 
@@ -253,7 +253,6 @@ async def open_uidai_session(
         await progress.update(n, total, text)
 
     sess = UidaiBrowserSession(
-        BUNDLE,
         proxy=PROXY,
         auto_india_proxy=AUTO_INDIA,
         on_step=on_step,
@@ -291,9 +290,6 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if not TOKEN:
         await update.message.reply_text('TELEGRAM_BOT_TOKEN .env me set karo.')
-        return
-    if not BUNDLE.is_file():
-        await update.message.reply_text(f'Bundle missing: {BUNDLE}')
         return
 
     cid = update.effective_chat.id
@@ -389,19 +385,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         result = await sess.send_otp(text, on_step=otp_step)
         summary = result.get('summary', '')
-        version = result.get('version', '?')
+        version = result.get('version', BOT_ENGINE_VERSION)
         otp_ok = result.get('otp_ok')
         if otp_ok is None:
             otp_ok = any(
-                'OTP sent' in (x.get('m') or '') or 'UIDAI ko OTP' in (x.get('m') or '')
-                for x in result.get('logs', [])
+                'OTP sent' in (x.get('m') or '') for x in result.get('logs', [])
             )
         captcha_warn = any(
             'Captcha' in (x.get('m') or '') or 'captcha' in (x.get('m') or '').lower()
             for x in result.get('logs', [])
         )
 
-        status = 'Request gayi — SMS check karo' if otp_ok else 'Check logs — shayad captcha galat'
+        status = '✅ OTP request gayi — SMS check karo' if otp_ok else 'Check logs — shayad captcha galat'
         if captcha_warn:
             status = 'Captcha issue — /refresh karke dubara'
 
@@ -429,7 +424,13 @@ def main() -> None:
     app.add_handler(CommandHandler('close', cmd_close))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
-    log.info('Bot start — allowed: %s proxy: %s auto_india: %s', ALLOWED or 'ALL', PROXY or 'auto', AUTO_INDIA)
+    log.info(
+        'Bot start v%s — allowed: %s proxy: %s auto_india: %s',
+        BOT_ENGINE_VERSION,
+        ALLOWED or 'ALL',
+        PROXY or 'auto',
+        AUTO_INDIA,
+    )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

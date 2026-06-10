@@ -1,6 +1,6 @@
-# UIDAI Live Telegram Bot
+# UIDAI Live Telegram Bot (v2 — Python-first)
 
-Telegram se UIDAI `retrieve-eid-uid` page kholo, **animated GIF** dekho, captcha **live reply** karo, Send OTP chalao — Rebel Adhar page bundle + Indian proxy ke saath.
+Telegram se UIDAI `retrieve-eid-uid` page kholo, captcha **live reply** karo, OTP bhejo — **bina extension bundle**, direct API (`dob: null`).
 
 ## Setup
 
@@ -16,13 +16,7 @@ python bot.py
 
 `setup.sh` puchega token + chat id — **nano ki zaroorat nahi.**
 
-Seedha paste karna ho:
-
-```bash
-bash setup.sh "123456:ABC-token" "987654321"
-```
-
-### Telegram token kahan se
+### Telegram token
 
 1. [@BotFather](https://t.me/BotFather) → `/newbot` → token copy
 2. [@userinfobot](https://t.me/userinfobot) → apna chat id
@@ -30,33 +24,43 @@ bash setup.sh "123456:ABC-token" "987654321"
 ### Proxy (recommended)
 
 ```env
-UIDAI_PROXY=http://139.167.218.162:3127
-```
-
-## Run
-
-```bash
-python bot.py
+UIDAI_PROXY=auto
+# ya apna: UIDAI_PROXY=http://ip:port
 ```
 
 ## Commands
 
 | Command | Kaam |
 |---------|------|
-| `/start` | Help |
-| `/open` | Pehle naam puchega, phir mobile, phir site khulegi |
-| `/open KAMAR JAHAN 7651892956` | Seedha naam + mobile ke saath kholo |
-| `/captcha` | Captcha image dubara bhejo |
-| `/refresh` | Naya captcha load |
-| `/status` | Session info |
+| `/open` | Naam → mobile → site + captcha |
+| `/open KAMAR JAHAN 7651892956` | Seedha naam + mobile |
+| `/captcha` | Captcha image dubara |
+| `/refresh` | Naya captcha |
+| `/status` | Session + captchaTxnId |
 | `/close` | Browser band |
 
-**Flow:** `/open` → naam → mobile → **live loading steps** (VPN India + har step) → captcha photo → captcha reply → OTP live steps + logs.
+**Flow:** `/open` → naam → mobile → 8 live steps → captcha photo → captcha reply → OTP (fetch → xhr → Playwright fallback).
 
-**VPN:** `.env` me `UIDAI_PROXY=auto` — bot India proxy khud dhundh ke connect karega (city/IP dikhega).
+## Architecture (v2)
 
-## Notes
+| File | Role |
+|------|------|
+| `uidai_api.py` | OTP payload, headers, UIDAI response parse |
+| `react_extract.py` | ~20 lines JS — `captchaTxnID` from React fiber |
+| `browser_session.py` | Playwright page load + captcha screenshot |
+| `proxy_india.py` | Indian proxy auto-pick |
 
-- Bot **sirf allowed chat ids** use kar sakte hain (security).
-- Ye tumhare **PC/VPS** pe chalega — token `.env` me rakho, git me mat daalo.
-- Real OTP SMS tumhare number pe tab aayega jab captcha **sahi** ho.
+Extension `page-bundle.js` **ab bot ke liye zaroori nahi** — sirf manual browser use ke liye optional.
+
+## VPS update
+
+```bash
+cd www
+BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/www"
+for f in bot.py browser_session.py uidai_api.py react_extract.py; do
+  wget -O "$f" "$BASE/$f"
+done
+pkill -9 -f bot.py
+source .venv/bin/activate
+nohup python bot.py > bot.log 2>&1 &
+```

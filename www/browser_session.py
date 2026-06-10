@@ -1,11 +1,10 @@
-"""Playwright — UIDAI fast: pre-warm browser, commit mode, no GIF."""
+"""Playwright UIDAI bot — Python-first OTP, no extension bundle."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -13,11 +12,26 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from proxy_india import check_proxy, format_proxy_line, pick_indian_proxy
+from react_extract import (
+    EXTRACT_CAPTCHA_TXN_JS,
+    GET_OPTION_JS,
+    SEND_OTP_FETCH_JS,
+    SEND_OTP_XHR_JS,
+)
+from uidai_api import (
+    BOT_ENGINE_VERSION,
+    OTP_API_URL,
+    UIDAI_PAGE_URL,
+    append_log,
+    build_otp_payload,
+    new_request_id,
+    parse_uidai_response,
+    summarize_logs,
+    uidai_headers,
+)
 
 log = logging.getLogger('uidai-browser')
 
-UIDAI_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
-OTP_API_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid'
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
@@ -32,7 +46,6 @@ SKIP_FONTS_JS = """(() => {
   (document.head || document.documentElement).appendChild(s);
 })();"""
 
-# Pre-warm pool — Chromium band mat karo har /open pe
 _POOL: dict[str, Any] = {
     'lock': asyncio.Lock(),
     'pw': None,
@@ -79,13 +92,16 @@ async def _pool_browser(proxy: str | None) -> Browser:
 
 
 class UidaiBrowserSession:
+    """Thin Playwright session — captcha image + Python API OTP (dob:null)."""
+
     def __init__(
         self,
-        bundle_path: Path,
+        bundle_path: Path | None = None,
         proxy: str | None = None,
         auto_india_proxy: bool = True,
         on_step: StepCb | None = None,
     ) -> None:
+        # bundle_path kept for backward compat — no longer used
         self.bundle_path = bundle_path
         self.proxy = proxy
         self.auto_india_proxy = auto_india_proxy
@@ -94,6 +110,8 @@ class UidaiBrowserSession:
         self._page: Page | None = None
         self.name = ''
         self.mobile = ''
+        self.captcha_txn_id = ''
+        self.option = 'UID'
         self.last_logs: list[dict[str, Any]] = []
         self.proxy_info: dict[str, Any] = {}
         self.proxy_label = ''
@@ -104,6 +122,10 @@ class UidaiBrowserSession:
         if not self._page:
             raise RuntimeError('Browser not started — /open pehle chalao')
         return self._page
+
+    @property
+    def version(self) -> str:
+        return BOT_ENGINE_VERSION
 
     async def _step(self, n: int, total: int, msg: str) -> None:
         if self._on_step:
@@ -163,26 +185,13 @@ class UidaiBrowserSession:
             await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
 
     async def close(self, keep_warm: bool = True) -> None:
-        """Page band — browser pool me rakho (keep_warm=True)."""
         if self._context:
             await self._context.close()
         self._context = None
         self._page = None
+        self.captcha_txn_id = ''
         if not keep_warm:
             await _pool_shutdown()
-
-    async def _inject_rebel(self) -> dict[str, Any]:
-        bundle = self.bundle_path.read_text(encoding='utf-8')
-        return await self.page.evaluate(
-            """async (code) => {
-              if (window.__rebelPageBridge) return { ok: true, already: true };
-              eval(code);
-              try { localStorage.setItem('rebelAdharOn', '1'); } catch (e) {}
-              window.postMessage({ rebel: 1, type: 'cmd', cmd: 'boot' }, '*');
-              return { ok: true, v: window.UidaiRetrieveEngine?.ENGINE_VERSION };
-            }""",
-            bundle,
-        )
 
     async def _poll_form(self, max_sec: float = 25.0) -> bool:
         for _ in range(int(max_sec / 0.15)):
@@ -191,17 +200,36 @@ class UidaiBrowserSession:
             await asyncio.sleep(0.15)
         return False
 
+    async def _extract_captcha_txn(self) -> str | None:
+        txn = await self.page.evaluate(EXTRACT_CAPTCHA_TXN_JS)
+        if txn:
+            self.captcha_txn_id = str(txn)
+        return txn
+
+    async def _wait_captcha_txn(self, timeout_s: float = 22.0) -> str:
+        for _ in range(int(timeout_s / 0.4)):
+            txn = await self._extract_captcha_txn()
+            if txn:
+                return txn
+            await asyncio.sleep(0.4)
+        raise RuntimeError('captchaTxnID nahi mila — page reload / proxy change karo')
+
+    async def _read_option(self) -> str:
+        opt = await self.page.evaluate(GET_OPTION_JS)
+        self.option = opt if opt in ('UID', 'EID') else 'UID'
+        return self.option
+
     async def open_form(self, name: str, mobile: str, on_frame=None) -> bytes:
-        """commit mode + fast poll — GIF band (hamesha empty)."""
         self.name = name.strip()
         self.mobile = mobile.strip()
+        self.captcha_txn_id = ''
 
         await self._step(3, 8, 'UIDAI site open (fast)…')
         last_err: Exception | None = None
         for attempt in range(3):
             try:
                 await self.page.goto(
-                    UIDAI_URL,
+                    UIDAI_PAGE_URL,
                     wait_until='commit',
                     timeout=45_000,
                 )
@@ -218,12 +246,7 @@ class UidaiBrowserSession:
 
         await self._step(3, 8, 'UIDAI page load ho gayi')
         await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
-
-        await self._step(5, 8, 'Rebel Adhar engine inject…')
-        inj = await self._inject_rebel()
-        await asyncio.sleep(1)
-        ver = inj.get('v', '') if isinstance(inj, dict) else ''
-        await self._step(5, 8, f'Rebel Adhar ON{(f" (v{ver})" if ver else "")}')
+        await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — DOB skip API')
 
         await self._step(6, 8, f'Naam bhara: {self.name}')
         await self.page.fill('input[name="name"]', self.name)
@@ -232,7 +255,9 @@ class UidaiBrowserSession:
 
         await self._step(8, 8, 'Captcha load…')
         await self._wait_captcha_image(20)
-        await self._step(8, 8, 'Captcha ready')
+        txn = await self._wait_captcha_txn(18.0)
+        await self._read_option()
+        await self._step(8, 8, f'Captcha ready (txn={txn[:8]}…)')
         return b''
 
     async def _wait_captcha_image(self, timeout_s: int = 20) -> None:
@@ -260,14 +285,71 @@ class UidaiBrowserSession:
                 pass
         else:
             await self.page.locator('img[alt*="CAPTCHA" i]').first.click()
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.2)
         await self._wait_captcha_image()
+        await self._wait_captcha_txn(15.0)
         return await self.captcha_png()
+
+    async def _post_otp_playwright(
+        self,
+        payload: dict[str, Any],
+        request_id: str,
+        logs: list[dict[str, Any]],
+    ) -> tuple[bool, int, str]:
+        if not self._context:
+            raise RuntimeError('Browser not started')
+        headers = uidai_headers(request_id)
+        try:
+            resp = await self._context.request.post(
+                OTP_API_URL,
+                data=json.dumps(payload),
+                headers=headers,
+                timeout=45_000,
+            )
+            text = await resp.text()
+            status = resp.status
+            append_log(logs, 'info', 'OTP Playwright API response', {
+                'status': status,
+                'resp': text[:200],
+            })
+            ok, msg, extra = parse_uidai_response(status, text)
+            if msg:
+                append_log(logs, 'info', 'UIDAI jawab', {'status': status, 'msg': msg[:160], **extra})
+            return ok, status, text
+        except Exception as e:
+            log.warning('Playwright request.post failed: %s', e)
+            append_log(logs, 'warn', 'OTP Playwright network error', str(e)[:120])
+            return False, 0, ''
+
+    async def _post_otp_in_page(
+        self,
+        payload: dict[str, Any],
+        logs: list[dict[str, Any]],
+        via: str,
+    ) -> tuple[bool, int, str]:
+        js = SEND_OTP_FETCH_JS if via == 'fetch' else SEND_OTP_XHR_JS
+        result = await self.page.evaluate(js, payload)
+        if not result.get('ok'):
+            append_log(logs, 'warn', f'OTP {via} fail', result.get('err', 'unknown'))
+            return False, 0, ''
+
+        status = int(result.get('status') or 0)
+        text = str(result.get('text') or '')
+        append_log(logs, 'info', f'OTP {via} response', {
+            'status': status,
+            'resp': text[:200],
+        })
+        ok, msg, extra = parse_uidai_response(status, text)
+        if msg:
+            append_log(logs, 'info', 'UIDAI jawab', {'status': status, 'msg': msg[:160], **extra})
+        return ok, status, text
 
     async def send_otp(self, captcha: str, on_step: StepCb | None = None) -> dict[str, Any]:
         captcha = captcha.strip().lower()
         step_fn = on_step or self._on_step
-        total = 5
+        total = 6
+        logs: list[dict[str, Any]] = []
+        otp_ok = False
 
         async def s(n: int, msg: str) -> None:
             if step_fn:
@@ -275,137 +357,77 @@ class UidaiBrowserSession:
 
         await s(1, f'Captcha fill: {captcha}')
         await self.page.fill('input[name="captcha"]', captcha)
-        await s(2, 'DOB bypass + form sync…')
 
-        prep = await self.page.evaluate(
-            """async (cap) => {
-              const E = window.UidaiRetrieveEngine;
-              if (!E) return { ok: false, err: 'Engine missing', logs: [] };
-              const logs = [];
-              const log = (l, m, d) => logs.push({ l, m, d });
-              E.installNetworkBypass({ log, enabled: () => true });
-              E.neutralizeReactDob('#tg', log);
-              const spec = E.prepareBotOtpRequest
-                ? E.prepareBotOtpRequest(cap, log)
-                : { ok: false, err: 'Engine v12.4.6 chahiye — page-bundle update karo' };
-              return { ...spec, logs, version: E.ENGINE_VERSION };
-            }""",
-            captcha,
+        await s(2, 'captchaTxnID read…')
+        txn = await self._extract_captcha_txn()
+        if not txn:
+            try:
+                txn = await self._wait_captcha_txn(8.0)
+            except RuntimeError:
+                append_log(logs, 'warn', 'captchaTxnId missing — /refresh karo')
+                await s(3, 'captchaTxnID missing')
+                await s(4, 'Done')
+                await s(5, 'Done')
+                await s(6, 'Done')
+                self.last_logs = logs
+                return self._otp_result(captcha, logs, otp_ok)
+
+        option = await self._read_option()
+        payload = build_otp_payload(
+            name=self.name,
+            mobile=self.mobile,
+            captcha=captcha,
+            captcha_txn_id=txn,
+            option=option,
         )
+        append_log(logs, 'info', 'OTP bhej rahe hain', {
+            'mobile': self.mobile,
+            'captchaTxnId': txn,
+            'option': option,
+        })
 
-        logs: list[dict[str, Any]] = list(prep.get('logs') or [])
-        version = prep.get('version', '')
-        otp_ok = False
+        def _network_fail(st: int, body: str) -> bool:
+            return st == 0 and not body
 
-        if not prep.get('ok'):
-            err = prep.get('err', 'OTP prep fail')
-            logs.append({'l': 'warn', 'm': err})
-            await s(3, err)
-            await s(4, 'Done')
-            await s(5, 'Done')
-            self.last_logs = logs
-            return self._otp_result(captcha, logs, version, otp_ok)
+        await s(3, 'UIDAI API — Playwright direct POST…')
+        otp_ok, status, text = await self._post_otp_playwright(payload, new_request_id(), logs)
 
-        await s(3, 'UIDAI API OTP (Playwright direct)…')
+        if _network_fail(status, text):
+            await s(4, 'Retry — in-page fetch…')
+            otp_ok, status, text = await self._post_otp_in_page(payload, logs, 'fetch')
 
-        if not self._context:
-            raise RuntimeError('Browser not started')
+        if _network_fail(status, text):
+            await s(5, 'Retry — in-page XHR…')
+            otp_ok, status, text = await self._post_otp_in_page(payload, logs, 'xhr')
 
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'appid': 'MYAADHAAR',
-            'accept-language': 'en_IN',
-            'x-request-id': str(prep.get('requestId') or ''),
-            'Origin': 'https://myaadhaar.uidai.gov.in',
-            'Referer': 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid',
-        }
-        try:
-            resp = await self._context.request.post(
-                prep.get('url') or OTP_API_URL,
-                data=json.dumps(prep['body']),
-                headers=headers,
-                timeout=45_000,
+        if otp_ok:
+            append_log(logs, 'info', f'OTP sent — UIDAI {status}')
+            await s(6, 'SMS check karo')
+        elif _network_fail(status, text):
+            append_log(logs, 'warn', 'OTP network error — proxy / page reload try karo')
+            await s(6, 'Network fail — /open dubara')
+        else:
+            captcha_bad = any(
+                'Captcha' in (x.get('m') or '') or 'captcha' in (x.get('m') or '').lower()
+                for x in logs
             )
-            text = await resp.text()
-            status = resp.status
-            logs.append({
-                'l': 'info',
-                'm': 'OTP API response',
-                'd': {'status': status, 'resp': text[:200]},
-            })
-            otp_ok = self._log_uidai_otp_response(logs, status, text)
-            if otp_ok:
-                logs.append({'l': 'info', 'm': f'OTP sent — UIDAI {status}'})
-        except Exception as e:
-            log.warning('Playwright OTP request failed: %s', e)
-            logs.append({
-                'l': 'warn',
-                'm': 'OTP Playwright network error — internet / page reload try karo',
-                'd': str(e)[:120],
-            })
+            await s(6, 'Captcha issue — /refresh' if captcha_bad else 'UIDAI ne reject — logs dekho')
 
-        await s(4, 'UIDAI jawab aaya' if otp_ok else 'Check logs')
-        await s(5, 'Done')
         self.last_logs = logs
-        return self._otp_result(captcha, logs, version, otp_ok)
+        return self._otp_result(captcha, logs, otp_ok)
 
     def _otp_result(
         self,
         captcha: str,
         logs: list[dict[str, Any]],
-        version: str,
         otp_ok: bool,
     ) -> dict[str, Any]:
         return {
             'captcha': captcha,
-            'summary': self._summarize_logs(logs),
-            'logs': logs[-12:],
-            'diag': None,
-            'version': version,
+            'summary': summarize_logs(logs),
+            'logs': logs[-15:],
+            'diag': {'captchaTxnId': self.captcha_txn_id, 'option': self.option},
+            'version': BOT_ENGINE_VERSION,
             'proxy_label': self.proxy_label,
             'otp_ok': otp_ok,
         }
-
-    @staticmethod
-    def _log_uidai_otp_response(logs: list[dict], status: int, text: str) -> bool:
-        if not text:
-            return 200 <= status < 300
-        try:
-            j = json.loads(text)
-            msg = (
-                (j.get('errorDetails') or {}).get('messageEnglish')
-                or j.get('messageEnglish')
-                or j.get('message')
-                or j.get('status')
-                or ''
-            )
-            if msg:
-                logs.append({
-                    'l': 'info',
-                    'm': 'UIDAI jawab',
-                    'd': {'status': status, 'msg': str(msg)[:160]},
-                })
-            msg_s = str(msg)
-            if re.search(r'invalid.*captcha', msg_s, re.I):
-                logs.append({'l': 'warn', 'm': 'Captcha galat — image refresh karke dubara bharo'})
-            if re.search(r'timed?\s*out|refresh the captcha', msg_s, re.I):
-                logs.append({'l': 'warn', 'm': 'Captcha expire — naya captcha bharo'})
-            if j.get('errorCode') and not re.search(r'otp.*sent|success', msg_s, re.I):
-                return False
-            if re.search(r'otp.*sent|success|transaction', msg_s, re.I):
-                return True
-        except json.JSONDecodeError:
-            pass
-        return 200 <= status < 300
-
-    @staticmethod
-    def _summarize_logs(logs: list[dict]) -> str:
-        lines = []
-        for item in logs:
-            msg = item.get('m') or item.get('msg') or ''
-            level = item.get('l') or item.get('level') or 'info'
-            data = item.get('d') or item.get('data')
-            extra = f' {json.dumps(data)}' if data is not None else ''
-            lines.append(f'[{level}] {msg}{extra}')
-        return '\n'.join(lines[-15:]) or 'Koi log nahi'

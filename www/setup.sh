@@ -3,7 +3,6 @@
 set -e
 cd "$(dirname "$0")"
 
-BUNDLE="./browser-extension/page-bundle.js"
 DEFAULT_PROXY="auto"
 
 TOKEN="${1:-}"
@@ -35,7 +34,6 @@ TELEGRAM_ALLOWED_CHAT_IDS=$CHAT_ID
 UIDAI_PROXY=$PROXY
 UIDAI_INDIAN_PROXY_AUTO=1
 # UIDAI_PROXY_LIST=optional comma proxies
-REBEL_BUNDLE_PATH=$BUNDLE
 EOF
 
 echo ""
