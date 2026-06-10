@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.4.4';
+  const ENGINE_VERSION = '12.4.5';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -336,46 +336,49 @@
     return sendOtpViaHookedXhr(log);
   }
 
+  function callNativeGenerateOtp(btn, log, ev) {
+    const parent = getReactFiber(btn)?.return;
+    const native = parent?.pendingProps?.onClick;
+    if (typeof native !== 'function' || isRebelOtpHandler(native)) return false;
+    try {
+      native.call(parent.stateNode || btn, ev || { preventDefault() {}, stopPropagation() {} });
+    } catch (_e) {}
+    return true;
+  }
+
   function rebelOtpTap(btn, uiSel, log, ev) {
     if (Date.now() - lastOtpTapAt < 1200) return;
     lastOtpTapAt = Date.now();
+    syncReactInputs(log);
     patchReactFormValues(log);
     forceReactOtpClickable(log, true);
     if (!isDobBypassed(uiSel)) {
-      const orig = window.__rebelReactOtpOrig;
-      if (typeof orig === 'function') {
-        try {
-          orig.call(getReactFiber(btn)?.return?.stateNode || btn, ev || {});
-        } catch (_e) {}
-      }
+      callNativeGenerateOtp(btn, log, ev);
       return;
     }
-    sendOtpViaHookedXhr(log);
+    const hitsBefore = window.__rebelOtpHits || 0;
+    log?.('info', 'React native OTP try');
+    callNativeGenerateOtp(btn, log, ev);
+    setTimeout(function () {
+      if ((window.__rebelOtpHits || 0) > hitsBefore) {
+        log?.('info', 'UIDAI ko OTP request bheji (native)');
+        return;
+      }
+      log?.('warn', 'Native OTP miss — direct xhr retry');
+      sendOtpViaHookedXhr(log);
+    }, 2200);
   }
 
   function patchReactOtpClick(uiSel, log) {
     const btn = findOtpButton();
     if (!btn) return false;
-    const parent = getReactFiber(btn)?.return;
-    if (!parent?.pendingProps) return false;
-    const curParent = parent.pendingProps.onClick;
-    if (typeof curParent === 'function' && !isRebelOtpHandler(curParent)) {
-      window.__rebelReactOtpOrig = curParent;
-    }
-    const parentHandler = function rebelParentOtpClick(ev) {
+    const btnProps = getReactProps(btn);
+    if (!btnProps) return false;
+    const innerHandler = function rebelInnerOtpBypass(ev) {
       rebelOtpTap(btn, uiSel, log, ev);
     };
-    parentHandler.__rebelOtpHandler = true;
-    parent.pendingProps.onClick = parentHandler;
-    if (parent.memoizedProps) parent.memoizedProps.onClick = parentHandler;
-    const btnProps = getReactProps(btn);
-    if (btnProps) {
-      const innerHandler = function rebelInnerOtpClick(ev) {
-        rebelOtpTap(btn, uiSel, log, ev);
-      };
-      innerHandler.__rebelOtpHandler = true;
-      btnProps.onClick = innerHandler;
-    }
+    innerHandler.__rebelOtpHandler = true;
+    btnProps.onClick = innerHandler;
     armReactOtpDomTap(btn, uiSel, log);
     return true;
   }
@@ -395,7 +398,7 @@
     }
     if (Date.now() - otpArmLogAt > 15000) {
       otpArmLogAt = Date.now();
-      log?.('info', 'React Send OTP tap armed v12.4.4');
+      log?.('info', 'React Send OTP tap armed v12.4.5');
     }
   }
 
