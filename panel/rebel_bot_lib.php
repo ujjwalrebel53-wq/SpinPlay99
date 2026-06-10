@@ -385,7 +385,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — 🌐 Website key (RBW-...)\n/genkeyapk [days] — 📱 APK key (RBA-...)\n/keys — List keys\n/revoke KEY — Revoke one key\n/revokeall — Revoke ALL keys\n/smstoken on|off — Auto SMS\n/setdevice ID — Auto SMS device\n/status — Bot status\n/poll — Polling\n/webhook — Webhook");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — 🌐 Website key (RBW-...)\n/genkeyapk [days] — 📱 APK key (RBA-...)\n/keys — List keys\n/revoke KEY — Revoke one key\n/revokeall — Revoke ALL keys\n/bans — Banned devices\n/unbanall — Unban ALL devices\n/unban FP — Unban one device\n/smstoken on|off — Auto SMS\n/setdevice ID — Auto SMS device\n/status — Bot status\n/poll — Polling\n/webhook — Webhook");
     return true;
   }
 

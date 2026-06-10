@@ -183,6 +183,79 @@ function rebel_permanent_ban_device($deviceFp, $reason) {
   rebel_secure_json_save(REBEL_SUSPICIOUS_FILE, $all);
 }
 
+function rebel_unban_device($deviceFp) {
+  $deviceFp = trim((string)$deviceFp);
+  if ($deviceFp === '') return false;
+  $cleared = false;
+
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  if (isset($locks[$deviceFp])) {
+    unset($locks[$deviceFp]);
+    rebel_secure_json_save(REBEL_DEVICE_LOCKS_FILE, $locks);
+    $cleared = true;
+  }
+
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  if (is_array($kill) && !empty($kill['devices'][$deviceFp])) {
+    unset($kill['devices'][$deviceFp]);
+    rebel_secure_json_save(REBEL_KILL_SWITCH_FILE, $kill);
+    $cleared = true;
+  }
+
+  return $cleared;
+}
+
+function rebel_unban_all_devices() {
+  $count = 0;
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  if (is_array($locks)) $count += count($locks);
+  rebel_secure_json_save(REBEL_DEVICE_LOCKS_FILE, []);
+
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  if (is_array($kill) && !empty($kill['devices']) && is_array($kill['devices'])) {
+    $count += count($kill['devices']);
+    $kill['devices'] = [];
+    rebel_secure_json_save(REBEL_KILL_SWITCH_FILE, $kill);
+  }
+
+  return $count;
+}
+
+function rebel_list_banned_devices() {
+  $out = [];
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  if (is_array($locks)) {
+    foreach ($locks as $fp => $row) {
+      if (!is_array($row)) continue;
+      $out[] = [
+        'device_fp' => (string)$fp,
+        'reason' => (string)($row['reason'] ?? ''),
+        'at' => (int)($row['at'] ?? 0),
+        'source' => 'locks'
+      ];
+    }
+  }
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  if (is_array($kill) && !empty($kill['devices']) && is_array($kill['devices'])) {
+    foreach ($kill['devices'] as $fp => $row) {
+      if (!is_array($row)) continue;
+      $found = false;
+      foreach ($out as $o) {
+        if ($o['device_fp'] === (string)$fp) { $found = true; break; }
+      }
+      if (!$found) {
+        $out[] = [
+          'device_fp' => (string)$fp,
+          'reason' => (string)($row['reason'] ?? ''),
+          'at' => (int)($row['at'] ?? 0),
+          'source' => 'kill_switch'
+        ];
+      }
+    }
+  }
+  return $out;
+}
+
 function rebel_report_suspicious($deviceFp, $attempts, $reason) {
   $all = rebel_secure_json_load(REBEL_SUSPICIOUS_FILE);
   $all[] = ['device_fp' => $deviceFp, 'attempts' => (int)$attempts, 'reason' => $reason, 'at' => time()];
