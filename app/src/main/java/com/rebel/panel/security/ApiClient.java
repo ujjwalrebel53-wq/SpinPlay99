@@ -56,8 +56,15 @@ public final class ApiClient {
     }
 
     public static JSONObject postSigned(Context ctx, JSONObject body) throws IOException {
+        if (ProxyDetector.mitmProxyActive() && BuildConfig.SSL_PIN_ENFORCE) {
+            throw new IOException("Network error");
+        }
         long ts = System.currentTimeMillis() / 1000L;
         String fp = DeviceFingerprint.get(ctx);
+        try {
+            body.put("nonce", java.util.UUID.randomUUID().toString());
+            body.put("apk_version", BuildConfig.VERSION_CODE);
+        } catch (Exception ignored) {}
         String json = body.toString();
         JSONObject envelope = new JSONObject();
         try {

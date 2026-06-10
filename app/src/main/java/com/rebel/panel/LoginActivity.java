@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.rebel.panel.security.BruteForceGuard;
 import com.rebel.panel.security.KeyValidator;
+import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
 import com.rebel.panel.security.TamperDetector;
 
@@ -57,7 +58,7 @@ public class LoginActivity extends AppCompatActivity {
 
         loginBtn.setOnClickListener(v -> attemptLogin());
 
-        if (SessionManager.hasValidLocalSession(this) && TamperDetector.isEnvironmentSafe(this)) {
+        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
             openMain();
             return;
         }
@@ -75,9 +76,7 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        String tamper = TamperDetector.checkAll(this);
-        if (tamper != null) {
-            TamperDetector.wipeAndLogout(this);
+        if (!SecurityOrchestrator.gate(this)) {
             showSessionExpired(TamperDetector.LOCK_SECONDS * 1000L);
             blockInput(TamperDetector.LOCK_SECONDS * 1000L);
             return;
@@ -113,8 +112,7 @@ public class LoginActivity extends AppCompatActivity {
             updateLockUi();
             return;
         }
-        if (!TamperDetector.isEnvironmentSafe(this)) {
-            TamperDetector.wipeAndLogout(this);
+        if (!SecurityOrchestrator.gate(this)) {
             showSessionExpired(TamperDetector.LOCK_SECONDS * 1000L);
             blockInput(TamperDetector.LOCK_SECONDS * 1000L);
             return;

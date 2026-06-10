@@ -1,38 +1,43 @@
+# Layer 1 + 12 — aggressive R8 full mode
 -optimizationpasses 5
 -dontusemixedcaseclassnames
 -repackageclasses 'o'
 -allowaccessmodification
 -overloadaggressively
+-flattenpackagehierarchy 'o'
 
-# WebView JS bridge
+# WebView bridge only
 -keep class com.rebel.panel.MainActivity { *; }
 -keep class com.rebel.panel.MainActivity$RebelBridge { *; }
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
+-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+
+# JNI
+-keepclasseswithmembernames class com.rebel.panel.security.NativeGuard {
+    native <methods>;
 }
 
-# BuildConfig secrets (fields only, names obfuscated elsewhere)
--keepclassmembers class com.rebel.panel.BuildConfig {
-    public static <fields>;
-}
+# BuildConfig fields for runtime
+-keepclassmembers class com.rebel.panel.BuildConfig { public static <fields>; }
 
-# OkHttp / platform
+# OkHttp / SQLCipher / RootBeer
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -keep class okhttp3.** { *; }
--keep interface okhttp3.** { *; }
--dontwarn org.conscrypt.**
--dontwarn org.bouncycastle.**
--dontwarn org.openjsse.**
+-dontwarn net.sqlcipher.**
+-keep class net.sqlcipher.** { *; }
+-dontwarn com.scottyab.rootbeer.**
 
-# Jetpack Security / EncryptedSharedPreferences
+# Jetpack Security
 -keep class androidx.security.crypto.** { *; }
--dontwarn androidx.security.crypto.**
 
-# Obfuscate security package (no keep rules)
-# Attackers must deobfuscate o.a, o.b class names
+# Obfuscate ALL security package (no -keep)
+# Layer 14 VM + Layer 13 RASP names hidden
 
-# Remove logs in release
+# Layer 9 — strip logs
+-assumenosideeffects class com.rebel.panel.security.SecureLog {
+    public static *** d(...);
+    public static *** e(...);
+}
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);
@@ -41,4 +46,5 @@
     public static *** e(...);
 }
 
-# Gson not used — org.json kept by default
+# Junk retention confusion
+-keepclassmembers class * { void junk*(...); }

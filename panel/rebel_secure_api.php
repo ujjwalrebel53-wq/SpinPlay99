@@ -15,6 +15,28 @@ if ($action === 'report_suspicious') {
   rebel_json_out(['ok' => true]);
 }
 
+if ($action === 'threat_report') {
+  rebel_report_suspicious($deviceFp, 1, (string)($body['threat'] ?? 'unknown') . ':' . ($body['detail'] ?? ''));
+  rebel_json_out(['ok' => true]);
+}
+
+if ($action === 'heartbeat') {
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  $minApk = (int)($kill['min_apk_version'] ?? REBEL_MIN_APK_VERSION);
+  $killed = !empty($kill['global_kill']) || !empty($kill['devices'][$deviceFp]);
+  rebel_json_out(['ok' => true, 'kill' => $killed, 'min_apk_version' => $minApk, 'server_time' => time()]);
+}
+
+if ($action === 'fetch_secrets') {
+  $jwt = trim((string)($body['access_token'] ?? ''));
+  $payload = rebel_jwt_verify($jwt);
+  if (!$payload || ($payload['dfp'] ?? '') !== $deviceFp) {
+    rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
+  }
+  $salt = bin2hex(random_bytes(16));
+  rebel_json_out(['ok' => true, 'api_salt' => $salt, 'rotated_at' => time()]);
+}
+
 if ($action === 'logout') {
   $jwt = trim((string)($body['access_token'] ?? ''));
   $payload = rebel_jwt_verify($jwt);
@@ -70,6 +92,9 @@ if ($action === 'refresh') {
 }
 
 if ($action === 'login') {
+  if (!rebel_server_env_ok($body)) {
+    rebel_json_out(['ok' => false, 'error' => 'Environment blocked'], 403);
+  }
   $key = rebel_norm_key($body['key'] ?? '');
   if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
 

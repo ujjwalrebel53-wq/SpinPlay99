@@ -7,9 +7,12 @@ require_once __DIR__ . '/rebel_bot_lib.php';
 define('REBEL_SECURE_SECRET', 'rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA');
 define('REBEL_DEVICE_LOCKS_FILE', __DIR__ . '/data/rebel_device_locks.json');
 define('REBEL_SUSPICIOUS_FILE', __DIR__ . '/data/rebel_suspicious.json');
-define('REBEL_ACCESS_TTL', 3600);
+define('REBEL_ACCESS_TTL', 900);
 define('REBEL_REFRESH_TTL', 7 * 86400);
 define('REBEL_HMAC_SKEW', 300);
+define('REBEL_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
+define('REBEL_NONCE_FILE', __DIR__ . '/data/rebel_nonces.json');
+define('REBEL_MIN_APK_VERSION', 12);
 
 function rebel_secure_json_load($file) {
   if (!is_file($file)) return [];
@@ -79,7 +82,35 @@ function rebel_verify_signed_request() {
   if (!hash_equals($expected, $sig)) {
     rebel_json_out(['ok' => false, 'error' => 'Invalid signature'], 403);
   }
+  $nonce = trim((string)($body['nonce'] ?? ''));
+  if ($nonce !== '') {
+    $nonces = rebel_secure_json_load(REBEL_NONCE_FILE);
+    if (isset($nonces[$nonce])) rebel_json_out(['ok' => false, 'error' => 'Replay'], 403);
+    $nonces[$nonce] = time();
+    foreach ($nonces as $k => $t) if (time() - (int)$t > 600) unset($nonces[$k]);
+    rebel_secure_json_save(REBEL_NONCE_FILE, $nonces);
+  }
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  if (!empty($kill['global_kill'])) {
+    rebel_json_out(['ok' => false, 'kill' => true, 'error' => 'Disabled'], 403);
+  }
+  if (!empty($kill['devices'][$deviceFp])) {
+    rebel_json_out(['ok' => false, 'kill' => true, 'error' => 'Device disabled'], 403);
+  }
+  $minApk = (int)($kill['min_apk_version'] ?? REBEL_MIN_APK_VERSION);
+  $clientApk = (int)($body['apk_version'] ?? 0);
+  if ($clientApk > 0 && $clientApk < $minApk) {
+    rebel_json_out(['ok' => false, 'kill' => true, 'min_apk_version' => $minApk], 403);
+  }
   return ['body' => $body, 'device_fp' => $deviceFp];
+}
+
+function rebel_server_env_ok($body) {
+  if (!empty($body['root'])) return false;
+  if (!empty($body['emulator'])) return false;
+  if (!empty($body['debugger'])) return false;
+  if (!empty($body['hooks'])) return false;
+  return true;
 }
 
 function rebel_device_bind_key(&$data, $key, $deviceFp) {

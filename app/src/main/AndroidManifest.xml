@@ -32,9 +32,11 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
+            android:excludeFromRecents="false"
             android:hardwareAccelerated="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RebelPanel"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden|density|smallestScreenSize" />
 
     </application>

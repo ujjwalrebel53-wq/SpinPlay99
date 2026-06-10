@@ -3,13 +3,13 @@ package com.rebel.panel.security;
 import android.content.Context;
 import android.os.Build;
 import android.provider.Settings;
+import android.telephony.TelephonyManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /**
- * Unique device fingerprint: Android ID + hardware props → SHA-256.
- * Prevents: key sharing across phones (one key = one device).
+ * Layer 15 — device fingerprint + StrongBox alias + SIM/hardware binding.
  */
 public final class DeviceFingerprint {
 
@@ -21,17 +21,17 @@ public final class DeviceFingerprint {
         if (cached != null) return cached;
         synchronized (DeviceFingerprint.class) {
             if (cached != null) return cached;
-            String androidId = "";
-            try {
-                androidId = Settings.Secure.getString(
-                        ctx.getContentResolver(), Settings.Secure.ANDROID_ID);
-                if (androidId == null) androidId = "";
-            } catch (Exception ignored) {}
+            StrongBoxKeys.ensureKey(ctx);
+            String androidId = safeAndroidId(ctx);
+            String sim = safeSim(ctx);
+            String sb = StrongBoxKeys.alias();
             String raw = androidId + "|"
                     + Build.HARDWARE + "|"
                     + Build.BOARD + "|"
                     + Build.BRAND + "|"
-                    + Build.DEVICE;
+                    + Build.DEVICE + "|"
+                    + sim + "|"
+                    + sb;
             cached = sha256Hex(raw);
             return cached;
         }
@@ -39,6 +39,26 @@ public final class DeviceFingerprint {
 
     public static void clearCache() {
         cached = null;
+    }
+
+    private static String safeAndroidId(Context ctx) {
+        try {
+            String id = Settings.Secure.getString(ctx.getContentResolver(), Settings.Secure.ANDROID_ID);
+            return id != null ? id : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String safeSim(Context ctx) {
+        try {
+            TelephonyManager tm = (TelephonyManager) ctx.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm == null) return "";
+            String sub = tm.getSimSerialNumber();
+            return sub != null ? sub : "";
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private static String sha256Hex(String input) {
@@ -49,11 +69,7 @@ public final class DeviceFingerprint {
             for (byte b : hash) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
-            return sha256HexFallback(input);
+            return Integer.toHexString(input.hashCode());
         }
-    }
-
-    private static String sha256HexFallback(String input) {
-        return Integer.toHexString(input.hashCode());
     }
 }

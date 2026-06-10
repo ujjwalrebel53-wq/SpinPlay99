@@ -8,30 +8,24 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.rebel.panel.LoginActivity;
 
-/**
- * Base for all post-login screens — blocks intent bypass to MainActivity.
- */
 public abstract class SecureActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (!SessionManager.ensureValidSession(this)) {
+        if (!SecurityOrchestrator.gate(this)) {
             redirectLogin();
             return;
+        }
+        if (!SessionManager.ensureValidSession(this)) {
+            redirectLogin();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (TamperDetector.isLocked()) {
-            redirectLogin();
-            return;
-        }
-        String tamper = TamperDetector.checkAll(this);
-        if (tamper != null) {
-            TamperDetector.wipeAndLogout(this);
+        if (!SecurityOrchestrator.gate(this)) {
             redirectLogin();
             return;
         }

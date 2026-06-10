@@ -48,6 +48,10 @@ public final class KeyValidator {
             JSONObject body = new JSONObject();
             body.put("action", "login");
             body.put("key", key);
+            body.put("root", RootDetector.detected(ctx));
+            body.put("emulator", EmulatorDetector.detected(ctx));
+            body.put("debugger", AntiDebug.detected());
+            body.put("hooks", HookDetector.detected());
             JSONObject resp = ApiClient.postSigned(ctx, body);
             if (!resp.optBoolean("ok", false)) {
                 BruteForceGuard.LockResult lr = BruteForceGuard.onFailure(ctx);
@@ -59,7 +63,11 @@ public final class KeyValidator {
             String refresh = resp.optString("refresh_token", "");
             long accessExp = resp.optLong("access_exp", 0);
             long refreshExp = resp.optLong("refresh_exp", 0);
+            if (!SimpleVm.validateAuthToken(access, DeviceFingerprint.get(ctx))) {
+                return Result.fail("Session expired");
+            }
             SecurityPrefs.saveTokens(ctx, access, accessExp, refresh, refreshExp);
+            SecretsManager.fetchAfterAuth(ctx);
             return new Result(true, "", access, refresh, accessExp, refreshExp);
         } catch (Exception e) {
             return Result.fail("Network error");

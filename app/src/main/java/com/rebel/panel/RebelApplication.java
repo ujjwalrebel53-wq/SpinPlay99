@@ -4,25 +4,24 @@ import android.app.Activity;
 import android.app.Application;
 import android.os.Bundle;
 
+import com.rebel.panel.security.RaspMonitor;
+import com.rebel.panel.security.SecureDatabase;
+import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
-import com.rebel.panel.security.TamperDetector;
 
-/**
- * Re-validates JWT silently whenever any activity enters foreground.
- */
 public class RebelApplication extends Application {
 
     @Override
     public void onCreate() {
         super.onCreate();
+        SecureDatabase.loadLibs(this);
+        RaspMonitor.start(this);
+
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(Activity activity) {
                 if (activity instanceof LoginActivity) return;
-                if (TamperDetector.checkAll(activity) != null) {
-                    TamperDetector.wipeAndLogout(activity);
-                    return;
-                }
+                if (!SecurityOrchestrator.gate(activity)) return;
                 SessionManager.ensureValidSession(activity);
             }
 

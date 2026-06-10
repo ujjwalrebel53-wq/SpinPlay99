@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/workspace/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/ubuntu/android-sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/workspace/app/.cxx/Debug/442d1852/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/ubuntu/android-sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/workspace/app/.cxx/Debug/442d1852/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "rebel_native::@6890427a1f51a3e7e1df": {
+      "artifactName": "rebel_native",
+      "abi": "x86_64",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/442d1852/obj/x86_64/librebel_native.so",
+      "runtimeFiles": []
+    }
+  }
+}
