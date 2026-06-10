@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Rebel Adhar — myAadhaar Form",
-  "version": "12.4.3",
-  "description": "Rebel Adhar v12.4.3 — React inner button bypass + native OTP",
+  "version": "12.4.4",
+  "description": "Rebel Adhar v12.4.4 — re-patch OTP tap + hooked XHR (axios path)",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",

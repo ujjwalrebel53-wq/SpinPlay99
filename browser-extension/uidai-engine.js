@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.4.3';
+  const ENGINE_VERSION = '12.4.4';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -217,11 +217,12 @@
 
   function getReactCaptchaTxn() {
     const page = findReactPageFiber();
-    return (
+    const id =
       page?.pendingProps?.state?.captchaTxnID ||
       page?.pendingProps?.state?.captchaTxnId ||
-      ''
-    );
+      page?.pendingProps?.state?.captchaTxn ||
+      null;
+    return id && String(id).trim() ? String(id).trim() : null;
   }
 
   function getReactReqType() {
@@ -254,189 +255,148 @@
     }
   }
 
-  function reactGenerateOtpXhr(log) {
+  function isRebelOtpHandler(fn) {
+    return typeof fn === 'function' && fn.__rebelOtpHandler === true;
+  }
+
+  function logOtpApiBody(log, status, text) {
+    if (!text) return false;
+    log?.('info', 'OTP xhr response', { status, resp: text.slice(0, 200) });
+    try {
+      const j = JSON.parse(text);
+      const msg =
+        j?.errorDetails?.messageEnglish || j?.messageEnglish || j?.message || j?.status || '';
+      if (msg) log?.('info', 'UIDAI jawab', { status, msg: String(msg).slice(0, 160) });
+      if (/invalid.*captcha/i.test(String(msg))) {
+        log?.('warn', 'Captcha galat — image refresh karke dubara bharo');
+      }
+      if (/timed?\s*out|refresh the captcha/i.test(String(msg))) {
+        log?.('warn', 'Captcha expire — naya captcha bharo');
+      }
+      if (j?.errorCode && !/otp.*sent|success/i.test(String(msg))) return false;
+      if (/otp.*sent|success|transaction/i.test(String(msg))) return true;
+    } catch (_e) {}
+    return status >= 200 && status < 300;
+  }
+
+  let lastOtpSendAt = 0;
+  let lastOtpTapAt = 0;
+
+  function sendOtpViaHookedXhr(log) {
+    if (Date.now() - lastOtpSendAt < 1500) return Promise.resolve(false);
+    lastOtpSendAt = Date.now();
+    syncReactInputs(log);
+    patchReactFormValues(log);
     const payload = buildReactOtpPayload();
     if (!payload.mobileNumber || !payload.captcha) {
-      log?.('warn', 'React OTP skip — mobile/captcha missing', payload);
+      log?.('warn', 'OTP skip — mobile/captcha missing');
       return Promise.resolve(false);
     }
     if (!payload.captchaTxnId) {
-      log?.('warn', 'React OTP skip — captchaTxnId missing (captcha reload karo)', payload);
-      return Promise.resolve(false);
+      log?.('warn', 'captchaTxnId missing — captcha image refresh karo');
     }
     const body = JSON.stringify(stripDobFromBody(payload).body);
+    log?.('info', 'OTP bhej rahe hain', {
+      mobile: payload.mobileNumber,
+      captchaTxnId: payload.captchaTxnId || null,
+    });
     return new Promise((resolve) => {
-      const open = window.__rebelOrigXhrOpen || XMLHttpRequest.prototype.open;
-      const send = window.__rebelOrigXhrSend || XMLHttpRequest.prototype.send;
-      const setHeader = window.__rebelOrigXhrSetHeader || XMLHttpRequest.prototype.setRequestHeader;
       const xhr = new XMLHttpRequest();
-      const done = function (ok) {
+      xhr.open('POST', REACT_OTP_URL, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('appid', 'MYAADHAAR');
+      xhr.setRequestHeader('accept-language', 'en_IN');
+      xhr.setRequestHeader('x-request-id', reactUuid());
+      xhr.onload = function () {
+        const ok = logOtpApiBody(log, xhr.status, xhr.responseText || '');
+        if (ok) log?.('info', 'OTP sent — UIDAI ' + xhr.status);
         resolve(ok);
       };
-      open.call(xhr, 'POST', REACT_OTP_URL, true);
-      xhr.withCredentials = true;
-      setHeader.call(xhr, 'Accept', 'application/json, text/plain, */*');
-      setHeader.call(xhr, 'Content-Type', 'application/json');
-      setHeader.call(xhr, 'appid', 'MYAADHAAR');
-      setHeader.call(xhr, 'accept-language', 'en_IN');
-      setHeader.call(xhr, 'x-request-id', reactUuid());
-      xhr.onload = function () {
-        const text = xhr.responseText || '';
-        log?.('info', 'React OTP xhr', { status: xhr.status, resp: text.slice(0, 180) });
-        if (xhr.status >= 200 && xhr.status < 300) {
-          log?.('info', 'OTP sent — UIDAI ' + xhr.status, { via: 'xhr' });
-          done(true);
-          return;
-        }
-        if (/otp.*sent|success|transaction/i.test(text)) {
-          log?.('info', 'OTP sent — UIDAI', { via: 'xhr-body' });
-          done(true);
-          return;
-        }
-        log?.('warn', 'React OTP API response', { status: xhr.status, resp: text.slice(0, 200) });
-        done(false);
-      };
       xhr.onerror = function () {
-        log?.('warn', 'React OTP xhr network error');
-        done(false);
+        log?.('warn', 'OTP xhr network error — internet / page reload try karo');
+        resolve(false);
       };
       xhr.ontimeout = function () {
-        log?.('warn', 'React OTP xhr timeout');
-        done(false);
+        log?.('warn', 'OTP xhr timeout');
+        resolve(false);
       };
       try {
-        window.__rebelMarkOtpAttempt?.(REACT_OTP_URL, 'POST');
-        xhr.timeout = 25000;
-        send.call(xhr, body);
+        xhr.timeout = 30000;
+        xhr.send(body);
       } catch (err) {
-        log?.('warn', 'React OTP xhr send fail', String(err).slice(0, 100));
-        done(false);
+        log?.('warn', 'OTP xhr send fail', String(err).slice(0, 100));
+        resolve(false);
       }
     });
   }
 
-  let lastOtpSendAt = 0;
-  let lastNativeOtpAt = 0;
-
   async function reactGenerateOtpSend(log) {
-    if (Date.now() - lastOtpSendAt < 1500) return false;
-    lastOtpSendAt = Date.now();
-    const payload = buildReactOtpPayload();
-    if (!payload.mobileNumber || !payload.captcha) {
-      log?.('warn', 'React OTP skip — mobile/captcha missing');
-      return false;
-    }
-    const body = JSON.stringify(stripDobFromBody(payload).body);
-    try {
-      const res = await window.fetch(REACT_OTP_URL, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json, text/plain, */*',
-          'Content-Type': 'application/json',
-          appid: 'MYAADHAAR',
-          'accept-language': 'en_IN',
-          'x-request-id': reactUuid(),
-        },
-        credentials: 'include',
-        body,
-      });
-      const text = await res.text();
-      log?.('info', 'React OTP fetch', { status: res.status, resp: text.slice(0, 180) });
-      if (res.status >= 200 && res.status < 300) {
-        log?.('info', 'OTP sent — UIDAI ' + res.status, { via: 'fetch' });
-        return true;
-      }
-    } catch (err) {
-      log?.('warn', 'React OTP fetch fail', String(err).slice(0, 100));
-      return reactGenerateOtpXhr(log);
-    }
-    return false;
+    return sendOtpViaHookedXhr(log);
   }
 
-  function fireReactNativeOtp(btn, log, ev) {
-    const orig = window.__rebelReactOtpOrig;
-    if (typeof orig !== 'function') return false;
-    syncReactInputs(log);
+  function rebelOtpTap(btn, uiSel, log, ev) {
+    if (Date.now() - lastOtpTapAt < 1200) return;
+    lastOtpTapAt = Date.now();
     patchReactFormValues(log);
     forceReactOtpClickable(log, true);
-    const parent = getReactFiber(btn)?.return;
-    try {
-      orig.call(parent?.stateNode || btn, ev || { preventDefault() {}, stopPropagation() {} });
-    } catch (_e) {}
-    return true;
-  }
-
-  function invokeReactNativeOtp(btn, uiSel, log, ev) {
-    if (Date.now() - lastNativeOtpAt < 1500) return true;
-    lastNativeOtpAt = Date.now();
     if (!isDobBypassed(uiSel)) {
-      return fireReactNativeOtp(btn, log, ev);
-    }
-    const hitsBefore = window.__rebelOtpHits || 0;
-    fireReactNativeOtp(btn, log, ev);
-    setTimeout(function () {
-      if ((window.__rebelOtpHits || 0) > hitsBefore) {
-        log?.('info', 'UIDAI ko OTP request bheji');
-        return;
+      const orig = window.__rebelReactOtpOrig;
+      if (typeof orig === 'function') {
+        try {
+          orig.call(getReactFiber(btn)?.return?.stateNode || btn, ev || {});
+        } catch (_e) {}
       }
-      reactGenerateOtpSend(log);
-    }, 1200);
-    return true;
+      return;
+    }
+    sendOtpViaHookedXhr(log);
   }
 
   function patchReactOtpClick(uiSel, log) {
     const btn = findOtpButton();
+    if (!btn) return false;
     const parent = getReactFiber(btn)?.return;
     if (!parent?.pendingProps) return false;
-    const orig = parent.pendingProps.onClick;
-    if (typeof orig !== 'function') return false;
-    if (!window.__rebelReactOtpOrig) window.__rebelReactOtpOrig = orig;
-    if (parent.pendingProps.__rebelOtpWrapped) return true;
-    const wrapped = function rebelWrappedOtpClick(ev) {
-      if (!isDobBypassed(uiSel)) {
-        try {
-          orig.call(this, ev);
-        } catch (_e) {}
-        return;
-      }
-      invokeReactNativeOtp(btn, uiSel, log, ev);
+    const curParent = parent.pendingProps.onClick;
+    if (typeof curParent === 'function' && !isRebelOtpHandler(curParent)) {
+      window.__rebelReactOtpOrig = curParent;
+    }
+    const parentHandler = function rebelParentOtpClick(ev) {
+      rebelOtpTap(btn, uiSel, log, ev);
     };
-    parent.pendingProps.onClick = wrapped;
-    parent.pendingProps.__rebelOtpWrapped = true;
-    if (parent.memoizedProps) parent.memoizedProps.onClick = wrapped;
+    parentHandler.__rebelOtpHandler = true;
+    parent.pendingProps.onClick = parentHandler;
+    if (parent.memoizedProps) parent.memoizedProps.onClick = parentHandler;
     const btnProps = getReactProps(btn);
-    if (btnProps && !btnProps.__rebelBtnWrapped) {
-      const origBtn = btnProps.onClick;
-      btnProps.onClick = function rebelInnerOtpBypass(e) {
-        if (!isDobBypassed(uiSel)) {
-          forceReactOtpClickable(log, true);
-          try {
-            return origBtn?.call(this, e);
-          } catch (_e) {
-            return undefined;
-          }
-        }
-        invokeReactNativeOtp(btn, uiSel, log, e);
+    if (btnProps) {
+      const innerHandler = function rebelInnerOtpClick(ev) {
+        rebelOtpTap(btn, uiSel, log, ev);
       };
-      btnProps.__rebelBtnWrapped = true;
+      innerHandler.__rebelOtpHandler = true;
+      btnProps.onClick = innerHandler;
     }
     armReactOtpDomTap(btn, uiSel, log);
-    log?.('info', 'React Send OTP tap armed (native)');
     return true;
   }
 
+  let otpArmLogAt = 0;
+
   function armReactOtpDomTap(btn, uiSel, log) {
-    if (!btn || btn.dataset.rebelOtpDomArmed) return;
-    btn.dataset.rebelOtpDomArmed = '1';
-    let lastTap = 0;
-    const onTap = function (ev) {
-      if (!isDobBypassed(uiSel)) return;
-      if (Date.now() - lastTap < 1200) return;
-      lastTap = Date.now();
-      invokeReactNativeOtp(btn, uiSel, log, ev);
-    };
-    btn.addEventListener('touchend', onTap, { capture: true, passive: true });
-    btn.addEventListener('pointerup', onTap, true);
+    if (!btn) return;
+    if (!btn.dataset.rebelOtpDomArmed) {
+      btn.dataset.rebelOtpDomArmed = '1';
+      const onTap = function (ev) {
+        if (!isDobBypassed(uiSel)) return;
+        rebelOtpTap(btn, uiSel, log, ev);
+      };
+      btn.addEventListener('touchend', onTap, { capture: true, passive: true });
+      btn.addEventListener('pointerup', onTap, true);
+    }
+    if (Date.now() - otpArmLogAt > 15000) {
+      otpArmLogAt = Date.now();
+      log?.('info', 'React Send OTP tap armed v12.4.4');
+    }
   }
 
   let lastOtpEnableLog = 0;
@@ -516,6 +476,11 @@
   function syncReactInputs(log) {
     if (!isReactSite()) return 0;
     let n = 0;
+    ['name', 'mobile', 'captcha'].forEach((name) => {
+      const input = document.querySelector('input[name="' + name + '"]');
+      const val = readInputVal(input);
+      if (input && val && setReactInputValue(input, val, log)) n += 1;
+    });
     getMatFields().forEach((f) => {
       const type = classifyField(f);
       if (type === 'dob' || type === 'toggle' || type === 'email') return;
