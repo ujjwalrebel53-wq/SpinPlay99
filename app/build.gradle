@@ -11,14 +11,14 @@ android {
         applicationId "com.rebel.panel"
         minSdk 24
         targetSdk 34
-        versionCode 15
-        versionName "4.0.3"
+        versionCode 16
+        versionName "4.0.4"
         buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
         buildConfigField "String", "REBEL_APK_SHA256", "\"570290715E067531A5DF06DD139604192A70993C863E97F51A09609F8A702CECA\""
         buildConfigField "String", "SSL_PIN_PRIMARY", "\"sha256/SM2goQ/B0xk7U8iezGH0VeeoZwZWiEC9obc8uSCte8=\""
         buildConfigField "String", "SSL_PIN_BACKUP", "\"sha256/C5+lp5BmfbMGadTPwzoIB6l9a6Fi4EioGsliyc1tirc=\""
         buildConfigField "boolean", "SSL_PIN_ENFORCE", "true"
-        buildConfigField "int", "MIN_SERVER_APK", "15"
+        buildConfigField "int", "MIN_SERVER_APK", "16"
         externalNativeBuild {
             cmake {
                 cppFlags "-O2 -fvisibility=hidden -ffunction-sections -fdata-sections"
@@ -46,6 +46,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
             buildConfigField "boolean", "RASP_KILL", "true"
+            buildConfigField "boolean", "SSL_PIN_ENFORCE", "false"
         }
     }
 

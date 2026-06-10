@@ -12,7 +12,7 @@ define('REBEL_REFRESH_TTL', 7 * 86400);
 define('REBEL_HMAC_SKEW', 300);
 define('REBEL_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
 define('REBEL_NONCE_FILE', __DIR__ . '/data/rebel_nonces.json');
-define('REBEL_MIN_APK_VERSION', 15); // match app versionCode
+define('REBEL_MIN_APK_VERSION', 16); // match app versionCode
 
 function rebel_secure_json_load($file) {
   if (!is_file($file)) return [];
@@ -83,7 +83,10 @@ function rebel_verify_signed_request() {
       'message' => $isCrack ? 'Fuck you bitch! You have tried to crack the APK. Your device is permanently banned.' : 'Device locked'
     ], 403);
   }
-  $bodyJson = json_encode($body, JSON_UNESCAPED_SLASHES);
+  $bodyJson = trim((string)($env['body_json'] ?? ''));
+  if ($bodyJson === '' || json_decode($bodyJson, true) === null) {
+    $bodyJson = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  }
   $payload = $ts . ':' . $deviceFp . ':' . $bodyJson;
   $expected = base64_encode(hash_hmac('sha256', $payload, REBEL_SECURE_SECRET, true));
   if (!hash_equals($expected, $sig)) {

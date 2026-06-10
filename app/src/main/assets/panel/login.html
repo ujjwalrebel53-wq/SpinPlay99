@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#050508"/>
+<title>Rebel Mobile</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="style.css"/>
+<style>
+  body{overflow:auto}
+  .login-screen{position:relative;min-height:100vh;z-index:1}
+  .lock-msg{color:#ff9500;font-size:12px;text-align:center;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<div class="bg-anim" aria-hidden="true">
+  <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+  <span class="grid-lines"></span>
+</div>
+
+<div class="login-screen" id="loginScreen">
+  <div class="login-card anim-in" id="loginCard">
+    <div class="login-hero">
+      <div class="avatar-stage" id="rebelAvatarStage">
+        <div class="avatar-face-ring">
+          <div class="avatar-img-wrap">
+            <img class="avatar-face" id="avatarFaceImg" src="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg" alt="Rebel"/>
+          </div>
+        </div>
+        <div class="avatar-laptop">
+          <div class="laptop-glow"></div>
+          <div class="laptop-lid">
+            <div class="laptop-screen">
+              <div class="laptop-code">
+                <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
+                <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
+                <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
+              </div>
+            </div>
+          </div>
+          <div class="laptop-base"></div>
+        </div>
+      </div>
+      <h1><em>Rebel</em> Mobile</h1>
+    </div>
+    <p class="login-sub">Key from Telegram — @Rebelpanelbot → /genkey</p>
+    <div class="login-err" id="loginErr"></div>
+    <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
+    <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
+    <div class="lock-msg" id="lockMsg"></div>
+  </div>
+</div>
+
+<script>
+function parseJson(s){try{return JSON.parse(s);}catch(e){return null;}}
+function showErr(msg){
+  var el=document.getElementById('loginErr');
+  el.textContent=msg||'Error';
+  el.style.display='block';
+  el.classList.remove('shake');void el.offsetWidth;el.classList.add('shake');
+}
+function doLogin(){
+  var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
+  if(!key){showErr('Enter access key');return;}
+  var btn=document.getElementById('loginBtn');
+  btn.disabled=true;btn.classList.add('loading');
+  try{
+    if(!window.RebelLogin){
+      showErr('Login bridge missing');
+      btn.disabled=false;btn.classList.remove('loading');
+      return;
+    }
+    var res=parseJson(RebelLogin.login(key));
+    btn.disabled=false;btn.classList.remove('loading');
+    if(res&&res.ok){
+      RebelLogin.onSuccess();
+      return;
+    }
+    showErr((res&&res.error)||'Invalid or expired key');
+    if(res&&res.locked){
+      var lm=document.getElementById('lockMsg');
+      lm.textContent=res.lockMsg||'Try again later';
+      lm.style.display='block';
+    }
+  }catch(e){
+    btn.disabled=false;btn.classList.remove('loading');
+    showErr('Network error — check internet');
+  }
+}
+document.getElementById('loginKey').addEventListener('input',function(){
+  this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');
+});
+document.getElementById('loginKey').addEventListener('keydown',function(e){
+  if(e.key==='Enter')doLogin();
+});
+if(window.RebelLogin&&RebelLogin.ready){
+  try{RebelLogin.ready();}catch(e){}
+}
+</script>
+</body>
+</html>

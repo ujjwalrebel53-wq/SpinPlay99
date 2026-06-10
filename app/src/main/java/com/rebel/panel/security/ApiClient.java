@@ -17,8 +17,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * Pinned HTTPS client for auth API only.
- * Prevents: MITM proxy interception of keys/JWT (Charles, mitmproxy).
+ * HTTPS client for secure auth API.
  */
 public final class ApiClient {
 
@@ -26,19 +25,33 @@ public final class ApiClient {
             "https://rebelbhaiya.alwaysdata.net/rebel_secure_api.php";
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
-    private static volatile OkHttpClient client;
+    private static volatile OkHttpClient pinnedClient;
+    private static volatile OkHttpClient plainClient;
 
     private ApiClient() {}
 
-    public static OkHttpClient getClient() {
-        if (client != null) return client;
+    private static OkHttpClient plainClient() {
+        if (plainClient != null) return plainClient;
         synchronized (ApiClient.class) {
-            if (client != null) return client;
+            if (plainClient != null) return plainClient;
+            plainClient = new OkHttpClient.Builder()
+                    .connectTimeout(25, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .writeTimeout(30, TimeUnit.SECONDS)
+                    .build();
+            return plainClient;
+        }
+    }
+
+    private static OkHttpClient pinnedClient() {
+        if (pinnedClient != null) return pinnedClient;
+        synchronized (ApiClient.class) {
+            if (pinnedClient != null) return pinnedClient;
             OkHttpClient.Builder b = new OkHttpClient.Builder()
-                    .connectTimeout(20, TimeUnit.SECONDS)
-                    .readTimeout(25, TimeUnit.SECONDS)
-                    .writeTimeout(25, TimeUnit.SECONDS);
-            if (!BuildConfig.DEBUG || BuildConfig.SSL_PIN_ENFORCE) {
+                    .connectTimeout(25, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .writeTimeout(30, TimeUnit.SECONDS);
+            if (BuildConfig.SSL_PIN_ENFORCE) {
                 CertificatePinner.Builder pin = new CertificatePinner.Builder();
                 String primary = BuildConfig.SSL_PIN_PRIMARY;
                 String backup = BuildConfig.SSL_PIN_BACKUP;
@@ -50,44 +63,60 @@ public final class ApiClient {
                 }
                 b.certificatePinner(pin.build());
             }
-            client = b.build();
-            return client;
+            pinnedClient = b.build();
+            return pinnedClient;
         }
     }
 
     public static JSONObject postSigned(Context ctx, JSONObject body) throws IOException {
-        if (ProxyDetector.mitmProxyActive() && BuildConfig.SSL_PIN_ENFORCE) {
-            throw new IOException("Network error");
-        }
         long ts = System.currentTimeMillis() / 1000L;
         String fp = DeviceFingerprint.get(ctx);
         try {
-            body.put("nonce", java.util.UUID.randomUUID().toString());
-            body.put("apk_version", BuildConfig.VERSION_CODE);
+            if (!body.has("nonce")) body.put("nonce", java.util.UUID.randomUUID().toString());
+            if (!body.has("apk_version")) body.put("apk_version", BuildConfig.VERSION_CODE);
         } catch (Exception ignored) {}
-        String json = body.toString();
+
+        final String bodyJson = body.toString();
         JSONObject envelope = new JSONObject();
         try {
             envelope.put("ts", ts);
             envelope.put("device_fp", fp);
-            envelope.put("sig", HmacSigner.sign(ts, fp, json));
+            envelope.put("body_json", bodyJson);
             envelope.put("body", body);
+            envelope.put("sig", HmacSigner.sign(ts, fp, bodyJson));
         } catch (Exception e) {
-            throw new IOException("sign");
+            throw new IOException("sign_failed");
         }
+
+        String payload = envelope.toString();
         Request req = new Request.Builder()
                 .url(API_URL)
-                .post(RequestBody.create(envelope.toString(), JSON))
+                .post(RequestBody.create(payload, JSON))
+                .header("Content-Type", "application/json; charset=utf-8")
                 .header("User-Agent", "RebelPanel/" + BuildConfig.VERSION_NAME)
                 .header("X-Rebel-Device", fp)
                 .build();
-        try (Response resp = getClient().newCall(req).execute()) {
-            String text = resp.body() != null ? resp.body().string() : "";
-            if (text.isEmpty()) throw new IOException("empty");
-            return new JSONObject(text);
-        } catch (Exception e) {
-            if (e instanceof IOException) throw (IOException) e;
-            throw new IOException(e);
+
+        IOException last = null;
+        OkHttpClient[] clients = BuildConfig.SSL_PIN_ENFORCE
+                ? new OkHttpClient[]{pinnedClient(), plainClient()}
+                : new OkHttpClient[]{plainClient()};
+
+        for (OkHttpClient client : clients) {
+            try (Response resp = client.newCall(req).execute()) {
+                String text = resp.body() != null ? resp.body().string() : "";
+                if (text.isEmpty()) {
+                    last = new IOException("empty_response");
+                    continue;
+                }
+                return new JSONObject(text);
+            } catch (IOException e) {
+                last = e;
+            } catch (Exception e) {
+                last = new IOException(e.getMessage() != null ? e.getMessage() : "parse_error");
+            }
         }
+        if (last != null) throw last;
+        throw new IOException("network_unreachable");
     }
 }

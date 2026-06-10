@@ -1,17 +1,16 @@
 package com.rebel.panel;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.CountDownTimer;
-import android.os.Handler;
-import android.os.Looper;
-import android.text.InputFilter;
-import android.view.View;
 import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.TextView;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.rebel.panel.security.BruteForceGuard;
@@ -22,18 +21,14 @@ import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
 import com.rebel.panel.security.TamperDetector;
 
+import org.json.JSONObject;
+
 /**
- * LAUNCHER — FLAG_SECURE, full environment gate before MainActivity.
- * Prevents: screenshot key theft, intent bypass, resumed session hijack.
+ * LAUNCHER — Rebel Mobile login UI (avatar + laptop) via WebView.
  */
 public class LoginActivity extends AppCompatActivity {
 
-    private EditText keyInput;
-    private TextView errorText;
-    private TextView lockText;
-    private Button loginBtn;
-    private CountDownTimer lockTimer;
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private WebView webView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,35 +36,45 @@ public class LoginActivity extends AppCompatActivity {
         if (DeviceBanManager.isLocallyBanned(this) || IntegrityChecker.getCrackReason(this) != null) {
             if (!DeviceBanManager.gate(this)) return;
         }
+        if (!DeviceBanManager.gate(this)) return;
+        DeviceBanManager.gateAsync(this);
+
+        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
+            openMain();
+            return;
+        }
+
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);
         }
-        if (!DeviceBanManager.gate(this)) return;
-        DeviceBanManager.gateAsync(this);
+
         setContentView(R.layout.activity_login);
+        setupWebView();
+    }
 
-        keyInput = findViewById(R.id.login_key);
-        errorText = findViewById(R.id.login_error);
-        lockText = findViewById(R.id.login_lock);
-        loginBtn = findViewById(R.id.login_submit);
-
-        keyInput.setFilters(new InputFilter[]{
-                (source, start, end, dest, dstart, dend) -> {
-                    String out = source.toString().toUpperCase().replaceAll("[^A-Z0-9\\-]", "");
-                    return out.equals(source.toString()) ? null : out;
-                }
-        });
-
-        loginBtn.setOnClickListener(v -> attemptLogin());
-
-        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
-            openMain();
-            return;
+    @SuppressLint("SetJavaScriptEnabled")
+    private void setupWebView() {
+        webView = findViewById(R.id.login_webview);
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            s.setAllowFileAccessFromFileURLs(true);
+            s.setAllowUniversalAccessFromFileURLs(true);
         }
-        updateLockUi();
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        webView.setBackgroundColor(0xFF050508);
+        webView.setWebViewClient(new WebViewClient());
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.addJavascriptInterface(new LoginBridge(), "RebelLogin");
+        webView.loadUrl("file:///android_asset/panel/login.html");
     }
 
     @Override
@@ -80,79 +85,9 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-
-        if (TamperDetector.isLocked()) {
-            showSessionExpired(TamperDetector.lockRemainingMs());
-            blockInput(TamperDetector.lockRemainingMs());
-            return;
-        }
-
-        if (!SecurityOrchestrator.gate(this)) {
-            showSessionExpired(TamperDetector.LOCK_SECONDS * 1000L);
-            blockInput(TamperDetector.LOCK_SECONDS * 1000L);
-            return;
-        }
-
-        String jwt = com.rebel.panel.security.SecurityPrefs.getAccessJwt(this);
-        if (!jwt.isEmpty()) {
-            if (!SessionManager.ensureValidSession(this)) {
-                SessionManager.logout(this);
-                showSessionExpired(30_000L);
-                blockInput(30_000L);
-                return;
-            }
+        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
             openMain();
-            return;
         }
-        updateLockUi();
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (lockTimer != null) lockTimer.cancel();
-        super.onDestroy();
-    }
-
-    private void attemptLogin() {
-        errorText.setVisibility(View.GONE);
-        if (!DeviceBanManager.gate(this)) return;
-        if (BruteForceGuard.isPermanentlyLocked(this)) {
-            DeviceBanManager.launchBanScreen(this);
-            finish();
-            return;
-        }
-        if (BruteForceGuard.isLocked(this) || TamperDetector.isLocked()) {
-            updateLockUi();
-            return;
-        }
-        if (!SecurityOrchestrator.gate(this)) {
-            showSessionExpired(TamperDetector.LOCK_SECONDS * 1000L);
-            blockInput(TamperDetector.LOCK_SECONDS * 1000L);
-            return;
-        }
-
-        String key = keyInput.getText().toString().trim();
-        if (key.isEmpty()) {
-            errorText.setText("Enter access key");
-            errorText.setVisibility(View.VISIBLE);
-            return;
-        }
-
-        loginBtn.setEnabled(false);
-        new Thread(() -> {
-            KeyValidator.Result r = KeyValidator.login(LoginActivity.this, key);
-            handler.post(() -> {
-                loginBtn.setEnabled(true);
-                keyInput.setText("");
-                if (r.ok) {
-                    openMain();
-                } else {
-                    errorText.setText("Session expired".equals(r.error) ? r.error : r.error);
-                    errorText.setVisibility(View.VISIBLE);
-                    updateLockUi();
-                }
-            });
-        }).start();
     }
 
     private void openMain() {
@@ -160,49 +95,67 @@ public class LoginActivity extends AppCompatActivity {
         finish();
     }
 
-    private void showSessionExpired(long lockMs) {
-        errorText.setText("Session expired");
-        errorText.setVisibility(View.VISIBLE);
-        if (lockMs > 0) blockInput(lockMs);
-    }
+    private final class LoginBridge {
 
-    private void updateLockUi() {
-        long ms = Math.max(BruteForceGuard.lockRemainingMs(this), TamperDetector.lockRemainingMs());
-        if (BruteForceGuard.isPermanentlyLocked(this)) {
-            lockText.setText("Device locked. Contact admin.");
-            lockText.setVisibility(View.VISIBLE);
-            loginBtn.setEnabled(false);
-            keyInput.setEnabled(false);
-            return;
-        }
-        if (ms > 0) {
-            blockInput(ms);
-        } else {
-            lockText.setVisibility(View.GONE);
-            loginBtn.setEnabled(true);
-            keyInput.setEnabled(true);
-        }
-    }
-
-    private void blockInput(long ms) {
-        loginBtn.setEnabled(false);
-        keyInput.setEnabled(false);
-        lockText.setVisibility(View.VISIBLE);
-        if (lockTimer != null) lockTimer.cancel();
-        lockTimer = new CountDownTimer(ms, 1000) {
-            @Override
-            public void onTick(long left) {
-                lockText.setText("Try again in " + (left / 1000) + "s");
+        @JavascriptInterface
+        public String login(String key) {
+            if (BruteForceGuard.isPermanentlyLocked(LoginActivity.this)) {
+                return jsonFail("Device locked", true, "Contact admin");
             }
-
-            @Override
-            public void onFinish() {
-                if (!BruteForceGuard.isPermanentlyLocked(LoginActivity.this)) {
-                    loginBtn.setEnabled(true);
-                    keyInput.setEnabled(true);
-                    lockText.setVisibility(View.GONE);
+            if (BruteForceGuard.isLocked(LoginActivity.this) || TamperDetector.isLocked()) {
+                long ms = Math.max(BruteForceGuard.lockRemainingMs(LoginActivity.this),
+                        TamperDetector.lockRemainingMs());
+                return jsonFail("Try again later", true, "Wait " + (ms / 1000) + "s");
+            }
+            if (!DeviceBanManager.gate(LoginActivity.this)) {
+                return jsonFail("Device banned", true, "");
+            }
+            KeyValidator.Result r = KeyValidator.login(LoginActivity.this, key);
+            if (r.ok) {
+                try {
+                    return new JSONObject()
+                            .put("ok", true)
+                            .put("token", r.accessJwt)
+                            .put("expires", r.accessExp)
+                            .toString();
+                } catch (Exception e) {
+                    return jsonFail("Login failed", false, "");
                 }
             }
-        }.start();
+            return jsonFail(r.error != null ? r.error : "Invalid key", false, "");
+        }
+
+        @JavascriptInterface
+        public void onSuccess() {
+            runOnUiThread(LoginActivity.this::openMain);
+        }
+
+        @JavascriptInterface
+        public void ready() {
+            runOnUiThread(() -> {
+                if (webView == null) return;
+                long ms = Math.max(BruteForceGuard.lockRemainingMs(LoginActivity.this),
+                        TamperDetector.lockRemainingMs());
+                if (ms > 0) {
+                    webView.evaluateJavascript(
+                            "document.getElementById('lockMsg').textContent='Try again in "
+                                    + (ms / 1000) + "s';document.getElementById('lockMsg').style.display='block';",
+                            null);
+                }
+            });
+        }
+
+        private String jsonFail(String err, boolean locked, String lockMsg) {
+            try {
+                return new JSONObject()
+                        .put("ok", false)
+                        .put("error", err)
+                        .put("locked", locked)
+                        .put("lockMsg", lockMsg)
+                        .toString();
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":\"error\"}";
+            }
+        }
     }
 }

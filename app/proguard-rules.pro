@@ -9,6 +9,8 @@
 # WebView bridge only
 -keep class com.rebel.panel.MainActivity { *; }
 -keep class com.rebel.panel.MainActivity$RebelBridge { *; }
+-keep class com.rebel.panel.LoginActivity { *; }
+-keep class com.rebel.panel.LoginActivity$LoginBridge { *; }
 -keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
 
 # JNI

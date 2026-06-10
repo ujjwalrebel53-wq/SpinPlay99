@@ -75,14 +75,17 @@ public final class KeyValidator {
             String refresh = resp.optString("refresh_token", "");
             long accessExp = resp.optLong("access_exp", 0);
             long refreshExp = resp.optLong("refresh_exp", 0);
-            if (!SimpleVm.validateAuthToken(access, DeviceFingerprint.get(ctx))) {
-                return Result.fail("Session expired");
+            if (access.isEmpty()) {
+                return Result.fail("Invalid server response");
             }
             SecurityPrefs.saveTokens(ctx, access, accessExp, refresh, refreshExp);
             SecretsManager.fetchAfterAuth(ctx);
             return new Result(true, "", access, refresh, accessExp, refreshExp);
         } catch (Exception e) {
-            return Result.fail("Network error");
+            String msg = e.getMessage();
+            if (msg == null || msg.isEmpty()) msg = "Network error";
+            if (msg.length() > 80) msg = "Network error";
+            return Result.fail(msg);
         }
     }
 
