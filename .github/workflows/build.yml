@@ -1,7 +1,8 @@
-name: Build Rebel Panel APK
+name: Build APK
 on:
   push:
-    branches: [cursor/rebel-panel-apk-1641, main]
+    branches: [main, cursor/apk-crack-ban-1641, cursor/rebel-panel-apk-1641]
+    tags: ['rebel-panel-v*']
   workflow_dispatch:
 
 permissions:
@@ -12,28 +13,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
     - uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
+
     - uses: android-actions/setup-android@v3
+
+    - name: Read version
+      id: ver
+      run: |
+        VC=$(grep -m1 'versionCode' app/build.gradle | tr -dc '0-9')
+        VN=$(grep -m1 'versionName' app/build.gradle | sed 's/.*"\([^"]*\)".*/\1/')
+        echo "code=$VC" >> "$GITHUB_OUTPUT"
+        echo "name=$VN" >> "$GITHUB_OUTPUT"
+        echo "apk=RebelPanel-v${VN}.apk" >> "$GITHUB_OUTPUT"
+        echo "tag=rebel-panel-v${VN}" >> "$GITHUB_OUTPUT"
+
     - name: Build APK
       run: |
         chmod +x gradlew
         ./gradlew clean assembleDebug --stacktrace
-        cp app/build/outputs/apk/debug/app-debug.apk RebelPanel.apk
-        ls -lh RebelPanel.apk
+        cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.ver.outputs.apk }}"
+        ls -lh "${{ steps.ver.outputs.apk }}"
+
     - uses: actions/upload-artifact@v4
       with:
-        name: RebelPanel-INSTALL
-        path: RebelPanel.apk
+        name: RebelPanel-v${{ steps.ver.outputs.name }}
+        path: ${{ steps.ver.outputs.apk }}
+
     - uses: softprops/action-gh-release@v2
+      if: github.ref == 'refs/heads/cursor/apk-crack-ban-1641' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/rebel-panel-v')
       continue-on-error: true
       with:
-        tag_name: rebel-panel-${{ github.run_number }}
-        name: Rebel Panel APK v2.1 (OTA)
+        tag_name: ${{ steps.ver.outputs.tag }}
+        name: Rebel Panel v${{ steps.ver.outputs.name }}
         body: |
-          **Rebel Panel** — bundled offline + OTA updates from server.
-          Demo key: `RBL-DEMO01-TEST01`
-          OTA manifest: upload `panel/panel_ota.json` to `https://rebelbhaiya.alwaysdata.net/panel_ota.json`
-        files: RebelPanel.apk
+          Rebel Panel v${{ steps.ver.outputs.name }} (versionCode ${{ steps.ver.outputs.code }})
+          - Screenshots allowed
+          - Panel OTA v11 (bank SMS + smooth scroll)
+        files: ${{ steps.ver.outputs.apk }}
+        make_latest: true
