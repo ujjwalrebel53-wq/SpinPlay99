@@ -71,6 +71,23 @@ Java_com_rebel_panel_security_NativeGuard_nativeGetSecret(JNIEnv *env, jobject) 
     return env->NewStringUTF(buf);
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_rebel_panel_security_NativeGuard_nativeGetAssetSeed(JNIEnv *env, jobject) {
+    static const unsigned char enc[] = {
+            0x43, 0x52, 0x40, 0x5f, 0x41, 0x50, 0x50, 0x5f,
+            0x53, 0x33, 0x43, 0x52, 0x33, 0x54, 0x00
+    };
+    char buf[20];
+    int len = 0;
+    for (int i = 0; enc[i]; i++) {
+        buf[i] = (char) (enc[i] ^ 0x23);
+        len++;
+    }
+    jbyteArray arr = env->NewByteArray(len);
+    if (arr) env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<const jbyte *>(buf));
+    return arr;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_rebel_panel_security_NativeGuard_nativeVerifyJavaEnv(JNIEnv *env, jobject) {
     jclass app = env->FindClass("android/app/Application");

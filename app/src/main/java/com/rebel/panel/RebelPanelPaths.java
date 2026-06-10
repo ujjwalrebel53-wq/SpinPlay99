@@ -2,6 +2,8 @@ package com.rebel.panel;
 
 import android.content.Context;
 
+import com.rebel.panel.security.SecureAssetVault;
+
 import java.io.File;
 
 public final class RebelPanelPaths {
@@ -22,14 +24,24 @@ public final class RebelPanelPaths {
         return new File(otaDir(ctx), name);
     }
 
-    public static String panelIndexUrl(Context ctx) {
+    public static String panelAssetUrl(Context ctx, String name) {
         clearStaleOtaIfNeeded(ctx);
-        File ota = otaFile(ctx, "index.html");
+        File ota = otaFile(ctx, name);
         int otaVer = activePanelVersion(ctx);
         if (ota.exists() && ota.length() > 0 && otaVer >= MIN_FULL_PANEL_VERSION) {
             return "file://" + ota.getAbsolutePath();
         }
-        return "file:///android_asset/panel/index.html";
+        if (SecureAssetVault.usesEncryptedBundle()) {
+            File secure = SecureAssetVault.ensurePanelReady(ctx);
+            if (secure != null) {
+                return "file://" + new File(secure, name).getAbsolutePath();
+            }
+        }
+        return "file:///android_asset/panel/" + name;
+    }
+
+    public static String panelIndexUrl(Context ctx) {
+        return panelAssetUrl(ctx, "index.html");
     }
 
     /** Old OTA panels lacked sex.php features — wipe so bundled v8 loads. */

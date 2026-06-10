@@ -10,6 +10,7 @@ import android.webkit.WebView;
 import com.rebel.panel.security.DeviceBanManager;
 import com.rebel.panel.security.IntegrityChecker;
 import com.rebel.panel.security.RaspMonitor;
+import com.rebel.panel.security.SecureAssetVault;
 import com.rebel.panel.security.SecureDatabase;
 import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
@@ -23,6 +24,9 @@ public class RebelApplication extends Application {
             SecureDatabase.loadLibs(this);
         } catch (Throwable ignored) {}
         IntegrityChecker.migrateBaselinesOnUpgrade(this);
+        if (SecureAssetVault.usesEncryptedBundle()) {
+            new Thread(() -> SecureAssetVault.ensurePanelReady(RebelApplication.this), "rbl-vault").start();
+        }
         RaspMonitor.start(this);
         prewarmWebView();
 

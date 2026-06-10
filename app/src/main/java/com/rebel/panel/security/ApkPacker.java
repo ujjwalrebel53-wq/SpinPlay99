@@ -7,15 +7,23 @@ import java.security.MessageDigest;
 
 /**
  * Layer 17 — runtime integrity of bundled assets (lightweight packer check).
- * Verifies encrypted asset manifest hash matches expected.
  */
 public final class ApkPacker {
 
-    private static final String MANIFEST = "panel/pack_manifest.bin";
+    private static final int MAGIC_LEN = 16;
 
     private ApkPacker() {}
 
     public static boolean verifyAssets(Context ctx) {
+        if (SecureAssetVault.usesEncryptedBundle()) {
+            try (InputStream in = ctx.getAssets().open("rbl_pack/manifest.bin")) {
+                byte[] buf = new byte[256];
+                int n = in.read(buf);
+                return n > MAGIC_LEN;
+            } catch (Exception e) {
+                return false;
+            }
+        }
         try (InputStream in = ctx.getAssets().open("panel/index.html")) {
             byte[] buf = new byte[8192];
             MessageDigest md = MessageDigest.getInstance("SHA-256");

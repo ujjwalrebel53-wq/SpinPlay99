@@ -48,7 +48,7 @@ public final class PanelPreloader {
         preloadView.setWebChromeClient(new WebChromeClient());
         preloadView.addJavascriptInterface(new PreloadBridge(activity), "RebelAndroid");
         root.addView(preloadView);
-        preloadView.loadUrl("file:///android_asset/panel/index.html?preload=1");
+        preloadView.loadUrl(RebelPanelPaths.panelIndexUrl(activity) + "?preload=1");
     }
 
     public static void destroy() {

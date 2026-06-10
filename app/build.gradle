@@ -11,8 +11,8 @@ android {
         applicationId "com.rebel.panel"
         minSdk 24
         targetSdk 34
-        versionCode 26
-        versionName "4.1.4"
+        versionCode 27
+        versionName "5.0.0"
         buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
         buildConfigField "String", "REBEL_APK_SHA256", "\"570290715E067531A5DF06DD139604192A70993C863E97F51A09609F8A702CECA\""
         buildConfigField "String", "SSL_PIN_PRIMARY", "\"sha256/SM2goQ/B0xk7U8iezGH0VeeoZwZWiEC9obc8uSCte8=\""
@@ -46,7 +46,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
             buildConfigField "boolean", "RASP_KILL", "true"
-            buildConfigField "boolean", "SSL_PIN_ENFORCE", "false"
+            buildConfigField "boolean", "SSL_PIN_ENFORCE", "true"
         }
     }
 
@@ -71,6 +71,43 @@ android {
         }
     }
 }
+
+def panelPlainDir = file("src/main/assets/panel")
+def genEncAssetsDir = file("$buildDir/generated/encrypted_assets")
+
+tasks.register("packPanelAssets") {
+    inputs.dir(panelPlainDir)
+    outputs.dir(genEncAssetsDir)
+    doLast {
+        genEncAssetsDir.mkdirs()
+        exec {
+            commandLine "python3", "-m", "pip", "install", "cryptography", "--quiet", "--user"
+            ignoreExitValue true
+        }
+        exec {
+            commandLine "python3", rootProject.file("tools/pack_encrypted_assets.py"),
+                    panelPlainDir.absolutePath, genEncAssetsDir.absolutePath,
+                    String.valueOf(android.defaultConfig.versionCode)
+        }
+    }
+}
+
+android.applicationVariants.configureEach { variant ->
+    if (variant.buildType.name == "release") {
+        variant.preBuildProvider.get().dependsOn("packPanelAssets")
+        def mergeTask = variant.mergeAssetsProvider.get()
+        mergeTask.dependsOn("packPanelAssets")
+        mergeTask.doLast {
+            def outDir = mergeTask.outputDir.get().asFile
+            def panelDir = new File(outDir, "panel")
+            if (panelDir.exists()) {
+                panelDir.deleteDir()
+            }
+        }
+    }
+}
+
+android.sourceSets.release.assets.srcDirs += genEncAssetsDir
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'

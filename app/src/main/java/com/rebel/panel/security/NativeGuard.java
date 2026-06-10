@@ -1,5 +1,7 @@
 package com.rebel.panel.security;
 
+import com.rebel.panel.BuildConfig;
+
 /** Layer 10 — JNI anti-debug, secrets, Java env integrity. */
 public final class NativeGuard {
 
@@ -21,17 +23,18 @@ public final class NativeGuard {
 
     public static native boolean nativeVerifyJavaEnv();
 
+    public static native byte[] nativeGetAssetSeed();
+
     public static boolean isSafe() {
         try {
             if (!nativeVerifyJavaEnv()) return false;
             if (nativeAntiDebug()) return false;
             long t = nativeTimingStart();
-            // trivial work
             int x = 0;
             for (int i = 0; i < 1000; i++) x += i;
             return !nativeTimingCheck(t, 5000);
         } catch (UnsatisfiedLinkError e) {
-            return true; // emulator without .so in dev
+            return BuildConfig.DEBUG;
         }
     }
 }

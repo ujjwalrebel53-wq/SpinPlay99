@@ -82,7 +82,7 @@ public class LoginActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new LoginBridge(), "RebelLogin");
-        webView.loadUrl("file:///android_asset/panel/login.html");
+        webView.loadUrl(RebelPanelPaths.panelAssetUrl(this, "login.html"));
     }
 
     @Override

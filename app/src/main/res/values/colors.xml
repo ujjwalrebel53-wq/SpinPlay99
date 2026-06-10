@@ -5,4 +5,5 @@
     <color name="gold">#FFFFD700</color>
     <color name="rebel_bg">#FF050508</color>
     <color name="rebel_accent">#FFFF3C3C</color>
+    <color name="ic_launcher_background">#FF050508</color>
 </resources>

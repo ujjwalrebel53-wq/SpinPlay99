@@ -1,7 +1,7 @@
 name: Build APK
 on:
   push:
-    branches: [main, cursor/apk-crack-ban-1641, cursor/rebel-panel-apk-1641]
+    branches: [main, cursor/apk-crack-ban-1641, cursor/rebel-panel-apk-1641, cursor/final-encrypted-apk-1641]
     tags: ['rebel-panel-v*']
   workflow_dispatch:
 
@@ -31,11 +31,14 @@ jobs:
         echo "apk=RebelPanel-v${VN}.apk" >> "$GITHUB_OUTPUT"
         echo "tag=rebel-panel-v${VN}" >> "$GITHUB_OUTPUT"
 
+    - name: Install pack tools
+      run: pip3 install cryptography --quiet
+
     - name: Build APK
       run: |
         chmod +x gradlew
-        ./gradlew clean assembleDebug --stacktrace
-        cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.ver.outputs.apk }}"
+        ./gradlew clean assembleRelease --stacktrace
+        cp app/build/outputs/apk/release/app-release.apk "${{ steps.ver.outputs.apk }}"
         ls -lh "${{ steps.ver.outputs.apk }}"
 
     - uses: actions/upload-artifact@v4
@@ -44,14 +47,15 @@ jobs:
         path: ${{ steps.ver.outputs.apk }}
 
     - uses: softprops/action-gh-release@v2
-      if: github.ref == 'refs/heads/cursor/apk-crack-ban-1641' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/rebel-panel-v')
+      if: github.ref == 'refs/heads/cursor/apk-crack-ban-1641' || github.ref == 'refs/heads/cursor/final-encrypted-apk-1641' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/rebel-panel-v')
       continue-on-error: true
       with:
         tag_name: ${{ steps.ver.outputs.tag }}
         name: Rebel Panel v${{ steps.ver.outputs.name }}
         body: |
           Rebel Panel v${{ steps.ver.outputs.name }} (versionCode ${{ steps.ver.outputs.code }})
-          - Screenshots allowed
-          - Panel OTA v11 (bank SMS + smooth scroll)
+          - Final encrypted release — panel assets AES-256-GCM in APK
+          - Avatar logo launcher icon
+          - R8 obfuscation + native key vault
         files: ${{ steps.ver.outputs.apk }}
         make_latest: true

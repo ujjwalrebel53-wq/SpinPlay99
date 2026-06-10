@@ -17,6 +17,7 @@
 -keepclasseswithmembernames class com.rebel.panel.security.NativeGuard {
     native <methods>;
 }
+-keepclassmembers class com.rebel.panel.security.SecureAssetVault { *; }
 
 # BuildConfig fields for runtime
 -keepclassmembers class com.rebel.panel.BuildConfig { public static <fields>; }
