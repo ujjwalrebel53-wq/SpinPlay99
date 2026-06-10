@@ -10,8 +10,8 @@ android {
         applicationId "com.rebel.panel"
         minSdk 24
         targetSdk 34
-        versionCode 8
-        versionName "2.1.0"
+        versionCode 9
+        versionName "2.1.1"
         buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
         buildConfigField "String", "REBEL_APK_SHA256", "\"CHANGE_ME\""
     }
