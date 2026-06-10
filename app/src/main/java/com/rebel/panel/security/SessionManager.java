@@ -101,6 +101,7 @@ public final class SessionManager {
                     .put("ok", true)
                     .put("token", SecurityPrefs.getAccessJwt(ctx))
                     .put("expires", SecurityPrefs.getAccessExp(ctx))
+                    .put("key", SecurityPrefs.getAccessKey(ctx))
                     .toString();
         } catch (Exception e) {
             return "{\"ok\":false,\"error\":\"No session\"}";

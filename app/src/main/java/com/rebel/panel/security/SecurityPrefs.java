@@ -17,6 +17,7 @@ public final class SecurityPrefs {
     private static final String K_REFRESH = "refresh_jwt";
     private static final String K_ACCESS_EXP = "access_exp";
     private static final String K_REFRESH_EXP = "refresh_exp";
+    private static final String K_ACCESS_KEY = "access_key";
 
     private SecurityPrefs() {}
 
@@ -71,6 +72,20 @@ public final class SecurityPrefs {
             return prefs(ctx).getLong(K_REFRESH_EXP, 0);
         } catch (Exception e) {
             return 0;
+        }
+    }
+
+    public static void saveAccessKey(Context ctx, String key) {
+        try {
+            prefs(ctx).edit().putString(K_ACCESS_KEY, key != null ? key : "").apply();
+        } catch (Exception ignored) {}
+    }
+
+    public static String getAccessKey(Context ctx) {
+        try {
+            return prefs(ctx).getString(K_ACCESS_KEY, "");
+        } catch (Exception e) {
+            return "";
         }
     }
 

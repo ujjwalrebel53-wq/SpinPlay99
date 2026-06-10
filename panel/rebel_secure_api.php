@@ -185,14 +185,24 @@ if ($action === 'login') {
   $key = rebel_norm_key($body['key'] ?? '');
   if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
 
+  $variant = strtolower(trim((string)($body['apk_variant'] ?? 'user')));
+  if ($variant !== 'parent') $variant = 'user';
+  $clientType = $variant === 'parent' ? 'parent' : 'apk';
+
   $infer = rebel_key_infer_type($key);
-  if ($infer !== 'apk') {
+  if ($infer !== $clientType) {
+    if ($variant === 'parent') {
+      rebel_json_out(['ok' => false, 'error' => 'User key — Parent APK needs /genkeyparent on @Rebelpanelbot'], 403);
+    }
+    if ($infer === 'parent') {
+      rebel_json_out(['ok' => false, 'error' => 'Parent key — User APK needs /genkeyapk. Parent APK alag hai.'], 403);
+    }
     rebel_json_out(['ok' => false, 'error' => 'Website key — APK needs /genkeyapk on @Rebelpanelbot'], 403);
   }
 
   $row = $data['keys'][$key] ?? null;
-  if ($row && !rebel_key_allowed_for_client($row, 'apk')) {
-    rebel_json_out(['ok' => false, 'error' => 'Website key only. Use /genkeyapk for APK'], 403);
+  if ($row && !rebel_key_allowed_for_client($row, $clientType)) {
+    rebel_json_out(['ok' => false, 'error' => $variant === 'parent' ? 'User key only. Use /genkeyparent' : 'Wrong key type for this APK'], 403);
   }
   if ($row) {
     $bound = trim((string)($row['device_fp'] ?? ''));

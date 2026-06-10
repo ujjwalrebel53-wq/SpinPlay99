@@ -20,7 +20,11 @@
 -keepclassmembers class com.rebel.panel.security.SecureAssetVault { *; }
 
 # BuildConfig fields for runtime
--keepclassmembers class com.rebel.panel.BuildConfig { public static <fields>; }
+-keepclassmembers class com.rebel.panel.BuildConfig {
+    public static boolean IS_PARENT_APK;
+    public static java.lang.String REBEL_VARIANT;
+    public static <fields>;
+}
 
 # OkHttp / SQLCipher / RootBeer
 -dontwarn okhttp3.**

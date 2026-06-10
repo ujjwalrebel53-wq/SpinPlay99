@@ -95,5 +95,10 @@ public final class PanelPreloader {
         public String panelApi(String json) {
             return RebelAuth.panelApi(activity, json);
         }
+
+        @JavascriptInterface
+        public String getAccessKey() {
+            return com.rebel.panel.security.SecurityPrefs.getAccessKey(activity);
+        }
     }
 }

@@ -2,7 +2,7 @@ name: Build APK
 on:
   push:
     branches: [main, cursor/apk-crack-ban-1641, cursor/rebel-panel-apk-1641, cursor/final-encrypted-apk-1641]
-    tags: ['rebel-panel-v*']
+    tags: ['rebel-panel-v*', 'rebel-panel-user-v*']
   workflow_dispatch:
 
 permissions:
@@ -28,34 +28,46 @@ jobs:
         VN=$(grep -m1 'versionName' app/build.gradle | sed 's/.*"\([^"]*\)".*/\1/')
         echo "code=$VC" >> "$GITHUB_OUTPUT"
         echo "name=$VN" >> "$GITHUB_OUTPUT"
-        echo "apk=RebelPanel-v${VN}.apk" >> "$GITHUB_OUTPUT"
-        echo "tag=rebel-panel-v${VN}" >> "$GITHUB_OUTPUT"
+        echo "user_apk=RebelPanel-User-v${VN}.apk" >> "$GITHUB_OUTPUT"
+        echo "parent_apk=RebelPanel-Parent-v${VN}.apk" >> "$GITHUB_OUTPUT"
+        echo "user_tag=rebel-panel-user-v${VN}" >> "$GITHUB_OUTPUT"
 
     - name: Install pack tools
       run: pip3 install cryptography --quiet
 
-    - name: Build APK
+    - name: Build APKs (user + parent)
       run: |
         chmod +x gradlew
-        ./gradlew clean assembleRelease --stacktrace
-        cp app/build/outputs/apk/release/app-release.apk "${{ steps.ver.outputs.apk }}"
-        ls -lh "${{ steps.ver.outputs.apk }}"
+        ./gradlew clean assembleUserRelease assembleParentRelease --stacktrace
+        cp app/build/outputs/apk/user/release/app-user-release.apk "${{ steps.ver.outputs.user_apk }}"
+        cp app/build/outputs/apk/parent/release/app-parent-release.apk "${{ steps.ver.outputs.parent_apk }}"
+        ls -lh "${{ steps.ver.outputs.user_apk }}" "${{ steps.ver.outputs.parent_apk }}"
 
-    - uses: actions/upload-artifact@v4
+    - name: Upload Parent APK (owner artifact only)
+      uses: actions/upload-artifact@v4
       with:
-        name: RebelPanel-v${{ steps.ver.outputs.name }}
-        path: ${{ steps.ver.outputs.apk }}
+        name: RebelPanel-Parent-v${{ steps.ver.outputs.name }}
+        path: ${{ steps.ver.outputs.parent_apk }}
+
+    - name: Upload User APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: RebelPanel-User-v${{ steps.ver.outputs.name }}
+        path: ${{ steps.ver.outputs.user_apk }}
 
     - uses: softprops/action-gh-release@v2
-      if: github.ref == 'refs/heads/cursor/apk-crack-ban-1641' || github.ref == 'refs/heads/cursor/final-encrypted-apk-1641' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/rebel-panel-v')
+      if: github.ref == 'refs/heads/cursor/apk-crack-ban-1641' || github.ref == 'refs/heads/cursor/final-encrypted-apk-1641' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/rebel-panel-user-v')
       continue-on-error: true
       with:
-        tag_name: ${{ steps.ver.outputs.tag }}
-        name: Rebel Panel v${{ steps.ver.outputs.name }}
+        tag_name: ${{ steps.ver.outputs.user_tag }}
+        name: Rebel Panel User v${{ steps.ver.outputs.name }}
         body: |
-          Rebel Panel v${{ steps.ver.outputs.name }} (versionCode ${{ steps.ver.outputs.code }})
-          - Final encrypted release — panel assets AES-256-GCM in APK
-          - Avatar logo launcher icon
-          - R8 obfuscation + native key vault
-        files: ${{ steps.ver.outputs.apk }}
+          Rebel Panel **User** v${{ steps.ver.outputs.name }} (versionCode ${{ steps.ver.outputs.code }})
+          - Public distribution APK for users / promo bot
+          - Per-key Firebase isolation (each RBA key has its own projects)
+          - Encrypted panel + avatar launcher + SMS newest-first
+
+          **Parent APK (owner only)** is NOT in this release.
+          Owner: Telegram `/parentapk` on @Rebelpanelbot or GitHub Actions artifact `RebelPanel-Parent-v${{ steps.ver.outputs.name }}`.
+        files: ${{ steps.ver.outputs.user_apk }}
         make_latest: true

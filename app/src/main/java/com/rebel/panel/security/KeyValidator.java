@@ -79,6 +79,7 @@ public final class KeyValidator {
                 return Result.fail("Invalid server response");
             }
             SecurityPrefs.saveTokens(ctx, access, accessExp, refresh, refreshExp);
+            SecurityPrefs.saveAccessKey(ctx, key);
             SecretsManager.fetchAfterAuth(ctx);
             return new Result(true, "", access, refresh, accessExp, refreshExp);
         } catch (Exception e) {

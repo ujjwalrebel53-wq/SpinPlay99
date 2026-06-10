@@ -151,6 +151,7 @@ public class LoginActivity extends AppCompatActivity {
                             .put("ok", true)
                             .put("token", r.accessJwt)
                             .put("expires", r.accessExp)
+                            .put("key", com.rebel.panel.security.SecurityPrefs.getAccessKey(LoginActivity.this))
                             .toString();
                 } catch (Exception e) {
                     return jsonFail("Login failed", false, "");

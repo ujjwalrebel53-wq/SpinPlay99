@@ -37,6 +37,7 @@ public final class RebelAuth {
                         .put("ok", true)
                         .put("token", r.accessJwt)
                         .put("expires", r.accessExp)
+                        .put("key", SecurityPrefs.getAccessKey(ctx))
                         .toString();
             } catch (Exception e) {
                 return err("Login failed");

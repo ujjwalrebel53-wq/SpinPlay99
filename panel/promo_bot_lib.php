@@ -24,7 +24,7 @@ function promo_default_pack() {
     'video_file_id' => '',
     'video_note' => '',
     'apk_file_id' => '',
-    'apk_url' => 'https://github.com/ujjwalrebel53-wq/SpinPlay99/releases/download/rebel-panel-v4.1.4/RebelPanel-v4.1.4.apk',
+    'apk_url' => 'https://github.com/ujjwalrebel53-wq/SpinPlay99/releases/download/rebel-panel-user-v5.1.0/RebelPanel-User-v5.1.0.apk',
     'apk_filename' => 'RebelPanel.apk',
     'updated_at' => time(),
     'updated_by' => PROMO_OWNER_ID

@@ -230,6 +230,16 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);positi
 .modal-sub{font-size:11px;color:var(--muted);margin-bottom:14px}
 .modal-close{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);font-size:18px}
 .modal-status{font-size:11px;margin-top:10px;font-family:'Space Mono',monospace}
+.access-key-badge{font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:3px;letter-spacing:.3px}
+.fb-modal{max-width:400px}
+.fb-paste-wrap{margin-bottom:16px}
+.fb-paste-input{min-height:88px;font-size:12px;font-family:'Space Mono',monospace}
+.fb-manager-list{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto}
+.fb-manage-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--border)}
+.fb-manage-name{font-size:13px;font-weight:700}
+.fb-manage-meta{font-size:10px;color:var(--muted);margin-top:3px;font-family:'Space Mono',monospace}
+.fb-manage-del{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.12);color:var(--error);font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0}
+.fb-empty{font-size:11px;color:var(--muted);text-align:center;padding:14px;border:1px dashed var(--border);border-radius:12px}
 .token-log-wrap{margin:16px;padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);max-height:160px;overflow-y:auto}
 .token-log{font-size:10px;font-family:'Space Mono',monospace;padding:6px 0;border-bottom:1px solid var(--border)}
 .token-log.ok{color:var(--success)}

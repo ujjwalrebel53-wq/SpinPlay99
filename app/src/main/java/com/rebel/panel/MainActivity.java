@@ -156,6 +156,16 @@ public class MainActivity extends SecureActivity {
         }
 
         @JavascriptInterface
+        public boolean isParentApk() {
+            return BuildConfig.IS_PARENT_APK;
+        }
+
+        @JavascriptInterface
+        public String getAccessKey() {
+            return com.rebel.panel.security.SecurityPrefs.getAccessKey(MainActivity.this);
+        }
+
+        @JavascriptInterface
         public int getPanelVersion() {
             return RebelPanelPaths.activePanelVersion(MainActivity.this);
         }

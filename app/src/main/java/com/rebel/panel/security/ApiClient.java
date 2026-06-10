@@ -74,6 +74,7 @@ public final class ApiClient {
         try {
             if (!body.has("nonce")) body.put("nonce", java.util.UUID.randomUUID().toString());
             if (!body.has("apk_version")) body.put("apk_version", BuildConfig.VERSION_CODE);
+            if (!body.has("apk_variant")) body.put("apk_variant", BuildConfig.REBEL_VARIANT);
         } catch (Exception ignored) {}
 
         final String bodyJson = body.toString();
