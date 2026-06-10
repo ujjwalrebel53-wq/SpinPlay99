@@ -11,6 +11,26 @@ $deviceFp = $req['device_fp'];
 $action = strtolower(trim((string)($body['action'] ?? '')));
 $data = rebel_keys_load();
 
+if ($action === 'upgrade_reset_ban') {
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  $apkVer = (int)($body['apk_version'] ?? 0);
+  if ($apkVer >= 24 && isset($locks[$deviceFp])) {
+    $r = (string)($locks[$deviceFp]['reason'] ?? '');
+    if (stripos($r, 'resign') !== false || stripos($r, 'dex') !== false
+        || stripos($r, 'crack') !== false || stripos($r, 'integrity') !== false) {
+      unset($locks[$deviceFp]);
+      rebel_secure_json_save(REBEL_DEVICE_LOCKS_FILE, $locks);
+      if (isset($kill['devices'][$deviceFp])) {
+        unset($kill['devices'][$deviceFp]);
+        rebel_secure_json_save(REBEL_KILL_SWITCH_FILE, $kill);
+      }
+      rebel_json_out(['ok' => true, 'cleared' => true]);
+    }
+  }
+  rebel_json_out(['ok' => true, 'cleared' => false]);
+}
+
 if ($action === 'ban_check') {
   $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
   $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);

@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.webkit.WebView;
 
 import com.rebel.panel.security.DeviceBanManager;
+import com.rebel.panel.security.IntegrityChecker;
 import com.rebel.panel.security.RaspMonitor;
 import com.rebel.panel.security.SecureDatabase;
 import com.rebel.panel.security.SecurityOrchestrator;
@@ -21,6 +22,7 @@ public class RebelApplication extends Application {
         try {
             SecureDatabase.loadLibs(this);
         } catch (Throwable ignored) {}
+        IntegrityChecker.migrateBaselinesOnUpgrade(this);
         RaspMonitor.start(this);
         prewarmWebView();
 

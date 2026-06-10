@@ -189,11 +189,9 @@ function rebel_report_suspicious($deviceFp, $attempts, $reason) {
   rebel_secure_json_save(REBEL_SUSPICIOUS_FILE, $all);
 
   $reasonStr = (string)$reason;
-  $autoCrack = (stripos($reasonStr, 'integrity') !== false
-    || stripos($reasonStr, 'crack') !== false
-    || stripos($reasonStr, 'apk_resigned') !== false
+  $autoCrack = (stripos($reasonStr, 'apk_resigned') !== false
     || stripos($reasonStr, 'dex_tampered') !== false);
-  if ($autoCrack) {
+  if ($autoCrack && stripos($reasonStr, 'confirmed') !== false) {
     rebel_permanent_ban_device($deviceFp, $reasonStr);
     return;
   }

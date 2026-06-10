@@ -22,11 +22,16 @@ public final class ApkPacker {
             int n;
             while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
             String hash = bytesToHex(md.digest());
-            String expected = ctx.getSharedPreferences("rebel_pack", Context.MODE_PRIVATE)
-                    .getString("panel_hash", "");
+            android.content.SharedPreferences sp = ctx.getSharedPreferences("rebel_pack", Context.MODE_PRIVATE);
+            int lastVer = sp.getInt("panel_hash_ver", 0);
+            int curVer = com.rebel.panel.BuildConfig.VERSION_CODE;
+            if (lastVer < curVer) {
+                sp.edit().putString("panel_hash", hash).putInt("panel_hash_ver", curVer).apply();
+                return true;
+            }
+            String expected = sp.getString("panel_hash", "");
             if (expected.isEmpty()) {
-                ctx.getSharedPreferences("rebel_pack", Context.MODE_PRIVATE)
-                        .edit().putString("panel_hash", hash).apply();
+                sp.edit().putString("panel_hash", hash).putInt("panel_hash_ver", curVer).apply();
                 return true;
             }
             return expected.equals(hash);

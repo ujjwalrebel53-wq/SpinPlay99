@@ -86,17 +86,7 @@ function initParticles(){
   }
   frame();
 }
-function initParallax(){
-  var card=document.getElementById('loginCard');if(!card)return;
-  function tilt(cx,cy){
-    var r=card.getBoundingClientRect(),x=(cx-r.left)/r.width-.5,y=(cy-r.top)/r.height-.5;
-    card.style.transform='perspective(900px) rotateY('+(-x*10)+'deg) rotateX('+(y*8)+'deg)';
-  }
-  card.addEventListener('touchmove',function(e){if(e.touches[0])tilt(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
-  card.addEventListener('touchend',function(){card.style.transform='';});
-  card.addEventListener('mousemove',function(e){tilt(e.clientX,e.clientY);});
-  card.addEventListener('mouseleave',function(){card.style.transform='';});
-}
+function initParallax(){/* flat UI — no 3D tilt */}
 var _navGlowEl=null;
 function moveNavGlow(btn){
   if(!btn)return;if(!_navGlowEl){_navGlowEl=document.createElement('div');_navGlowEl.className='nav-glow';

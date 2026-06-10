@@ -26,13 +26,33 @@ public final class IntegrityChecker {
     }
 
     /**
-     * Crack = signature or DEX changed AFTER first legitimate install baseline.
-     * First install always passes and records baseline (no false ban from wrong BuildConfig hash).
+     * Crack = signature or DEX changed on the SAME version (re-sign / patch).
+     * Legitimate APK updates refresh baselines — no false ban across releases.
      */
     public static String getCrackReason(Context ctx) {
+        migrateBaselinesOnUpgrade(ctx);
         String sig = checkSignatureTamper(ctx);
         if (sig != null) return sig;
         return checkDexTamper(ctx);
+    }
+
+    /** New APK version = trusted update; refresh cert/dex baseline and clear false local ban. */
+    public static void migrateBaselinesOnUpgrade(Context ctx) {
+        SharedPreferences sp = prefs(ctx);
+        int lastVer = sp.getInt("baseline_apk_version", 0);
+        int currentVer = BuildConfig.VERSION_CODE;
+        if (currentVer <= lastVer) return;
+
+        String cert = currentCertSha256(ctx);
+        if (!cert.isEmpty()) {
+            sp.edit().putString("cert_sha256", cert).apply();
+        }
+        long crc = readPrimaryDexCrc(ctx);
+        if (crc != 0) {
+            sp.edit().putString("dex_crc_v" + currentVer, String.valueOf(crc)).apply();
+        }
+        sp.edit().putInt("baseline_apk_version", currentVer).apply();
+        DeviceBanManager.clearFalseBanOnUpgrade(ctx);
     }
 
     private static SharedPreferences prefs(Context ctx) {

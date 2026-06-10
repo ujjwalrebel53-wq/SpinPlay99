@@ -301,19 +301,18 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);positi
 
 .card-shine{position:absolute;inset:0;background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%);transform:translateX(-120%);animation:cardShine 4s ease-in-out infinite;pointer-events:none}
 @keyframes cardShine{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
-.login-card{transform-style:preserve-3d;will-change:transform;transition:transform .12s ease-out}
-.login-card .login-hero,.login-card .key-input,.login-card .btn-primary{transform:translateZ(20px)}
+.login-card{transition:transform .12s ease-out}
 
 .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-left:4px;vertical-align:middle;box-shadow:0 0 8px var(--success);animation:livePulse 1.8s ease-in-out infinite}
 .live-dot.syncing{background:var(--accent2);box-shadow:0 0 8px var(--accent2);animation:livePulse .6s ease-in-out infinite}
 @keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
 
-.screens{perspective:1400px;transform-style:preserve-3d}
-.screen{transform:translate3d(16px,0,-40px) rotateY(-6deg);transform-origin:center right;transition:opacity .4s cubic-bezier(.22,1,.36,1),transform .45s cubic-bezier(.22,1,.36,1),filter .4s}
-.screen.active{transform:translate3d(0,0,0) rotateY(0);filter:none}
-.screen.from-right{transform:translate3d(40px,0,-60px) rotateY(8deg)}
-.screen.from-left{transform:translate3d(-40px,0,-60px) rotateY(-8deg)}
-.screen.leaving{opacity:0!important;pointer-events:none!important;transform:translate3d(-30px,0,-80px) rotateY(10deg)!important}
+.screens{overflow:hidden}
+.screen{opacity:0;pointer-events:none;transform:translateX(10px);transition:opacity .28s ease,transform .28s ease}
+.screen.active{opacity:1;pointer-events:auto;transform:none}
+.screen.from-right{transform:translateX(18px)}
+.screen.from-left{transform:translateX(-18px)}
+.screen.leaving{opacity:0!important;pointer-events:none!important;transform:translateX(-10px)!important}
 
 .stat-card{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(22,22,32,.95),rgba(14,14,20,.98))}
 .stat-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,60,60,.08),transparent 40%,rgba(123,47,255,.06));opacity:.8}

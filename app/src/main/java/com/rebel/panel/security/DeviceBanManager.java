@@ -54,7 +54,40 @@ public final class DeviceBanManager {
                 .apply();
     }
 
+    public static void clearLocalBan(Context ctx) {
+        p(ctx).edit().clear().apply();
+        banScreenShowing = false;
+    }
+
+    /** APK update from Play/GitHub — clear false crack ban from signature mismatch. */
+    public static void clearFalseBanOnUpgrade(Context ctx) {
+        if (!isLocallyBanned(ctx)) return;
+        String reason = p(ctx).getString(K_REASON, "");
+        if ("apk_resigned".equals(reason) || "dex_tampered".equals(reason)
+                || "apk_crack".equals(reason) || "server_banned".equals(reason)) {
+            clearLocalBan(ctx);
+            requestServerUnban(ctx);
+        }
+    }
+
+    private static void requestServerUnban(Context ctx) {
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("action", "upgrade_reset_ban");
+                body.put("apk_version", com.rebel.panel.BuildConfig.VERSION_CODE);
+                ApiClient.postSigned(ctx, body);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
     public static void reportCrackBanToServer(Context ctx, String reason) {
+        if (reason == null) return;
+        if ("apk_resigned".equals(reason) || "dex_tampered".equals(reason)) {
+            SharedPreferences sp = ctx.getSharedPreferences("rebel_integrity", Context.MODE_PRIVATE);
+            int baselineVer = sp.getInt("baseline_apk_version", 0);
+            if (baselineVer < com.rebel.panel.BuildConfig.VERSION_CODE) return;
+        }
         try {
             JSONObject body = new JSONObject();
             body.put("action", "crack_ban");
@@ -104,6 +137,7 @@ public final class DeviceBanManager {
     }
 
     public static boolean gate(Context ctx) {
+        IntegrityChecker.migrateBaselinesOnUpgrade(ctx);
         if (isBanScreenShowing()) return false;
         if (isLocallyBanned(ctx)) {
             launchBanScreen(ctx);
