@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
+        android:name=".RebelApplication"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:fullBackupContent="false"
@@ -13,21 +14,28 @@
         android:roundIcon="@drawable/ic_rebel_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.RebelPanel"
-        android:usesCleartextTraffic="true"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false">
 
         <activity
-            android:name="com.rebel.panel.MainActivity"
+            android:name=".LoginActivity"
             android:exported="true"
-            android:hardwareAccelerated="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RebelPanel"
-            android:configChanges="orientation|screenSize|keyboardHidden|density|smallestScreenSize">
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.RebelPanel"
+            android:configChanges="orientation|screenSize|keyboardHidden|density|smallestScreenSize" />
 
     </application>
 </manifest>

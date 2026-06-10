@@ -1,6 +1,7 @@
 package com.rebel.panel;
 
 import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -14,9 +15,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.rebel.panel.security.SecureActivity;
+import com.rebel.panel.security.SessionManager;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends SecureActivity {
 
     private WebView webView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -25,6 +27,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (isFinishing()) return;
+
         setContentView(R.layout.activity_main);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -93,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
+        if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
     }
 
@@ -101,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (webView != null) {
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }
@@ -119,6 +124,9 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void logout() {
             RebelAuth.logout(MainActivity.this);
+            startActivity(new Intent(MainActivity.this, LoginActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            finish();
         }
 
         @JavascriptInterface
