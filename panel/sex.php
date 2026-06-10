@@ -21,6 +21,8 @@ if (isset($_GET['rebel_bot_status'])) {
     'ok' => true,
     'bot_version' => defined('REBEL_BOT_VERSION') ? REBEL_BOT_VERSION : 'old',
     'genkeyapk_supported' => function_exists('rebel_bot_create_key') && strpos($lib, 'genkeyapk') !== false,
+    'parentapk_supported' => strpos($lib, 'parentapk') !== false,
+    'deploy_bot_url' => 'ota/deploy_bot.php?owner=' . REBEL_OWNER_ID,
     'update_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID,
     'ota_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID . '&action=ota',
     'bot' => rebel_tg_api('getMe', []),
