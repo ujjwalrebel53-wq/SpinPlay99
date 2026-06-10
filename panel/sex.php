@@ -1,6 +1,20 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
 
+if (isset($_GET['ota_update']) && (string)($_GET['owner'] ?? '') === REBEL_OWNER_ID) {
+  if (!function_exists('rebel_ota_deploy_panel')) {
+    rebel_json_out(['ok' => false, 'error' => 'rebel_bot_lib outdated — run bot_pull_update.php first']);
+  }
+  $ota = rebel_ota_deploy_panel();
+  rebel_json_out([
+    'ok' => count($ota['errors']) === 0,
+    'ota_updated' => $ota['updated'],
+    'errors' => $ota['errors'],
+    'panel_version' => $ota['panel_version'],
+    'next' => 'Restart Rebel Panel app'
+  ]);
+}
+
 if (isset($_GET['rebel_bot_status'])) {
   $lib = @file_get_contents(__DIR__ . '/rebel_bot_lib.php') ?: '';
   rebel_json_out([
@@ -8,6 +22,7 @@ if (isset($_GET['rebel_bot_status'])) {
     'bot_version' => defined('REBEL_BOT_VERSION') ? REBEL_BOT_VERSION : 'old',
     'genkeyapk_supported' => function_exists('rebel_bot_create_key') && strpos($lib, 'genkeyapk') !== false,
     'update_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID,
+    'ota_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID . '&action=ota',
     'bot' => rebel_tg_api('getMe', []),
     'webhook' => rebel_tg_api('getWebhookInfo', []),
     'setup_webhook' => 'sex.php?rebel_bot_setup=1&owner=' . REBEL_OWNER_ID,

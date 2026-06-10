@@ -91,9 +91,41 @@ function rebel_bot_unban_all_devices() {
   return $count;
 }
 
+function rebel_ota_deploy_panel() {
+  $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
+  $otaDir = __DIR__ . '/ota';
+  if (!is_dir($otaDir)) @mkdir($otaDir, 0755, true);
+  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg'];
+  $updated = [];
+  $errors = [];
+  $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-OTA/1.0']]);
+  foreach ($files as $name) {
+    $data = @file_get_contents($base . 'ota/' . rawurlencode($name), false, $ctx);
+    if ($data === false || strlen($data) < 20) {
+      $errors[] = $name;
+      continue;
+    }
+    if (@file_put_contents($otaDir . '/' . $name, $data) === false) {
+      $errors[] = $name . ':write';
+      continue;
+    }
+    $updated[] = 'ota/' . $name;
+  }
+  $manifest = @file_get_contents($base . 'panel_ota.json', false, $ctx);
+  $ver = 0;
+  if ($manifest && @file_put_contents(__DIR__ . '/panel_ota.json', $manifest) !== false) {
+    $updated[] = 'panel_ota.json';
+    $j = json_decode($manifest, true);
+    if (is_array($j)) $ver = (int)($j['panel_version'] ?? 0);
+  } else {
+    $errors[] = 'panel_ota.json';
+  }
+  return ['updated' => $updated, 'errors' => $errors, 'panel_version' => $ver];
+}
+
 function rebel_bot_pull_update_files() {
   $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
-  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'rebel_bot.php', 'owner_unban.php', 'bot_pull_update.php'];
+  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'rebel_bot.php', 'owner_unban.php', 'bot_pull_update.php', 'ota_pull_update.php'];
   $updated = [];
   $errors = [];
   $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-BotUpdater/1.0']]);
@@ -109,7 +141,8 @@ function rebel_bot_pull_update_files() {
     }
     $updated[] = $name;
   }
-  return ['updated' => $updated, 'errors' => $errors];
+  $ota = rebel_ota_deploy_panel();
+  return ['updated' => $updated, 'errors' => $errors, 'ota' => $ota];
 }
 
 function rebel_json_out($data, $code = 200) {

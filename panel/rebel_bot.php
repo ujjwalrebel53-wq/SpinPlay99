@@ -61,5 +61,21 @@ if ($action === 'webhook') {
   exit;
 }
 
+if ($action === 'ota' || $action === 'otaupdate') {
+  if (!function_exists('rebel_ota_deploy_panel')) {
+    echo json_encode(['ok' => false, 'error' => 'Update bot first: /updatebot or bot_pull_update.php']);
+    exit;
+  }
+  $ota = rebel_ota_deploy_panel();
+  echo json_encode([
+    'ok' => count($ota['errors']) === 0,
+    'ota_updated' => $ota['updated'],
+    'errors' => $ota['errors'],
+    'panel_version' => $ota['panel_version'],
+    'next' => 'Restart Rebel Panel app'
+  ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
 $timeout = max(1, min(25, (int)($_GET['timeout'] ?? 2)));
 echo json_encode(rebel_bot_poll_once($timeout));
