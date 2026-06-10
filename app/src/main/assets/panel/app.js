@@ -1,4 +1,4 @@
-var PANEL_BUILD=12;
+var PANEL_BUILD=13;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
@@ -601,13 +601,28 @@ function clearListeners(){
   });
   activeListeners={};
 }
+var SMS_MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 function parseDdMmYyyy(s){
   if(!s||typeof s!=='string')return 0;
-  var m=String(s).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[|\s]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
+  var m=String(s).trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})(?:[T\s,|]*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?/i);
   if(!m)return 0;
-  var dd=+m[1],MM=+m[2],yyyy=+m[3],hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+  var dd=+m[1],MM=+m[2],yyyy=+m[3];
+  if(yyyy<100)yyyy+=2000;
+  var hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
   if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
   var ms=new Date(yyyy,MM-1,dd,hh,mi,ss).getTime();
+  return isNaN(ms)?0:ms;
+}
+function parseNamedMonthDate(s){
+  if(!s||typeof s!=='string')return 0;
+  var m=String(s).trim().match(/^(\d{1,2})[\s\/\-\.]+([A-Za-z]{3,9})[\s\/\-\.,]+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
+  if(!m)return 0;
+  var mon=(SMS_MONTHS[String(m[2]).slice(0,3).toLowerCase()]);
+  if(mon==null)return 0;
+  var yyyy=+m[3];if(yyyy<100)yyyy+=2000;
+  var hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+  if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
+  var ms=new Date(yyyy,mon,+m[1],hh,mi,ss).getTime();
   return isNaN(ms)?0:ms;
 }
 function smsToMs(v){
@@ -619,34 +634,57 @@ function smsToMs(v){
     if(!isNaN(t))return t;
     var d2=parseDdMmYyyy(v);
     if(d2)return d2;
+    d2=parseNamedMonthDate(v);
+    if(d2)return d2;
   }
   return 0;
 }
 function smsMsgTime(m){
   if(!m)return 0;
-  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','id'];
+  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','date_long','smsDate','msg_date','id'];
   var i,ms;
   for(i=0;i<keys.length;i++){ms=smsToMs(m[keys[i]]);if(ms)return ms;}
   ms=smsToMs(m._sortKey);
   if(ms)return ms;
-  return smsToMs(m.date_readable||m.dateTime||m.datetime||m.time||'');
+  return smsToMs(m.date_readable||m.dateTime||m.datetime||m.time||m.time_str||'');
+}
+function compareSortKeyDesc(a,b){
+  var sa=String(a||''),sb=String(b||'');
+  if(sa===sb)return 0;
+  var na=Number(sa),nb=Number(sb);
+  if(!isNaN(na)&&!isNaN(nb)&&/^\d+$/.test(sa)&&/^\d+$/.test(sb))return nb-na;
+  return sb.localeCompare(sa);
 }
 function sortSmsNewestFirst(list){
   if(!list||!list.length)return[];
   return list.slice().sort(function(a,b){
     var ta=a.date_ms||smsMsgTime(a)||0,tb=b.date_ms||smsMsgTime(b)||0;
     if(tb!==ta)return tb-ta;
-    return String(b._sortKey||'').localeCompare(String(a._sortKey||''));
+    var da=String(a.date_readable||''),db=String(b.date_readable||'');
+    if(da&&db&&da!=='—'&&db!=='—'&&da!==db)return db.localeCompare(da);
+    var sk=compareSortKeyDesc(a._sortKey,b._sortKey);
+    if(sk)return sk;
+    return (b._seq|0)-(a._seq|0);
   });
+}
+function finalizeSmsList(list){
+  if(!list||!list.length)return[];
+  var dated=0,i;
+  for(i=0;i<list.length;i++){if((list[i].date_ms||0)>0)dated++;}
+  if(dated<list.length*0.2){
+    for(i=0;i<list.length;i++){if(list[i]._seq==null)list[i]._seq=i;}
+    list.reverse();
+  }
+  return sortSmsNewestFirst(list);
 }
 function parseAllSmsPayload(data){
   if(!data)return[];
   var raw=data.messages!=null?data.messages:data;
-  return sortSmsNewestFirst(smsAsList(raw).map(normalizeSms).filter(Boolean));
+  return finalizeSmsList(smsAsList(raw).map(normalizeSms).filter(Boolean));
 }
 function parseNewSmsPayload(data){
   if(!data)return[];
-  return sortSmsNewestFirst(smsAsList(data).map(normalizeSms).filter(Boolean));
+  return finalizeSmsList(smsAsList(data).map(normalizeSms).filter(Boolean));
 }
 function mergeSmsLists(a,b){
   var seen={},out=[];
@@ -656,8 +694,8 @@ function mergeSmsLists(a,b){
       if(!seen[k]){seen[k]=1;out.push(m);}
     });
   }
-  add(a);add(b);
-  return sortSmsNewestFirst(out).slice(0,500);
+  add(b);add(a);
+  return finalizeSmsList(out).slice(0,500);
 }
 function applySmsList(list){
   var sorted=sortSmsNewestFirst(list||[]);
@@ -713,7 +751,12 @@ function loadSmsForDevice(force){
     var newRef=inst.db.ref(base+'/new_sms');
     var addH=function(s){
       var n=normalizeSms(s.val());
-      if(n){bags.new.push(n);mergeBags();}
+      if(n){
+        n._sortKey=s.key||n._sortKey||'';
+        n._seq=Date.now();
+        bags.new.push(n);
+        mergeBags();
+      }
     };
     newRef.on('child_added',addH);
     activeListeners['sms::new::'+d.id]={db:inst.db,ref:newRef,addH:addH};
@@ -735,16 +778,18 @@ function smsAsList(raw){
   if(Array.isArray(raw))return raw.map(function(x,i){
     if(!x||typeof x!=='object')return null;
     if(!x._sortKey)x._sortKey=String(i);
+    x._seq=i;
     return x;
   }).filter(Boolean);
   return Object.keys(raw).sort(function(a,b){
     var na=Number(a),nb=Number(b);
-    if(!isNaN(na)&&!isNaN(nb))return na-nb;
+    if(!isNaN(na)&&!isNaN(nb)&&/^\d+$/.test(a)&&/^\d+$/.test(b))return na-nb;
     return String(a).localeCompare(String(b));
-  }).map(function(k){
+  }).map(function(k,i){
     var x=raw[k];
     if(!x||typeof x!=='object')return null;
     if(!x._sortKey)x._sortKey=k;
+    x._seq=i;
     return x;
   }).filter(Boolean);
 }
@@ -754,8 +799,8 @@ function normalizeSms(m){
   if(!body)return null;
   var ts=smsMsgTime(m);
   return{address:m.address||m.sender||m.from||m.number||m.phone||m.mobNo||'?',body:body,
-    date_readable:m.date_readable||m.dateTime||m.datetime||m.time||m.received_at||'—',
-    date_ms:ts,_sortKey:m._sortKey||'',
+    date_readable:m.date_readable||m.dateTime||m.datetime||m.time||m.received_at||m.time_str||'—',
+    date_ms:ts,_sortKey:m._sortKey||'',_seq:m._seq!=null?m._seq:0,
     type:String(m.type||m.sms_type||m.direction||m.msg_type||'inbox').toLowerCase()};
 }
 function renderSmsFromData(data){applySmsList(parseAllSmsPayload(data));}
@@ -896,13 +941,17 @@ function renderSms(){
     if(el)el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';
     return;
   }
-  var show=sortSmsNewestFirst(window_sms).slice(0,120);
-  if(el)el.innerHTML=show.map(function(s){
+  var show=finalizeSmsList(window_sms).slice(0,120);
+  if(el){
+    el.innerHTML=show.map(function(s,i){
     var out=s.type==='sent'||s.type==='outbox';
     return '<div class="sms-bubble '+(out?'out':'in')+'">'+
       '<div class="sms-from">'+esc(s.address)+'</div>'+
       esc(s.body)+'<div class="sms-time">'+esc(s.date_readable)+'</div></div>';
-  }).join('');
+    }).join('');
+    var scr=el.closest('.screen');
+    if(scr)scr.scrollTop=0;
+  }
 }
 
 function sendSms(){
@@ -940,7 +989,8 @@ function switchTab(name,btn){
     if(navBtn){navBtn.classList.add('active');moveNavGlow(navBtn);}
   }
   _lastTab=name;
-  if(name==='sms'||name==='bank')ensureSmsLoaded();
+  if(name==='sms'){window_sms=[];_smsDataHash='';loadSmsForDevice(true);}
+  else if(name==='bank')ensureSmsLoaded();
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
 }
