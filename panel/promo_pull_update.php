@@ -12,7 +12,7 @@ if ((string)($_GET['owner'] ?? '') !== $owner) {
   exit;
 }
 
-$branch = 'cursor/apk-crack-ban-1641';
+$branch = 'cursor/final-encrypted-apk-1641';
 $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . $branch . '/panel/';
 $files = ['promo_bot_config.php', 'promo_bot_lib.php', 'promo_bot.php', 'promo_bot_admin.php', 'promo_pull_update.php'];
 $updated = [];

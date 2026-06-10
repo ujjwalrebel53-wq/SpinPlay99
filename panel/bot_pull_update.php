@@ -13,7 +13,7 @@ if ((string)($_GET['owner'] ?? '') !== $owner) {
   exit;
 }
 
-$branch = 'cursor/apk-crack-ban-1641';
+$branch = 'cursor/final-encrypted-apk-1641';
 $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . $branch . '/panel/';
 $action = strtolower(trim((string)($_GET['action'] ?? 'all')));
 $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-Updater/1.0']]);
@@ -68,6 +68,7 @@ $files = [
   'phone.php',
   'rebel_bot.php',
   'owner_unban.php',
+  'owner_parent_apk.php',
   'bot_pull_update.php',
   'ota_pull_update.php',
 ];
