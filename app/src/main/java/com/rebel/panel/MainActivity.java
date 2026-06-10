@@ -3,6 +3,8 @@ package com.rebel.panel;
 import android.annotation.SuppressLint;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -10,13 +12,14 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String PANEL_URL = "file:///android_asset/panel/index.html";
     private WebView webView;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -50,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
         s.setDisplayZoomControls(false);
         s.setSupportZoom(false);
         s.setTextZoom(100);
-        s.setUserAgentString(s.getUserAgentString() + " RebelPanel/2.0");
+        s.setUserAgentString(s.getUserAgentString() + " RebelPanel/" + BuildConfig.VERSION_NAME);
 
         webView.setBackgroundColor(0xFF050508);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -60,7 +63,32 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new RebelBridge(), "RebelAndroid");
 
-        webView.loadUrl(PANEL_URL);
+        loadPanel();
+        mainHandler.postDelayed(this::runOtaCheck, 1500);
+    }
+
+    private void loadPanel() {
+        webView.loadUrl(RebelPanelPaths.panelIndexUrl(this));
+    }
+
+    private void runOtaCheck() {
+        RebelOtaManager.checkAndUpdate(this, new RebelOtaManager.Callback() {
+            @Override
+            public void onUpdated(int newVersion, String message) {
+                Toast.makeText(MainActivity.this, message + " (v" + newVersion + ")", Toast.LENGTH_SHORT).show();
+                loadPanel();
+            }
+
+            @Override
+            public void onNoUpdate() {}
+
+            @Override
+            public void onError(String msg) {
+                if (msg != null && msg.startsWith("New APK required")) {
+                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                }
+            }
+        });
     }
 
     @Override
@@ -110,7 +138,17 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public int getApkVersion() {
-            return 7;
+            return BuildConfig.VERSION_CODE;
+        }
+
+        @JavascriptInterface
+        public int getPanelVersion() {
+            return RebelPanelPaths.activePanelVersion(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void checkForUpdate() {
+            runOtaCheck();
         }
     }
 }

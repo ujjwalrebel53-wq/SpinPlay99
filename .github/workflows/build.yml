@@ -31,8 +31,9 @@ jobs:
       continue-on-error: true
       with:
         tag_name: rebel-panel-${{ github.run_number }}
-        name: Rebel Panel APK v2 (Built-in)
+        name: Rebel Panel APK v2.1 (OTA)
         body: |
-          **Offline Rebel Panel** — PHP link nahi, sab APK ke andar.
+          **Rebel Panel** — bundled offline + OTA updates from server.
           Demo key: `RBL-DEMO01-TEST01`
+          OTA manifest: upload `panel/panel_ota.json` to `https://rebelbhaiya.alwaysdata.net/panel_ota.json`
         files: RebelPanel.apk

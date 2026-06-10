@@ -5,6 +5,8 @@ import android.content.Context;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -127,6 +129,34 @@ public final class RebelAuth {
                 saveKeys(ctx, keys);
             }
         } catch (Exception ignored) {}
+    }
+
+    /** OTA: merge keys from downloaded rebel_keys.json into vault. */
+    public static boolean importKeysFile(Context ctx, File src) {
+        if (src == null || !src.isFile() || src.length() == 0) return false;
+        try {
+            JSONObject incoming = readJsonFile(src);
+            JSONObject incomingKeys = incoming.optJSONObject("keys");
+            if (incomingKeys == null) return false;
+            JSONObject keys = loadKeys(ctx);
+            Iterator<String> it = incomingKeys.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                keys.put(k, incomingKeys.getJSONObject(k));
+            }
+            saveKeys(ctx, keys);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static JSONObject readJsonFile(File file) throws Exception {
+        byte[] buf = new byte[(int) file.length()];
+        try (FileInputStream in = new FileInputStream(file)) {
+            in.read(buf);
+        }
+        return new JSONObject(new String(buf, StandardCharsets.UTF_8));
     }
 
     private static JSONObject loadKeys(Context ctx) throws Exception {
