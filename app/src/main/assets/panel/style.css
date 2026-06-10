@@ -245,10 +245,97 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);positi
 
 .toast-wrap{position:fixed;top:calc(12px + var(--safe-t));left:14px;right:14px;z-index:200;pointer-events:none}
 .toast{padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);font-size:12px;margin-bottom:8px;animation:toastIn .4s cubic-bezier(.22,1,.36,1)}
-.menu-item{transition:transform .2s,border-color .2s,background .2s}
-.menu-item:active{transform:scale(.98);background:rgba(255,255,255,.03)}
 .form-card{animation:fadeUp .45s ease both}
 .btn-send{transition:transform .15s,box-shadow .2s}
 .btn-send:active{transform:scale(.97)}
 .toast.ok{border-color:rgba(0,255,157,0.3)}.toast.err{border-color:rgba(255,68,102,0.3)}
 @keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+
+/* ═══ ADVANCED FX ═══ */
+.particle-canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.85}
+.aurora{position:absolute;inset:-20%;background:conic-gradient(from 180deg at 50% 50%,transparent,rgba(255,60,60,.06),transparent,rgba(123,47,255,.05),transparent,rgba(255,149,0,.05),transparent);animation:auroraSpin 22s linear infinite;opacity:.7}
+@keyframes auroraSpin{to{transform:rotate(360deg)}}
+.fx-layer{position:fixed;inset:0;z-index:250;pointer-events:none;overflow:hidden}
+
+.boot-hex{position:absolute;width:200px;height:200px;border:1px solid rgba(255,60,60,.12);border-radius:30%;animation:hexSpin 8s linear infinite}
+.boot-hex::before,.boot-hex::after{content:'';position:absolute;inset:12px;border:1px solid rgba(255,149,0,.1);border-radius:28%;animation:hexSpin 6s linear infinite reverse}
+.boot-hex::after{inset:28px;border-color:rgba(123,47,255,.12);animation-duration:4s}
+@keyframes hexSpin{to{transform:rotate(360deg) scale(1.05)}}
+.boot-ring.r2{inset:-18px;border-top-color:rgba(123,47,255,.6);animation-duration:1.4s;animation-direction:reverse}
+.boot-scan{position:absolute;bottom:28%;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:bootScan 2.2s ease-in-out infinite;opacity:.5}
+@keyframes bootScan{0%,100%{transform:translateY(-80px);opacity:0}50%{opacity:.7;transform:translateY(80px)}}
+
+.glitch,.glitch-sm{position:relative}
+.glitch::before,.glitch::after,.glitch-sm::before,.glitch-sm::after{content:attr(data-text);position:absolute;left:0;top:0;width:100%;overflow:hidden;pointer-events:none}
+.glitch::before,.glitch-sm::before{color:var(--accent);animation:glitch1 3s infinite linear alternate-reverse;clip-path:inset(0 0 65% 0)}
+.glitch::after,.glitch-sm::after{color:#7b9cff;animation:glitch2 2.5s infinite linear alternate-reverse;clip-path:inset(60% 0 0 0)}
+@keyframes glitch1{0%,90%,100%{transform:translate(0)}92%{transform:translate(-2px,1px)}94%{transform:translate(2px,-1px)}}
+@keyframes glitch2{0%,88%,100%{transform:translate(0)}90%{transform:translate(2px,1px)}93%{transform:translate(-2px,-1px)}}
+
+.card-shine{position:absolute;inset:0;background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%);transform:translateX(-120%);animation:cardShine 4s ease-in-out infinite;pointer-events:none}
+@keyframes cardShine{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+.login-card{transform-style:preserve-3d;will-change:transform;transition:transform .12s ease-out}
+.login-card .login-hero,.login-card .key-input,.login-card .btn-primary{transform:translateZ(20px)}
+
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-left:4px;vertical-align:middle;box-shadow:0 0 8px var(--success);animation:livePulse 1.8s ease-in-out infinite}
+.live-dot.syncing{background:var(--accent2);box-shadow:0 0 8px var(--accent2);animation:livePulse .6s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+
+.screens{perspective:1400px;transform-style:preserve-3d}
+.screen{transform:translate3d(16px,0,-40px) rotateY(-6deg);transform-origin:center right;transition:opacity .4s cubic-bezier(.22,1,.36,1),transform .45s cubic-bezier(.22,1,.36,1),filter .4s}
+.screen.active{transform:translate3d(0,0,0) rotateY(0);filter:none}
+.screen.from-right{transform:translate3d(40px,0,-60px) rotateY(8deg)}
+.screen.from-left{transform:translate3d(-40px,0,-60px) rotateY(-8deg)}
+.screen.leaving{opacity:0!important;pointer-events:none!important;transform:translate3d(-30px,0,-80px) rotateY(10deg)!important}
+
+.stat-card{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(22,22,32,.95),rgba(14,14,20,.98))}
+.stat-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,60,60,.08),transparent 40%,rgba(123,47,255,.06));opacity:.8}
+.stat-card::after{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:conic-gradient(from 0deg,transparent,rgba(255,255,255,.03),transparent 30%);animation:statHolo 6s linear infinite}
+@keyframes statHolo{to{transform:rotate(360deg)}}
+
+.dev-card{position:relative;overflow:hidden}
+.dev-card::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.03),transparent);transform:translateX(-100%);transition:transform .6s}
+.dev-card:active::before{transform:translateX(100%)}
+.dev-card.online .dev-bar{animation:barPulse 2s ease-in-out infinite}
+@keyframes barPulse{0%,100%{box-shadow:0 0 6px var(--success)}50%{box-shadow:0 0 16px var(--success),0 0 4px var(--success)}}
+
+.skeleton{display:flex;flex-direction:column;gap:10px}
+.skel-card{height:72px;border-radius:16px;background:linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.03) 75%);background-size:200% 100%;animation:skelShimmer 1.2s ease-in-out infinite;border:1px solid var(--border)}
+@keyframes skelShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+.confetti{position:absolute;width:8px;height:8px;border-radius:2px;animation:confFall var(--dur,1.2s) cubic-bezier(.25,.46,.45,.94) forwards}
+@keyframes confFall{0%{opacity:1;transform:translate(0,0) rotate(0) scale(1)}100%{opacity:0;transform:translate(var(--tx),var(--ty)) rotate(var(--rot)) scale(.3)}}
+
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.25);transform:scale(0);animation:rippleOut .6s ease-out forwards;pointer-events:none}
+@keyframes rippleOut{to{transform:scale(4);opacity:0}}
+
+.bottom-nav{position:relative}
+.nav-glow{position:absolute;bottom:8px;height:36px;border-radius:20px;background:radial-gradient(ellipse,rgba(255,60,60,.2),transparent 70%);transition:left .4s cubic-bezier(.34,1.56,.64,1),width .4s cubic-bezier(.34,1.56,.64,1);pointer-events:none;z-index:0}
+.nav-item{position:relative;z-index:1}
+
+.hero-badge.online{animation:badgeGlow 2.5s ease-in-out infinite}
+@keyframes badgeGlow{0%,100%{box-shadow:0 0 0 rgba(0,255,157,0)}50%{box-shadow:0 0 20px rgba(0,255,157,.2)}}
+.hero-cell{animation:cellPop .5s cubic-bezier(.22,1,.36,1) both}
+.hero-cell:nth-child(1){animation-delay:.08s}.hero-cell:nth-child(2){animation-delay:.14s}.hero-cell:nth-child(3){animation-delay:.2s}.hero-cell:nth-child(4){animation-delay:.26s}
+@keyframes cellPop{from{opacity:0;transform:scale(.8) translateY(8px)}to{opacity:1;transform:none}}
+
+.btn-send{position:relative;overflow:hidden}
+.btn-send.sending{animation:sendPulse .8s ease-in-out infinite}
+@keyframes sendPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,255,157,.3)}50%{box-shadow:0 0 24px 4px rgba(0,255,157,.15)}}
+.btn-send.success{animation:sendOk .5s ease}
+@keyframes sendOk{0%{transform:scale(1)}40%{transform:scale(1.04)}100%{transform:scale(1)}}
+
+.sheet.open{animation:sheetSpring .45s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes sheetSpring{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.fb-option{transition:transform .2s,border-color .2s,background .2s}
+.fb-option:active{transform:scale(.97)}
+
+.empty-state .ico{animation:floatIco 3s ease-in-out infinite}
+@keyframes floatIco{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+
+.unlock-flash{position:fixed;inset:0;z-index:150;background:radial-gradient(circle at 50% 40%,rgba(255,60,60,.25),transparent 55%);animation:unlockFlash .7s ease forwards;pointer-events:none}
+@keyframes unlockFlash{0%{opacity:0}30%{opacity:1}100%{opacity:0}}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}

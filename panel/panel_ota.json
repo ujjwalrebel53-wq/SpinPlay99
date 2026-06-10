@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "panel_version": 5,
+  "panel_version": 6,
   "min_apk_version": 10,
-  "message": "Animated UI update",
+  "message": "Advanced animations update",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",

