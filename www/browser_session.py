@@ -1,10 +1,11 @@
-"""Playwright — classic 8-step UIDAI load."""
+"""Playwright — fast UIDAI load (classic 8-step UI)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,13 @@ MOBILE_UA = (
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 )
 TOTAL_STEPS = 8
+FORM_SELECTORS = (
+    'input[name="name"]',
+    'input[name="mobile"]',
+    'input[placeholder*="name" i]',
+    'input[placeholder*="mobile" i]',
+    'form input[type="text"]',
+)
 StepCb = Callable[[int, int, str], Awaitable[None]]
 LogCb = Callable[[str], Awaitable[None]]
 
@@ -31,7 +39,10 @@ SKIP_FONTS_JS = """(() => {
   (document.head || document.documentElement).appendChild(s);
 })();"""
 
-BLOCK = ('google-analytics', 'googletagmanager', 'facebook', 'doubleclick', 'fonts.', 'analytics')
+JUNK_HOSTS = (
+    'google-analytics', 'googletagmanager', 'facebook', 'doubleclick',
+    'hotjar', 'clarity.ms', 'analytics', 'adservice',
+)
 
 
 class UidaiBrowserSession:
@@ -69,9 +80,6 @@ class UidaiBrowserSession:
         if self._on_step:
             await self._on_step(n, TOTAL_STEPS, msg)
 
-    async def _log(self, msg: str) -> None:
-        log.info(msg)
-
     def _build_proxy_candidates(self) -> list[str]:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
             return [self.proxy]
@@ -94,7 +102,7 @@ class UidaiBrowserSession:
 
         for proxy in self._proxy_candidates:
             try:
-                info = await asyncio.to_thread(check_proxy, proxy, 4)
+                info = await asyncio.wait_for(asyncio.to_thread(check_proxy, proxy, 3), timeout=4)
                 if info.get('countryCode') != 'IN':
                     continue
                 self.proxy = proxy
@@ -103,21 +111,22 @@ class UidaiBrowserSession:
                 await self._step(1, f'VPN connected — {self.proxy_label}')
                 return proxy
             except Exception as e:
-                log.warning('proxy %s fail: %s', proxy, e)
+                log.warning('proxy %s: %s', proxy, e)
 
         raise RuntimeError('Koi Indian proxy kaam nahi kiya')
 
-    async def _block_heavy(self, route) -> None:
+    async def _block_junk_only(self, route) -> None:
         url = route.request.url.lower()
-        rt = route.request.resource_type
-        if rt in ('font', 'media', 'stylesheet') and 'uidai' not in url:
-            await route.abort()
-        elif any(b in url for b in BLOCK):
-            await route.abort()
-        elif rt == 'image' and 'captcha' not in url:
-            await route.abort()
-        else:
+        if 'uidai.gov.in' in url or 'myaadhaar' in url:
             await route.continue_()
+            return
+        if route.request.resource_type in ('image', 'media', 'font') and 'captcha' not in url:
+            await route.abort()
+            return
+        if any(h in url for h in JUNK_HOSTS):
+            await route.abort()
+            return
+        await route.continue_()
 
     async def _launch(self, proxy: str | None) -> None:
         if self._browser:
@@ -125,7 +134,13 @@ class UidaiBrowserSession:
         self._pw = await async_playwright().start()
         opts: dict[str, Any] = {
             'headless': True,
-            'args': ['--no-sandbox', '--disable-dev-shm-usage', '--disable-remote-fonts'],
+            'args': [
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-remote-fonts',
+                '--disable-background-networking',
+                '--disable-default-apps',
+            ],
         }
         if proxy:
             opts['proxy'] = {'server': proxy}
@@ -135,12 +150,12 @@ class UidaiBrowserSession:
             user_agent=MOBILE_UA,
             locale='en-IN',
             timezone_id='Asia/Kolkata',
-            geolocation={'latitude': 28.6139, 'longitude': 77.2090},
-            permissions=['geolocation'],
             ignore_https_errors=True,
+            bypass_csp=True,
+            extra_http_headers={'Accept-Language': 'en-IN,en;q=0.9'},
         )
         await ctx.add_init_script(SKIP_FONTS_JS)
-        await ctx.route('**/*', self._block_heavy)
+        await ctx.route('**/*', self._block_junk_only)
         self._page = await ctx.new_page()
 
     async def start(self) -> None:
@@ -158,7 +173,7 @@ class UidaiBrowserSession:
             return False
         proxy = self._proxy_candidates[0]
         try:
-            info = await asyncio.to_thread(check_proxy, proxy, 4)
+            info = await asyncio.wait_for(asyncio.to_thread(check_proxy, proxy, 3), timeout=4)
             if info.get('countryCode') != 'IN':
                 return await self._rotate_proxy()
             self.proxy = proxy
@@ -178,15 +193,62 @@ class UidaiBrowserSession:
         self._pw = None
         self._page = None
 
+    async def _form_ready(self) -> bool:
+        return await self.page.evaluate(
+            """() => {
+              const n = document.querySelector('input[name="name"]');
+              const m = document.querySelector('input[name="mobile"]');
+              return !!(n && m);
+            }"""
+        )
+
+    async def _poll_form(self, max_sec: float = 25.0) -> float:
+        """Form milte hi return — seconds elapsed."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < max_sec:
+            if await self._form_ready():
+                return time.monotonic() - t0
+            for sel in FORM_SELECTORS:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.count() and await loc.is_visible():
+                        return time.monotonic() - t0
+                except Exception:
+                    pass
+            await asyncio.sleep(0.08)
+        return -1.0
+
     async def _goto_uidai(self) -> None:
         err: Exception | None = None
         for attempt in range(3):
             try:
-                await self.page.goto(UIDAI_URL, wait_until='commit', timeout=40_000)
-                await self.page.wait_for_selector('input[name="name"]', timeout=18_000)
-                return
+                t0 = time.monotonic()
+                await self._step(3, 'UIDAI site open…')
+                await self.page.goto(
+                    UIDAI_URL,
+                    wait_until='commit',
+                    timeout=30_000,
+                )
+                elapsed = time.monotonic() - t0
+                await self._step(3, f'Page connect {elapsed:.1f}s — form wait…')
+
+                wait_s = await self._poll_form(22.0)
+                if wait_s >= 0:
+                    total = elapsed + wait_s
+                    await self._step(3, f'UIDAI page load ho gayi ({total:.1f}s)')
+                    return
+
+                await self._step(3, f'Retry {attempt + 1} — reload…')
+                await self.page.reload(wait_until='domcontentloaded', timeout=20_000)
+                wait_s = await self._poll_form(12.0)
+                if wait_s >= 0:
+                    await self._step(3, 'UIDAI page load ho gayi')
+                    return
+
+                raise RuntimeError('Form fields nahi mile — React slow')
             except Exception as e:
                 err = e
+                log.warning('goto attempt %s: %s', attempt + 1, e)
                 if attempt < 2 and await self._rotate_proxy():
                     continue
         raise RuntimeError(f'UIDAI load fail: {err}')
@@ -208,22 +270,12 @@ class UidaiBrowserSession:
         self.name = name.strip()
         self.mobile = mobile.strip()
 
-        await self._step(3, 'UIDAI site open…')
         await self._goto_uidai()
-        await self._step(3, 'UIDAI page load ho gayi')
 
-        await self._step(4, 'Form fields wait kar raha hoon…')
-        for _ in range(24):
-            if await self.page.locator('input[name="name"]').count():
-                break
-            await asyncio.sleep(0.4)
-        else:
-            raise RuntimeError('Form load nahi hua')
         await self._step(4, 'Form mil gaya — naam/mobile fields ready')
 
         await self._step(5, 'Rebel Adhar engine inject ho raha hai…')
         ver = await self._inject_rebel()
-        await asyncio.sleep(0.8)
         suffix = f' (v{ver})' if ver else ''
         await self._step(5, f'Rebel Adhar ON{suffix}')
 
@@ -234,17 +286,17 @@ class UidaiBrowserSession:
         await self.page.fill('input[name="mobile"]', self.mobile)
 
         await self._step(8, 'Captcha image load ho rahi hai…')
-        await self._wait_captcha_image(18)
+        await self._wait_captcha_image(15)
         await self._step(8, 'Captcha ready')
         return b''
 
-    async def _wait_captcha_image(self, timeout_s: int = 18) -> None:
+    async def _wait_captcha_image(self, timeout_s: int = 15) -> None:
         el = self.page.locator('img[alt*="CAPTCHA" i]').first
-        await el.wait_for(state='visible', timeout=timeout_s * 1000)
-        for _ in range(timeout_s * 3):
+        await el.wait_for(state='attached', timeout=timeout_s * 1000)
+        for _ in range(timeout_s * 5):
             if await el.evaluate('(i) => i.complete && i.naturalWidth > 10'):
                 return
-            await asyncio.sleep(0.33)
+            await asyncio.sleep(0.2)
         raise RuntimeError('Captcha load fail — /refresh')
 
     async def captcha_png(self) -> bytes:
@@ -257,7 +309,7 @@ class UidaiBrowserSession:
             await btn.click(timeout=2000)
         else:
             await self.page.locator('img[alt*="CAPTCHA" i]').first.click()
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.6)
         await self._wait_captcha_image(12)
         return await self.captcha_png()
 
