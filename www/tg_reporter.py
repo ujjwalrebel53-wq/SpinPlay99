@@ -1,15 +1,17 @@
-"""Telegram steps — kam edit = fast."""
+"""Telegram steps + live logs."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from datetime import datetime
 
 log = logging.getLogger('tg-reporter')
 
 
 class TelegramReporter:
-    def __init__(self, msg, name: str, mobile: str, title: str = 'UIDAI Turbo') -> None:
+    def __init__(self, msg, name: str, mobile: str, title: str = 'UIDAI Live') -> None:
         self._msg = msg
         self.name = name
         self.mobile = mobile
@@ -20,6 +22,7 @@ class TelegramReporter:
         self._logs: list[str] = []
         self._footer = ''
         self._last = 0.0
+        self._flush_task: asyncio.Task | None = None
 
     def _body(self) -> str:
         lines = [f'⚡ {self.title}', f'{self.name} / {self.mobile}']
@@ -31,28 +34,37 @@ class TelegramReporter:
         for j in range(len(self._steps), self._total):
             lines.append(f'{j + 1}/{self._total} ⏳')
         if self._logs:
-            lines.extend(['', *self._logs[-6:]])
+            lines.extend(['', '📋 Live logs:', *self._logs[-14:]])
         if self._footer:
             lines.extend(['', self._footer])
         return '\n'.join(lines)[:4000]
 
     async def _push(self, force: bool = False) -> None:
         now = time.monotonic()
-        if not force and now - self._last < 0.35:
+        if not force and now - self._last < 0.3:
             return
         try:
             await self._msg.edit_text(self._body())
             self._last = now
         except Exception as e:
-            if 'not modified' not in str(e).lower():
-                log.debug('edit: %s', e)
+            err = str(e).lower()
+            if 'not modified' not in err and 'exactly the same' not in err:
+                log.debug('edit fail: %s', e)
+
+    async def _flush_later(self) -> None:
+        await asyncio.sleep(0.35)
+        await self._push(force=True)
+        self._flush_task = None
 
     async def log(self, line: str) -> None:
-        if line and str(line).strip():
-            self._logs.append(str(line).strip()[-200])
-            if len(self._logs) > 8:
-                self._logs = self._logs[-8:]
-            await self._push()
+        if not line or not str(line).strip():
+            return
+        ts = datetime.now().strftime('%H:%M:%S')
+        self._logs.append(f'{ts} {str(line).strip()}'[-240])
+        if len(self._logs) > 30:
+            self._logs = self._logs[-30:]
+        if not self._flush_task or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush_later())
 
     async def set_proxy(self, line: str) -> None:
         self.proxy_line = line
@@ -77,11 +89,24 @@ class TelegramReporter:
         self._footer = f'❌ {err}'
         await self._push(force=True)
 
-    def start_heartbeat(self, _label: str = '') -> None:
-        pass  # turbo — heartbeat band, slow karta tha
 
-    def stop_heartbeat(self) -> None:
-        pass
+class ReporterLogHandler(logging.Handler):
+    """Terminal logging → Telegram live logs."""
 
-    async def close(self) -> None:
-        pass
+    def __init__(self) -> None:
+        super().__init__(logging.INFO)
+        self._reporter: TelegramReporter | None = None
+        self.setFormatter(logging.Formatter('%(name)s: %(message)s'))
+
+    def set_reporter(self, reporter: TelegramReporter | None) -> None:
+        self._reporter = reporter
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not self._reporter:
+            return
+        try:
+            line = self.format(record)
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._reporter.log(line))
+        except Exception:
+            pass

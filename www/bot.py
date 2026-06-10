@@ -13,12 +13,16 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from browser_session import UidaiBrowserSession
-from tg_reporter import TelegramReporter
+from tg_reporter import ReporterLogHandler, TelegramReporter
 
 load_dotenv(Path(__file__).parent / '.env')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('uidai-bot')
+
+TG_LOG = ReporterLogHandler()
+for _name in ('uidai-bot', 'uidai-browser', 'proxy-india'):
+    logging.getLogger(_name).addHandler(TG_LOG)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 ALLOWED = {
@@ -173,6 +177,7 @@ async def open_uidai_session(
 
     status_msg = await update.message.reply_text('🚀 Start…')
     reporter = TelegramReporter(status_msg, name, mobile)
+    TG_LOG.set_reporter(reporter)
 
     async def on_step(n: int, total: int, text: str) -> None:
         await reporter.update(n, total, text)
@@ -211,6 +216,8 @@ async def open_uidai_session(
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
         await reporter.fail(f'❌ {e}')
+    finally:
+        TG_LOG.set_reporter(None)
 
 
 async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -291,6 +298,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
     wait_msg = await update.message.reply_text('🚀 OTP…')
     reporter = TelegramReporter(wait_msg, sess.name, sess.mobile, title='Send OTP')
+    TG_LOG.set_reporter(reporter)
     if sess.proxy_label:
         await reporter.set_proxy(sess.proxy_label)
 
@@ -320,6 +328,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception('otp failed')
         await reporter.fail(f'OTP fail: {e}')
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+    finally:
+        TG_LOG.set_reporter(None)
 
 
 def main() -> None:
