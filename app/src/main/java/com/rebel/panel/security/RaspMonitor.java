@@ -24,6 +24,10 @@ public final class RaspMonitor {
         @Override
         public void run() {
             if (appCtx == null) return;
+            if (DeviceBanManager.isBanScreenShowing() || DeviceBanManager.isLocallyBanned(appCtx)) {
+                if (handler != null) handler.postDelayed(this, INTERVAL_MS);
+                return;
+            }
             SecurityOrchestrator.Threat t = SecurityOrchestrator.evaluate(appCtx);
             if (t == SecurityOrchestrator.Threat.CRITICAL) {
                 SecurityOrchestrator.handleCritical(appCtx, "rasp_loop");

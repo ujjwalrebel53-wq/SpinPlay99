@@ -10,13 +10,15 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.rebel.panel.security.DeviceBanManager;
 
 /**
- * Shown when APK is re-signed / tampered. No back, no bypass.
+ * Stable full-screen ban — single instance, no back, blocks LoginActivity relaunch loop.
  */
 public class CrackBanActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DeviceBanManager.setBanScreenShowing(true);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(0xFF1A0000);
             getWindow().setNavigationBarColor(0xFF1A0000);
@@ -29,8 +31,25 @@ public class CrackBanActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        DeviceBanManager.setBanScreenShowing(true);
+        if (!DeviceBanManager.isLocallyBanned(this)) {
+            DeviceBanManager.setBanScreenShowing(false);
+            finish();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (isFinishing()) {
+            DeviceBanManager.setBanScreenShowing(false);
+        }
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
         // Block escape
     }
-
 }

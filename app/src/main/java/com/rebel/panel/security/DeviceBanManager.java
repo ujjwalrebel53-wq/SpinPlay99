@@ -1,5 +1,6 @@
 package com.rebel.panel.security;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -10,7 +11,7 @@ import org.json.JSONObject;
 
 /**
  * Permanent device ban for cracked / re-signed APKs.
- * Local flag survives session wipe; server ban blocks panel API forever.
+ * Ban screen is shown once and stays stable (no LoginActivity fight).
  */
 public final class DeviceBanManager {
 
@@ -18,6 +19,8 @@ public final class DeviceBanManager {
     private static final String K_BANNED = "banned";
     private static final String K_REASON = "reason";
     private static final String K_AT = "banned_at";
+
+    private static volatile boolean banScreenShowing = false;
 
     public static final String MSG_CRACK_BAN =
             "Fuck you bitch! You have tried to crack the APK.\n\n"
@@ -27,6 +30,14 @@ public final class DeviceBanManager {
 
     private static SharedPreferences p(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    public static boolean isBanScreenShowing() {
+        return banScreenShowing;
+    }
+
+    public static void setBanScreenShowing(boolean showing) {
+        banScreenShowing = showing;
     }
 
     public static boolean isLocallyBanned(Context ctx) {
@@ -45,74 +56,88 @@ public final class DeviceBanManager {
                 .apply();
     }
 
-    /** Report crack to server and permanently ban this device fingerprint. */
     public static void reportCrackBanToServer(Context ctx, String reason) {
         try {
             JSONObject body = new JSONObject();
             body.put("action", "crack_ban");
             body.put("reason", reason);
-            body.put("resigned", !IntegrityChecker.verifyApkSignature(ctx));
-            body.put("dex_tampered", !IntegrityChecker.verifyDexCrc(ctx));
+            body.put("resigned", "apk_resigned".equals(reason));
+            body.put("dex_tampered", "dex_tampered".equals(reason));
             body.put("apk_sig", IntegrityChecker.currentCertSha256(ctx));
             ApiClient.postSigned(ctx, body);
         } catch (Exception ignored) {}
     }
 
-    public static boolean isServerBanned(Context ctx) {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("action", "ban_check");
-            JSONObject resp = ApiClient.postSigned(ctx, body);
-            return resp.optBoolean("banned", false);
-        } catch (Exception e) {
-            return false;
-        }
+    private static void pollServerBanAsync(Context ctx) {
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("action", "ban_check");
+                JSONObject resp = ApiClient.postSigned(ctx, body);
+                if (resp.optBoolean("banned", false) && !isLocallyBanned(ctx)) {
+                    markLocalBan(ctx, "server_banned");
+                    BruteForceGuard.permanentLock(ctx);
+                    launchBanScreen(ctx);
+                }
+            } catch (Exception ignored) {}
+        }).start();
     }
 
-    /**
-     * Full crack response: local ban, server ban, wipe secrets, show ban screen.
-     * @return false — caller must block all further UI.
-     */
     public static boolean enforceCrackBan(Context ctx, String reason) {
-        if (isLocallyBanned(ctx)) {
-            launchBanScreen(ctx);
-            return false;
-        }
-        String crackReason = reason != null ? reason : IntegrityChecker.getCrackReason(ctx);
-        if (crackReason == null) return true;
+        if (isBanScreenShowing()) return false;
 
-        markLocalBan(ctx, crackReason);
-        new Thread(() -> reportCrackBanToServer(ctx, crackReason)).start();
-        SecurityPrefs.wipeAll(ctx);
-        SecretsManager.wipe(ctx);
-        EncryptedFileStore.wipeAll(ctx);
-        SecureDatabase.wipe(ctx);
-        TamperDetector.wipeAndLogout(ctx);
-        BruteForceGuard.permanentLock(ctx);
+        String crackReason = reason;
+        if (crackReason == null) crackReason = IntegrityChecker.getCrackReason(ctx);
+        if (crackReason == null && !isLocallyBanned(ctx)) return true;
+
+        if (!isLocallyBanned(ctx)) {
+            final String banReason = crackReason != null ? crackReason : "apk_crack";
+            markLocalBan(ctx, banReason);
+            new Thread(() -> reportCrackBanToServer(ctx, banReason)).start();
+            SecurityPrefs.wipeAll(ctx);
+            SecretsManager.wipe(ctx);
+            EncryptedFileStore.wipeAll(ctx);
+            SecureDatabase.wipe(ctx);
+            TamperDetector.wipeAndLogout(ctx);
+            BruteForceGuard.permanentLock(ctx);
+        }
         launchBanScreen(ctx);
         return false;
     }
 
-    /** Check local + server ban, or fresh crack detection. */
+    /** Fast local gate — no network on main thread. */
     public static boolean gate(Context ctx) {
+        if (isBanScreenShowing()) return false;
+
         if (isLocallyBanned(ctx)) {
             launchBanScreen(ctx);
             return false;
         }
+
         String crack = IntegrityChecker.getCrackReason(ctx);
         if (crack != null) return enforceCrackBan(ctx, crack);
-        if (isServerBanned(ctx)) {
-            markLocalBan(ctx, "server_banned");
-            BruteForceGuard.permanentLock(ctx);
-            launchBanScreen(ctx);
-            return false;
-        }
+
         return true;
     }
 
+    public static void gateAsync(Context ctx) {
+        if (!isLocallyBanned(ctx) && !isBanScreenShowing()) {
+            pollServerBanAsync(ctx);
+        }
+    }
+
     public static void launchBanScreen(Context ctx) {
+        if (banScreenShowing) return;
+        banScreenShowing = true;
+
         Intent i = new Intent(ctx, CrackBanActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION);
         ctx.startActivity(i);
+
+        if (ctx instanceof Activity) {
+            ((Activity) ctx).finishAffinity();
+        }
     }
 }

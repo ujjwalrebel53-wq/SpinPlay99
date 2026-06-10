@@ -20,7 +20,8 @@
         <activity
             android:name=".CrackBanActivity"
             android:exported="false"
-            android:launchMode="singleTask"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RebelPanel" />
 

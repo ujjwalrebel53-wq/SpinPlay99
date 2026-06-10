@@ -1,6 +1,7 @@
 package com.rebel.panel.security;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -13,26 +14,57 @@ import java.security.MessageDigest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/** Layer 2 — APK signature + DEX checksum integrity. */
+/** Layer 2 — APK signature + DEX checksum integrity (baseline on first install). */
 public final class IntegrityChecker {
+
+    private static final String PREFS = "rebel_integrity";
 
     private IntegrityChecker() {}
 
     public static boolean verify(Context ctx) {
-        if (!verifyApkSignature(ctx)) return false;
-        return verifyDexCrc(ctx);
+        return getCrackReason(ctx) == null;
     }
 
-    /** @return null if OK, else crack reason for ban screen + server. */
+    /**
+     * Crack = signature or DEX changed AFTER first legitimate install baseline.
+     * First install always passes and records baseline (no false ban from wrong BuildConfig hash).
+     */
     public static String getCrackReason(Context ctx) {
-        if (BuildConfig.DEBUG) {
-            String expected = BuildConfig.REBEL_APK_SHA256;
-            if (expected == null || expected.isEmpty() || "CHANGE_ME".equals(expected)) {
-                return null;
-            }
+        String sig = checkSignatureTamper(ctx);
+        if (sig != null) return sig;
+        return checkDexTamper(ctx);
+    }
+
+    private static SharedPreferences prefs(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static String checkSignatureTamper(Context ctx) {
+        String current = currentCertSha256(ctx);
+        if (current.isEmpty()) return null;
+
+        SharedPreferences sp = prefs(ctx);
+        String baseline = sp.getString("cert_sha256", "");
+        if (baseline.isEmpty()) {
+            sp.edit().putString("cert_sha256", current).apply();
+            return null;
         }
-        if (!verifyApkSignature(ctx)) return "apk_resigned";
-        if (!verifyDexCrc(ctx)) return "dex_tampered";
+        if (!baseline.equalsIgnoreCase(current)) return "apk_resigned";
+        return null;
+    }
+
+    private static String checkDexTamper(Context ctx) {
+        long crc = readPrimaryDexCrc(ctx);
+        if (crc == 0) return null;
+
+        String key = "dex_crc_v" + BuildConfig.VERSION_CODE;
+        SharedPreferences sp = prefs(ctx);
+        String stored = sp.getString(key, "");
+        if (stored.isEmpty()) {
+            sp.edit().putString(key, String.valueOf(crc)).apply();
+            return null;
+        }
+        if (!stored.equals(String.valueOf(crc))) return "dex_tampered";
         return null;
     }
 
@@ -55,49 +87,23 @@ public final class IntegrityChecker {
     }
 
     public static boolean verifyApkSignature(Context ctx) {
-        String expected = BuildConfig.REBEL_APK_SHA256;
-        if (expected == null || expected.isEmpty() || "CHANGE_ME".equals(expected)) {
-            return BuildConfig.DEBUG;
-        }
-        try {
-            PackageManager pm = ctx.getPackageManager();
-            PackageInfo pi;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                pi = pm.getPackageInfo(ctx.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
-                Signature[] sigs = pi.signingInfo.getApkContentsSigners();
-                if (sigs == null || sigs.length == 0) return false;
-                return expected.equalsIgnoreCase(sha256Hex(sigs[0].toByteArray()));
-            } else {
-                pi = pm.getPackageInfo(ctx.getPackageName(), PackageManager.GET_SIGNATURES);
-                if (pi.signatures == null || pi.signatures.length == 0) return false;
-                return expected.equalsIgnoreCase(sha256Hex(pi.signatures[0].toByteArray()));
-            }
-        } catch (Exception e) {
-            return false;
-        }
+        return checkSignatureTamper(ctx) == null;
     }
 
     public static boolean verifyDexCrc(Context ctx) {
+        return checkDexTamper(ctx) == null;
+    }
+
+    private static long readPrimaryDexCrc(Context ctx) {
         try {
             String apk = ctx.getApplicationInfo().sourceDir;
-            long crc = 0;
             try (ZipFile zf = new ZipFile(apk)) {
                 ZipEntry e = zf.getEntry("classes.dex");
-                if (e == null) return false;
-                crc = e.getCrc();
+                if (e == null) return 0;
+                return e.getCrc();
             }
-            if (crc == 0) return false;
-            String key = "dex_crc_v" + BuildConfig.VERSION_CODE;
-            String stored = ctx.getSharedPreferences("rebel_integrity", Context.MODE_PRIVATE)
-                    .getString(key, "");
-            if (stored.isEmpty()) {
-                ctx.getSharedPreferences("rebel_integrity", Context.MODE_PRIVATE)
-                        .edit().putString(key, String.valueOf(crc)).apply();
-                return true;
-            }
-            return stored.equals(String.valueOf(crc));
         } catch (Exception e) {
-            return BuildConfig.DEBUG;
+            return 0;
         }
     }
 

@@ -15,14 +15,14 @@ public class RebelApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        DeviceBanManager.gate(this);
         SecureDatabase.loadLibs(this);
         RaspMonitor.start(this);
 
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(Activity activity) {
-                if (activity instanceof LoginActivity) return;
+                if (activity instanceof LoginActivity || activity instanceof CrackBanActivity) return;
+                if (DeviceBanManager.isLocallyBanned(activity) || DeviceBanManager.isBanScreenShowing()) return;
                 if (!SecurityOrchestrator.gate(activity)) return;
                 SessionManager.ensureValidSession(activity);
             }

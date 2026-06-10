@@ -30,6 +30,7 @@ public final class SecurityOrchestrator {
     }
 
     public static boolean gate(Context ctx) {
+        if (DeviceBanManager.isBanScreenShowing()) return false;
         if (!DeviceBanManager.gate(ctx)) return false;
         Threat t = evaluate(ctx);
         if (t == Threat.NONE) return true;
@@ -42,9 +43,10 @@ public final class SecurityOrchestrator {
     }
 
     public static void handleCritical(Context ctx, String reason) {
+        if (DeviceBanManager.isBanScreenShowing()) return;
         String crack = IntegrityChecker.getCrackReason(ctx);
-        if (crack != null || "integrity".equals(reason) || reason.contains("crack")) {
-            DeviceBanManager.enforceCrackBan(ctx, crack != null ? crack : reason);
+        if (crack != null) {
+            DeviceBanManager.enforceCrackBan(ctx, crack);
             return;
         }
         ThreatReporter.report(ctx, "critical", reason);

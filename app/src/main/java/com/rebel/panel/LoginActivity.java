@@ -43,10 +43,8 @@ public class LoginActivity extends AppCompatActivity {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);
         }
-        if (!DeviceBanManager.gate(this)) {
-            finish();
-            return;
-        }
+        if (!DeviceBanManager.gate(this)) return;
+        DeviceBanManager.gateAsync(this);
         setContentView(R.layout.activity_login);
 
         keyInput = findViewById(R.id.login_key);
@@ -73,6 +71,10 @@ public class LoginActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (DeviceBanManager.isLocallyBanned(this) || DeviceBanManager.isBanScreenShowing()) {
+            DeviceBanManager.launchBanScreen(this);
+            return;
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
 
         if (TamperDetector.isLocked()) {
