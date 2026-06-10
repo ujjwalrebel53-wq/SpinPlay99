@@ -1,31 +1,32 @@
-# Rebel Panel
+# Rebel Panel APK
 
-Secure Android APK + PHP mobile panel (`phone.php`).
+**100% built-in panel** — no PHP URL, no black screen from remote load.
 
-## APK (Android)
+The full mobile panel (devices, SMS, send, Firebase) runs from `app/src/main/assets/panel/`.
 
-Package: `com.rebel.panel`  
-App name: **Rebel Panel**
+## Install
 
-### Build
+GitHub → **Releases** → download `RebelPanel.apk`
+
+Or build:
 ```bash
-chmod +x gradlew
-./gradlew assembleRelease
-```
-APK: `app/build/outputs/apk/release/app-release.apk`
-
-### Set your server URL
-Edit `app/src/main/java/com/rebel/panel/RebelConfig.java`:
-```java
-public static final String DEFAULT_PANEL_URL = "https://rebelbhaiya.alwaysdata.net/phone.php";
-public static final String DEFAULT_UPDATE_API = "https://rebelbhaiya.alwaysdata.net/rebel_app_api.php";
+./gradlew assembleDebug
+cp app/build/outputs/apk/debug/app-debug.apk RebelPanel.apk
 ```
 
-### OTA updates
-Edit `panel/data/rebel_app_update.json` on server.
+## Login key (APK built-in)
 
-## Server (www folder)
-- `phone.php` — mobile panel
-- `rebel_app_api.php` — APK update API
-- `rebel_app_lib.php` — attestation helper
-- `data/rebel_app_update.json` — OTA config
+Demo key included in APK:
+```
+RBL-DEMO01-TEST01
+```
+
+Add more keys in `app/src/main/assets/rebel_keys.json` before building, or use bot keys synced into the APK.
+
+## Update panel UI (no new APK store listing)
+
+Edit files in `app/src/main/assets/panel/` and rebuild APK.
+
+## Server PHP
+
+`panel/phone.php` is still for **browser** use. The APK does **not** load it.
