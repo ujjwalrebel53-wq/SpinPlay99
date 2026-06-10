@@ -21,6 +21,7 @@ $files = [
   'phone.php',
   'rebel_bot.php',
   'owner_unban.php',
+  'ota_pull_update.php',
 ];
 
 $updated = [];

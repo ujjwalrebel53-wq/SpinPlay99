@@ -7,8 +7,8 @@ import java.io.File;
 public final class RebelPanelPaths {
 
     /** Bundled panel with sex.php features (device tabs, aadhar, forward, etc.) */
-    public static final int BUNDLED_PANEL_VERSION = 8;
-    public static final int MIN_FULL_PANEL_VERSION = 8;
+    public static final int BUNDLED_PANEL_VERSION = 9;
+    public static final int MIN_FULL_PANEL_VERSION = 9;
     public static final String OTA_MANIFEST_URL =
         "https://rebelbhaiya.alwaysdata.net/panel_ota.json";
 
