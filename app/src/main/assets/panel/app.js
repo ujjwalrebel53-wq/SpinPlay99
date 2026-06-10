@@ -289,7 +289,7 @@ function switchTab(name,btn){
   if(name==='send')updateSendForm();
 }
 
-/* AUTH — built into APK (RebelAndroid bridge, no PHP) */
+/* AUTH — server keys via RebelAndroid (bot /genkey on @Rebelpanelbot) */
 function parseJson(s){try{return JSON.parse(s);}catch(e){return null;}}
 function authFetch(body){
   body=body||{};

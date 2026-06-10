@@ -1,7 +1,7 @@
 {
   "ok": true,
-  "panel_version": 2,
-  "min_apk_version": 8,
+  "panel_version": 3,
+  "min_apk_version": 10,
   "message": "Panel OTA update",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
@@ -9,6 +9,5 @@
     "app.js": "https://rebelbhaiya.alwaysdata.net/ota/app.js",
     "avatar.jpg": "https://rebelbhaiya.alwaysdata.net/ota/avatar.jpg"
   },
-  "keys_url": "https://rebelbhaiya.alwaysdata.net/ota/rebel_keys.json",
   "apk_url": ""
 }

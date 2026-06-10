@@ -68,12 +68,6 @@ public final class RebelOtaManager {
                     if (fileUrl.isEmpty()) continue;
                     downloadTo(fileUrl, RebelPanelPaths.otaFile(ctx, name));
                 }
-                String keysUrl = m.optString("keys_url", "");
-                if (!keysUrl.isEmpty()) {
-                    File keysFile = RebelPanelPaths.otaFile(ctx, "rebel_keys.json");
-                    downloadTo(keysUrl, keysFile);
-                    RebelAuth.importKeysFile(ctx, keysFile);
-                }
                 RebelVault.put(ctx, "ota_panel_version", String.valueOf(remoteVer));
                 String msg = m.optString("message", "Panel updated");
                 main.post(() -> cb.onUpdated(remoteVer, msg));
