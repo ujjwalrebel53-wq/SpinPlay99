@@ -1,0 +1,6 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+captcha-live.png
+grab_captcha.py
