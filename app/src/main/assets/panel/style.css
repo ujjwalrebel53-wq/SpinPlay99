@@ -35,6 +35,14 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);positi
 @keyframes bootLoad{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 
+/* Fast boot — native splash already shown in APK */
+.boot-fast .boot-hex,.boot-fast .boot-scan,.boot-fast .boot-ring.r2{display:none!important}
+.boot-fast .boot-title.glitch::before,.boot-fast .boot-title.glitch::after{display:none!important}
+.boot-fast .boot-splash{transition:opacity .22s ease,visibility .22s}
+.boot-fast .boot-bar-fill{animation-duration:.28s!important}
+.boot-fast .aurora{display:none!important}
+.boot-fast .orb{filter:none!important;opacity:.25}
+
 .app{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;background:transparent}
 .app.app-enter{animation:appReveal .55s cubic-bezier(.22,1,.36,1) both}
 @keyframes appReveal{from{opacity:0;transform:scale(.97) translateY(10px)}to{opacity:1;transform:none}}

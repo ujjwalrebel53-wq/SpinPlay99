@@ -21,11 +21,18 @@ public final class RebelPanelPaths {
     }
 
     public static String panelIndexUrl(Context ctx) {
+        return panelIndexUrl(ctx, false);
+    }
+
+    public static String panelIndexUrl(Context ctx, boolean fastBoot) {
         File ota = otaFile(ctx, "index.html");
+        String base;
         if (ota.exists() && ota.length() > 0) {
-            return "file://" + ota.getAbsolutePath();
+            base = "file://" + ota.getAbsolutePath();
+        } else {
+            base = "file:///android_asset/panel/index.html";
         }
-        return "file:///android_asset/panel/index.html";
+        return fastBoot ? base + (base.contains("?") ? "&" : "?") + "fastBoot=1" : base;
     }
 
     public static int activePanelVersion(Context ctx) {

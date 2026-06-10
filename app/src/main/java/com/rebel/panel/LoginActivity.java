@@ -6,12 +6,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -25,17 +27,17 @@ import com.rebel.panel.security.TamperDetector;
 import org.json.JSONObject;
 
 /**
- * LAUNCHER — boot splash every open, then login or panel.
+ * LAUNCHER — native GPU boot splash, WebView login loads underneath.
  */
 public class LoginActivity extends AppCompatActivity {
 
     public static final String EXTRA_SPLASH_DONE = "splash_done";
 
-    private static final long BOOT_SPLASH_MS = 2600L;
-
     private WebView webView;
+    private NativeBootOverlay bootOverlay;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean routedAfterBoot;
+    private boolean webPageReady;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,12 +56,16 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         setContentView(R.layout.activity_login);
+        FrameLayout root = findViewById(R.id.login_root);
+        bootOverlay = new NativeBootOverlay(this, root);
         setupWebView();
+        bootOverlay.start(this::onNativeBootFinished);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         webView = findViewById(R.id.login_webview);
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -72,8 +78,14 @@ public class LoginActivity extends AppCompatActivity {
             s.setAllowUniversalAccessFromFileURLs(true);
         }
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         webView.setBackgroundColor(0xFF050508);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                webPageReady = true;
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new LoginBridge(), "RebelLogin");
         webView.loadUrl("file:///android_asset/panel/login.html");
@@ -90,16 +102,39 @@ public class LoginActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (bootOverlay != null) {
+            bootOverlay.cancel();
+        }
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
+    }
+
+    private void onNativeBootFinished() {
+        if (isFinishing()) return;
+        if (SessionManager.hasValidLocalSession(this)) {
+            routeAfterBoot();
+            return;
+        }
+        routedAfterBoot = true;
+        revealLoginUi();
+    }
+
+    private void revealLoginUi() {
+        Runnable show = () -> {
+            if (webView == null || isFinishing()) return;
+            webView.evaluateJavascript("showLogin()", null);
+        };
+        if (webPageReady) {
+            show.run();
+        } else {
+            handler.postDelayed(show, 80);
+        }
     }
 
     private void routeAfterBoot() {
         if (routedAfterBoot || isFinishing()) return;
         routedAfterBoot = true;
-        if (SessionManager.hasValidLocalSession(this)) {
-            openMain();
-        }
+        openMain();
     }
 
     private void openMain() {
@@ -116,11 +151,9 @@ public class LoginActivity extends AppCompatActivity {
             handler.post(() -> {
                 if (SessionManager.hasValidLocalSession(LoginActivity.this)) {
                     routeAfterBoot();
-                } else {
+                } else if (!routedAfterBoot) {
                     routedAfterBoot = true;
-                    if (webView != null) {
-                        webView.evaluateJavascript("showLogin()", null);
-                    }
+                    revealLoginUi();
                 }
             });
         }
