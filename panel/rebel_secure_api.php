@@ -123,7 +123,15 @@ if ($action === 'login') {
   $key = rebel_norm_key($body['key'] ?? '');
   if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
 
+  $infer = rebel_key_infer_type($key);
+  if ($infer !== 'apk') {
+    rebel_json_out(['ok' => false, 'error' => 'Website key — APK needs /genkeyapk on @Rebelpanelbot'], 403);
+  }
+
   $row = $data['keys'][$key] ?? null;
+  if ($row && !rebel_key_allowed_for_client($row, 'apk')) {
+    rebel_json_out(['ok' => false, 'error' => 'Website key only. Use /genkeyapk for APK'], 403);
+  }
   if ($row) {
     $bound = trim((string)($row['device_fp'] ?? ''));
     if ($bound !== '' && $bound !== $deviceFp) {

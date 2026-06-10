@@ -60,6 +60,14 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
 
   $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
   if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
+  $infer = rebel_key_infer_type($key);
+  if ($infer === 'apk') {
+    rebel_json_out(['ok' => false, 'error' => 'APK key — website needs /genkey on @Rebelpanelbot'], 403);
+  }
+  $row = $data['keys'][$key] ?? null;
+  if ($row && !rebel_key_allowed_for_client($row, 'web')) {
+    rebel_json_out(['ok' => false, 'error' => 'APK key only. Use /genkey for website'], 403);
+  }
   $valid = rebel_key_login_allowed($data, $key);
   if (!$valid) {
     rebel_keys_save($data);
@@ -321,9 +329,9 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
       </div>
       <h1><em>Rebel</em> Mobile</h1>
     </div>
-    <p class="login-sub">Phone prototype · same key as desktop panel</p>
+    <p class="login-sub">🌐 Website key — @Rebelpanelbot → <b>/genkey</b></p>
     <div class="login-err" id="loginErr"></div>
-    <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
+    <input class="key-input" id="loginKey" placeholder="RBW-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
     <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
     <button class="btn-primary" id="loginBtn" onclick="doLogin()">Unlock Panel</button>
   </div>

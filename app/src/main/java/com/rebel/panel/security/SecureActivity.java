@@ -13,29 +13,31 @@ public abstract class SecureActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (!SecurityOrchestrator.gate(this)) {
-            redirectLogin();
+        if (!DeviceBanManager.gate(this)) {
+            finish();
             return;
         }
-        if (!SessionManager.ensureValidSession(this)) {
-            redirectLogin();
+        if (!SessionManager.hasValidLocalSession(this)) {
+            redirectLoginClear();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (!SecurityOrchestrator.gate(this)) {
-            redirectLogin();
+        if (DeviceBanManager.isLocallyBanned(this) || DeviceBanManager.isBanScreenShowing()) {
+            finish();
             return;
         }
-        if (!SessionManager.ensureValidSession(this)) {
-            SessionManager.logout(this);
-            redirectLogin();
+        if (!SessionManager.hasValidLocalSession(this)) {
+            redirectLoginClear();
+            return;
         }
+        SessionManager.ensureValidSessionSoft(this);
     }
 
-    protected void redirectLogin() {
+    protected void redirectLoginClear() {
+        SessionManager.logout(this);
         Intent i = new Intent(this, LoginActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(i);

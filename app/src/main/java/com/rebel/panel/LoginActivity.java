@@ -17,7 +17,6 @@ import com.rebel.panel.security.BruteForceGuard;
 import com.rebel.panel.security.DeviceBanManager;
 import com.rebel.panel.security.IntegrityChecker;
 import com.rebel.panel.security.KeyValidator;
-import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
 import com.rebel.panel.security.TamperDetector;
 
@@ -39,7 +38,7 @@ public class LoginActivity extends AppCompatActivity {
         if (!DeviceBanManager.gate(this)) return;
         DeviceBanManager.gateAsync(this);
 
-        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
+        if (SessionManager.hasValidLocalSession(this)) {
             openMain();
             return;
         }
@@ -85,7 +84,7 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        if (SessionManager.hasValidLocalSession(this) && SecurityOrchestrator.gate(this)) {
+        if (SessionManager.hasValidLocalSession(this)) {
             openMain();
         }
     }

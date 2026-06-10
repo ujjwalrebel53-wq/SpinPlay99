@@ -42,10 +42,61 @@ function rebel_keys_save($data) {
   return true;
 }
 
-function rebel_make_key() {
+function rebel_make_key($type = 'web') {
+  return rebel_make_key_for_type($type);
+}
+
+/** @param string $type apk|web */
+function rebel_make_key_for_type($type = 'web') {
   $a = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
   $b = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
-  return 'RBL-' . $a . '-' . $b;
+  $type = strtolower(trim((string)$type));
+  if ($type === 'apk') return 'RBA-' . $a . '-' . $b;
+  return 'RBW-' . $a . '-' . $b;
+}
+
+/** apk | web | '' */
+function rebel_key_infer_type($key) {
+  $key = rebel_norm_key($key);
+  if (strpos($key, 'RBA-') === 0) return 'apk';
+  if (strpos($key, 'RBW-') === 0) return 'web';
+  if (strpos($key, 'RBL-') === 0) return 'web';
+  return '';
+}
+
+/** @param string $client apk|web */
+function rebel_key_allowed_for_client($row, $client) {
+  if (!is_array($row)) return false;
+  $client = strtolower(trim((string)$client));
+  $rowType = strtolower(trim((string)($row['type'] ?? '')));
+  if ($rowType === '') return $client === 'web';
+  return $rowType === $client;
+}
+
+function rebel_bot_create_key($chatId, $type, $days = 30) {
+  $type = ($type === 'apk') ? 'apk' : 'web';
+  $days = max(0, (int)$days);
+  $data = rebel_keys_load();
+  $key = rebel_make_key_for_type($type);
+  while (isset($data['keys'][$key])) $key = rebel_make_key_for_type($type);
+  $data['keys'][$key] = [
+    'created' => time(),
+    'expires' => $days > 0 ? time() + ($days * 86400) : 0,
+    'active' => true,
+    'used' => false,
+    'revoked' => false,
+    'uses' => 0,
+    'type' => $type,
+    'label' => $type . '-tg-' . date('dM-Hi')
+  ];
+  rebel_keys_save($data);
+  $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
+  $where = $type === 'apk'
+    ? "📱 <b>APK only</b> — paste in Rebel Panel app login"
+    : "🌐 <b>Website only</b> — paste on rebelbhaiya.alwaysdata.net panel";
+  $icon = $type === 'apk' ? '📱' : '🌐';
+  rebel_tg_send($chatId, $icon . " <b>New " . strtoupper($type) . " Key</b> (one-time)\n\n<code>" . $key . "</code>" . $exp . "\n\n" . $where . "\n\n⚠️ One device · one use only");
+  return $key;
 }
 
 function rebel_norm_key($key) {
@@ -333,7 +384,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — New one-time access key\n/keys — List keys\n/revoke RBL-XXX — Revoke one key\n/revokeall — Revoke ALL keys\n/smstoken on|off — Auto SMS from channel\n/setdevice ID — Device for auto SMS\n/status — Bot status\n/poll — Polling mode\n/webhook — Webhook mode");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — 🌐 Website key (RBW-...)\n/genkeyapk [days] — 📱 APK key (RBA-...)\n/keys — List keys\n/revoke KEY — Revoke one key\n/revokeall — Revoke ALL keys\n/smstoken on|off — Auto SMS\n/setdevice ID — Auto SMS device\n/status — Bot status\n/poll — Polling\n/webhook — Webhook");
     return true;
   }
 
@@ -363,23 +414,18 @@ function rebel_bot_handle($update) {
     return true;
   }
 
+  if (preg_match('/^\/genkeyapk(?:\s+(\d+))?\s*$/i', $text, $m)) {
+    rebel_bot_create_key($chatId, 'apk', isset($m[1]) ? (int)$m[1] : 30);
+    return true;
+  }
+
+  if (preg_match('/^\/genkey\s+apk(?:\s+(\d+))?\s*$/i', $text, $m)) {
+    rebel_bot_create_key($chatId, 'apk', isset($m[1]) ? (int)$m[1] : 30);
+    return true;
+  }
+
   if (preg_match('/^\/genkey(?:\s+(\d+))?\s*$/i', $text, $m)) {
-    $days = isset($m[1]) ? max(0, (int)$m[1]) : 30;
-    $data = rebel_keys_load();
-    $key = rebel_make_key();
-    while (isset($data['keys'][$key])) $key = rebel_make_key();
-    $data['keys'][$key] = [
-      'created' => time(),
-      'expires' => $days > 0 ? time() + ($days * 86400) : 0,
-      'active' => true,
-      'used' => false,
-      'revoked' => false,
-      'uses' => 0,
-      'label' => 'tg-' . date('dM-Hi')
-    ];
-    rebel_keys_save($data);
-    $exp = $days > 0 ? ("\n⏳ Expires: " . date('d M Y, h:i A', $data['keys'][$key]['expires'])) : "\n♾️ No expiry";
-    rebel_tg_send($chatId, "🔑 <b>New Rebel Panel Key</b> (one-time)\n\n<code>" . $key . "</code>" . $exp . "\n\n⚠️ Valid for <b>one use only</b>. Paste it in the panel login.");
+    rebel_bot_create_key($chatId, 'web', isset($m[1]) ? (int)$m[1] : 30);
     return true;
   }
 
@@ -388,17 +434,18 @@ function rebel_bot_handle($update) {
     $lines = [];
     foreach ($data['keys'] as $k => $row) {
       $mask = substr($k, 0, 8) . '••••';
+      $typ = strtoupper((string)($row['type'] ?? rebel_key_infer_type($k) ?: 'web'));
       if (!empty($row['revoked'])) {
-        $lines[] = '• <code>' . $mask . '</code> · revoked';
+        $lines[] = '• <code>' . $mask . '</code> · ' . $typ . ' · revoked';
         continue;
       }
       if (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1) {
-        $lines[] = '• <code>' . $mask . '</code> · used';
+        $lines[] = '• <code>' . $mask . '</code> · ' . $typ . ' · used';
         continue;
       }
       if (!empty($row['expires']) && time() > (int)$row['expires']) continue;
       if (empty($row['active'])) continue;
-      $lines[] = '• <code>' . $mask . '</code> · unused';
+      $lines[] = '• <code>' . $mask . '</code> · ' . $typ . ' · unused';
     }
     rebel_tg_send($chatId, $lines ? ("📋 <b>Keys</b>\n\n" . implode("\n", $lines)) : "📋 No keys.");
     return true;
@@ -428,7 +475,7 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  if (preg_match('/^\/revoke\s+(RBL-[A-Z0-9\-]+)/i', $text, $m)) {
+  if (preg_match('/^\/revoke\s+((?:RBA|RBW|RBL)-[A-Z0-9\-]+)/i', $text, $m)) {
     $key = rebel_norm_key($m[1]);
     $data = rebel_keys_load();
     if (!rebel_revoke_key($data, $key)) {

@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * JWT session lifecycle: local checks + silent server re-validation.
- * Prevents: expired token reuse, JWT copied to another device, stale sessions.
  */
 public final class SessionManager {
 
@@ -29,11 +28,8 @@ public final class SessionManager {
         return true;
     }
 
+    /** Strict check — used before sensitive operations. */
     public static boolean ensureValidSession(Context ctx) {
-        if (!TamperDetector.isEnvironmentSafe(ctx)) {
-            TamperDetector.wipeAndLogout(ctx);
-            return false;
-        }
         if (!hasValidLocalSession(ctx)) {
             if (!tryRefresh(ctx)) return false;
         }
@@ -41,17 +37,24 @@ public final class SessionManager {
         if (now - lastSilentCheckMs > SILENT_INTERVAL_MS) {
             lastSilentCheckMs = now;
             if (!KeyValidator.validateWithServer(ctx)) {
-                if (!tryRefresh(ctx)) {
-                    logout(ctx);
-                    return false;
-                }
-                if (!KeyValidator.validateWithServer(ctx)) {
-                    logout(ctx);
-                    return false;
-                }
+                if (!tryRefresh(ctx)) return false;
+                if (!KeyValidator.validateWithServer(ctx)) return false;
             }
         }
         return hasValidLocalSession(ctx);
+    }
+
+    /** Background server ping — never logs user out on network fail. */
+    public static void ensureValidSessionSoft(Context ctx) {
+        if (!hasValidLocalSession(ctx)) return;
+        long now = System.currentTimeMillis();
+        if (now - lastSilentCheckMs < SILENT_INTERVAL_MS) return;
+        lastSilentCheckMs = now;
+        new Thread(() -> {
+            try {
+                if (!KeyValidator.validateWithServer(ctx)) tryRefresh(ctx);
+            } catch (Exception ignored) {}
+        }).start();
     }
 
     public static void logout(Context ctx) {
