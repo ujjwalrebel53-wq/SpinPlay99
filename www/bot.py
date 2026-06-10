@@ -198,14 +198,17 @@ async def open_uidai_session(
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
+    reporter.start_heartbeat('Loading')
     try:
-        await reporter.log('Session start')
+        await reporter.update(1, 8, 'Session start…')
+        await reporter.log('Bot ready — proxy + browser')
         await sess.start()
         if sess.proxy_label:
             await reporter.set_proxy(sess.proxy_label)
 
         await sess.open_form(name, mobile)
         cap = await sess.captcha_png()
+        reporter.stop_heartbeat()
         await update.message.reply_photo(
             photo=cap,
             caption='Captcha ↑ — text reply karo\n/refresh = naya',
@@ -213,12 +216,14 @@ async def open_uidai_session(
         await reporter.done('✅ Ready — captcha bhejo')
     except Exception as e:
         log.exception('open failed')
+        reporter.stop_heartbeat()
         await reporter.log(f'ERROR: {e}')
         await sess.close()
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
         await reporter.fail(f'❌ {e}')
     finally:
+        await reporter.close()
         TG_LOG.set_reporter(None)
 
 

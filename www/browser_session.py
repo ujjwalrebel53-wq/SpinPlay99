@@ -13,13 +13,10 @@ from typing import Any
 from PIL import Image
 from playwright.async_api import Browser, Page, Playwright, async_playwright
 
-from proxy_india import (
-    check_proxy,
-    format_proxy_line,
-    pick_indian_proxy,
-    pick_ranked_proxies,
-    proxy_list_from_env,
-)
+from proxy_india import check_proxy, format_proxy_line, proxy_list_from_env
+
+# Pehle ye try — parallel 20 proxy test startup pe hang karta tha
+FAST_PROXY_FIRST = 'http://139.167.218.162:3127'
 
 log = logging.getLogger('uidai-browser')
 
@@ -91,14 +88,16 @@ class UidaiBrowserSession:
             return [self.proxy]
         if not self.auto_india_proxy:
             return []
-        try:
-            ranked = pick_ranked_proxies(limit=6)
-            return [r['proxy'] for r in ranked] or proxy_list_from_env()
-        except Exception as e:
-            log.warning('ranked proxy fail: %s', e)
-            return proxy_list_from_env()
+        seen: set[str] = set()
+        out: list[str] = []
+        for p in [FAST_PROXY_FIRST, *proxy_list_from_env()]:
+            if p and p not in seen:
+                seen.add(p)
+                out.append(p)
+        return out[:10]
 
     async def _resolve_proxy(self) -> str | None:
+        await self._log('Proxy list bana raha hoon…')
         self._proxy_candidates = self._build_proxy_candidates()
         if not self._proxy_candidates:
             await self._step(1, 8, 'Direct connect (no VPN)')
@@ -124,16 +123,7 @@ class UidaiBrowserSession:
                 errors.append(f'{proxy}: {e}')
                 await self._log(f'Proxy fail {proxy}: {e}')
 
-        if self.proxy and self.proxy.lower() not in ('auto', 'india'):
-            raise RuntimeError('Proxy fail:\n' + '\n'.join(errors[:4]))
-
-        await self._log('Fallback — sequential proxy pick')
-        proxy, info = await asyncio.to_thread(pick_indian_proxy)
-        self.proxy = proxy
-        self.proxy_info = info
-        self.proxy_label = format_proxy_line(info, proxy)
-        await self._step(1, 8, f'VPN fallback — {self.proxy_label}')
-        return proxy
+        raise RuntimeError('Sab proxy fail:\n' + '\n'.join(errors[:5]))
 
     def _attach_page_logs(self, page: Page) -> None:
         session = self
