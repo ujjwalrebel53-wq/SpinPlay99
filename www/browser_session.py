@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -14,12 +15,23 @@ from playwright.async_api import Browser, Page, Playwright, async_playwright
 
 from proxy_india import check_proxy, format_proxy_line, pick_indian_proxy
 
+log = logging.getLogger('uidai-browser')
+
 UIDAI_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 )
 StepCb = Callable[[int, int, str], Awaitable[None]]
+
+# GIF frame screenshot — font load pe hang na ho
+SKIP_FONTS_JS = """(() => {
+  if (document.getElementById('rebel-skip-fonts')) return;
+  const s = document.createElement('style');
+  s.id = 'rebel-skip-fonts';
+  s.textContent = '*{font-family:Arial,Helvetica,sans-serif!important}';
+  (document.head || document.documentElement).appendChild(s);
+})();"""
 
 
 class UidaiBrowserSession:
@@ -87,7 +99,14 @@ class UidaiBrowserSession:
         proxy = await self._resolve_proxy()
 
         self._pw = await async_playwright().start()
-        launch_opts: dict[str, Any] = {'headless': True}
+        launch_opts: dict[str, Any] = {
+            'headless': True,
+            'args': [
+                '--disable-remote-fonts',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ],
+        }
         if proxy:
             launch_opts['proxy'] = {'server': proxy}
 
@@ -100,8 +119,23 @@ class UidaiBrowserSession:
             geolocation={'latitude': 28.6139, 'longitude': 77.2090},
             permissions=['geolocation'],
         )
+        await context.add_init_script(SKIP_FONTS_JS)
         self._page = await context.new_page()
         await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
+
+    async def _fast_screenshot(self) -> bytes | None:
+        """Screenshot bina font-hang ke — fail ho to None."""
+        try:
+            await self.page.evaluate(SKIP_FONTS_JS)
+            return await self.page.screenshot(
+                full_page=False,
+                timeout=8_000,
+                animations='disabled',
+                caret='hide',
+            )
+        except Exception as e:
+            log.warning('screenshot skip: %s', e)
+            return None
 
     async def close(self) -> None:
         if self._browser:
@@ -132,15 +166,34 @@ class UidaiBrowserSession:
         frames: list[Image.Image] = []
 
         async def snap(label: str = '') -> None:
-            if not on_frame:
-                return
-            png = await self.page.screenshot(full_page=False)
-            img = Image.open(io.BytesIO(png)).convert('RGB')
-            frames.append(img)
-            await on_frame(label)
+            if on_frame:
+                await on_frame(label)
+            png = await self._fast_screenshot()
+            if png:
+                try:
+                    img = Image.open(io.BytesIO(png)).convert('RGB')
+                    frames.append(img)
+                except Exception:
+                    pass
 
         await self._step(3, 8, f'UIDAI site open: {UIDAI_URL}')
-        await self.page.goto(UIDAI_URL, wait_until='domcontentloaded', timeout=120_000)
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                await self.page.goto(
+                    UIDAI_URL,
+                    wait_until='domcontentloaded',
+                    timeout=120_000,
+                )
+                await self.page.wait_for_selector('body', timeout=30_000)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                await self._step(3, 8, f'Retry {attempt + 1}/3 — site slow…')
+                await asyncio.sleep(2)
+        if last_err:
+            raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
         await snap('Site khul rahi hai…')
         await self._step(3, 8, 'UIDAI page load ho gayi')
 
@@ -252,7 +305,7 @@ class UidaiBrowserSession:
         await s(5, 'OTP request complete — logs collect')
 
         self.last_logs = result.get('logs') or []
-        screen = await self.page.screenshot(full_page=False, type='png')
+        screen = await self._fast_screenshot()
         summary = self._summarize_logs(self.last_logs)
         return {
             'captcha': captcha,
