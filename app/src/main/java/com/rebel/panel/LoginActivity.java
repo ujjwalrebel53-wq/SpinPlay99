@@ -54,6 +54,9 @@ public class LoginActivity extends AppCompatActivity {
 
         setContentView(R.layout.activity_login);
         setupWebView();
+        if (SessionManager.hasValidLocalSession(this)) {
+            PanelPreloader.start(this);
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -91,6 +94,7 @@ public class LoginActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        PanelPreloader.destroy();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }

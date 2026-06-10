@@ -166,5 +166,15 @@ public class MainActivity extends SecureActivity {
         public void checkForUpdate() {
             runOtaCheck();
         }
+
+        @JavascriptInterface
+        public boolean isPreload() {
+            return false;
+        }
+
+        @JavascriptInterface
+        public String panelApi(String json) {
+            return RebelAuth.panelApi(MainActivity.this, json);
+        }
     }
 }

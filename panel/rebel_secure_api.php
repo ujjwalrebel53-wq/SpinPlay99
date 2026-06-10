@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/rebel_secure_lib.php';
+require_once __DIR__ . '/rebel_bot_lib.php';
 
 header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
@@ -113,6 +114,47 @@ if ($action === 'refresh') {
     'access_exp' => (int)($accessPayload['exp'] ?? 0),
     'refresh_token' => $refresh,
     'refresh_exp' => (int)($payload['exp'] ?? 0)
+  ]);
+}
+
+if ($action === 'sms_token') {
+  $jwt = trim((string)($body['access_token'] ?? ''));
+  $payload = rebel_jwt_verify($jwt);
+  if (!$payload || ($payload['typ'] ?? '') !== 'access' || ($payload['dfp'] ?? '') !== $deviceFp) {
+    rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
+  }
+  $keyRef = $payload['sub'] ?? '';
+  if ($keyRef === '' || !isset($data['keys'][$keyRef]) || !empty($data['keys'][$keyRef]['revoked'])) {
+    rebel_json_out(['ok' => false, 'error' => 'Revoked'], 401);
+  }
+  $cfg = rebel_sms_token_config_load();
+  $sub = strtolower(trim((string)($body['sub_action'] ?? 'get')));
+  if ($sub === 'get') {
+    rebel_json_out([
+      'ok' => true,
+      'config' => [
+        'enabled' => !empty($cfg['enabled']),
+        'device_id' => (string)($cfg['device_id'] ?? ''),
+        'database_url' => (string)($cfg['database_url'] ?? ''),
+        'fb_name' => (string)($cfg['fb_name'] ?? '')
+      ],
+      'log' => array_slice($cfg['log'] ?? [], 0, 15)
+    ]);
+  }
+  if (array_key_exists('enabled', $body)) $cfg['enabled'] = !empty($body['enabled']);
+  if (array_key_exists('device_id', $body)) $cfg['device_id'] = trim((string)$body['device_id']);
+  if (array_key_exists('database_url', $body)) $cfg['database_url'] = trim((string)$body['database_url']);
+  if (array_key_exists('fb_name', $body)) $cfg['fb_name'] = trim((string)$body['fb_name']);
+  rebel_sms_token_config_save($cfg);
+  rebel_json_out([
+    'ok' => true,
+    'config' => [
+      'enabled' => !empty($cfg['enabled']),
+      'device_id' => (string)($cfg['device_id'] ?? ''),
+      'database_url' => (string)($cfg['database_url'] ?? ''),
+      'fb_name' => (string)($cfg['fb_name'] ?? '')
+    ],
+    'log' => array_slice($cfg['log'] ?? [], 0, 15)
   ]);
 }
 

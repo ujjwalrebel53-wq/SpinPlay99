@@ -242,15 +242,23 @@ function attachLive(inst){
   });
 }
 function fetchAllData(){
-  document.getElementById('hdrSub').textContent='Syncing...';
+  var hdr=document.getElementById('hdrSub');
+  if(hdr)hdr.textContent='Syncing...';
   setHdrSync(true);showSkeleton();
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
-    document.getElementById('hdrSub').textContent=getFilteredDevs().length+' devices';
+    if(hdr)hdr.textContent=getFilteredDevs().length+' devices';
     setHdrSync(false);
     if(selDev)loadSmsForDevice();
   });
+}
+function startPanelPreload(){
+  if(window._preloadStarted)return;
+  window._preloadStarted=true;
+  if(typeof loadClientsCache==='function')loadClientsCache();
+  fetchAllData();
+  if(typeof loadAutoTokenState==='function')loadAutoTokenState();
 }
 function refreshData(){
   var btn=document.getElementById('refreshBtn');
@@ -432,7 +440,10 @@ function unlockApp(token,exp,remember){
     app.classList.remove('hidden');
     app.classList.add('app-enter');
     moveNavGlow(document.querySelector('.nav-item.active'));
-    if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
+    if(!panelReady){
+      panelReady=true;
+      if(!window._preloadStarted){fetchAllData();loadAutoTokenState();}
+    }
   },380);
 }
 function doLogin(){
@@ -487,6 +498,7 @@ function useSelForAutoToken(){
 
 /* BOOT */
 (function(){
+  var BOOT_MS=2600;
   function hideBoot(){
     var s=document.getElementById('bootSplash');
     if(!s)return;
@@ -494,12 +506,30 @@ function useSelForAutoToken(){
     setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},500);
   }
   function initFx(){
-    initParticles();initParallax();bindRipples();
+    initParallax();bindRipples();
     var nb=document.querySelector('.nav-item.active');if(nb)moveNavGlow(nb);
+    requestAnimationFrame(function(){requestAnimationFrame(initParticles);});
   }
-  window.addEventListener('load',function(){initFx();setTimeout(hideBoot,900);});
-  if(window.RebelAndroid){
-    var c=parseJson(RebelAndroid.checkSession());
-    if(c&&c.ok){var s=getSession();if(s&&s.token){initFx();hideBoot();unlockApp(s.token,s.exp,true);return;}}
+  function bootDone(){
+    if(window.RebelAndroid&&RebelAndroid.splashAlreadyShown&&RebelAndroid.splashAlreadyShown()){
+      return 600;
+    }
+    return BOOT_MS;
   }
+  window.addEventListener('load',function(){
+    var ms=bootDone();
+    var hasSession=false,sessionData=null;
+    if(window.RebelAndroid){
+      sessionData=parseJson(RebelAndroid.checkSession());
+      if(sessionData&&sessionData.ok&&sessionData.token){
+        hasSession=true;
+        startPanelPreload();
+      }
+    }
+    setTimeout(hideBoot,ms);
+    setTimeout(initFx,ms);
+    if(hasSession){
+      setTimeout(function(){unlockApp(c.token,c.expires||c.exp||0,true);},ms);
+    }
+  });
 })();

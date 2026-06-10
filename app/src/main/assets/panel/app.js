@@ -242,15 +242,23 @@ function attachLive(inst){
   });
 }
 function fetchAllData(){
-  document.getElementById('hdrSub').textContent='Syncing...';
+  var hdr=document.getElementById('hdrSub');
+  if(hdr)hdr.textContent='Syncing...';
   setHdrSync(true);showSkeleton();
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
-    document.getElementById('hdrSub').textContent=getFilteredDevs().length+' devices';
+    if(hdr)hdr.textContent=getFilteredDevs().length+' devices';
     setHdrSync(false);
     if(selDev)loadSmsForDevice();
   });
+}
+function startPanelPreload(){
+  if(window._preloadStarted)return;
+  window._preloadStarted=true;
+  if(typeof loadClientsCache==='function')loadClientsCache();
+  fetchAllData();
+  if(typeof loadAutoTokenState==='function')loadAutoTokenState();
 }
 function refreshData(){
   var btn=document.getElementById('refreshBtn');
@@ -432,7 +440,10 @@ function unlockApp(token,exp,remember){
     app.classList.remove('hidden');
     app.classList.add('app-enter');
     moveNavGlow(document.querySelector('.nav-item.active'));
-    if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
+    if(!panelReady){
+      panelReady=true;
+      if(!window._preloadStarted){fetchAllData();loadAutoTokenState();}
+    }
   },380);
 }
 function doLogin(){
@@ -507,13 +518,18 @@ function useSelForAutoToken(){
   }
   window.addEventListener('load',function(){
     var ms=bootDone();
+    var hasSession=false,sessionData=null;
+    if(window.RebelAndroid){
+      sessionData=parseJson(RebelAndroid.checkSession());
+      if(sessionData&&sessionData.ok&&sessionData.token){
+        hasSession=true;
+        startPanelPreload();
+      }
+    }
     setTimeout(hideBoot,ms);
     setTimeout(initFx,ms);
-    if(window.RebelAndroid){
-      var c=parseJson(RebelAndroid.checkSession());
-      if(c&&c.ok&&c.token){
-        setTimeout(function(){unlockApp(c.token,c.expires||c.exp||0,true);},ms);
-      }
+    if(hasSession&&sessionData){
+      setTimeout(function(){unlockApp(sessionData.token,sessionData.expires||sessionData.exp||0,true);},ms);
     }
   });
 })();
