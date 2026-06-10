@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="hi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rebel Adhar</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        width: 280px;
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #f5f8fc;
+        color: #1a1a1a;
+      }
+      .header {
+        background: linear-gradient(135deg, #0052a5, #0077cc);
+        color: #fff;
+        padding: 14px 16px;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 16px;
+      }
+      .header p {
+        margin: 4px 0 0;
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .body { padding: 16px; }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #fff;
+        border: 1px solid #dbe4ef;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+      }
+      .toggle-row strong { font-size: 14px; }
+      .switch {
+        position: relative;
+        width: 46px;
+        height: 26px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        inset: 0;
+        background: #cbd5e1;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .slider:before {
+        content: '';
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        left: 3px;
+        top: 3px;
+        background: #fff;
+        border-radius: 50%;
+        transition: 0.2s;
+      }
+      input:checked + .slider {
+        background: #0a7a2f;
+      }
+      input:checked + .slider:before {
+        transform: translateX(20px);
+      }
+      .status {
+        font-size: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+      }
+      .status.off {
+        background: #fff4e5;
+        color: #8a4b00;
+      }
+      .status.on {
+        background: #e8f7ee;
+        color: #0a7a2f;
+      }
+      .status.error {
+        background: #fdecec;
+        color: #b42318;
+      }
+      .hint {
+        font-size: 11px;
+        line-height: 1.5;
+        color: #5b667a;
+      }
+      button {
+        width: 100%;
+        margin-top: 10px;
+        border: none;
+        border-radius: 8px;
+        padding: 10px;
+        background: #0052a5;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: #003f80; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Rebel Adhar</h1>
+      <p>myAadhaar Retrieve — DOB bypass</p>
+    </div>
+    <div class="body">
+      <div id="status" class="status off">Page check ho rahi hai...</div>
+      <div class="toggle-row">
+        <strong>DOB hide mode</strong>
+        <label class="switch">
+          <input id="toggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <strong>Name optional (Mr OK)</strong>
+        <label class="switch">
+          <input id="nameToggle" type="checkbox" checked />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row" style="display:block;">
+        <strong>Fallback name (khali ho to)</strong>
+        <input id="fallbackName" type="text" value="Mr" style="width:100%;margin-top:8px;padding:8px;border:1px solid #dbe4ef;border-radius:8px;" />
+      </div>
+      <button id="applyBtn" type="button">Abhi apply karo</button>
+      <p class="hint">
+        Pehle
+        <a href="https://myaadhaar.uidai.gov.in/retrieve-eid-uid" target="_blank">Retrieve Aadhaar</a>
+        page kholo, phir toggle ON karo. DOB hide ho jayegi aur Mobile/Email mode active ho jayega.
+      </p>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

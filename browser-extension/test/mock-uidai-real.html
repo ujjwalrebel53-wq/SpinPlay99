@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Retrieve Aadhaar — Rebel Adhar mock</title>
+    <style>
+      body { font-family: Roboto, Arial, sans-serif; padding: 16px; }
+      mat-form-field, .mat-mdc-form-field {
+        display: block; margin: 12px 0; border: 1px solid #ddd; padding: 12px; border-radius: 4px;
+      }
+      mat-label, label { display: block; font-weight: 600; margin-bottom: 6px; }
+      input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+      input:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+      .uidai-or-link { color: #0052a5; text-decoration: underline; cursor: pointer; margin-left: 8px; font-size: 13px; }
+      .rebel-dob-disabled { opacity: 0.55; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <h2>Retrieve Aadhaar</h2>
+    <mat-form-field class="mat-mdc-form-field" id="name-field">
+      <mat-label>Enter Name as per Aadhaar</mat-label>
+      <input matInput type="text" placeholder="Enter Name as per Aadhaar" />
+    </mat-form-field>
+
+    <mat-form-field class="mat-mdc-form-field" id="dob-field">
+      <mat-label>Enter Date of Birth</mat-label>
+      <input matInput type="date" id="dob-input" placeholder="Date of Birth" />
+      <mat-datepicker-toggle>📅</mat-datepicker-toggle>
+    </mat-form-field>
+
+    <mat-form-field class="mat-mdc-form-field" id="mobile-field">
+      <mat-label>Enter Mobile Number</mat-label>
+      <input matInput type="tel" placeholder="Enter Mobile Number" maxlength="10" />
+      <span class="uidai-or-link" id="or-email-link">OR Enter Email Address</span>
+    </mat-form-field>
+
+    <mat-form-field class="mat-mdc-form-field" id="captcha-field">
+      <mat-label>Enter Captcha</mat-label>
+      <input matInput type="text" placeholder="Enter Captcha" />
+    </mat-form-field>
+
+    <button type="button" id="send-otp">Send OTP</button>
+
+    <script>
+      document.getElementById('or-email-link').addEventListener('click', function () {
+        setTimeout(function () {
+          document.getElementById('dob-field')?.remove();
+          const mobileField = document.getElementById('mobile-field');
+          if (mobileField && !document.getElementById('or-mobile-link')) {
+            const orMobile = document.createElement('span');
+            orMobile.id = 'or-mobile-link';
+            orMobile.className = 'uidai-or-link';
+            orMobile.textContent = 'OR Enter Mobile';
+            mobileField.appendChild(orMobile);
+          }
+        }, 100);
+      });
+
+      document.body.addEventListener('click', function (e) {
+        if (e.target && e.target.id === 'or-mobile-link') {
+          document.getElementById('or-mobile-link')?.remove();
+        }
+      });
+
+      document.getElementById('send-otp').addEventListener('click', function () {
+        const name = document.querySelector('#name-field input').value.trim();
+        const mobile = document.querySelector('#mobile-field input').value.trim();
+        const captcha = document.querySelector('#captcha-field input').value.trim();
+        const dob = document.getElementById('dob-input');
+        const dobRequired = !!dob && dob.offsetParent !== null;
+
+        if (!mobile || !captcha) {
+          window.__otpBlocked = 'mobile or captcha missing';
+          window.__otpSent = false;
+          return;
+        }
+        if (dobRequired) {
+          window.__otpBlocked = 'dob required';
+          window.__otpSent = false;
+          return;
+        }
+
+        window.__otpBlocked = null;
+        window.__otpSent = true;
+        fetch('/api/retrieve-otp', { method: 'POST', body: JSON.stringify({ name, mobile, captcha }) }).catch(() => {});
+      });
+    </script>
+  </body>
+</html>

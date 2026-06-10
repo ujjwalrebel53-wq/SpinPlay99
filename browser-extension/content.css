@@ -1,0 +1,29 @@
+html.rebel-adhar-active::before {
+  content: 'Rebel Adhar ON — DOB bypass, mobile + captcha';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483645;
+  background: #0052a5;
+  color: #fff;
+  font: 600 12px/1.4 system-ui, sans-serif;
+  text-align: center;
+  padding: 6px 10px;
+}
+
+#rebel-adhar-fab.is-on {
+  background: #0a7a2f;
+}
+
+#rebel-adhar-log-panel {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 40vh;
+  z-index: 2147483646;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+}
