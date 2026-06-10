@@ -316,7 +316,7 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     old = SESSIONS.pop(cid, None)
     if old:
-        await old.close()
+        await old.close(keep_warm=True)
     FLOW[cid] = {'step': STEP_NAME}
     await update.message.reply_text(
         'Aadhaar par registered naam bhejo.\n'
