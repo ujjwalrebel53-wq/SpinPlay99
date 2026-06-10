@@ -500,6 +500,9 @@ function useSelForAutoToken(){
   window.addEventListener('load',function(){initFx();setTimeout(hideBoot,900);});
   if(window.RebelAndroid){
     var c=parseJson(RebelAndroid.checkSession());
-    if(c&&c.ok){var s=getSession();if(s&&s.token){initFx();hideBoot();unlockApp(s.token,s.exp,true);return;}}
+    if(c&&c.ok&&c.token){
+      initFx();hideBoot();unlockApp(c.token,c.expires||c.exp||0,true);
+      return;
+    }
   }
 })();

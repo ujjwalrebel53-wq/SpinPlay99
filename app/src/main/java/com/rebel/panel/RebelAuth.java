@@ -2,6 +2,7 @@ package com.rebel.panel;
 
 import android.content.Context;
 
+import com.rebel.panel.security.KeyValidator;
 import com.rebel.panel.security.SessionManager;
 
 import org.json.JSONObject;
@@ -9,19 +10,30 @@ import org.json.JSONObject;
 import java.util.Iterator;
 
 /**
- * WebView bridge — delegates to SessionManager (encrypted JWT storage).
- * Raw user keys are never persisted.
+ * WebView bridge — panel inside MainActivity uses this for session + login fallback.
  */
 public final class RebelAuth {
 
     private RebelAuth() {}
 
     public static String login(Context ctx, String key) {
-        return "{\"ok\":false,\"error\":\"Use secure login screen\"}";
+        KeyValidator.Result r = KeyValidator.login(ctx, key);
+        if (r.ok) {
+            try {
+                return new JSONObject()
+                        .put("ok", true)
+                        .put("token", r.accessJwt)
+                        .put("expires", r.accessExp)
+                        .toString();
+            } catch (Exception e) {
+                return err("Login failed");
+            }
+        }
+        return err(r.error != null ? r.error : "Invalid key");
     }
 
     public static String checkSession(Context ctx) {
-        if (!com.rebel.panel.security.SessionManager.ensureValidSession(ctx)) {
+        if (!SessionManager.hasValidLocalSession(ctx)) {
             return err("No session");
         }
         return SessionManager.sessionJsonForBridge(ctx);
