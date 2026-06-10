@@ -70,6 +70,7 @@ public class MainActivity extends SecureActivity {
         webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new RebelBridge(), "RebelAndroid");
 
+        RebelPanelPaths.clearStaleOtaIfNeeded(this);
         loadPanel();
         mainHandler.postDelayed(this::runOtaCheck, 1500);
     }
