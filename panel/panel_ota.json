@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "panel_version": 10,
+  "panel_version": 11,
   "min_apk_version": 22,
-  "message": "Bank Account Summary — auto parse balance from SMS (SBI, HDFC, ICICI+)",
+  "message": "Bank SMS fix (all_sms path) + smooth scroll, no lag",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",
