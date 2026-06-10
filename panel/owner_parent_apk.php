@@ -34,5 +34,5 @@ echo json_encode([
   'download' => $path !== '' ? 'owner_parent_apk.php?owner=' . $owner . '&download=1' : null,
   'telegram' => '/parentapk on @Rebelpanelbot',
   'login' => '/genkeyparent',
-  'note' => 'Parent APK sirf owner ke paas — user APK alag hai (promo bot)',
+  'note' => 'Parent APK is owner-only — users get the separate User APK via promo bot',
 ], JSON_UNESCAPED_SLASHES);

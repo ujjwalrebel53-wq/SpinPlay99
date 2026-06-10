@@ -2,13 +2,13 @@
 define('REBEL_BOT_TOKEN', '8952674967:AAGivOmzdznNBdRK2j_trdnnwv5lCDX8caA');
 define('REBEL_OWNER_ID', '8432393497');
 define('REBEL_BOT_USERNAME', 'Rebelpanelbot');
-define('REBEL_BOT_VERSION', '2.3-unban');
+define('REBEL_BOT_VERSION', '2.4-parentapk');
 define('REBEL_KEYS_FILE', __DIR__ . '/data/rebel_keys.json');
 define('REBEL_POLL_OFFSET_FILE', __DIR__ . '/data/rebel_bot_offset.txt');
 define('REBEL_SMS_TOKEN_CONFIG_FILE', __DIR__ . '/data/sms_token_config.json');
 define('REBEL_BOT_DEVICE_LOCKS_FILE', __DIR__ . '/data/rebel_device_locks.json');
 define('REBEL_BOT_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
-define('REBEL_BOT_UPDATE_BRANCH', 'cursor/apk-crack-ban-1641');
+define('REBEL_BOT_UPDATE_BRANCH', 'cursor/final-encrypted-apk-1641');
 
 function rebel_bot_json_load($file) {
   if (!is_file($file)) return [];
@@ -125,7 +125,7 @@ function rebel_ota_deploy_panel() {
 
 function rebel_bot_pull_update_files() {
   $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
-  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'rebel_bot.php', 'owner_unban.php', 'bot_pull_update.php', 'ota_pull_update.php'];
+  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'rebel_bot.php', 'owner_unban.php', 'owner_parent_apk.php', 'bot_pull_update.php', 'ota_pull_update.php'];
   $updated = [];
   $errors = [];
   $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-BotUpdater/1.0']]);
@@ -561,7 +561,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n👑 <b>Parent (sirf tum)</b>\n/parentapk — Parent APK download\n/genkeyparent [days] — Parent key (RBP-...)\n\n📱 <b>User (distribute)</b>\n/genkeyapk [days] — User APK key (RBA-...)\n\n🌐 /genkey [days] — Website (RBW-...)\n/keys · /revoke · /revokeall\n/bans · /unbanall · /unban FP\n/updatebot · /otaupdate\n/smstoken · /setdevice\n/status · /poll · /webhook");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n👑 <b>Parent (owner only)</b>\n/parentapk — Parent APK download\n/genkeyparent [days] — Parent key (RBP-...)\n\n📱 <b>User (distribute)</b>\n/genkeyapk [days] — User APK key (RBA-...)\n\n🌐 /genkey [days] — Website (RBW-...)\n/keys · /revoke · /revokeall\n/bans · /unbanall · /unban FP\n/updatebot · /otaupdate\n/smstoken · /setdevice\n/status · /poll · /webhook");
     return true;
   }
 
@@ -623,7 +623,7 @@ function rebel_bot_handle($update) {
   }
 
   if (!function_exists('rebel_bot_create_key') && preg_match('/^\/(genkeyapk|apk|keyapk)\b/i', $text)) {
-    rebel_tg_send($chatId, "❌ Bot file outdated.\n\nSend /updatebot and open the link in browser.\nOr run on server:\n<code>wget -O rebel_bot_lib.php \"https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/apk-crack-ban-1641/panel/rebel_bot_lib.php\"</code>");
+    rebel_tg_send($chatId, "❌ Bot file outdated.\n\nSend /updatebot and open the link in browser.\nOr run on server:\n<code>wget -O rebel_bot_lib.php \"https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/final-encrypted-apk-1641/panel/rebel_bot_lib.php\"</code>");
     return true;
   }
 
@@ -632,7 +632,7 @@ function rebel_bot_handle($update) {
     if ($apkPath !== '') {
       $r = rebel_tg_send_document($chatId, $apkPath, '👑 Rebel Panel Pro — Parent APK (private)');
       if (!empty($r['ok'])) {
-        rebel_tg_send($chatId, "✅ <b>Parent APK sent</b>\n\nSirf tumhare paas rakho — users ko mat dena.\nLogin: /genkeyparent");
+        rebel_tg_send($chatId, "✅ <b>Parent APK sent</b>\n\nOwner only — do not share with users.\nLogin: /genkeyparent");
       } else {
         rebel_tg_send($chatId, "❌ Send failed. Upload file:\n<code>panel/private/RebelPanel-Parent.apk</code>");
       }
@@ -641,9 +641,9 @@ function rebel_bot_handle($update) {
       $cfg = is_file($cfgFile) ? json_decode(file_get_contents($cfgFile), true) : [];
       $url = trim((string)($cfg['url'] ?? ''));
       if ($url !== '') {
-        rebel_tg_send($chatId, "👑 <b>Parent APK</b> (private)\n\n<code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\n\nLogin: /genkeyparent\n\n⚠️ Users ko mat bhejo — unke liye promo bot / user APK.");
+        rebel_tg_send($chatId, "👑 <b>Parent APK</b> (private)\n\n<code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\n\nLogin: /genkeyparent\n\n⚠️ Do not send to users — they need the User APK from promo bot.");
       } else {
-        rebel_tg_send($chatId, "👑 <b>Parent APK</b>\n\n1) GitHub Actions → RebelPanel-Parent artifact download\n2) Server par upload:\n<code>panel/private/RebelPanel-Parent.apk</code>\n3) Phir /parentapk dubara bhejo\n\nLogin key: /genkeyparent");
+        rebel_tg_send($chatId, "👑 <b>Parent APK</b>\n\n1) GitHub Actions → download RebelPanel-Parent artifact\n2) Upload to server:\n<code>panel/private/RebelPanel-Parent.apk</code>\n3) Send /parentapk again\n\nLogin key: /genkeyparent");
       }
     }
     return true;
@@ -747,7 +747,7 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  if (preg_match('/^\/revoke\s+((?:RBA|RBW|RBL)-[A-Z0-9\-]+)/i', $text, $m)) {
+  if (preg_match('/^\/revoke\s+((?:RBA|RBP|RBW|RBL)-[A-Z0-9\-]+)/i', $text, $m)) {
     $key = rebel_norm_key($m[1]);
     $data = rebel_keys_load();
     if (!rebel_revoke_key($data, $key)) {
@@ -759,7 +759,7 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  rebel_tg_send($chatId, "Unknown command.\n\n/start — help\n/bans — banned devices\n/unbanall — unban all\n/updatebot — update server bot files\n/genkeyapk — APK key");
+  rebel_tg_send($chatId, "Unknown command.\n\n/start — help\n/parentapk — Parent APK (owner)\n/genkeyparent — Parent key\n/genkeyapk — User APK key\n/updatebot — update server bot files\n/bans — banned devices");
   return true;
 }
 
