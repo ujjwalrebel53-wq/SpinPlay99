@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/workspace/app/.cxx/RelWithDebInfo/1s27t517/armeabi-v7a",
-  "command": "/home/ubuntu/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=armv7-none-linux-androideabi24 --sysroot=/home/ubuntu/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Drebel_native_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -O2 -fvisibility=hidden -ffunction-sections -fdata-sections -O2 -g -DNDEBUG -fPIC -O2 -fvisibility=hidden -fno-exceptions -fno-rtti -o CMakeFiles/rebel_native.dir/rebel_native.cpp.o -c /workspace/app/src/main/cpp/rebel_native.cpp",
-  "file": "/workspace/app/src/main/cpp/rebel_native.cpp"
-}
-]

@@ -5,6 +5,8 @@ local.properties
 *.apk
 *.aab
 app/build/
+app/.cxx/
+.cxx/
 build/
 captures/
 .DS_Store
