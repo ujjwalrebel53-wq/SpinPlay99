@@ -89,11 +89,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text(
         'Rebel Adhar — UIDAI Live Bot\n\n'
-        '/open — naam + mobile → live steps + terminal logs\n'
+        '/open — naam + mobile → 8 live steps\n'
         '/open KAMAR JAHAN 7651892956 — seedha\n'
         '/captcha /refresh /status /close\n\n'
-        'Multi Indian proxy auto + fast load\n'
-        'Saare logs Telegram pe dikhenge'
+        'India VPN auto + 8-step live status'
     )
 
 
@@ -197,7 +196,6 @@ async def open_uidai_session(
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
     try:
-        await reporter.update(1, 6, 'Start…')
         await sess.start()
         if sess.proxy_label:
             await reporter.set_proxy(sess.proxy_label)
@@ -208,7 +206,7 @@ async def open_uidai_session(
             photo=cap,
             caption='Captcha ↑ — text reply karo\n/refresh = naya',
         )
-        await reporter.done('✅ Ready — captcha bhejo')
+        await reporter.done('✅ Ready — captcha reply karo')
     except Exception as e:
         log.exception('open failed')
         await reporter.log(f'ERROR: {e}')
