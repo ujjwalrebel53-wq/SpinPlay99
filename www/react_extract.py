@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-# captchaTxnID from React fiber (Send OTP button → page state)
 EXTRACT_CAPTCHA_TXN_JS = """() => {
   function fiberKey(el) {
     return Object.keys(el || {}).find((k) => k.startsWith('__reactFiber'));
@@ -25,13 +24,12 @@ EXTRACT_CAPTCHA_TXN_JS = """() => {
       if (id) return id;
     }
   }
-  const roots = document.querySelectorAll('#root *, main *, [class*="retrieve"] *');
+  const roots = document.querySelectorAll('#root button, main button');
   for (const el of roots) {
     const fk = fiberKey(el);
     if (!fk) continue;
     const id = txnFromFiber(el[fk]);
     if (id) return id;
-    if (roots.length > 400) break;
   }
   return null;
 }"""
@@ -41,7 +39,29 @@ GET_OPTION_JS = """() => {
   return uid ? 'UID' : 'EID';
 }"""
 
-# In-page fetch — browser cookies + same origin context (most reliable)
+CLICK_REFRESH_CAPTCHA_JS = """() => {
+  const img = document.querySelector('img[alt*="CAPTCHA" i]');
+  if (!img) return { ok: false, err: 'no captcha img' };
+  let el = img.parentElement;
+  for (let depth = 0; depth < 8 && el; depth++, el = el.parentElement) {
+    const buttons = [...el.querySelectorAll('button')];
+    for (const b of buttons) {
+      const label = (b.getAttribute('aria-label') || b.title || b.textContent || '').toLowerCase();
+      if (/refresh|reload|new captcha|renew/.test(label) || b.querySelector('svg')) {
+        b.click();
+        return { ok: true, how: 'button', label: label.slice(0, 40) };
+      }
+    }
+  }
+  const near = img.parentElement?.querySelector('button');
+  if (near) {
+    near.click();
+    return { ok: true, how: 'parent-button' };
+  }
+  img.click();
+  return { ok: true, how: 'img-click' };
+}"""
+
 SEND_OTP_FETCH_JS = """async (payload) => {
   const url = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
   const rid = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -67,7 +87,6 @@ SEND_OTP_FETCH_JS = """async (payload) => {
   }
 }"""
 
-# XHR fallback inside page (some proxies block fetch to cross-origin)
 SEND_OTP_XHR_JS = """async (payload) => {
   const url = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
   const rid = (typeof crypto !== 'undefined' && crypto.randomUUID)

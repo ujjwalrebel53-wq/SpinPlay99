@@ -13,6 +13,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 
 from proxy_india import check_proxy, format_proxy_line, pick_indian_proxy
 from react_extract import (
+    CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_TXN_JS,
     GET_OPTION_JS,
     SEND_OTP_FETCH_JS,
@@ -51,6 +52,7 @@ _POOL: dict[str, Any] = {
     'pw': None,
     'browser': None,
     'proxy': None,
+    'proxy_info': None,
 }
 
 
@@ -63,6 +65,7 @@ async def _pool_shutdown() -> None:
         _POOL['pw'] = None
         _POOL['browser'] = None
         _POOL['proxy'] = None
+        _POOL['proxy_info'] = None
 
 
 async def _pool_browser(proxy: str | None) -> Browser:
@@ -133,11 +136,17 @@ class UidaiBrowserSession:
 
     async def _resolve_proxy(self) -> str | None:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
+            if _POOL['proxy'] == self.proxy and _POOL.get('proxy_info'):
+                self.proxy_info = _POOL['proxy_info']
+                self.proxy_label = format_proxy_line(self.proxy_info, self.proxy)
+                await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
+                return self.proxy
             await self._step(1, 8, 'Indian proxy check…')
-            info = await asyncio.to_thread(check_proxy, self.proxy, 4)
+            info = await asyncio.to_thread(check_proxy, self.proxy, 8)
             if info.get('countryCode') != 'IN':
                 raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
             self.proxy_info = info
+            _POOL['proxy_info'] = info
             self.proxy_label = format_proxy_line(info, self.proxy)
             await self._step(1, 8, f'VPN connected — {self.proxy_label}')
             return self.proxy
@@ -274,20 +283,38 @@ class UidaiBrowserSession:
         el = self.page.locator('img[alt*="CAPTCHA" i]').first
         return await el.screenshot(type='png', timeout=8_000)
 
+    async def _captcha_changed(self, old_txn: str, old_src: str | None) -> bool:
+        img = self.page.locator('img[alt*="CAPTCHA" i]').first
+        new_src = await img.get_attribute('src')
+        txn = await self._extract_captcha_txn()
+        if txn and old_txn and txn != old_txn:
+            return True
+        if old_src and new_src and new_src != old_src:
+            return True
+        return False
+
     async def refresh_captcha(self) -> bytes:
-        refresh = self.page.locator(
-            'button[aria-label*="refresh" i], button:near(img[alt*="CAPTCHA" i])'
-        ).first
-        if await refresh.count():
-            try:
-                await refresh.click(timeout=3000)
-            except Exception:
-                pass
-        else:
-            await self.page.locator('img[alt*="CAPTCHA" i]').first.click()
+        old_txn = self.captcha_txn_id
+        old_src = await self.page.locator('img[alt*="CAPTCHA" i]').first.get_attribute('src')
+        click_res = await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+        log.info('Captcha refresh click: %s', click_res)
         await asyncio.sleep(1.2)
         await self._wait_captcha_image()
-        await self._wait_captcha_txn(15.0)
+        for _ in range(30):
+            if await self._captcha_changed(old_txn, old_src):
+                break
+            await asyncio.sleep(0.35)
+
+        if not await self._captcha_changed(old_txn, old_src):
+            log.info('Captcha refresh fallback — page reload')
+            await self.page.reload(wait_until='commit', timeout=45_000)
+            if not await self._poll_form(20.0):
+                raise RuntimeError('Form reload timeout — /open dubara')
+            await self.page.fill('input[name="name"]', self.name)
+            await self.page.fill('input[name="mobile"]', self.mobile)
+            await self._wait_captcha_image(20)
+            await self._wait_captcha_txn(15.0)
+
         return await self.captcha_png()
 
     async def _post_otp_playwright(
