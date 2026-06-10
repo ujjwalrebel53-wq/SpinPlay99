@@ -15,11 +15,12 @@ public final class EmulatorDetector {
     private EmulatorDetector() {}
 
     public static boolean detected(Context ctx) {
-        if (buildProps()) return true;
-        if (emuFiles()) return true;
-        if (missingSensors(ctx)) return true;
-        if (fakeImei(ctx)) return true;
-        return false;
+        int score = 0;
+        if (buildProps()) score++;
+        if (emuFiles()) score++;
+        if (fakeImei(ctx)) score++;
+        if (missingSensors(ctx)) score++;
+        return score >= 2;
     }
 
     private static boolean buildProps() {

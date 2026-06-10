@@ -34,10 +34,6 @@ public class CrackBanActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         DeviceBanManager.setBanScreenShowing(true);
-        if (!DeviceBanManager.isLocallyBanned(this)) {
-            DeviceBanManager.setBanScreenShowing(false);
-            finish();
-        }
     }
 
     @Override

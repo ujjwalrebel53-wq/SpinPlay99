@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/ptrace.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -29,10 +30,14 @@ static bool jdwp_open() {
     return r == 0;
 }
 
+/** Only EBUSY means another tracer (debugger). EPERM is normal on production Android. */
 static bool ptrace_self() {
-    if (ptrace(PTRACE_TRACEME, 0, 0, 0) == -1) return true;
-    ptrace(PTRACE_DETACH, 0, 0, 0);
-    return false;
+    errno = 0;
+    if (ptrace(PTRACE_TRACEME, 0, 0, 0) == 0) {
+        ptrace(PTRACE_DETACH, 0, 0, 0);
+        return false;
+    }
+    return errno == EBUSY;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

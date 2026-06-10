@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.rebel.panel.security.BruteForceGuard;
 import com.rebel.panel.security.DeviceBanManager;
+import com.rebel.panel.security.IntegrityChecker;
 import com.rebel.panel.security.KeyValidator;
 import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
@@ -37,6 +38,9 @@ public class LoginActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (DeviceBanManager.isLocallyBanned(this) || IntegrityChecker.getCrackReason(this) != null) {
+            if (!DeviceBanManager.gate(this)) return;
+        }
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

@@ -1,7 +1,6 @@
 package com.rebel.panel.security;
 
 import android.content.Context;
-import android.os.Process;
 
 import com.rebel.panel.BuildConfig;
 
@@ -51,12 +50,7 @@ public final class SecurityOrchestrator {
         }
         ThreatReporter.report(ctx, "critical", reason);
         TamperDetector.wipeAndLogout(ctx);
-        SecretsManager.wipe(ctx);
-        EncryptedFileStore.wipeAll(ctx);
-        SecureDatabase.wipe(ctx);
-        if (BuildConfig.RASP_KILL) {
-            Process.killProcess(Process.myPid());
-            System.exit(1);
-        }
+        // Do not kill process — instant kill looked like a crash on real devices.
+        // LoginActivity blocks access while TamperDetector lock is active.
     }
 }

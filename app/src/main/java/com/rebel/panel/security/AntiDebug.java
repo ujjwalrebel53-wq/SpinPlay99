@@ -16,7 +16,11 @@ public final class AntiDebug {
         if (Debug.isDebuggerConnected() || Debug.waitingForDebugger()) return true;
         if (jdwpPortOpen()) return true;
         if (tracerPid()) return true;
-        return NativeGuard.nativeAntiDebug();
+        try {
+            return NativeGuard.nativeAntiDebug();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static boolean jdwpPortOpen() {

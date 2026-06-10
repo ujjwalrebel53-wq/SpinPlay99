@@ -15,7 +15,9 @@ public class RebelApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        SecureDatabase.loadLibs(this);
+        try {
+            SecureDatabase.loadLibs(this);
+        } catch (Throwable ignored) {}
         RaspMonitor.start(this);
 
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {

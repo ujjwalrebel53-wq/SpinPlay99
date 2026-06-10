@@ -12,7 +12,7 @@ define('REBEL_REFRESH_TTL', 7 * 86400);
 define('REBEL_HMAC_SKEW', 300);
 define('REBEL_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
 define('REBEL_NONCE_FILE', __DIR__ . '/data/rebel_nonces.json');
-define('REBEL_MIN_APK_VERSION', 14); // match app versionCode
+define('REBEL_MIN_APK_VERSION', 15); // match app versionCode
 
 function rebel_secure_json_load($file) {
   if (!is_file($file)) return [];

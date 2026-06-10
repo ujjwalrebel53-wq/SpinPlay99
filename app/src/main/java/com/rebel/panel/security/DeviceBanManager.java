@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
 
 import com.rebel.panel.CrackBanActivity;
 
@@ -11,7 +13,6 @@ import org.json.JSONObject;
 
 /**
  * Permanent device ban for cracked / re-signed APKs.
- * Ban screen is shown once and stays stable (no LoginActivity fight).
  */
 public final class DeviceBanManager {
 
@@ -21,6 +22,7 @@ public final class DeviceBanManager {
     private static final String K_AT = "banned_at";
 
     private static volatile boolean banScreenShowing = false;
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     public static final String MSG_CRACK_BAN =
             "Fuck you bitch! You have tried to crack the APK.\n\n"
@@ -42,10 +44,6 @@ public final class DeviceBanManager {
 
     public static boolean isLocallyBanned(Context ctx) {
         return p(ctx).getBoolean(K_BANNED, false);
-    }
-
-    public static String localBanReason(Context ctx) {
-        return p(ctx).getString(K_REASON, "apk_crack");
     }
 
     public static void markLocalBan(Context ctx, String reason) {
@@ -105,18 +103,14 @@ public final class DeviceBanManager {
         return false;
     }
 
-    /** Fast local gate — no network on main thread. */
     public static boolean gate(Context ctx) {
         if (isBanScreenShowing()) return false;
-
         if (isLocallyBanned(ctx)) {
             launchBanScreen(ctx);
             return false;
         }
-
         String crack = IntegrityChecker.getCrackReason(ctx);
         if (crack != null) return enforceCrackBan(ctx, crack);
-
         return true;
     }
 
@@ -126,18 +120,29 @@ public final class DeviceBanManager {
         }
     }
 
+    /** Safe launch — never finishAffinity() during onCreate (causes crash). */
     public static void launchBanScreen(Context ctx) {
         if (banScreenShowing) return;
         banScreenShowing = true;
 
-        Intent i = new Intent(ctx, CrackBanActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-        ctx.startActivity(i);
+        Runnable open = () -> {
+            try {
+                Intent i = new Intent(ctx, CrackBanActivity.class);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                ctx.startActivity(i);
+            } catch (Exception ignored) {
+                banScreenShowing = false;
+            }
+        };
 
-        if (ctx instanceof Activity) {
-            ((Activity) ctx).finishAffinity();
-        }
+        MAIN.post(() -> {
+            open.run();
+            if (ctx instanceof Activity) {
+                Activity a = (Activity) ctx;
+                if (!a.isFinishing() && !a.isDestroyed()) {
+                    a.finish();
+                }
+            }
+        });
     }
 }
