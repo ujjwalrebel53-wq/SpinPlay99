@@ -1,32 +1,29 @@
 #!/usr/bin/env python3
-"""
-Telegram bot — UIDAI retrieve page live + captcha Telegram se bharo.
-
-Usage:
-  bash setup.sh
-  pip install -r requirements.txt
-  playwright install chromium
-  python bot.py
-"""
+"""Telegram bot — UIDAI live steps + terminal logs + multi-proxy."""
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import InputFile, Update
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from browser_session import UidaiBrowserSession
+from tg_reporter import ReporterLogHandler, TelegramReporter
 
 load_dotenv(Path(__file__).parent / '.env')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('uidai-bot')
+
+TG_LOG = ReporterLogHandler()
+for name in ('uidai-bot', 'uidai-browser', 'proxy-india', 'httpx', 'telegram'):
+    logging.getLogger(name).addHandler(TG_LOG)
+    logging.getLogger(name).setLevel(logging.INFO)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 ALLOWED = {
@@ -62,69 +59,6 @@ SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
 
 
-class LiveProgress:
-    """Telegram message me numbered live steps."""
-
-    def __init__(self, msg, name: str, mobile: str, title: str = 'UIDAI Live Load') -> None:
-        self._msg = msg
-        self.name = name
-        self.mobile = mobile
-        self.title = title
-        self.proxy_line = ''
-        self._steps: list[str] = []
-        self._current = 0
-        self._total = 8
-
-    async def set_proxy(self, line: str) -> None:
-        self.proxy_line = line
-        await self._render()
-
-    async def update(self, n: int, total: int, text: str) -> None:
-        self._total = total
-        if n > len(self._steps):
-            self._steps.extend([''] * (n - len(self._steps)))
-        if n >= 1:
-            for i in range(n - 1):
-                if i < len(self._steps) and self._steps[i] and not self._steps[i].startswith('✅'):
-                    self._steps[i] = '✅ ' + self._steps[i].lstrip('✅🔄⏳ ')
-        self._current = n
-        idx = n - 1
-        if idx < len(self._steps):
-            self._steps[idx] = f'🔄 {text}'
-        else:
-            self._steps.append(f'🔄 {text}')
-        await self._render()
-
-    async def done(self, final: str) -> None:
-        for i, s in enumerate(self._steps):
-            body = s.lstrip('✅🔄⏳ ')
-            self._steps[i] = '✅ ' + body
-        await self._render(final)
-
-    async def fail(self, err: str) -> None:
-        if self._steps and self._current >= 1:
-            idx = self._current - 1
-            body = self._steps[idx].lstrip('✅🔄⏳ ')
-            self._steps[idx] = f'❌ {body}'
-        await self._render(err)
-
-    async def _render(self, footer: str = '') -> None:
-        lines = [f'🚀 {self.title}', f'👤 {self.name} / 📱 {self.mobile}']
-        if self.proxy_line:
-            lines.append(self.proxy_line)
-        lines.append('')
-        for i, s in enumerate(self._steps):
-            lines.append(f'{i + 1}/{self._total} {s}')
-        for j in range(len(self._steps), self._total):
-            lines.append(f'{j + 1}/{self._total} ⏳ …')
-        if footer:
-            lines.extend(['', footer])
-        try:
-            await self._msg.edit_text('\n'.join(lines)[:4000])
-        except Exception:
-            pass
-
-
 def allowed(update: Update) -> bool:
     if not ALLOWED:
         return True
@@ -156,15 +90,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text(
         'Rebel Adhar — UIDAI Live Bot\n\n'
-        'Commands:\n'
-        '/open — naam + mobile puchega, phir site khulegi\n'
-        '/open KAMAR JAHAN 7651892956 — seedha naam/mobile ke saath\n'
-        '/captcha — captcha image bhejo\n'
-        '/refresh — naya captcha\n'
-        '/status — session status\n'
-        '/close — browser band\n\n'
-        'Live steps dikhenge — VPN India auto connect.\n'
-        'Flow: /open → naam → mobile → captcha reply'
+        '/open — naam + mobile → live steps + terminal logs\n'
+        '/open KAMAR JAHAN 7651892956 — seedha\n'
+        '/captcha /refresh /status /close\n\n'
+        'Multi Indian proxy auto + fast load\n'
+        'Saare logs Telegram pe dikhenge'
     )
 
 
@@ -174,6 +104,7 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cid = update.effective_chat.id
     sess = SESSIONS.pop(cid, None)
     clear_flow(cid)
+    TG_LOG.set_reporter(None)
     if sess:
         await sess.close()
     await update.message.reply_text('Session band.')
@@ -189,17 +120,16 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text('Koi session nahi — /open chalao.')
         return
     draft = FLOW.get(cid, {})
-    lines = [f'Flow step: {step or "none"}']
+    lines = [f'Flow: {step or "none"}']
     if draft.get('name'):
-        lines.append(f'Draft name: {draft["name"]}')
+        lines.append(f'Name: {draft["name"]}')
     if draft.get('mobile'):
-        lines.append(f'Draft mobile: {draft["mobile"]}')
+        lines.append(f'Mobile: {draft["mobile"]}')
     if sess:
         lines.extend([
             'Session ON',
-            f'VPN: {sess.proxy_label or PROXY or "auto India"}',
-            f'Name: {sess.name}',
-            f'Mobile: {sess.mobile}',
+            f'VPN: {sess.proxy_label or "auto"}',
+            f'Proxy: {sess.proxy or "—"}',
             f'Bundle: {BUNDLE.name}',
         ])
     await update.message.reply_text('\n'.join(lines))
@@ -212,13 +142,13 @@ async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not sess:
         await update.message.reply_text('/open pehle chalao.')
         return
-    wait = await update.message.reply_text('🔄 Captcha image la raha hoon…')
+    wait = await update.message.reply_text('🔄 Captcha…')
     try:
         png = await sess.captcha_png()
         await wait.delete()
-        await update.message.reply_photo(photo=png, caption='Captcha bharo — text reply karo')
+        await update.message.reply_photo(photo=png, caption='Captcha reply karo')
     except Exception as e:
-        await wait.edit_text(f'Captcha fail: {e}')
+        await wait.edit_text(f'Fail: {e}')
 
 
 async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -228,13 +158,13 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not sess:
         await update.message.reply_text('/open pehle chalao.')
         return
-    wait = await update.message.reply_text('🔄 Naya captcha load…')
+    wait = await update.message.reply_text('🔄 Refresh…')
     try:
         png = await sess.refresh_captcha()
         await wait.delete()
-        await update.message.reply_photo(photo=png, caption='Naya captcha — text reply karo')
+        await update.message.reply_photo(photo=png, caption='Naya captcha')
     except Exception as e:
-        await wait.edit_text(f'Refresh fail: {e}')
+        await wait.edit_text(f'Fail: {e}')
 
 
 async def open_uidai_session(
@@ -247,52 +177,49 @@ async def open_uidai_session(
     if old:
         await old.close()
 
-    status_msg = await update.message.reply_text('🚀 Shuru ho raha hai…')
-    progress = LiveProgress(status_msg, name, mobile)
+    status_msg = await update.message.reply_text('🚀 Start…')
+    reporter = TelegramReporter(status_msg, name, mobile)
+    TG_LOG.set_reporter(reporter)
 
     async def on_step(n: int, total: int, text: str) -> None:
-        await progress.update(n, total, text)
+        await reporter.update(n, total, text)
+
+    async def on_log(line: str) -> None:
+        await reporter.log(line)
 
     sess = UidaiBrowserSession(
         BUNDLE,
         proxy=PROXY,
         auto_india_proxy=AUTO_INDIA,
         on_step=on_step,
+        on_log=on_log,
     )
     SESSIONS[chat_id] = sess
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
-    async def on_frame(label: str) -> None:
-        await progress.update(progress._current or 3, 8, label)
-
     try:
+        await reporter.log('Session start')
         await sess.start()
         if sess.proxy_label:
-            await progress.set_proxy(sess.proxy_label)
+            await reporter.set_proxy(sess.proxy_label)
 
-        gif_bytes = await sess.open_form(name, mobile, on_frame=on_frame)
-        if gif_bytes:
-            await update.message.reply_animation(
-                animation=InputFile(io.BytesIO(gif_bytes), filename='uidai-open.gif'),
-                caption='Live open recording',
-            )
+        await sess.open_form(name, mobile)
         cap = await sess.captcha_png()
         await update.message.reply_photo(
             photo=cap,
-            caption=(
-                'Captcha ↑\n'
-                'Text reply karo (4-8 chars)\n'
-                '/refresh = naya captcha'
-            ),
+            caption='Captcha ↑ — text reply karo\n/refresh = naya',
         )
-        await progress.done('✅ Ready — captcha reply karo')
+        await reporter.done('✅ Ready — captcha bhejo')
     except Exception as e:
         log.exception('open failed')
+        await reporter.log(f'ERROR: {e}')
         await sess.close()
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
-        await progress.fail(f'❌ Fail: {e}')
+        await reporter.fail(f'❌ {e}')
+    finally:
+        TG_LOG.set_reporter(None)
 
 
 async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -312,26 +239,20 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = ' '.join(args[:-1])
         mobile = args[-1]
         if not MOBILE_RE.match(mobile):
-            await update.message.reply_text('Mobile 10 digit hona chahiye (6-9 se start). Example: 7651892956')
+            await update.message.reply_text('Mobile 10 digit (6-9 start). Ex: 7651892956')
             return
         await open_uidai_session(update, cid, name.upper(), mobile)
         return
 
     if len(args) == 1:
-        await update.message.reply_text(
-            'Dono chahiye: /open NAAM MOBILE\nExample: /open KAMAR JAHAN 7651892956'
-        )
+        await update.message.reply_text('/open NAAM MOBILE\nEx: /open KAMAR JAHAN 7651892956')
         return
 
     old = SESSIONS.pop(cid, None)
     if old:
         await old.close()
     FLOW[cid] = {'step': STEP_NAME}
-    await update.message.reply_text(
-        'Aadhaar par registered naam bhejo.\n'
-        'Example: KAMAR JAHAN\n\n'
-        'Cancel: /close'
-    )
+    await update.message.reply_text('Naam bhejo (Aadhaar registered)\nEx: KAMAR JAHAN\n/cancel = /close')
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -341,7 +262,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     cid = update.effective_chat.id
     text = update.message.text.strip()
-
     if text.startswith('/'):
         return
 
@@ -349,27 +269,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == STEP_NAME:
         if not NAME_RE.match(text):
-            await update.message.reply_text(
-                'Naam sirf letters/spaces (kam se kam 2 char).\nExample: KAMAR JAHAN'
-            )
+            await update.message.reply_text('Galat naam. Ex: KAMAR JAHAN')
             return
         FLOW[cid] = {'step': STEP_MOBILE, 'name': text.upper()}
-        await update.message.reply_text(
-            f'Naam: {text.upper()}\n\n'
-            'Ab 10 digit mobile number bhejo (OTP isi pe aayega).\n'
-            'Example: 7651892956'
-        )
+        await update.message.reply_text(f'Naam OK: {text.upper()}\nAb mobile bhejo (10 digit)')
         return
 
     if step == STEP_MOBILE:
         mobile = re.sub(r'\s+', '', text)
         if not MOBILE_RE.match(mobile):
-            await update.message.reply_text(
-                'Galat number — 10 digit hona chahiye, 6-9 se start.\nExample: 7651892956'
-            )
+            await update.message.reply_text('Galat mobile. Ex: 7651892956')
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
-        await update.message.reply_text(f'OK — {name} / {mobile}')
         await open_uidai_session(update, cid, name, mobile)
         return
 
@@ -377,58 +288,55 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not CAPTCHA_RE.match(text):
-        await update.message.reply_text('Captcha 4-8 letters/numbers hona chahiye. Example: 6fhxdf')
+        await update.message.reply_text('Captcha 4-8 chars. Ex: 6fhxdf')
         return
 
     sess = get_session(cid)
     if not sess:
         clear_flow(cid)
-        await update.message.reply_text('Session expire — /open dubara.')
+        await update.message.reply_text('Session expire — /open')
         return
 
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-    wait_msg = await update.message.reply_text('🚀 OTP bhej rahe hain…')
-    otp_progress = LiveProgress(wait_msg, sess.name, sess.mobile, title='Send OTP')
+    wait_msg = await update.message.reply_text('🚀 OTP…')
+    reporter = TelegramReporter(wait_msg, sess.name, sess.mobile, title='Send OTP')
+    TG_LOG.set_reporter(reporter)
     if sess.proxy_label:
-        await otp_progress.set_proxy(sess.proxy_label)
+        await reporter.set_proxy(sess.proxy_label)
 
     async def otp_step(n: int, total: int, msg: str) -> None:
-        await otp_progress.update(n, total, msg)
+        await reporter.update(n, total, msg)
+
+    async def otp_log(line: str) -> None:
+        await reporter.log(line)
+
+    sess._on_log = otp_log
 
     try:
         result = await sess.send_otp(text, on_step=otp_step)
         summary = result.get('summary', '')
         version = result.get('version', '?')
-        screen = result.get('screen_png')
 
         otp_ok = any(
             'OTP sent' in (x.get('m') or '') or 'UIDAI ko OTP' in (x.get('m') or '')
             for x in result.get('logs', [])
         )
-        captcha_warn = any(
-            'Captcha' in (x.get('m') or '') or 'captcha' in (x.get('m') or '').lower()
-            for x in result.get('logs', [])
-        )
+        status = '✅ SMS check karo' if otp_ok else '⚠️ Captcha galat ho sakta — /refresh'
 
-        status = 'Request gayi — SMS check karo' if otp_ok else 'Check logs — shayad captcha galat'
-        if captcha_warn:
-            status = 'Captcha issue — /refresh karke dubara'
-
-        await otp_progress.done(status)
-        await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
-        if screen:
-            await update.message.reply_photo(photo=screen, caption='Page screenshot')
-
+        await reporter.done(status)
+        await update.message.reply_text(f'Engine logs (v{version}):\n{summary[:3500]}')
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:
         log.exception('otp failed')
-        await otp_progress.fail(f'OTP fail: {e}')
+        await reporter.fail(f'OTP fail: {e}')
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+    finally:
+        TG_LOG.set_reporter(None)
 
 
 def main() -> None:
     if not TOKEN:
-        raise SystemExit('TELEGRAM_BOT_TOKEN .env me set karo — .env.example dekho')
+        raise SystemExit('TELEGRAM_BOT_TOKEN .env me set karo')
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))
@@ -440,7 +348,7 @@ def main() -> None:
     app.add_handler(CommandHandler('close', cmd_close))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
-    log.info('Bot start — allowed: %s proxy: %s auto_india: %s', ALLOWED or 'ALL', PROXY or 'auto', AUTO_INDIA)
+    log.info('Bot start — proxy=%s auto_india=%s', PROXY or 'auto', AUTO_INDIA)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
