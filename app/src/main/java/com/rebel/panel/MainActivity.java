@@ -75,8 +75,7 @@ public class MainActivity extends SecureActivity {
     }
 
     private void loadPanel() {
-        boolean fastBoot = getIntent().getBooleanExtra(LoginActivity.EXTRA_SPLASH_DONE, false);
-        webView.loadUrl(RebelPanelPaths.panelIndexUrl(this, fastBoot));
+        webView.loadUrl(RebelPanelPaths.panelIndexUrl(this));
     }
 
     private void runOtaCheck() {

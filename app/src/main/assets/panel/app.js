@@ -66,7 +66,7 @@ function initParticles(){
   var ctx=c.getContext('2d'),pts=[],W,H,dpr=Math.min(window.devicePixelRatio||1,2);
   function resize(){W=c.width=innerWidth*dpr;H=c.height=innerHeight*dpr;c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';}
   resize();window.addEventListener('resize',resize);
-  for(var i=0;i<28;i++)pts.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.35*dpr,vy:(Math.random()-.5)*.35*dpr,r:1+Math.random()*2*dpr,a:.15+Math.random()*.35});
+  for(var i=0;i<55;i++)pts.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.35*dpr,vy:(Math.random()-.5)*.35*dpr,r:1+Math.random()*2*dpr,a:.15+Math.random()*.35});
   function frame(){
     ctx.clearRect(0,0,W,H);
     pts.forEach(function(p){
@@ -487,15 +487,12 @@ function useSelForAutoToken(){
 
 /* BOOT */
 (function(){
-  var BOOT_MS=1200;
-  var BOOT_FAST_MS=280;
-  var fastBoot=/[?&]fastBoot=1(?:&|$)/.test(location.search);
-  if(fastBoot)document.documentElement.classList.add('boot-fast');
+  var BOOT_MS=2600;
   function hideBoot(){
     var s=document.getElementById('bootSplash');
     if(!s)return;
     s.classList.add('hide');
-    setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},fastBoot?220:400);
+    setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},500);
   }
   function initFx(){
     initParallax();bindRipples();
@@ -503,9 +500,8 @@ function useSelForAutoToken(){
     requestAnimationFrame(function(){requestAnimationFrame(initParticles);});
   }
   function bootDone(){
-    if(fastBoot)return BOOT_FAST_MS;
     if(window.RebelAndroid&&RebelAndroid.splashAlreadyShown&&RebelAndroid.splashAlreadyShown()){
-      return BOOT_FAST_MS;
+      return 600;
     }
     return BOOT_MS;
   }
