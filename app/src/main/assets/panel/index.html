@@ -11,11 +11,19 @@
 <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-
+<div class="bg-anim" aria-hidden="true">
+  <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+  <span class="grid-lines"></span>
+</div>
+<div class="boot-splash" id="bootSplash">
+  <div class="boot-logo"><span class="boot-ring"></span><img src="avatar.jpg" alt="" onerror="this.style.display='none'"/></div>
+  <div class="boot-title"><em>Rebel</em> Panel</div>
+  <div class="boot-bar"><span class="boot-bar-fill"></span></div>
+</div>
 
 <!-- LOGIN -->
 <div class="login-screen" id="loginScreen">
-  <div class="login-card">
+  <div class="login-card anim-in">
     <div class="login-hero">
       <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
         <div class="avatar-face-ring">
@@ -43,7 +51,7 @@
     <div class="login-err" id="loginErr"></div>
     <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
     <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
-    <button class="btn-primary" id="loginBtn" onclick="doLogin()">Unlock Panel</button>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
   </div>
 </div>
 
@@ -61,7 +69,7 @@
     </div>
     <div class="hdr-actions">
       <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
-      <button class="icon-btn" onclick="refreshData()" title="Refresh">↻</button>
+      <button class="icon-btn" id="refreshBtn" onclick="refreshData()" title="Refresh">↻</button>
     </div>
   </header>
 
