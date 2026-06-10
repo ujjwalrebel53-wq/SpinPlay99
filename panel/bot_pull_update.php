@@ -20,6 +20,7 @@ $files = [
   'rebel_secure_api.php',
   'phone.php',
   'rebel_bot.php',
+  'owner_unban.php',
 ];
 
 $updated = [];
@@ -55,5 +56,5 @@ echo json_encode([
   'errors' => $errors,
   'bot_version' => $ver,
   'genkeyapk' => strpos(@file_get_contents($lib) ?: '', 'genkeyapk') !== false,
-  'next' => 'Telegram bot: send /genkeyapk or /apk',
+  'next' => 'Telegram bot: /bans /unbanall /genkeyapk — or owner_unban.php?owner=8432393497&action=unbanall',
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

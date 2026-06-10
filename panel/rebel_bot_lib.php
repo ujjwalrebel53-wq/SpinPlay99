@@ -2,10 +2,115 @@
 define('REBEL_BOT_TOKEN', '8952674967:AAGivOmzdznNBdRK2j_trdnnwv5lCDX8caA');
 define('REBEL_OWNER_ID', '8432393497');
 define('REBEL_BOT_USERNAME', 'Rebelpanelbot');
-define('REBEL_BOT_VERSION', '2.2-genkeyapk');
+define('REBEL_BOT_VERSION', '2.3-unban');
 define('REBEL_KEYS_FILE', __DIR__ . '/data/rebel_keys.json');
 define('REBEL_POLL_OFFSET_FILE', __DIR__ . '/data/rebel_bot_offset.txt');
 define('REBEL_SMS_TOKEN_CONFIG_FILE', __DIR__ . '/data/sms_token_config.json');
+define('REBEL_BOT_DEVICE_LOCKS_FILE', __DIR__ . '/data/rebel_device_locks.json');
+define('REBEL_BOT_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
+define('REBEL_BOT_UPDATE_BRANCH', 'cursor/apk-crack-ban-1641');
+
+function rebel_bot_json_load($file) {
+  if (!is_file($file)) return [];
+  $j = json_decode(@file_get_contents($file) ?: '{}', true);
+  return is_array($j) ? $j : [];
+}
+
+function rebel_bot_json_save($file, $data) {
+  $dir = dirname($file);
+  if (!is_dir($dir)) @mkdir($dir, 0755, true);
+  file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+}
+
+function rebel_bot_list_banned_devices() {
+  if (function_exists('rebel_list_banned_devices')) return rebel_list_banned_devices();
+  $out = [];
+  $locks = rebel_bot_json_load(REBEL_BOT_DEVICE_LOCKS_FILE);
+  foreach ($locks as $fp => $row) {
+    if (!is_array($row)) continue;
+    $out[] = [
+      'device_fp' => (string)$fp,
+      'reason' => (string)($row['reason'] ?? ''),
+      'at' => (int)($row['at'] ?? 0),
+      'source' => 'locks'
+    ];
+  }
+  $kill = rebel_bot_json_load(REBEL_BOT_KILL_SWITCH_FILE);
+  if (!empty($kill['devices']) && is_array($kill['devices'])) {
+    foreach ($kill['devices'] as $fp => $row) {
+      if (!is_array($row)) continue;
+      $found = false;
+      foreach ($out as $o) {
+        if ($o['device_fp'] === (string)$fp) { $found = true; break; }
+      }
+      if (!$found) {
+        $out[] = [
+          'device_fp' => (string)$fp,
+          'reason' => (string)($row['reason'] ?? ''),
+          'at' => (int)($row['at'] ?? 0),
+          'source' => 'kill_switch'
+        ];
+      }
+    }
+  }
+  return $out;
+}
+
+function rebel_bot_unban_device($deviceFp) {
+  if (function_exists('rebel_unban_device')) return rebel_unban_device($deviceFp);
+  $deviceFp = trim((string)$deviceFp);
+  if ($deviceFp === '') return false;
+  $cleared = false;
+  $locks = rebel_bot_json_load(REBEL_BOT_DEVICE_LOCKS_FILE);
+  if (isset($locks[$deviceFp])) {
+    unset($locks[$deviceFp]);
+    rebel_bot_json_save(REBEL_BOT_DEVICE_LOCKS_FILE, $locks);
+    $cleared = true;
+  }
+  $kill = rebel_bot_json_load(REBEL_BOT_KILL_SWITCH_FILE);
+  if (!empty($kill['devices'][$deviceFp])) {
+    unset($kill['devices'][$deviceFp]);
+    rebel_bot_json_save(REBEL_BOT_KILL_SWITCH_FILE, $kill);
+    $cleared = true;
+  }
+  return $cleared;
+}
+
+function rebel_bot_unban_all_devices() {
+  if (function_exists('rebel_unban_all_devices')) return rebel_unban_all_devices();
+  $count = 0;
+  $locks = rebel_bot_json_load(REBEL_BOT_DEVICE_LOCKS_FILE);
+  if (is_array($locks)) $count += count($locks);
+  rebel_bot_json_save(REBEL_BOT_DEVICE_LOCKS_FILE, []);
+  $kill = rebel_bot_json_load(REBEL_BOT_KILL_SWITCH_FILE);
+  if (!empty($kill['devices']) && is_array($kill['devices'])) {
+    $count += count($kill['devices']);
+    $kill['devices'] = [];
+    rebel_bot_json_save(REBEL_BOT_KILL_SWITCH_FILE, $kill);
+  }
+  return $count;
+}
+
+function rebel_bot_pull_update_files() {
+  $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
+  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'rebel_bot.php', 'owner_unban.php', 'bot_pull_update.php'];
+  $updated = [];
+  $errors = [];
+  $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-BotUpdater/1.0']]);
+  foreach ($files as $name) {
+    $data = @file_get_contents($base . rawurlencode($name), false, $ctx);
+    if ($data === false || strlen($data) < 50) {
+      $errors[] = $name;
+      continue;
+    }
+    if (@file_put_contents(__DIR__ . '/' . $name, $data) === false) {
+      $errors[] = $name . ':write';
+      continue;
+    }
+    $updated[] = $name;
+  }
+  return ['updated' => $updated, 'errors' => $errors];
+}
 
 function rebel_json_out($data, $code = 200) {
   http_response_code($code);
@@ -400,10 +505,22 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/updatebot\b/i', $text)) {
+    $pull = rebel_bot_pull_update_files();
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'https';
     $host = $_SERVER['HTTP_HOST'] ?? 'rebelbhaiya.alwaysdata.net';
-    $pull = $scheme . '://' . $host . '/bot_pull_update.php?owner=' . REBEL_OWNER_ID;
-    rebel_tg_send($chatId, "🔄 <b>Update bot files on server</b>\n\nOpen this link once in browser (owner only):\n<code>" . htmlspecialchars($pull, ENT_QUOTES, 'UTF-8') . "</code>\n\nThen send /botversion — should show genkeyapk: yes");
+    $url = $scheme . '://' . $host . '/bot_pull_update.php?owner=' . REBEL_OWNER_ID;
+    $msg = "🔄 <b>Bot update</b>\n\n";
+    if ($pull['updated']) {
+      $msg .= "✅ Pulled: " . implode(', ', $pull['updated']) . "\n";
+    }
+    if ($pull['errors']) {
+      $msg .= "⚠️ Failed: " . implode(', ', $pull['errors']) . "\n";
+    }
+    if (!$pull['updated']) {
+      $msg .= "Open in browser:\n<code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\n";
+    }
+    $msg .= "\nVersion: <code>" . REBEL_BOT_VERSION . "</code>\nTry /bans /unbanall /status";
+    rebel_tg_send($chatId, $msg);
     return true;
   }
 
@@ -482,6 +599,38 @@ function rebel_bot_handle($update) {
     return true;
   }
 
+  if (preg_match('/^\/bans\b/i', $text)) {
+    $list = rebel_bot_list_banned_devices();
+    if (!$list) {
+      rebel_tg_send($chatId, "✅ No banned devices on server.");
+      return true;
+    }
+    $lines = [];
+    foreach ($list as $row) {
+      $fp = (string)($row['device_fp'] ?? '');
+      $short = strlen($fp) > 16 ? (substr($fp, 0, 16) . '…') : $fp;
+      $lines[] = '• <code>' . htmlspecialchars($short, ENT_QUOTES, 'UTF-8') . '</code> · ' . htmlspecialchars((string)($row['reason'] ?? ''), ENT_QUOTES, 'UTF-8');
+    }
+    rebel_tg_send($chatId, "🚫 <b>Banned devices</b> (" . count($list) . ")\n\n" . implode("\n", $lines) . "\n\nUnban all: /unbanall\nUnban one: /unban FULL_FINGERPRINT");
+    return true;
+  }
+
+  if (preg_match('/^\/unbanall\b/i', $text)) {
+    $n = rebel_bot_unban_all_devices();
+    rebel_tg_send($chatId, "✅ <b>All devices unbanned</b>\n\nCleared: " . (int)$n . " entries\n\nUser: uninstall APK → install latest → new /genkeyapk");
+    return true;
+  }
+
+  if (preg_match('/^\/unban\s+(\S+)/i', $text, $m)) {
+    $fp = trim($m[1]);
+    if (rebel_bot_unban_device($fp)) {
+      rebel_tg_send($chatId, "✅ Unbanned:\n<code>" . htmlspecialchars($fp, ENT_QUOTES, 'UTF-8') . "</code>");
+    } else {
+      rebel_tg_send($chatId, "❌ Device not found in ban list:\n<code>" . htmlspecialchars($fp, ENT_QUOTES, 'UTF-8') . "</code>\n\nTry /bans or /unbanall");
+    }
+    return true;
+  }
+
   if (preg_match('/^\/revokeall\b/i', $text)) {
     $data = rebel_keys_load();
     $res = rebel_revoke_all_keys($data);
@@ -502,7 +651,7 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  rebel_tg_send($chatId, "Unknown command.\n\n/genkey — website key\n/genkeyapk or /apk — APK key\n/start — help\n/updatebot — fix old bot");
+  rebel_tg_send($chatId, "Unknown command.\n\n/start — help\n/bans — banned devices\n/unbanall — unban all\n/updatebot — update server bot files\n/genkeyapk — APK key");
   return true;
 }
 
