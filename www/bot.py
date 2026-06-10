@@ -390,10 +390,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         result = await sess.send_otp(text, on_step=otp_step)
         summary = result.get('summary', '')
         version = result.get('version', '?')
-        otp_ok = any(
-            'OTP sent' in (x.get('m') or '') or 'UIDAI ko OTP' in (x.get('m') or '')
-            for x in result.get('logs', [])
-        )
+        otp_ok = result.get('otp_ok')
+        if otp_ok is None:
+            otp_ok = any(
+                'OTP sent' in (x.get('m') or '') or 'UIDAI ko OTP' in (x.get('m') or '')
+                for x in result.get('logs', [])
+            )
         captcha_warn = any(
             'Captcha' in (x.get('m') or '') or 'captcha' in (x.get('m') or '').lower()
             for x in result.get('logs', [])

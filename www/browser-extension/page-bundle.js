@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.4.5';
+  const ENGINE_VERSION = '12.4.6';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -230,6 +230,8 @@
     return uidChecked ? 'UID' : 'EID';
   }
 
+  const REACT_OTP_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
+
   function buildReactOtpPayload() {
     return {
       mobileNumber: readFieldVal('mobile'),
@@ -245,7 +247,34 @@
     };
   }
 
-  const REACT_OTP_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
+  /** Telegram bot — page XHR skip, Python Playwright request.post use karega */
+  function prepareBotOtpRequest(captcha, log) {
+    syncReactInputs(log);
+    patchReactFormValues(log);
+    const cap = String(captcha || '').trim().toLowerCase();
+    const inp = document.querySelector('input[name="captcha"]');
+    if (inp) setReactInputValue(inp, cap, log);
+    patchReactFormValues(log);
+    const payload = buildReactOtpPayload();
+    if (!payload.mobileNumber || !payload.captcha) {
+      log?.('warn', 'OTP skip — mobile/captcha missing');
+      return { ok: false, err: 'mobile/captcha missing' };
+    }
+    if (!payload.captchaTxnId) {
+      log?.('warn', 'captchaTxnId missing — captcha image refresh karo');
+    }
+    const body = stripDobFromBody(payload).body;
+    log?.('info', 'OTP bhej rahe hain', {
+      mobile: payload.mobileNumber,
+      captchaTxnId: payload.captchaTxnId || null,
+    });
+    return {
+      ok: true,
+      url: REACT_OTP_URL,
+      body,
+      requestId: reactUuid(),
+    };
+  }
 
   function reactUuid() {
     try {
@@ -2488,6 +2517,8 @@
     patchReactOtpClick,
     reactGenerateOtpSend,
     reactGenerateOtpFetch: reactGenerateOtpSend,
+    buildReactOtpPayload,
+    prepareBotOtpRequest,
     getReactFiber,
     getReactProps,
     findReactFormWrapper,
