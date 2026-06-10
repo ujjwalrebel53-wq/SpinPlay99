@@ -4,8 +4,8 @@ const path = require('path');
 const header = `// ==UserScript==
 // @name         Rebel Adhar
 // @namespace    https://github.com/ujjwalrebel53-wq/SpinPlay99
-// @version      12.4.2
-// @description  Rebel Adhar v12.4.2 — clean XHR OTP + native React fallback
+// @version      12.4.3
+// @description  Rebel Adhar v12.4.3 — React inner button bypass + native OTP
 // @match        https://myaadhaar.uidai.gov.in/*
 // @match        https://*.uidai.gov.in/*
 // @grant        none
@@ -114,7 +114,7 @@ const ui = `
     if (!document.getElementById(LOG_ID)) {
       var p = document.createElement('div');
       p.id = LOG_ID;
-      p.innerHTML = '<div id="rebel-adhar-log-header"><strong>Rebel Adhar v12.4.2 PAGE</strong><span><button type="button" id="rebel-clr">Clear</button><button type="button" id="rebel-hid">Hide</button></span></div><pre id="' + LOG_BODY + '"></pre>';
+      p.innerHTML = '<div id="rebel-adhar-log-header"><strong>Rebel Adhar v12.4.3 PAGE</strong><span><button type="button" id="rebel-clr">Clear</button><button type="button" id="rebel-hid">Hide</button></span></div><pre id="' + LOG_BODY + '"></pre>';
       document.documentElement.appendChild(p);
       document.getElementById('rebel-clr').onclick = function () { logs.length = 0; renderLogs(); };
       document.getElementById('rebel-hid').onclick = function () {
@@ -133,7 +133,7 @@ const ui = `
         on = !on;
         try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (_e) {}
         if (on) {
-          log('info', 'Rebel Adhar v12.4.2 ON — PAGE world');
+          log('info', 'Rebel Adhar v12.4.3 ON — PAGE world');
           postCmd('boot');
         } else {
           log('info', 'OFF — page reload karo');
@@ -181,14 +181,14 @@ const ui = `
   function updateBtns() {
     var fab = document.getElementById('rebel-fab');
     if (fab) {
-      fab.textContent = on ? 'Rebel ON v12.4.2' : 'Rebel Adhar OFF';
+      fab.textContent = on ? 'Rebel ON v12.4.3' : 'Rebel Adhar OFF';
       fab.style.background = on ? '#0a7a2f' : '#b42318';
     }
     var strip = document.getElementById('rebel-status-strip');
     if (strip) {
       strip.style.display = on ? 'block' : 'none';
       if (on) {
-        strip.textContent = 'Rebel v12.4.2 React — DOB bypass, khud Send OTP dabao';
+        strip.textContent = 'Rebel v12.4.3 React — DOB bypass, khud Send OTP dabao';
         strip.style.background = '#0a7a2f';
       }
     }
@@ -196,7 +196,7 @@ const ui = `
 
   ensureUI();
   if (on) {
-    log('info', 'Rebel Adhar v12.4.2 ON — PAGE injected');
+    log('info', 'Rebel Adhar v12.4.3 ON — PAGE injected');
     postCmd('boot');
   } else {
     log('info', 'Rebel Adhar OFF — ON dabao');

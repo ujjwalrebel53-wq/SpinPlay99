@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.4.2';
+  const ENGINE_VERSION = '12.4.3';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -203,8 +203,8 @@
         name: vals.name || page.pendingProps.state.formData?.name || null,
         mobile: vals.mobile || page.pendingProps.state.formData?.mobile || null,
         captcha: vals.captcha || page.pendingProps.state.formData?.captcha || null,
-        dob: null,
-        email: null,
+        dob: '',
+        email: '',
       });
       page.pendingProps.state.disableOTP = false;
       page.pendingProps.state.checkNull = false;
@@ -246,21 +246,11 @@
 
   const REACT_OTP_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
 
-  function makeCleanXhr() {
+  function reactUuid() {
     try {
-      const frame = document.createElement('iframe');
-      frame.setAttribute('aria-hidden', 'true');
-      frame.style.cssText = 'display:none!important;width:0;height:0;border:0;position:absolute';
-      document.documentElement.appendChild(frame);
-      const win = frame.contentWindow;
-      if (!win?.XMLHttpRequest) {
-        frame.remove();
-        return { xhr: new XMLHttpRequest(), frame: null };
-      }
-      const xhr = new win.XMLHttpRequest();
-      return { xhr, frame };
+      return crypto.randomUUID();
     } catch (_e) {
-      return { xhr: new XMLHttpRequest(), frame: null };
+      return 'rebel-' + Date.now() + '-' + Math.random().toString(16).slice(2);
     }
   }
 
@@ -276,22 +266,20 @@
     }
     const body = JSON.stringify(stripDobFromBody(payload).body);
     return new Promise((resolve) => {
-      const { xhr, frame } = makeCleanXhr();
+      const open = window.__rebelOrigXhrOpen || XMLHttpRequest.prototype.open;
+      const send = window.__rebelOrigXhrSend || XMLHttpRequest.prototype.send;
+      const setHeader = window.__rebelOrigXhrSetHeader || XMLHttpRequest.prototype.setRequestHeader;
+      const xhr = new XMLHttpRequest();
       const done = function (ok) {
-        try {
-          frame?.remove();
-        } catch (_e) {}
         resolve(ok);
       };
-      xhr.open('POST', REACT_OTP_URL, true);
+      open.call(xhr, 'POST', REACT_OTP_URL, true);
       xhr.withCredentials = true;
-      xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.setRequestHeader('appid', 'MYAADHAAR');
-      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-      try {
-        xhr.setRequestHeader('Accept-Language', document.documentElement.lang || 'en');
-      } catch (_e) {}
+      setHeader.call(xhr, 'Accept', 'application/json, text/plain, */*');
+      setHeader.call(xhr, 'Content-Type', 'application/json');
+      setHeader.call(xhr, 'appid', 'MYAADHAAR');
+      setHeader.call(xhr, 'accept-language', 'en_IN');
+      setHeader.call(xhr, 'x-request-id', reactUuid());
       xhr.onload = function () {
         const text = xhr.responseText || '';
         log?.('info', 'React OTP xhr', { status: xhr.status, resp: text.slice(0, 180) });
@@ -317,8 +305,9 @@
         done(false);
       };
       try {
+        window.__rebelMarkOtpAttempt?.(REACT_OTP_URL, 'POST');
         xhr.timeout = 25000;
-        xhr.send(body);
+        send.call(xhr, body);
       } catch (err) {
         log?.('warn', 'React OTP xhr send fail', String(err).slice(0, 100));
         done(false);
@@ -327,36 +316,72 @@
   }
 
   let lastOtpSendAt = 0;
+  let lastNativeOtpAt = 0;
 
   async function reactGenerateOtpSend(log) {
     if (Date.now() - lastOtpSendAt < 1500) return false;
     lastOtpSendAt = Date.now();
-    const xhrOk = await reactGenerateOtpXhr(log);
-    if (xhrOk) return true;
-    const origFetch = window.__rebelOrigFetch || window.fetch;
     const payload = buildReactOtpPayload();
-    if (!payload.captchaTxnId || !payload.mobileNumber || !payload.captcha) return false;
+    if (!payload.mobileNumber || !payload.captcha) {
+      log?.('warn', 'React OTP skip — mobile/captcha missing');
+      return false;
+    }
+    const body = JSON.stringify(stripDobFromBody(payload).body);
     try {
-      const res = await origFetch.call(window, REACT_OTP_URL, {
+      const res = await window.fetch(REACT_OTP_URL, {
         method: 'POST',
         headers: {
           Accept: 'application/json, text/plain, */*',
           'Content-Type': 'application/json',
           appid: 'MYAADHAAR',
+          'accept-language': 'en_IN',
+          'x-request-id': reactUuid(),
         },
         credentials: 'include',
-        body: JSON.stringify(stripDobFromBody(payload).body),
+        body,
       });
       const text = await res.text();
-      log?.('info', 'React OTP native fetch', { status: res.status, resp: text.slice(0, 180) });
+      log?.('info', 'React OTP fetch', { status: res.status, resp: text.slice(0, 180) });
       if (res.status >= 200 && res.status < 300) {
         log?.('info', 'OTP sent — UIDAI ' + res.status, { via: 'fetch' });
         return true;
       }
     } catch (err) {
       log?.('warn', 'React OTP fetch fail', String(err).slice(0, 100));
+      return reactGenerateOtpXhr(log);
     }
     return false;
+  }
+
+  function fireReactNativeOtp(btn, log, ev) {
+    const orig = window.__rebelReactOtpOrig;
+    if (typeof orig !== 'function') return false;
+    syncReactInputs(log);
+    patchReactFormValues(log);
+    forceReactOtpClickable(log, true);
+    const parent = getReactFiber(btn)?.return;
+    try {
+      orig.call(parent?.stateNode || btn, ev || { preventDefault() {}, stopPropagation() {} });
+    } catch (_e) {}
+    return true;
+  }
+
+  function invokeReactNativeOtp(btn, uiSel, log, ev) {
+    if (Date.now() - lastNativeOtpAt < 1500) return true;
+    lastNativeOtpAt = Date.now();
+    if (!isDobBypassed(uiSel)) {
+      return fireReactNativeOtp(btn, log, ev);
+    }
+    const hitsBefore = window.__rebelOtpHits || 0;
+    fireReactNativeOtp(btn, log, ev);
+    setTimeout(function () {
+      if ((window.__rebelOtpHits || 0) > hitsBefore) {
+        log?.('info', 'UIDAI ko OTP request bheji');
+        return;
+      }
+      reactGenerateOtpSend(log);
+    }, 1200);
+    return true;
   }
 
   function patchReactOtpClick(uiSel, log) {
@@ -365,34 +390,38 @@
     if (!parent?.pendingProps) return false;
     const orig = parent.pendingProps.onClick;
     if (typeof orig !== 'function') return false;
+    if (!window.__rebelReactOtpOrig) window.__rebelReactOtpOrig = orig;
     if (parent.pendingProps.__rebelOtpWrapped) return true;
     const wrapped = function rebelWrappedOtpClick(ev) {
-      patchReactFormValues(log);
-      forceReactOtpClickable(log, true);
-      const hitsBefore = window.__rebelOtpHits || 0;
-      try {
-        orig.call(this, ev);
-      } catch (_e) {}
-      if (!isDobBypassed(uiSel)) return;
-      setTimeout(function () {
-        if ((window.__rebelOtpHits || 0) > hitsBefore) return;
-        reactGenerateOtpSend(log);
-      }, 1600);
+      if (!isDobBypassed(uiSel)) {
+        try {
+          orig.call(this, ev);
+        } catch (_e) {}
+        return;
+      }
+      invokeReactNativeOtp(btn, uiSel, log, ev);
     };
     parent.pendingProps.onClick = wrapped;
     parent.pendingProps.__rebelOtpWrapped = true;
     if (parent.memoizedProps) parent.memoizedProps.onClick = wrapped;
     const btnProps = getReactProps(btn);
-    if (btnProps?.onClick && !btnProps.__rebelBtnWrapped) {
+    if (btnProps && !btnProps.__rebelBtnWrapped) {
       const origBtn = btnProps.onClick;
-      btnProps.onClick = function (e) {
-        forceReactOtpClickable(log, true);
-        return origBtn.call(this, e);
+      btnProps.onClick = function rebelInnerOtpBypass(e) {
+        if (!isDobBypassed(uiSel)) {
+          forceReactOtpClickable(log, true);
+          try {
+            return origBtn?.call(this, e);
+          } catch (_e) {
+            return undefined;
+          }
+        }
+        invokeReactNativeOtp(btn, uiSel, log, e);
       };
       btnProps.__rebelBtnWrapped = true;
     }
     armReactOtpDomTap(btn, uiSel, log);
-    log?.('info', 'React Send OTP tap armed (xhr)');
+    log?.('info', 'React Send OTP tap armed (native)');
     return true;
   }
 
@@ -400,19 +429,12 @@
     if (!btn || btn.dataset.rebelOtpDomArmed) return;
     btn.dataset.rebelOtpDomArmed = '1';
     let lastTap = 0;
-    const onTap = function () {
+    const onTap = function (ev) {
       if (!isDobBypassed(uiSel)) return;
       if (Date.now() - lastTap < 1200) return;
       lastTap = Date.now();
-      patchReactFormValues(log);
-      forceReactOtpClickable(log, true);
-      try {
-        btn.click();
-      } catch (_e) {
-        reactGenerateOtpSend(log);
-      }
+      invokeReactNativeOtp(btn, uiSel, log, ev);
     };
-    btn.addEventListener('click', onTap, true);
     btn.addEventListener('touchend', onTap, { capture: true, passive: true });
     btn.addEventListener('pointerup', onTap, true);
   }
@@ -736,9 +758,32 @@
     const onHit = hooks?.onHit || (() => {});
     const onSuccess = hooks?.onSuccess || onHit;
 
-    function notifySuccess(kind, method, url, status) {
+    function markOtpAttempt(url, method) {
       if (!enabled() || !isUidaiOtpHit(url, method)) return;
       window.__rebelOtpHits = (window.__rebelOtpHits || 0) + 1;
+    }
+    window.__rebelMarkOtpAttempt = markOtpAttempt;
+
+    function logUidaiResponse(status, text) {
+      if (!text) return;
+      try {
+        const j = JSON.parse(text);
+        const msg =
+          j?.errorDetails?.messageEnglish ||
+          j?.messageEnglish ||
+          j?.message ||
+          j?.status ||
+          '';
+        if (msg) log?.('info', 'UIDAI jawab', { status, msg: String(msg).slice(0, 160) });
+        if (j?.errorCode && !/success|sent/i.test(String(msg))) {
+          log?.('warn', 'UIDAI error', { code: j.errorCode, msg: String(msg).slice(0, 120) });
+        }
+      } catch (_e) {}
+    }
+
+    function notifySuccess(kind, method, url, status, text) {
+      if (!enabled() || !isUidaiOtpHit(url, method)) return;
+      logUidaiResponse(status, text);
       if (status < 200 || status >= 300) return;
       onSuccess(kind, method, url, status);
     }
@@ -746,6 +791,7 @@
     function processPost(url, method, body) {
       if (!enabled() || String(method).toUpperCase() !== 'POST' || body == null) return { body, removed: [] };
       if (!shouldStripServerPost(url)) return { body, removed: [] };
+      markOtpAttempt(url, method);
       const { body: stripped, removed } = stripDobFromBody(body);
       if (removed.length) {
         log?.('info', 'Server request se DOB hata di', {
@@ -786,8 +832,12 @@
                 redirect: req.redirect,
                 referrer: req.referrer,
                 integrity: req.integrity,
-              }).then(function (res) {
-                notifySuccess('fetch', method, url, res.status);
+              }).then(async function (res) {
+                let text = '';
+                try {
+                  text = await res.clone().text();
+                } catch (_e) {}
+                notifySuccess('fetch', method, url, res.status, text);
                 return res;
               });
             });
@@ -802,8 +852,12 @@
           const r = processPost(url, method, opts.body);
           opts.body = r.body;
         }
-        return origFetch.call(this, input, opts).then(function (res) {
-          notifySuccess('fetch', method, url, res.status);
+        return origFetch.call(this, input, opts).then(async function (res) {
+          let text = '';
+          try {
+            text = await res.clone().text();
+          } catch (_e) {}
+          notifySuccess('fetch', method, url, res.status, text);
           return res;
         });
       };
@@ -832,7 +886,7 @@
         if (!xhr.__rebelDirect && !xhr.__rebelLoadHook) {
           xhr.__rebelLoadHook = true;
           xhr.addEventListener('load', function () {
-            notifySuccess('xhr', method, url, xhr.status);
+            notifySuccess('xhr', method, url, xhr.status, xhr.responseText || '');
           });
         }
         if (body != null) {
