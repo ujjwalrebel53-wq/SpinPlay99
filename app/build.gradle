@@ -11,8 +11,8 @@ android {
         applicationId "com.rebel.panel"
         minSdk 24
         targetSdk 34
-        versionCode 24
-        versionName "4.1.2"
+        versionCode 25
+        versionName "4.1.3"
         buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
         buildConfigField "String", "REBEL_APK_SHA256", "\"570290715E067531A5DF06DD139604192A70993C863E97F51A09609F8A702CECA\""
         buildConfigField "String", "SSL_PIN_PRIMARY", "\"sha256/SM2goQ/B0xk7U8iezGH0VeeoZwZWiEC9obc8uSCte8=\""

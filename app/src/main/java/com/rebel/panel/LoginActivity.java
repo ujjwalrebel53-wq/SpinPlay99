@@ -7,7 +7,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
-import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -45,8 +44,6 @@ public class LoginActivity extends AppCompatActivity {
         if (!DeviceBanManager.gate(this)) return;
         DeviceBanManager.gateAsync(this);
 
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);
@@ -89,7 +86,6 @@ public class LoginActivity extends AppCompatActivity {
         if (DeviceBanManager.isLocallyBanned(this) || DeviceBanManager.isBanScreenShowing()) {
             DeviceBanManager.launchBanScreen(this);
         }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
     }
 
     @Override
