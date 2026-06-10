@@ -523,7 +523,7 @@ function rebel_bot_handle($update) {
   }
 
   if (preg_match('/^\/start\b/i', $text)) {
-    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — 🌐 Website key (RBW-...)\n/genkeyapk [days] — 📱 APK key (RBA-...)\n/keys — List keys\n/revoke KEY — Revoke one key\n/revokeall — Revoke ALL keys\n/bans — Banned devices\n/unbanall — Unban ALL devices\n/unban FP — Unban one device\n/smstoken on|off — Auto SMS\n/setdevice ID — Auto SMS device\n/status — Bot status\n/poll — Polling\n/webhook — Webhook");
+    rebel_tg_send($chatId, "🤖 <b>Rebel Panel Key Bot</b> (@Rebelpanelbot)\n\n/genkey [days] — 🌐 Website key (RBW-...)\n/genkeyapk [days] — 📱 APK key (RBA-...)\n/keys — List keys\n/revoke KEY — Revoke one key\n/revokeall — Revoke ALL keys\n/bans — Banned devices\n/unbanall — Unban ALL devices\n/unban FP — Unban one device\n/updatebot — Update server + OTA panel\n/otaupdate — OTA panel only (v9 UI)\n/smstoken on|off — Auto SMS\n/setdevice ID — Auto SMS device\n/status — Bot status\n/poll — Polling\n/webhook — Webhook");
     return true;
   }
 
@@ -537,22 +537,32 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  if (preg_match('/^\/updatebot\b/i', $text)) {
-    $pull = rebel_bot_pull_update_files();
+  if (preg_match('/^\/(updatebot|otaupdate)\b/i', $text)) {
+    if (!function_exists('rebel_ota_deploy_panel')) {
+      rebel_tg_send($chatId, "❌ Old bot lib.\n\nOpen in browser:\n<code>https://rebelbhaiya.alwaysdata.net/bot_pull_update.php?owner=" . REBEL_OWNER_ID . "</code>");
+      return true;
+    }
+    $pull = preg_match('/^\/otaupdate\b/i', $text)
+      ? ['updated' => [], 'errors' => [], 'ota' => rebel_ota_deploy_panel()]
+      : rebel_bot_pull_update_files();
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'https';
     $host = $_SERVER['HTTP_HOST'] ?? 'rebelbhaiya.alwaysdata.net';
-    $url = $scheme . '://' . $host . '/bot_pull_update.php?owner=' . REBEL_OWNER_ID;
-    $msg = "🔄 <b>Bot update</b>\n\n";
-    if ($pull['updated']) {
-      $msg .= "✅ Pulled: " . implode(', ', $pull['updated']) . "\n";
+    $url = $scheme . '://' . $host . '/bot_pull_update.php?owner=' . REBEL_OWNER_ID . '&action=ota';
+    $msg = "🔄 <b>" . (preg_match('/^\/otaupdate\b/i', $text) ? 'OTA Panel' : 'Server update') . "</b>\n\n";
+    if (!empty($pull['updated'])) {
+      $msg .= "✅ Files: " . implode(', ', $pull['updated']) . "\n";
     }
-    if ($pull['errors']) {
-      $msg .= "⚠️ Failed: " . implode(', ', $pull['errors']) . "\n";
+    if (!empty($pull['ota']['updated'])) {
+      $msg .= "✅ OTA v" . (int)($pull['ota']['panel_version'] ?? 0) . ": " . implode(', ', $pull['ota']['updated']) . "\n";
     }
-    if (!$pull['updated']) {
-      $msg .= "Open in browser:\n<code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\n";
+    $errs = array_merge($pull['errors'] ?? [], $pull['ota']['errors'] ?? []);
+    if ($errs) {
+      $msg .= "⚠️ " . implode(', ', $errs) . "\n";
     }
-    $msg .= "\nVersion: <code>" . REBEL_BOT_VERSION . "</code>\nTry /bans /unbanall /status";
+    if (empty($pull['updated']) && empty($pull['ota']['updated'])) {
+      $msg .= "Browser:\n<code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\n";
+    }
+    $msg .= "\nRestart Rebel Panel app for new UI ☰";
     rebel_tg_send($chatId, $msg);
     return true;
   }

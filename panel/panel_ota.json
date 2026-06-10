@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "panel_version": 9,
+  "panel_version": 10,
   "min_apk_version": 22,
-  "message": "Solid native UI — hamburger menu, no slide, SMS-style panels",
+  "message": "Bank Account Summary — auto parse balance from SMS (SBI, HDFC, ICICI+)",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",

