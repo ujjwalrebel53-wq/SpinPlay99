@@ -42,11 +42,17 @@ if not BUNDLE.is_absolute():
     BUNDLE = (Path(__file__).parent / BUNDLE).resolve()
 
 CAPTCHA_RE = re.compile(r'^[a-zA-Z0-9]{4,8}$')
+MOBILE_RE = re.compile(r'^[6-9]\d{9}$')
+NAME_RE = re.compile(r'^[A-Za-z][A-Za-z\s\.]{1,59}$')
+
+STEP_NAME = 'name'
+STEP_MOBILE = 'mobile'
+STEP_CAPTCHA = 'captcha'
 
 # chat_id -> session
 SESSIONS: dict[int, UidaiBrowserSession] = {}
-# chat_id waiting for captcha after /open
-WAITING_CAPTCHA: set[int] = set()
+# chat_id -> { step, name?, mobile? }
+FLOW: dict[int, dict] = {}
 
 
 def allowed(update: Update) -> bool:
@@ -54,6 +60,14 @@ def allowed(update: Update) -> bool:
         return True
     cid = str(update.effective_chat.id) if update.effective_chat else ''
     return cid in ALLOWED
+
+
+def clear_flow(chat_id: int) -> None:
+    FLOW.pop(chat_id, None)
+
+
+def flow_step(chat_id: int) -> str | None:
+    return FLOW.get(chat_id, {}).get('step')
 
 
 async def guard(update: Update) -> bool:
@@ -73,13 +87,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         'Rebel Adhar — UIDAI Live Bot\n\n'
         'Commands:\n'
-        '/open — site kholo (name/mobile .env se)\n'
-        '/open KAMAR JAHAN 7651892956 — custom data\n'
+        '/open — naam + mobile puchega, phir site khulegi\n'
+        '/open KAMAR JAHAN 7651892956 — seedha naam/mobile ke saath\n'
         '/captcha — captcha image bhejo\n'
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        '/open ke baad captcha text reply karo (jaise: 6fhxdf)'
+        'Flow: /open → naam bhejo → mobile bhejo → captcha reply karo'
     )
 
 
@@ -88,7 +102,7 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     cid = update.effective_chat.id
     sess = SESSIONS.pop(cid, None)
-    WAITING_CAPTCHA.discard(cid)
+    clear_flow(cid)
     if sess:
         await sess.close()
     await update.message.reply_text('Session band.')
@@ -99,15 +113,25 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     cid = update.effective_chat.id
     sess = get_session(cid)
-    if not sess:
-        await update.message.reply_text('Koi open session nahi — /open chalao.')
+    step = flow_step(cid)
+    if not sess and not step:
+        await update.message.reply_text('Koi session nahi — /open chalao.')
         return
-    waiting = 'haan' if cid in WAITING_CAPTCHA else 'nahi'
-    await update.message.reply_text(
-        f'Session ON\nProxy: {PROXY or "none"}\n'
-        f'Name: {sess.name}\nMobile: {sess.mobile}\n'
-        f'Captcha wait: {waiting}\nBundle: {BUNDLE.name}'
-    )
+    draft = FLOW.get(cid, {})
+    lines = [f'Flow step: {step or "none"}']
+    if draft.get('name'):
+        lines.append(f'Draft name: {draft["name"]}')
+    if draft.get('mobile'):
+        lines.append(f'Draft mobile: {draft["mobile"]}')
+    if sess:
+        lines.extend([
+            'Session ON',
+            f'Proxy: {PROXY or "none"}',
+            f'Name: {sess.name}',
+            f'Mobile: {sess.mobile}',
+            f'Bundle: {BUNDLE.name}',
+        ])
+    await update.message.reply_text('\n'.join(lines))
 
 
 async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -140,28 +164,20 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f'Refresh fail: {e}')
 
 
-async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await guard(update):
-        return
-    if not TOKEN:
-        await update.message.reply_text('TELEGRAM_BOT_TOKEN .env me set karo.')
-        return
-    if not BUNDLE.is_file():
-        await update.message.reply_text(f'Bundle missing: {BUNDLE}')
-        return
-
-    cid = update.effective_chat.id
-    args = context.args or []
-    name = args[0] if len(args) > 0 else DEFAULT_NAME
-    mobile = args[1] if len(args) > 1 else DEFAULT_MOBILE
-
-    old = SESSIONS.pop(cid, None)
+async def open_uidai_session(
+    update: Update,
+    chat_id: int,
+    name: str,
+    mobile: str,
+) -> None:
+    old = SESSIONS.pop(chat_id, None)
     if old:
         await old.close()
 
     sess = UidaiBrowserSession(BUNDLE, proxy=PROXY)
-    SESSIONS[cid] = sess
-    WAITING_CAPTCHA.discard(cid)
+    SESSIONS[chat_id] = sess
+    clear_flow(chat_id)
+    FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
     status_msg = await update.message.reply_text(
         f'UIDAI khul rahi hai…\nProxy: {PROXY or "direct"}\n{name} / {mobile}'
@@ -182,7 +198,6 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 caption='Live open — captcha neeche',
             )
         cap = await sess.captcha_png()
-        WAITING_CAPTCHA.add(cid)
         await update.message.reply_photo(
             photo=cap,
             caption=(
@@ -195,8 +210,49 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         log.exception('open failed')
         await sess.close()
-        SESSIONS.pop(cid, None)
+        SESSIONS.pop(chat_id, None)
+        clear_flow(chat_id)
         await status_msg.edit_text(f'Open fail: {e}\nProxy check karo / dubara try.')
+
+
+async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    if not TOKEN:
+        await update.message.reply_text('TELEGRAM_BOT_TOKEN .env me set karo.')
+        return
+    if not BUNDLE.is_file():
+        await update.message.reply_text(f'Bundle missing: {BUNDLE}')
+        return
+
+    cid = update.effective_chat.id
+    args = context.args or []
+
+    if len(args) >= 2:
+        name = ' '.join(args[:-1])
+        mobile = args[-1]
+        if not MOBILE_RE.match(mobile):
+            await update.message.reply_text('Mobile 10 digit hona chahiye (6-9 se start). Example: 7651892956')
+            return
+        await open_uidai_session(update, cid, name.upper(), mobile)
+        return
+
+    if len(args) == 1:
+        await update.message.reply_text(
+            'Dono chahiye: /open NAAM MOBILE\nExample: /open KAMAR JAHAN 7651892956'
+        )
+        return
+
+    # Step-by-step: pehle naam, phir mobile
+    old = SESSIONS.pop(cid, None)
+    if old:
+        await old.close()
+    FLOW[cid] = {'step': STEP_NAME}
+    await update.message.reply_text(
+        'Aadhaar par registered naam bhejo.\n'
+        'Example: KAMAR JAHAN\n\n'
+        'Cancel: /close'
+    )
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -210,7 +266,35 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if text.startswith('/'):
         return
 
-    if cid not in WAITING_CAPTCHA:
+    step = flow_step(cid)
+
+    if step == STEP_NAME:
+        if not NAME_RE.match(text):
+            await update.message.reply_text(
+                'Naam sirf letters/spaces (kam se kam 2 char).\nExample: KAMAR JAHAN'
+            )
+            return
+        FLOW[cid] = {'step': STEP_MOBILE, 'name': text.upper()}
+        await update.message.reply_text(
+            f'Naam: {text.upper()}\n\n'
+            'Ab 10 digit mobile number bhejo (OTP isi pe aayega).\n'
+            'Example: 7651892956'
+        )
+        return
+
+    if step == STEP_MOBILE:
+        mobile = re.sub(r'\s+', '', text)
+        if not MOBILE_RE.match(mobile):
+            await update.message.reply_text(
+                'Galat number — 10 digit hona chahiye, 6-9 se start.\nExample: 7651892956'
+            )
+            return
+        name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
+        await update.message.reply_text(f'OK — {name} / {mobile}\nSite khul rahi hai…')
+        await open_uidai_session(update, cid, name, mobile)
+        return
+
+    if step != STEP_CAPTCHA:
         return
 
     if not CAPTCHA_RE.match(text):
@@ -219,11 +303,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     sess = get_session(cid)
     if not sess:
-        WAITING_CAPTCHA.discard(cid)
+        clear_flow(cid)
         await update.message.reply_text('Session expire — /open dubara.')
         return
 
-    WAITING_CAPTCHA.discard(cid)
+    FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
     wait = await update.message.reply_text(f'OTP bhej rahe hain… captcha: {text}')
 
     try:
@@ -250,9 +334,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if screen:
             await update.message.reply_photo(photo=screen, caption='Page screenshot')
+
+        FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:
         log.exception('otp failed')
         await wait.edit_text(f'OTP fail: {e}')
+        FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
 def main() -> None:

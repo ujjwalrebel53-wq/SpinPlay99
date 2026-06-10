@@ -37,14 +37,14 @@ python bot.py
 | Command | Kaam |
 |---------|------|
 | `/start` | Help |
-| `/open` | Site kholo (default name/mobile `.env` se) |
-| `/open KAMAR JAHAN 7651892956` | Custom name/mobile |
+| `/open` | Pehle naam puchega, phir mobile, phir site khulegi |
+| `/open KAMAR JAHAN 7651892956` | Seedha naam + mobile ke saath kholo |
 | `/captcha` | Captcha image dubara bhejo |
 | `/refresh` | Naya captcha load |
 | `/status` | Session info |
 | `/close` | Browser band |
 
-**Flow:** `/open` → animated GIF + captcha photo → captcha text **reply** karo (jaise `6fhxdf`) → OTP logs + screenshot.
+**Flow:** `/open` → naam bhejo → mobile bhejo → animated GIF + captcha photo → captcha text **reply** karo (jaise `6fhxdf`) → OTP logs + screenshot.
 
 ## Notes
 
