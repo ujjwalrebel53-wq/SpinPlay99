@@ -1,0 +1,26 @@
+cd www ke baad ye files honi chahiye:
+
+www/
+├── bot.py
+├── browser_session.py
+├── requirements.txt
+├── setup.sh              ← .env banane ke liye (nano nahi)
+├── README.md
+└── browser-extension/
+    ├── page-bundle.js
+    └── rebel-adhar.user.js
+
+Setup (nano nahi — sirf ye commands):
+
+  cd www
+  bash setup.sh
+
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+  playwright install chromium
+  python bot.py
+
+Seedha token + chat id dena ho to:
+
+  bash setup.sh "BOT_TOKEN_YAHAN" "CHAT_ID_YAHAN"
