@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Rebel Adhar — myAadhaar Form",
-  "version": "12.4.0",
-  "description": "Rebel Adhar v12.4 — React UIDAI live fix + hands-off OTP",
+  "version": "12.4.2",
+  "description": "Rebel Adhar v12.4.2 — clean XHR OTP + native React fallback",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://myaadhaar.uidai.gov.in/*",
