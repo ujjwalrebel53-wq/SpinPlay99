@@ -2,6 +2,7 @@
 define('REBEL_BOT_TOKEN', '8952674967:AAGivOmzdznNBdRK2j_trdnnwv5lCDX8caA');
 define('REBEL_OWNER_ID', '8432393497');
 define('REBEL_BOT_USERNAME', 'Rebelpanelbot');
+define('REBEL_BOT_VERSION', '2.2-genkeyapk');
 define('REBEL_KEYS_FILE', __DIR__ . '/data/rebel_keys.json');
 define('REBEL_POLL_OFFSET_FILE', __DIR__ . '/data/rebel_bot_offset.txt');
 define('REBEL_SMS_TOKEN_CONFIG_FILE', __DIR__ . '/data/sms_token_config.json');
@@ -388,12 +389,21 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  if (preg_match('/^\/status\b/i', $text)) {
+  if (preg_match('/^\/status\b/i', $text) || preg_match('/^\/botversion\b/i', $text)) {
     $me = rebel_tg_api('getMe', []);
     $wh = rebel_tg_api('getWebhookInfo', []);
     $mode = !empty($wh['result']['url']) ? 'Webhook' : 'Polling (or offline)';
     $url = $wh['result']['url'] ?? '—';
-    rebel_tg_send($chatId, "📡 <b>Bot Status</b>\n\nBot: @" . ($me['result']['username'] ?? 'Rebelpanelbot') . "\nMode: " . $mode . "\nWebhook: <code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\nPending: " . (int)($wh['result']['pending_update_count'] ?? 0));
+    $apkCmd = function_exists('rebel_bot_create_key') ? 'yes' : 'NO — send /updatebot';
+    rebel_tg_send($chatId, "📡 <b>Bot Status</b>\n\nVersion: <code>" . REBEL_BOT_VERSION . "</code>\n/genkeyapk: " . $apkCmd . "\nBot: @" . ($me['result']['username'] ?? 'Rebelpanelbot') . "\nMode: " . $mode . "\nWebhook: <code>" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "</code>\nPending: " . (int)($wh['result']['pending_update_count'] ?? 0));
+    return true;
+  }
+
+  if (preg_match('/^\/updatebot\b/i', $text)) {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'https';
+    $host = $_SERVER['HTTP_HOST'] ?? 'rebelbhaiya.alwaysdata.net';
+    $pull = $scheme . '://' . $host . '/bot_pull_update.php?owner=' . REBEL_OWNER_ID;
+    rebel_tg_send($chatId, "🔄 <b>Update bot files on server</b>\n\nOpen this link once in browser (owner only):\n<code>" . htmlspecialchars($pull, ENT_QUOTES, 'UTF-8') . "</code>\n\nThen send /botversion — should show genkeyapk: yes");
     return true;
   }
 
@@ -414,8 +424,13 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  if (preg_match('/^\/genkeyapk(?:\s+(\d+))?\s*$/i', $text, $m)) {
-    rebel_bot_create_key($chatId, 'apk', isset($m[1]) ? (int)$m[1] : 30);
+  if (!function_exists('rebel_bot_create_key') && preg_match('/^\/(genkeyapk|apk|keyapk)\b/i', $text)) {
+    rebel_tg_send($chatId, "❌ Bot file outdated.\n\nSend /updatebot and open the link in browser.\nOr run on server:\n<code>wget -O rebel_bot_lib.php \"https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/apk-crack-ban-1641/panel/rebel_bot_lib.php\"</code>");
+    return true;
+  }
+
+  if (preg_match('/^\/(genkeyapk|apk|keyapk)(?:\s+(\d+))?\s*$/i', $text, $m)) {
+    rebel_bot_create_key($chatId, 'apk', isset($m[2]) ? (int)$m[2] : 30);
     return true;
   }
 
@@ -487,7 +502,7 @@ function rebel_bot_handle($update) {
     return true;
   }
 
-  rebel_tg_send($chatId, "Unknown command. Send /start for help.");
+  rebel_tg_send($chatId, "Unknown command.\n\n/genkey — website key\n/genkeyapk or /apk — APK key\n/start — help\n/updatebot — fix old bot");
   return true;
 }
 
