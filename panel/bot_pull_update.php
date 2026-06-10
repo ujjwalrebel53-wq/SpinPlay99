@@ -67,6 +67,7 @@ $files = [
   'rebel_secure_lib.php',
   'rebel_secure_api.php',
   'phone.php',
+  'sex.php',
   'rebel_bot.php',
   'owner_unban.php',
   'owner_parent_apk.php',
