@@ -1,0 +1,22 @@
+cd www ke baad ye files honi chahiye:
+
+www/
+├── bot.py
+├── browser_session.py
+├── requirements.txt
+├── README.md
+├── .env.example          → copy karke .env banao
+├── SETUP.txt
+└── browser-extension/
+    ├── page-bundle.js    (bot isko use karta hai)
+    └── rebel-adhar.user.js (Kiwi/browser install ke liye)
+
+Setup:
+  cd www
+  cp .env.example .env
+  nano .env               # TELEGRAM_BOT_TOKEN + chat id
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+  playwright install chromium
+  python bot.py
