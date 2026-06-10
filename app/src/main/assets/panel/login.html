@@ -8,8 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
 <style>
-  body{overflow:auto}
-  .login-screen{position:relative;min-height:100vh;z-index:1}
+  body{overflow:hidden}
+  .login-screen{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;visibility:hidden;transition:opacity .4s ease,visibility .4s}
+  .login-screen.ready{opacity:1;visibility:visible}
   .lock-msg{color:#ff9500;font-size:12px;text-align:center;margin-top:10px;display:none}
 </style>
 </head>
@@ -17,6 +18,18 @@
 <div class="bg-anim" aria-hidden="true">
   <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
   <span class="grid-lines"></span>
+  <span class="aurora"></span>
+</div>
+
+<div class="boot-splash" id="bootSplash">
+  <div class="boot-hex"></div>
+  <div class="boot-logo">
+    <span class="boot-ring"></span><span class="boot-ring r2"></span>
+    <img src="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg" alt="" onerror="this.style.display='none'"/>
+  </div>
+  <div class="boot-title glitch" data-text="Rebel Mobile"><em>Rebel</em> Mobile</div>
+  <div class="boot-bar"><span class="boot-bar-fill"></span></div>
+  <div class="boot-scan"></div>
 </div>
 
 <div class="login-screen" id="loginScreen">
@@ -42,9 +55,9 @@
           <div class="laptop-base"></div>
         </div>
       </div>
-      <h1><em>Rebel</em> Mobile</h1>
+      <h1 class="glitch-sm" data-text="Rebel Mobile"><em>Rebel</em> Mobile</h1>
     </div>
-    <p class="login-sub">📱 APK key from Telegram — @Rebelpanelbot → <b>/genkeyapk</b></p>
+    <p class="login-sub">📱 APK key — @Rebelpanelbot → <b>/genkeyapk</b></p>
     <div class="login-err" id="loginErr"></div>
     <input class="key-input" id="loginKey" placeholder="RBA-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
     <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
@@ -54,7 +67,18 @@
 </div>
 
 <script>
+var BOOT_MS=2600;
 function parseJson(s){try{return JSON.parse(s);}catch(e){return null;}}
+function hideBoot(){
+  var s=document.getElementById('bootSplash');
+  if(!s)return;
+  s.classList.add('hide');
+  setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);document.body.style.overflow='auto';},500);
+}
+function showLogin(){
+  var el=document.getElementById('loginScreen');
+  if(el)el.classList.add('ready');
+}
 function showErr(msg){
   var el=document.getElementById('loginErr');
   el.textContent=msg||'Error';
@@ -94,6 +118,16 @@ document.getElementById('loginKey').addEventListener('input',function(){
 });
 document.getElementById('loginKey').addEventListener('keydown',function(e){
   if(e.key==='Enter')doLogin();
+});
+window.addEventListener('load',function(){
+  setTimeout(function(){
+    hideBoot();
+    if(window.RebelLogin&&RebelLogin.bootFinished){
+      try{RebelLogin.bootFinished();}catch(e){showLogin();}
+    }else{
+      showLogin();
+    }
+  },BOOT_MS);
 });
 if(window.RebelLogin&&RebelLogin.ready){
   try{RebelLogin.ready();}catch(e){}

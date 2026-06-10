@@ -487,6 +487,7 @@ function useSelForAutoToken(){
 
 /* BOOT */
 (function(){
+  var BOOT_MS=2600;
   function hideBoot(){
     var s=document.getElementById('bootSplash');
     if(!s)return;
@@ -497,12 +498,21 @@ function useSelForAutoToken(){
     initParticles();initParallax();bindRipples();
     var nb=document.querySelector('.nav-item.active');if(nb)moveNavGlow(nb);
   }
-  window.addEventListener('load',function(){initFx();setTimeout(hideBoot,900);});
-  if(window.RebelAndroid){
-    var c=parseJson(RebelAndroid.checkSession());
-    if(c&&c.ok&&c.token){
-      initFx();hideBoot();unlockApp(c.token,c.expires||c.exp||0,true);
-      return;
+  function bootDone(){
+    if(window.RebelAndroid&&RebelAndroid.splashAlreadyShown&&RebelAndroid.splashAlreadyShown()){
+      return 600;
     }
+    return BOOT_MS;
   }
+  window.addEventListener('load',function(){
+    initFx();
+    var ms=bootDone();
+    setTimeout(hideBoot,ms);
+    if(window.RebelAndroid){
+      var c=parseJson(RebelAndroid.checkSession());
+      if(c&&c.ok&&c.token){
+        setTimeout(function(){unlockApp(c.token,c.expires||c.exp||0,true);},ms);
+      }
+    }
+  });
 })();

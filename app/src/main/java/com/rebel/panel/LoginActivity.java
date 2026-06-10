@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -23,11 +25,17 @@ import com.rebel.panel.security.TamperDetector;
 import org.json.JSONObject;
 
 /**
- * LAUNCHER — Rebel Mobile login UI (avatar + laptop) via WebView.
+ * LAUNCHER — boot splash every open, then login or panel.
  */
 public class LoginActivity extends AppCompatActivity {
 
+    public static final String EXTRA_SPLASH_DONE = "splash_done";
+
+    private static final long BOOT_SPLASH_MS = 2600L;
+
     private WebView webView;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean routedAfterBoot;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,11 +45,6 @@ public class LoginActivity extends AppCompatActivity {
         }
         if (!DeviceBanManager.gate(this)) return;
         DeviceBanManager.gateAsync(this);
-
-        if (SessionManager.hasValidLocalSession(this)) {
-            openMain();
-            return;
-        }
 
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE);
@@ -81,20 +84,46 @@ public class LoginActivity extends AppCompatActivity {
         super.onResume();
         if (DeviceBanManager.isLocallyBanned(this) || DeviceBanManager.isBanScreenShowing()) {
             DeviceBanManager.launchBanScreen(this);
-            return;
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    private void routeAfterBoot() {
+        if (routedAfterBoot || isFinishing()) return;
+        routedAfterBoot = true;
         if (SessionManager.hasValidLocalSession(this)) {
             openMain();
         }
     }
 
     private void openMain() {
-        startActivity(new Intent(this, MainActivity.class));
+        Intent i = new Intent(this, MainActivity.class);
+        i.putExtra(EXTRA_SPLASH_DONE, true);
+        startActivity(i);
         finish();
     }
 
     private final class LoginBridge {
+
+        @JavascriptInterface
+        public void bootFinished() {
+            handler.post(() -> {
+                if (SessionManager.hasValidLocalSession(LoginActivity.this)) {
+                    routeAfterBoot();
+                } else {
+                    routedAfterBoot = true;
+                    if (webView != null) {
+                        webView.evaluateJavascript("showLogin()", null);
+                    }
+                }
+            });
+        }
 
         @JavascriptInterface
         public String login(String key) {
@@ -133,6 +162,7 @@ public class LoginActivity extends AppCompatActivity {
         public void ready() {
             runOnUiThread(() -> {
                 if (webView == null) return;
+                if (SessionManager.hasValidLocalSession(LoginActivity.this)) return;
                 long ms = Math.max(BruteForceGuard.lockRemainingMs(LoginActivity.this),
                         TamperDetector.lockRemainingMs());
                 if (ms > 0) {

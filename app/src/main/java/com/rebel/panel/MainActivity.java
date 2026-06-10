@@ -148,6 +148,11 @@ public class MainActivity extends SecureActivity {
         }
 
         @JavascriptInterface
+        public boolean splashAlreadyShown() {
+            return getIntent().getBooleanExtra(LoginActivity.EXTRA_SPLASH_DONE, false);
+        }
+
+        @JavascriptInterface
         public int getApkVersion() {
             return BuildConfig.VERSION_CODE;
         }
