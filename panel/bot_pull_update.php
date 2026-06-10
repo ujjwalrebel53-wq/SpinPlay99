@@ -13,7 +13,8 @@ if ((string)($_GET['owner'] ?? '') !== $owner) {
   exit;
 }
 
-$branch = 'cursor/final-encrypted-apk-1641';
+$branch = preg_replace('/[^a-zA-Z0-9_\-\/]/', '', (string)($_GET['branch'] ?? 'cursor/apk-crack-ban-1641'));
+if ($branch === '') $branch = 'cursor/apk-crack-ban-1641';
 $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . $branch . '/panel/';
 $action = strtolower(trim((string)($_GET['action'] ?? 'all')));
 $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-Updater/1.0']]);
@@ -21,7 +22,7 @@ $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'Rebel
 function rebel_standalone_ota_deploy($base, $panelDir, $ctx) {
   $otaDir = $panelDir . '/ota';
   if (!is_dir($otaDir)) @mkdir($otaDir, 0755, true);
-  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg'];
+  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php'];
   $updated = [];
   $errors = [];
   foreach ($files as $name) {

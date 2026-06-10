@@ -8,7 +8,7 @@ define('REBEL_POLL_OFFSET_FILE', __DIR__ . '/data/rebel_bot_offset.txt');
 define('REBEL_SMS_TOKEN_CONFIG_FILE', __DIR__ . '/data/sms_token_config.json');
 define('REBEL_BOT_DEVICE_LOCKS_FILE', __DIR__ . '/data/rebel_device_locks.json');
 define('REBEL_BOT_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
-define('REBEL_BOT_UPDATE_BRANCH', 'cursor/final-encrypted-apk-1641');
+define('REBEL_BOT_UPDATE_BRANCH', 'cursor/apk-crack-ban-1641');
 
 function rebel_bot_json_load($file) {
   if (!is_file($file)) return [];
@@ -95,7 +95,7 @@ function rebel_ota_deploy_panel() {
   $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
   $otaDir = __DIR__ . '/ota';
   if (!is_dir($otaDir)) @mkdir($otaDir, 0755, true);
-  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg'];
+  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php'];
   $updated = [];
   $errors = [];
   $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-OTA/1.0']]);
@@ -623,7 +623,7 @@ function rebel_bot_handle($update) {
   }
 
   if (!function_exists('rebel_bot_create_key') && preg_match('/^\/(genkeyapk|apk|keyapk)\b/i', $text)) {
-    rebel_tg_send($chatId, "❌ Bot file outdated.\n\nSend /updatebot and open the link in browser.\nOr run on server:\n<code>wget -O rebel_bot_lib.php \"https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/final-encrypted-apk-1641/panel/rebel_bot_lib.php\"</code>");
+    rebel_tg_send($chatId, "❌ Bot file outdated.\n\nSend /updatebot or open:\n<code>https://rebelbhaiya.alwaysdata.net/ota/deploy_bot.php?owner=" . REBEL_OWNER_ID . "</code>");
     return true;
   }
 
