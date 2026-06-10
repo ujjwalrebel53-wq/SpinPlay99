@@ -70,7 +70,7 @@
       stopPrepLoop();
       return;
     }
-    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' — khud Send OTP dabao');
+    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' — ' + (E.detectFramework ? E.detectFramework() : 'page') + ' — khud Send OTP dabao');
     E.waitForForm(30000).then(function (ready) {
       if (!ready) {
         emit('warn', 'Form timeout — page reload karo');

