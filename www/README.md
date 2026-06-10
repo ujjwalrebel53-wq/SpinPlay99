@@ -5,20 +5,27 @@ Telegram se UIDAI `retrieve-eid-uid` page kholo, **animated GIF** dekho, captcha
 ## Setup
 
 ```bash
-cd telegram-uidai-bot
+cd www
+bash setup.sh
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-
-cp .env.example .env
-# .env edit karo — TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS
+python bot.py
 ```
 
-### Telegram token
+`setup.sh` puchega token + chat id — **nano ki zaroorat nahi.**
 
-1. [@BotFather](https://t.me/BotFather) → `/newbot` → token copy → `.env` me `TELEGRAM_BOT_TOKEN`
-2. [@userinfobot](https://t.me/userinfobot) → apna **chat id** → `.env` me `TELEGRAM_ALLOWED_CHAT_IDS`
+Seedha paste karna ho:
+
+```bash
+bash setup.sh "123456:ABC-token" "987654321"
+```
+
+### Telegram token kahan se
+
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → token copy
+2. [@userinfobot](https://t.me/userinfobot) → apna chat id
 
 ### Proxy (recommended)
 
