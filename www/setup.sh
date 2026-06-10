@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 BUNDLE="./browser-extension/page-bundle.js"
-DEFAULT_PROXY="http://139.167.218.162:3127"
+DEFAULT_PROXY="auto"
 
 TOKEN="${1:-}"
 CHAT_ID="${2:-}"
@@ -19,13 +19,13 @@ if [ -z "$CHAT_ID" ]; then
   read -r CHAT_ID
 fi
 if [ -z "$PROXY_IN" ]; then
-  echo "Proxy? Enter = default, no = bina proxy:"
+  echo "Indian VPN? Enter=auto India proxy, no=bina proxy:"
   read -r PROXY_IN
 fi
 
 case "$PROXY_IN" in
-  ""|y|yes|default) PROXY="$DEFAULT_PROXY" ;;
-  no|n|none|skip) PROXY="" ;;
+  ""|y|yes|default|auto|india) PROXY="auto" ;;
+  no|n|none|skip) PROXY="none" ;;
   *) PROXY="$PROXY_IN" ;;
 esac
 
@@ -33,6 +33,7 @@ cat > .env <<EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
 TELEGRAM_ALLOWED_CHAT_IDS=$CHAT_ID
 UIDAI_PROXY=$PROXY
+UIDAI_INDIAN_PROXY_AUTO=1
 REBEL_BUNDLE_PATH=$BUNDLE
 EOF
 

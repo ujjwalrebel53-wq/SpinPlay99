@@ -4,7 +4,8 @@ www/
 ├── bot.py
 ├── browser_session.py
 ├── requirements.txt
-├── setup.sh              ← .env banane ke liye (nano nahi)
+├── setup.sh
+├── proxy_india.py        ← Indian VPN auto
 ├── README.md
 └── browser-extension/
     ├── page-bundle.js

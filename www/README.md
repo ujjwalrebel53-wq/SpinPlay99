@@ -51,7 +51,9 @@ python bot.py
 | `/status` | Session info |
 | `/close` | Browser band |
 
-**Flow:** `/open` → naam bhejo → mobile bhejo → animated GIF + captcha photo → captcha text **reply** karo (jaise `6fhxdf`) → OTP logs + screenshot.
+**Flow:** `/open` → naam → mobile → **live loading steps** (VPN India + har step) → captcha photo → captcha reply → OTP live steps + logs.
+
+**VPN:** `.env` me `UIDAI_PROXY=auto` — bot India proxy khud dhundh ke connect karega (city/IP dikhega).
 
 ## Notes
 

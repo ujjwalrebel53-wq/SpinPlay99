@@ -3,7 +3,7 @@
 Telegram bot — UIDAI retrieve page live + captcha Telegram se bharo.
 
 Usage:
-  cp .env.example .env   # token + chat id bharo
+  bash setup.sh
   pip install -r requirements.txt
   playwright install chromium
   python bot.py
@@ -34,7 +34,16 @@ ALLOWED = {
     for x in os.getenv('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',')
     if x.strip()
 }
-PROXY = os.getenv('UIDAI_PROXY', '').strip() or None
+PROXY_RAW = os.getenv('UIDAI_PROXY', 'auto').strip().lower()
+if PROXY_RAW in ('none', 'no', 'off', 'direct'):
+    PROXY = None
+    AUTO_INDIA = False
+elif PROXY_RAW in ('', 'auto', 'india'):
+    PROXY = None
+    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '1') == '1'
+else:
+    PROXY = os.getenv('UIDAI_PROXY', '').strip()
+    AUTO_INDIA = False
 DEFAULT_NAME = os.getenv('UIDAI_NAME', 'KAMAR JAHAN').strip()
 DEFAULT_MOBILE = os.getenv('UIDAI_MOBILE', '7651892956').strip()
 BUNDLE = Path(os.getenv('REBEL_BUNDLE_PATH', '../browser-extension/page-bundle.js'))
@@ -49,10 +58,71 @@ STEP_NAME = 'name'
 STEP_MOBILE = 'mobile'
 STEP_CAPTCHA = 'captcha'
 
-# chat_id -> session
 SESSIONS: dict[int, UidaiBrowserSession] = {}
-# chat_id -> { step, name?, mobile? }
 FLOW: dict[int, dict] = {}
+
+
+class LiveProgress:
+    """Telegram message me numbered live steps."""
+
+    def __init__(self, msg, name: str, mobile: str, title: str = 'UIDAI Live Load') -> None:
+        self._msg = msg
+        self.name = name
+        self.mobile = mobile
+        self.title = title
+        self.proxy_line = ''
+        self._steps: list[str] = []
+        self._current = 0
+        self._total = 8
+
+    async def set_proxy(self, line: str) -> None:
+        self.proxy_line = line
+        await self._render()
+
+    async def update(self, n: int, total: int, text: str) -> None:
+        self._total = total
+        if n > len(self._steps):
+            self._steps.extend([''] * (n - len(self._steps)))
+        if n >= 1:
+            for i in range(n - 1):
+                if i < len(self._steps) and self._steps[i] and not self._steps[i].startswith('✅'):
+                    self._steps[i] = '✅ ' + self._steps[i].lstrip('✅🔄⏳ ')
+        self._current = n
+        idx = n - 1
+        if idx < len(self._steps):
+            self._steps[idx] = f'🔄 {text}'
+        else:
+            self._steps.append(f'🔄 {text}')
+        await self._render()
+
+    async def done(self, final: str) -> None:
+        for i, s in enumerate(self._steps):
+            body = s.lstrip('✅🔄⏳ ')
+            self._steps[i] = '✅ ' + body
+        await self._render(final)
+
+    async def fail(self, err: str) -> None:
+        if self._steps and self._current >= 1:
+            idx = self._current - 1
+            body = self._steps[idx].lstrip('✅🔄⏳ ')
+            self._steps[idx] = f'❌ {body}'
+        await self._render(err)
+
+    async def _render(self, footer: str = '') -> None:
+        lines = [f'🚀 {self.title}', f'👤 {self.name} / 📱 {self.mobile}']
+        if self.proxy_line:
+            lines.append(self.proxy_line)
+        lines.append('')
+        for i, s in enumerate(self._steps):
+            lines.append(f'{i + 1}/{self._total} {s}')
+        for j in range(len(self._steps), self._total):
+            lines.append(f'{j + 1}/{self._total} ⏳ …')
+        if footer:
+            lines.extend(['', footer])
+        try:
+            await self._msg.edit_text('\n'.join(lines)[:4000])
+        except Exception:
+            pass
 
 
 def allowed(update: Update) -> bool:
@@ -93,7 +163,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        'Flow: /open → naam bhejo → mobile bhejo → captcha reply karo'
+        'Live steps dikhenge — VPN India auto connect.\n'
+        'Flow: /open → naam → mobile → captcha reply'
     )
 
 
@@ -126,7 +197,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if sess:
         lines.extend([
             'Session ON',
-            f'Proxy: {PROXY or "none"}',
+            f'VPN: {sess.proxy_label or PROXY or "auto India"}',
             f'Name: {sess.name}',
             f'Mobile: {sess.mobile}',
             f'Bundle: {BUNDLE.name}',
@@ -141,12 +212,13 @@ async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not sess:
         await update.message.reply_text('/open pehle chalao.')
         return
-    await update.message.reply_text('Captcha la raha hoon…')
+    wait = await update.message.reply_text('🔄 Captcha image la raha hoon…')
     try:
         png = await sess.captcha_png()
+        await wait.delete()
         await update.message.reply_photo(photo=png, caption='Captcha bharo — text reply karo')
     except Exception as e:
-        await update.message.reply_text(f'Captcha fail: {e}')
+        await wait.edit_text(f'Captcha fail: {e}')
 
 
 async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -156,12 +228,13 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not sess:
         await update.message.reply_text('/open pehle chalao.')
         return
-    await update.message.reply_text('Captcha refresh…')
+    wait = await update.message.reply_text('🔄 Naya captcha load…')
     try:
         png = await sess.refresh_captcha()
+        await wait.delete()
         await update.message.reply_photo(photo=png, caption='Naya captcha — text reply karo')
     except Exception as e:
-        await update.message.reply_text(f'Refresh fail: {e}')
+        await wait.edit_text(f'Refresh fail: {e}')
 
 
 async def open_uidai_session(
@@ -174,45 +247,52 @@ async def open_uidai_session(
     if old:
         await old.close()
 
-    sess = UidaiBrowserSession(BUNDLE, proxy=PROXY)
+    status_msg = await update.message.reply_text('🚀 Shuru ho raha hai…')
+    progress = LiveProgress(status_msg, name, mobile)
+
+    async def on_step(n: int, total: int, text: str) -> None:
+        await progress.update(n, total, text)
+
+    sess = UidaiBrowserSession(
+        BUNDLE,
+        proxy=PROXY,
+        auto_india_proxy=AUTO_INDIA,
+        on_step=on_step,
+    )
     SESSIONS[chat_id] = sess
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
-    status_msg = await update.message.reply_text(
-        f'UIDAI khul rahi hai…\nProxy: {PROXY or "direct"}\n{name} / {mobile}'
-    )
-
     async def on_frame(label: str) -> None:
-        try:
-            await status_msg.edit_text(f'{label}\n{name} / {mobile}')
-        except Exception:
-            pass
+        await progress.update(progress._current or 3, 8, label)
 
     try:
         await sess.start()
+        if sess.proxy_label:
+            await progress.set_proxy(sess.proxy_label)
+
         gif_bytes = await sess.open_form(name, mobile, on_frame=on_frame)
         if gif_bytes:
             await update.message.reply_animation(
                 animation=InputFile(io.BytesIO(gif_bytes), filename='uidai-open.gif'),
-                caption='Live open — captcha neeche',
+                caption='Live open recording',
             )
         cap = await sess.captcha_png()
         await update.message.reply_photo(
             photo=cap,
             caption=(
-                'Captcha image upar ↑\n'
-                'Ab captcha text reply karo (4-8 chars)\n'
-                'Ya /refresh naya captcha'
+                'Captcha ↑\n'
+                'Text reply karo (4-8 chars)\n'
+                '/refresh = naya captcha'
             ),
         )
-        await status_msg.edit_text('Ready — captcha reply karo.')
+        await progress.done('✅ Ready — captcha reply karo')
     except Exception as e:
         log.exception('open failed')
         await sess.close()
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
-        await status_msg.edit_text(f'Open fail: {e}\nProxy check karo / dubara try.')
+        await progress.fail(f'❌ Fail: {e}')
 
 
 async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,7 +323,6 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Step-by-step: pehle naam, phir mobile
     old = SESSIONS.pop(cid, None)
     if old:
         await old.close()
@@ -290,7 +369,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
-        await update.message.reply_text(f'OK — {name} / {mobile}\nSite khul rahi hai…')
+        await update.message.reply_text(f'OK — {name} / {mobile}')
         await open_uidai_session(update, cid, name, mobile)
         return
 
@@ -308,10 +387,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-    wait = await update.message.reply_text(f'OTP bhej rahe hain… captcha: {text}')
+    wait_msg = await update.message.reply_text('🚀 OTP bhej rahe hain…')
+    otp_progress = LiveProgress(wait_msg, sess.name, sess.mobile, title='Send OTP')
+    if sess.proxy_label:
+        await otp_progress.set_proxy(sess.proxy_label)
+
+    async def otp_step(n: int, total: int, msg: str) -> None:
+        await otp_progress.update(n, total, msg)
 
     try:
-        result = await sess.send_otp(text)
+        result = await sess.send_otp(text, on_step=otp_step)
         summary = result.get('summary', '')
         version = result.get('version', '?')
         screen = result.get('screen_png')
@@ -329,16 +414,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if captcha_warn:
             status = 'Captcha issue — /refresh karke dubara'
 
-        await wait.edit_text(
-            f'Send OTP done (v{version})\n{status}\n\nLogs:\n{summary[:3500]}'
-        )
+        await otp_progress.done(status)
+        await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
         if screen:
             await update.message.reply_photo(photo=screen, caption='Page screenshot')
 
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:
         log.exception('otp failed')
-        await wait.edit_text(f'OTP fail: {e}')
+        await otp_progress.fail(f'OTP fail: {e}')
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
@@ -356,7 +440,7 @@ def main() -> None:
     app.add_handler(CommandHandler('close', cmd_close))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
-    log.info('Bot start — allowed chats: %s proxy: %s', ALLOWED or 'ALL', PROXY)
+    log.info('Bot start — allowed: %s proxy: %s auto_india: %s', ALLOWED or 'ALL', PROXY or 'auto', AUTO_INDIA)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
