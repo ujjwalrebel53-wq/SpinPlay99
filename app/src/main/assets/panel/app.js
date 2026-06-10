@@ -580,7 +580,7 @@ function loadSmsForDevice(){
   if(inst&&inst.schema==='rabel'){
     var path='messages/'+d.rawId;
     if(inst.db){
-      var ref=inst.db.ref(path).limitToLast(80);
+      var ref=inst.db.ref(path).limitToLast(300);
       var h=function(s){renderSmsFromData(s.val());};
       ref.on('value',h);activeListeners[d.id]={db:inst.db,ref:ref,h:h};
     }else{
