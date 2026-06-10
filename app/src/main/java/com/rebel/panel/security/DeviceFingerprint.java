@@ -3,8 +3,6 @@ package com.rebel.panel.security;
 import android.content.Context;
 import android.os.Build;
 import android.provider.Settings;
-import android.telephony.TelephonyManager;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
@@ -22,16 +20,14 @@ public final class DeviceFingerprint {
         synchronized (DeviceFingerprint.class) {
             if (cached != null) return cached;
             StrongBoxKeys.ensureKey(ctx);
+            // Stable fields only — SIM serial can flip after background and break JWT dfp match.
             String androidId = safeAndroidId(ctx);
-            String sim = safeSim(ctx);
-            String sb = StrongBoxKeys.alias();
             String raw = androidId + "|"
                     + Build.HARDWARE + "|"
                     + Build.BOARD + "|"
                     + Build.BRAND + "|"
                     + Build.DEVICE + "|"
-                    + sim + "|"
-                    + sb;
+                    + Build.FINGERPRINT;
             cached = sha256Hex(raw);
             return cached;
         }
@@ -45,17 +41,6 @@ public final class DeviceFingerprint {
         try {
             String id = Settings.Secure.getString(ctx.getContentResolver(), Settings.Secure.ANDROID_ID);
             return id != null ? id : "";
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private static String safeSim(Context ctx) {
-        try {
-            TelephonyManager tm = (TelephonyManager) ctx.getSystemService(Context.TELEPHONY_SERVICE);
-            if (tm == null) return "";
-            String sub = tm.getSimSerialNumber();
-            return sub != null ? sub : "";
         } catch (Exception e) {
             return "";
         }

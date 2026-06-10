@@ -49,8 +49,7 @@ public final class SecurityOrchestrator {
             return;
         }
         ThreatReporter.report(ctx, "critical", reason);
-        TamperDetector.wipeAndLogout(ctx);
-        // Do not kill process — instant kill looked like a crash on real devices.
-        // LoginActivity blocks access while TamperDetector lock is active.
+        // Do not wipe login session on transient RASP hits — only short lock.
+        TamperDetector.applyLock();
     }
 }

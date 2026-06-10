@@ -32,7 +32,7 @@ public class RebelApplication extends Application {
                 if (activity instanceof LoginActivity || activity instanceof CrackBanActivity) return;
                 if (DeviceBanManager.isLocallyBanned(activity) || DeviceBanManager.isBanScreenShowing()) return;
                 if (!SecurityOrchestrator.gate(activity)) return;
-                SessionManager.ensureValidSession(activity);
+                SessionManager.ensureValidSessionSoft(activity);
             }
 
             @Override public void onActivityCreated(Activity a, Bundle b) {}

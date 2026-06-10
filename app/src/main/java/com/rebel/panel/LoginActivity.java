@@ -44,6 +44,11 @@ public class LoginActivity extends AppCompatActivity {
         if (!DeviceBanManager.gate(this)) return;
         DeviceBanManager.gateAsync(this);
 
+        if (SessionManager.hasValidLocalSession(this)) {
+            openMain();
+            return;
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);

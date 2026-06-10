@@ -8,7 +8,7 @@ import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 
 /**
- * JWT session lifecycle: local checks + silent server re-validation.
+ * JWT session lifecycle — stay logged in while refresh token valid (7 days).
  */
 public final class SessionManager {
 
@@ -18,14 +18,32 @@ public final class SessionManager {
     private SessionManager() {}
 
     public static boolean hasValidLocalSession(Context ctx) {
-        String jwt = SecurityPrefs.getAccessJwt(ctx);
-        if (jwt.isEmpty()) return false;
-        if (!jwtDeviceMatches(jwt, DeviceFingerprint.get(ctx))) return false;
-        long exp = SecurityPrefs.getAccessExp(ctx);
-        if (exp > 0 && System.currentTimeMillis() / 1000L > exp) {
+        String access = SecurityPrefs.getAccessJwt(ctx);
+        String refresh = SecurityPrefs.getRefreshJwt(ctx);
+        if (access.isEmpty() && refresh.isEmpty()) return false;
+
+        String fp = DeviceFingerprint.get(ctx);
+        long nowSec = System.currentTimeMillis() / 1000L;
+        long refreshExp = SecurityPrefs.getRefreshExp(ctx);
+        boolean refreshValid = !refresh.isEmpty()
+                && (refreshExp == 0 || nowSec < refreshExp)
+                && jwtDeviceMatches(refresh, fp);
+
+        if (!access.isEmpty() && jwtDeviceMatches(access, fp)) {
+            long accessExp = SecurityPrefs.getAccessExp(ctx);
+            if (accessExp == 0 || nowSec <= accessExp) return true;
+            if (refreshValid) {
+                if (tryRefresh(ctx)) return true;
+                return true; // offline / slow network — refresh still valid
+            }
             return tryRefresh(ctx);
         }
-        return true;
+
+        if (refreshValid) {
+            if (tryRefresh(ctx)) return true;
+            return !access.isEmpty(); // had session; refresh not expired
+        }
+        return false;
     }
 
     /** Strict check — used before sensitive operations. */
@@ -38,7 +56,10 @@ public final class SessionManager {
             lastSilentCheckMs = now;
             if (!KeyValidator.validateWithServer(ctx)) {
                 if (!tryRefresh(ctx)) return false;
-                if (!KeyValidator.validateWithServer(ctx)) return false;
+                if (!KeyValidator.validateWithServer(ctx)) {
+                    // Network/server glitch — keep local session if refresh valid
+                    return hasValidLocalSession(ctx);
+                }
             }
         }
         return hasValidLocalSession(ctx);
