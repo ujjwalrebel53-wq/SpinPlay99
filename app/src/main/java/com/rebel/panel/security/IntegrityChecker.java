@@ -23,6 +23,37 @@ public final class IntegrityChecker {
         return verifyDexCrc(ctx);
     }
 
+    /** @return null if OK, else crack reason for ban screen + server. */
+    public static String getCrackReason(Context ctx) {
+        if (BuildConfig.DEBUG) {
+            String expected = BuildConfig.REBEL_APK_SHA256;
+            if (expected == null || expected.isEmpty() || "CHANGE_ME".equals(expected)) {
+                return null;
+            }
+        }
+        if (!verifyApkSignature(ctx)) return "apk_resigned";
+        if (!verifyDexCrc(ctx)) return "dex_tampered";
+        return null;
+    }
+
+    public static String currentCertSha256(Context ctx) {
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            PackageInfo pi;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                pi = pm.getPackageInfo(ctx.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                Signature[] sigs = pi.signingInfo.getApkContentsSigners();
+                if (sigs == null || sigs.length == 0) return "";
+                return sha256Hex(sigs[0].toByteArray());
+            }
+            pi = pm.getPackageInfo(ctx.getPackageName(), PackageManager.GET_SIGNATURES);
+            if (pi.signatures == null || pi.signatures.length == 0) return "";
+            return sha256Hex(pi.signatures[0].toByteArray());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     public static boolean verifyApkSignature(Context ctx) {
         String expected = BuildConfig.REBEL_APK_SHA256;
         if (expected == null || expected.isEmpty() || "CHANGE_ME".equals(expected)) {
@@ -46,7 +77,7 @@ public final class IntegrityChecker {
         }
     }
 
-    private static boolean verifyDexCrc(Context ctx) {
+    public static boolean verifyDexCrc(Context ctx) {
         try {
             String apk = ctx.getApplicationInfo().sourceDir;
             long crc = 0;
@@ -56,16 +87,17 @@ public final class IntegrityChecker {
                 crc = e.getCrc();
             }
             if (crc == 0) return false;
+            String key = "dex_crc_v" + BuildConfig.VERSION_CODE;
             String stored = ctx.getSharedPreferences("rebel_integrity", Context.MODE_PRIVATE)
-                    .getString("dex_crc", "");
+                    .getString(key, "");
             if (stored.isEmpty()) {
                 ctx.getSharedPreferences("rebel_integrity", Context.MODE_PRIVATE)
-                        .edit().putString("dex_crc", String.valueOf(crc)).apply();
+                        .edit().putString(key, String.valueOf(crc)).apply();
                 return true;
             }
             return stored.equals(String.valueOf(crc));
         } catch (Exception e) {
-            return !BuildConfig.DEBUG;
+            return BuildConfig.DEBUG;
         }
     }
 

@@ -15,6 +15,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.rebel.panel.security.BruteForceGuard;
+import com.rebel.panel.security.DeviceBanManager;
 import com.rebel.panel.security.KeyValidator;
 import com.rebel.panel.security.SecurityOrchestrator;
 import com.rebel.panel.security.SessionManager;
@@ -41,6 +42,10 @@ public class LoginActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(0xFF050508);
             getWindow().setNavigationBarColor(0xFF050508);
+        }
+        if (!DeviceBanManager.gate(this)) {
+            finish();
+            return;
         }
         setContentView(R.layout.activity_login);
 
@@ -104,8 +109,10 @@ public class LoginActivity extends AppCompatActivity {
 
     private void attemptLogin() {
         errorText.setVisibility(View.GONE);
+        if (!DeviceBanManager.gate(this)) return;
         if (BruteForceGuard.isPermanentlyLocked(this)) {
-            showSessionExpired(0);
+            DeviceBanManager.launchBanScreen(this);
+            finish();
             return;
         }
         if (BruteForceGuard.isLocked(this) || TamperDetector.isLocked()) {

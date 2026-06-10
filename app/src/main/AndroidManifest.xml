@@ -18,6 +18,13 @@
         android:usesCleartextTraffic="false">
 
         <activity
+            android:name=".CrackBanActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.RebelPanel" />
+
+        <activity
             android:name=".LoginActivity"
             android:exported="true"
             android:screenOrientation="portrait"

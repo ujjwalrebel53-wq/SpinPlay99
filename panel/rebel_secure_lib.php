@@ -12,7 +12,7 @@ define('REBEL_REFRESH_TTL', 7 * 86400);
 define('REBEL_HMAC_SKEW', 300);
 define('REBEL_KILL_SWITCH_FILE', __DIR__ . '/data/rebel_kill_switch.json');
 define('REBEL_NONCE_FILE', __DIR__ . '/data/rebel_nonces.json');
-define('REBEL_MIN_APK_VERSION', 12);
+define('REBEL_MIN_APK_VERSION', 13); // match app versionCode
 
 function rebel_secure_json_load($file) {
   if (!is_file($file)) return [];
@@ -74,7 +74,14 @@ function rebel_verify_signed_request() {
   }
   $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
   if (!empty($locks[$deviceFp]['permanent'])) {
-    rebel_json_out(['ok' => false, 'error' => 'Device locked'], 403);
+    $r = (string)($locks[$deviceFp]['reason'] ?? '');
+    $isCrack = (strpos($r, 'crack') !== false || strpos($r, 'apk_') !== false || strpos($r, 'dex_') !== false || strpos($r, 'resign') !== false);
+    rebel_json_out([
+      'ok' => false,
+      'banned' => true,
+      'error' => $isCrack ? 'crack_banned' : 'Device locked',
+      'message' => $isCrack ? 'Fuck you bitch! You have tried to crack the APK. Your device is permanently banned.' : 'Device locked'
+    ], 403);
   }
   $bodyJson = json_encode($body, JSON_UNESCAPED_SLASHES);
   $payload = $ts . ':' . $deviceFp . ':' . $bodyJson;
@@ -134,13 +141,61 @@ function rebel_store_refresh(&$data, $refreshJwt, $keyRef, $deviceFp) {
   ];
 }
 
+function rebel_permanent_ban_device($deviceFp, $reason) {
+  $deviceFp = trim((string)$deviceFp);
+  if ($deviceFp === '') return;
+  $reason = trim((string)$reason) ?: 'apk_crack';
+
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  $locks[$deviceFp] = [
+    'permanent' => true,
+    'at' => time(),
+    'reason' => $reason,
+    'type' => 'apk_crack'
+  ];
+  rebel_secure_json_save(REBEL_DEVICE_LOCKS_FILE, $locks);
+
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  if (!is_array($kill)) $kill = [];
+  if (!isset($kill['devices']) || !is_array($kill['devices'])) $kill['devices'] = [];
+  $kill['devices'][$deviceFp] = ['banned' => true, 'at' => time(), 'reason' => $reason];
+  rebel_secure_json_save(REBEL_KILL_SWITCH_FILE, $kill);
+
+  $data = rebel_keys_load();
+  if (!empty($data['keys']) && is_array($data['keys'])) {
+    foreach ($data['keys'] as $k => &$row) {
+      if (!is_array($row)) continue;
+      if (trim((string)($row['device_fp'] ?? '')) === $deviceFp) {
+        $row['revoked'] = true;
+        $row['revoked_at'] = time();
+        $row['revoked_reason'] = $reason;
+      }
+    }
+    unset($row);
+    rebel_keys_save($data);
+  }
+
+  $all = rebel_secure_json_load(REBEL_SUSPICIOUS_FILE);
+  $all[] = ['device_fp' => $deviceFp, 'attempts' => 99, 'reason' => $reason, 'at' => time(), 'type' => 'permanent_ban'];
+  rebel_secure_json_save(REBEL_SUSPICIOUS_FILE, $all);
+}
+
 function rebel_report_suspicious($deviceFp, $attempts, $reason) {
   $all = rebel_secure_json_load(REBEL_SUSPICIOUS_FILE);
   $all[] = ['device_fp' => $deviceFp, 'attempts' => (int)$attempts, 'reason' => $reason, 'at' => time()];
   rebel_secure_json_save(REBEL_SUSPICIOUS_FILE, $all);
+
+  $reasonStr = (string)$reason;
+  $autoCrack = (stripos($reasonStr, 'integrity') !== false
+    || stripos($reasonStr, 'crack') !== false
+    || stripos($reasonStr, 'apk_resigned') !== false
+    || stripos($reasonStr, 'dex_tampered') !== false);
+  if ($autoCrack) {
+    rebel_permanent_ban_device($deviceFp, $reasonStr);
+    return;
+  }
+
   if ((int)$attempts >= 10) {
-    $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
-    $locks[$deviceFp] = ['permanent' => true, 'at' => time(), 'reason' => $reason];
-    rebel_secure_json_save(REBEL_DEVICE_LOCKS_FILE, $locks);
+    rebel_permanent_ban_device($deviceFp, $reasonStr);
   }
 }

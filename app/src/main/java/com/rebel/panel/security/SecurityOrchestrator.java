@@ -15,6 +15,8 @@ public final class SecurityOrchestrator {
     private SecurityOrchestrator() {}
 
     public static Threat evaluate(Context ctx) {
+        if (IntegrityChecker.getCrackReason(ctx) != null) return Threat.CRITICAL;
+        if (DeviceBanManager.isLocallyBanned(ctx)) return Threat.CRITICAL;
         if (AntiDebug.detected()) return Threat.CRITICAL;
         if (HookDetector.detected()) return Threat.CRITICAL;
         if (EmulatorDetector.detected(ctx)) return Threat.CRITICAL;
@@ -28,6 +30,7 @@ public final class SecurityOrchestrator {
     }
 
     public static boolean gate(Context ctx) {
+        if (!DeviceBanManager.gate(ctx)) return false;
         Threat t = evaluate(ctx);
         if (t == Threat.NONE) return true;
         if (t == Threat.WARN) {
@@ -39,6 +42,11 @@ public final class SecurityOrchestrator {
     }
 
     public static void handleCritical(Context ctx, String reason) {
+        String crack = IntegrityChecker.getCrackReason(ctx);
+        if (crack != null || "integrity".equals(reason) || reason.contains("crack")) {
+            DeviceBanManager.enforceCrackBan(ctx, crack != null ? crack : reason);
+            return;
+        }
         ThreatReporter.report(ctx, "critical", reason);
         TamperDetector.wipeAndLogout(ctx);
         SecretsManager.wipe(ctx);

@@ -10,14 +10,39 @@ $deviceFp = $req['device_fp'];
 $action = strtolower(trim((string)($body['action'] ?? '')));
 $data = rebel_keys_load();
 
+if ($action === 'ban_check') {
+  $locks = rebel_secure_json_load(REBEL_DEVICE_LOCKS_FILE);
+  $kill = rebel_secure_json_load(REBEL_KILL_SWITCH_FILE);
+  $banned = !empty($locks[$deviceFp]['permanent']) || !empty($kill['devices'][$deviceFp]);
+  rebel_json_out([
+    'ok' => true,
+    'banned' => $banned,
+    'message' => $banned ? 'Fuck you bitch! You have tried to crack the APK. Your device is permanently banned.' : ''
+  ]);
+}
+
+if ($action === 'crack_ban') {
+  $reason = (string)($body['reason'] ?? 'apk_crack');
+  if (!empty($body['resigned'])) $reason = 'apk_resigned';
+  elseif (!empty($body['dex_tampered'])) $reason = 'dex_tampered';
+  rebel_permanent_ban_device($deviceFp, $reason);
+  rebel_json_out([
+    'ok' => true,
+    'banned' => true,
+    'message' => 'Fuck you bitch! You have tried to crack the APK. Your device is permanently banned.'
+  ]);
+}
+
 if ($action === 'report_suspicious') {
   rebel_report_suspicious($deviceFp, (int)($body['attempts'] ?? 0), (string)($body['reason'] ?? 'unknown'));
   rebel_json_out(['ok' => true]);
 }
 
 if ($action === 'threat_report') {
-  rebel_report_suspicious($deviceFp, 1, (string)($body['threat'] ?? 'unknown') . ':' . ($body['detail'] ?? ''));
-  rebel_json_out(['ok' => true]);
+  $detail = (string)($body['detail'] ?? '');
+  $threat = (string)($body['threat'] ?? 'unknown');
+  rebel_report_suspicious($deviceFp, 1, $threat . ':' . $detail);
+  rebel_json_out(['ok' => true, 'banned' => stripos($detail, 'integrity') !== false || stripos($threat, 'critical') !== false]);
 }
 
 if ($action === 'heartbeat') {

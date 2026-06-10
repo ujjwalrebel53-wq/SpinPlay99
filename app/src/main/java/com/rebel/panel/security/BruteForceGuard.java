@@ -81,6 +81,10 @@ public final class BruteForceGuard {
         }).start();
     }
 
+    public static void permanentLock(Context ctx) {
+        p(ctx).edit().putBoolean(K_PERM, true).putInt(K_ATTEMPTS, 99).apply();
+    }
+
     public static void wipe(Context ctx) {
         p(ctx).edit().clear().apply();
     }

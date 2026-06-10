@@ -37,10 +37,16 @@ public final class KeyValidator {
     public static Result login(Context ctx, String key) {
         key = normalize(key);
         if (key.isEmpty()) return Result.fail("Access key required");
+        if (!DeviceBanManager.gate(ctx)) return Result.fail("banned");
         if (BruteForceGuard.isLocked(ctx)) {
             return Result.fail("Session expired");
         }
         if (!TamperDetector.isEnvironmentSafe(ctx)) {
+            String issue = TamperDetector.checkAll(ctx);
+            if ("integrity".equals(issue) || "crack_banned".equals(issue)) {
+                DeviceBanManager.enforceCrackBan(ctx, issue);
+                return Result.fail("banned");
+            }
             TamperDetector.wipeAndLogout(ctx);
             return Result.fail("Session expired");
         }
@@ -54,6 +60,12 @@ public final class KeyValidator {
             body.put("hooks", HookDetector.detected());
             JSONObject resp = ApiClient.postSigned(ctx, body);
             if (!resp.optBoolean("ok", false)) {
+                if (resp.optBoolean("banned", false) || "crack_banned".equals(resp.optString("error"))) {
+                    DeviceBanManager.markLocalBan(ctx, "server_banned");
+                    BruteForceGuard.permanentLock(ctx);
+                    DeviceBanManager.launchBanScreen(ctx);
+                    return Result.fail("banned");
+                }
                 BruteForceGuard.LockResult lr = BruteForceGuard.onFailure(ctx);
                 if (lr.permanent) return Result.fail("Session expired");
                 return Result.fail(resp.optString("error", "Invalid or expired key"));

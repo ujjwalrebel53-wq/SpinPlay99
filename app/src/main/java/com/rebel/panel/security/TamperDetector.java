@@ -29,6 +29,8 @@ public final class TamperDetector {
     }
 
     public static String checkAll(Context ctx) {
+        if (DeviceBanManager.isLocallyBanned(ctx)) return "crack_banned";
+        if (IntegrityChecker.getCrackReason(ctx) != null) return "integrity";
         if (isLocked()) return "locked";
         if (AntiDebug.detected()) return "debugger";
         if (EmulatorDetector.detected(ctx)) return "emulator";

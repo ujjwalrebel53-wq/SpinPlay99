@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.os.Bundle;
 
+import com.rebel.panel.security.DeviceBanManager;
 import com.rebel.panel.security.RaspMonitor;
 import com.rebel.panel.security.SecureDatabase;
 import com.rebel.panel.security.SecurityOrchestrator;
@@ -14,6 +15,7 @@ public class RebelApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        DeviceBanManager.gate(this);
         SecureDatabase.loadLibs(this);
         RaspMonitor.start(this);
 
