@@ -215,14 +215,6 @@ async def fetch_captcha_from_page(
                 png = parsed['image_png']
         if not txn:
             raise RuntimeError('captchaTxnId missing — try /pdf again')
-        if requests_session and sess._context:
-            try:
-                from uidai_cookie_session import merge_browser_cookies_into_session
-
-                pw_cookies = await sess._context.cookies()
-                merge_browser_cookies_into_session(requests_session, pw_cookies)
-            except Exception as e:
-                log.debug('browser cookie merge skip: %s', e)
         return png, txn
     finally:
         await sess.close(keep_warm=True)
@@ -288,6 +280,18 @@ async def _capture_page_captcha(page: Page) -> tuple[bytes, str]:
     return png, txn
 
 
+def _browser_context_kwargs() -> dict[str, Any]:
+    """Isolated Playwright context — direct UIDAI, no cookies/proxy."""
+    return {
+        'viewport': {'width': 390, 'height': 844},
+        'user_agent': MOBILE_UA,
+        'locale': 'en-IN',
+        'timezone_id': 'Asia/Kolkata',
+        'geolocation': {'latitude': 28.6139, 'longitude': 77.2090},
+        'permissions': ['geolocation'],
+    }
+
+
 async def _refresh_standby_captcha_locked(page: Page) -> None:
     png, txn = await _capture_page_captcha(page)
     _POOL['standby']['captcha_png'] = png
@@ -307,34 +311,8 @@ async def warm_standby_uidai() -> bool:
                     await sb['context'].close()
                 except Exception:
                     pass
-            from uidai_cookie_session import baked_session_ready
-
-            kwargs: dict[str, Any] = {
-                'viewport': {'width': 390, 'height': 844},
-                'user_agent': MOBILE_UA,
-                'locale': 'en-IN',
-                'timezone_id': 'Asia/Kolkata',
-                'geolocation': {'latitude': 28.6139, 'longitude': 77.2090},
-                'permissions': ['geolocation'],
-            }
-            if baked_session_ready():
-                from uidai_cookie_session import get_isolated_storage_state
-
-                state = get_isolated_storage_state()
-                if state:
-                    kwargs['storage_state'] = state
-            ctx = await browser.new_context(**kwargs)
+            ctx = await browser.new_context(**_browser_context_kwargs())
             await ctx.add_init_script(SKIP_FONTS_JS)
-            if not baked_session_ready():
-                try:
-                    from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
-
-                    if cookie_jar_ready():
-                        pw_cookies = load_playwright_cookies()
-                        if pw_cookies:
-                            await ctx.add_cookies(pw_cookies)
-                except Exception as e:
-                    log.debug('standby cookie inject skip: %s', e)
             page = await ctx.new_page()
             sb['context'] = ctx
             sb['page'] = page
@@ -403,10 +381,7 @@ async def _pool_browser() -> tuple[Browser, bool]:
         if not _POOL['pw']:
             _POOL['pw'] = await async_playwright().start()
 
-        from uidai_proxy import proxy_url
-
-        route = 'proxy' if proxy_url() else 'direct'
-        log.info('Pre-warm: launching browser (%s)', route)
+        log.info('Pre-warm: launching browser (direct)')
         opts: dict[str, Any] = {
             'headless': True,
             'args': [
@@ -567,79 +542,9 @@ class UidaiBrowserSession:
         await self.refresh_captcha()
 
     async def _prepare_connection(self) -> None:
-        """Direct Indian VPS or explicit UIDAI_PROXY forward proxy."""
-        from uidai_cookie_session import cookie_jar_ready
-        from uidai_proxy import connection_label, proxy_url
-
-        if proxy_url():
-            self.connection_label = connection_label()
-        elif cookie_jar_ready():
-            self.connection_label = 'Saved cookies — direct'
-        else:
-            self.connection_label = connection_label()
+        """Direct Indian VPS — no proxy, no saved cookies."""
+        self.connection_label = 'Direct connection'
         await self._step(1, 8, self.connection_label)
-
-    async def _inject_saved_cookies(self) -> int:
-        """Baked/runtime cookies — isolated copy browser context me."""
-        from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
-
-        if not cookie_jar_ready() or not self._context:
-            return 0
-        cookies = load_playwright_cookies()
-        if not cookies:
-            return 0
-        try:
-            await self._context.add_cookies(cookies)
-            log.info('Cookies injected (isolated) — %d', len(cookies))
-            return len(cookies)
-        except Exception as e:
-            log.warning('cookie inject fail: %s', e)
-            return 0
-
-    def _browser_context_kwargs(self) -> dict[str, Any]:
-        """Har session isolated — same baked storage_state ki copy."""
-        from uidai_cookie_session import baked_session_ready, get_isolated_storage_state
-
-        base: dict[str, Any] = {
-            'viewport': {'width': 390, 'height': 844},
-            'user_agent': MOBILE_UA,
-            'locale': 'en-IN',
-            'timezone_id': 'Asia/Kolkata',
-            'geolocation': {'latitude': 28.6139, 'longitude': 77.2090},
-            'permissions': ['geolocation'],
-        }
-        if baked_session_ready():
-            state = get_isolated_storage_state()
-            if state:
-                base['storage_state'] = state
-        from uidai_proxy import playwright_proxy
-
-        pw_proxy = playwright_proxy()
-        if pw_proxy:
-            base['proxy'] = pw_proxy
-        return base
-
-    async def _persist_browser_cookies(self) -> None:
-        """Persist browser cookies after first successful page load."""
-        if not self._context:
-            return
-        try:
-            import requests
-            from uidai_cookie_session import (
-                import_playwright_cookies,
-                mark_cookie_jar_bootstrapped,
-                save_cookie_jar,
-            )
-
-            pw = await self._context.cookies()
-            if not pw:
-                return
-            tmp = requests.Session()
-            import_playwright_cookies(tmp, pw)
-            save_cookie_jar(tmp, bootstrapped=True)
-            mark_cookie_jar_bootstrapped(tmp)
-        except Exception as e:
-            log.debug('browser cookie persist skip: %s', e)
 
     async def _new_page(self) -> bool:
         """New context + page. Returns True if Chromium pool was reused."""
@@ -660,12 +565,8 @@ class UidaiBrowserSession:
         for attempt in range(3):
             try:
                 browser, reused = await _pool_browser()
-                from uidai_cookie_session import baked_session_ready as _baked_ready
-
-                self._context = await browser.new_context(**self._browser_context_kwargs())
+                self._context = await browser.new_context(**_browser_context_kwargs())
                 await self._context.add_init_script(SKIP_FONTS_JS)
-                if not _baked_ready():
-                    await self._inject_saved_cookies()
                 self._page = await self._context.new_page()
                 return reused
             except Exception as e:
@@ -830,8 +731,6 @@ class UidaiBrowserSession:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
         await self._step(3, 8, 'UIDAI page loaded')
-        if not self._captcha_png_cache:
-            await self._persist_browser_cookies()
         await self._step(4, 8, 'Form ready')
         await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
         await self._fill_fields_and_captcha(fresh_captcha=False)

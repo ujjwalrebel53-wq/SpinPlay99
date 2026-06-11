@@ -2,7 +2,7 @@
 """
 Aadhaar downloader — standalone CLI + Telegram bot engine.
 
-Plain requests.Session() per user. Optional UIDAI_PROXY for cloud VPS → Indian forward proxy.
+No cookies, no proxy — plain requests.Session() per user.
 Bypass: dob:null, captcha:null, name Mr/skip.
 Detailed logs + captcha audio/image for Telegram loading screen.
 """
@@ -213,9 +213,7 @@ class AadharSession:
         else:
             self._log('[!] DOB missing — null')
         self._log('[*] Captcha: manual entry only')
-        from uidai_proxy import connection_label
-
-        self._log(f'[*] {connection_label()}')
+        self._log('[*] Direct connection — Indian VPS')
 
     def _post(
         self,
@@ -225,23 +223,17 @@ class AadharSession:
         payload: dict[str, Any] | None = None,
         timeout: int | tuple[int, int] | None = None,
     ) -> requests.Response:
-        """POST to UIDAI APIs — direct or via UIDAI_PROXY."""
-        from uidai_proxy import requests_proxies
-
+        """Direct POST to UIDAI APIs."""
         body = payload if payload is not None else {}
         tmo = timeout if timeout is not None else request_timeout()
         self._log(f'[*] POST {url.split("/")[-1]}… (timeout={tmo})')
         try:
             return self._session.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=tmo,
-                proxies=requests_proxies(),
+                url, headers=headers, json=body, timeout=tmo, proxies=None,
             )
         except requests.RequestException as e:
             self._log(f'[!] Request failed: {str(e)[:80]}')
-            raise RuntimeError('UIDAI request failed — check network or UIDAI_PROXY') from e
+            raise RuntimeError('UIDAI request failed — check network on Indian VPS') from e
 
     def _fetch_captcha_bundle(
         self, headers: dict[str, str], *, tag: str,
