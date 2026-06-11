@@ -26,6 +26,8 @@ from proxy_india import (
     pick_indian_proxy,
 )
 from uidai_cookie_session import (
+    apply_isolated_baked_cookies,
+    baked_session_ready,
     bootstrap_uidai_session,
     cookie_jar_ready,
     cookie_summary,
@@ -98,6 +100,8 @@ class UidaiHttpSession:
         self.flow = 'download'  # retrieve | download
         self._cookie_pages: set[str] = set()
         self.cookie_info: dict[str, Any] = {}
+        if baked_session_ready():
+            apply_isolated_baked_cookies(self._session)
 
     @property
     def proxies(self) -> dict[str, str] | None:
@@ -113,9 +117,9 @@ class UidaiHttpSession:
         if self.proxy_url:
             return
 
-        if cookie_jar_ready():
+        if baked_session_ready() or cookie_jar_ready():
             bootstrap_uidai_session(self._session, None)
-            log.info('HTTP cookies-only — bina proxy')
+            log.info('HTTP baked cookies — bina proxy (isolated copy)')
             return
 
         if not self.auto_proxy:

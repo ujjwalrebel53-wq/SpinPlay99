@@ -47,7 +47,7 @@ from browser_session import (
     refresh_standby_captcha,
 )
 from proxy_india import fastest_proxy_url, pick_indian_proxy
-from uidai_cookie_session import cookie_jar_ready
+from uidai_cookie_session import baked_session_ready, cookie_jar_ready, sync_baked_to_runtime_jar
 from http_uidai_flow import (
     UidaiHttpSession,
     HTTP_SESSIONS,
@@ -1108,7 +1108,7 @@ async def warm_pool_job(context) -> None:
     """Cookies ready ho to pool warm — warna pehla /open proxy trial karega."""
     if pool_is_warm():
         return
-    if not cookie_jar_ready():
+    if not cookie_jar_ready() and not baked_session_ready():
         log.info('Pool warm skip — cookies nahi; pehla /open full proxy trial (~30s/try)')
         return
     proxy = None
@@ -1165,6 +1165,10 @@ def main() -> None:
         raise SystemExit(
             '❌ Invalid TELEGRAM_BOT_TOKEN — copy the correct token from @BotFather'
         )
+
+    if baked_session_ready():
+        sync_baked_to_runtime_jar()
+        log.info('Baked UIDAI session loaded — all chats use isolated cookie copies')
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))

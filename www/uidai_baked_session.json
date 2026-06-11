@@ -1,0 +1,95 @@
+{
+  "proxy": "http://117.236.124.166:3128",
+  "proxy_city": "Gandhinagar",
+  "baked": true,
+  "bootstrapped": true,
+  "forever": true,
+  "ts": 1781164387.9361033,
+  "storage_state": {
+    "cookies": [
+      {
+        "name": "app-version",
+        "value": "myaadhaar_legacy",
+        "domain": "myaadhaar.uidai.gov.in",
+        "path": "/",
+        "expires": -1,
+        "httpOnly": false,
+        "secure": false,
+        "sameSite": "Lax"
+      },
+      {
+        "name": "_ga",
+        "value": "GA1.1.1671726321.1781164371",
+        "domain": ".uidai.gov.in",
+        "path": "/",
+        "expires": 1815724370.604887,
+        "httpOnly": false,
+        "secure": false,
+        "sameSite": "Lax"
+      },
+      {
+        "name": "_ga_WG95FV0Z2C",
+        "value": "GS2.1.s1781164370$o1$g0$t1781164370$j60$l0$h0",
+        "domain": ".uidai.gov.in",
+        "path": "/",
+        "expires": 1815724370.642607,
+        "httpOnly": false,
+        "secure": false,
+        "sameSite": "Lax"
+      },
+      {
+        "name": "_ga_MZFVDTJHT3",
+        "value": "GS2.1.s1781164370$o1$g0$t1781164370$j60$l0$h1784192470",
+        "domain": ".uidai.gov.in",
+        "path": "/",
+        "expires": 1815724370.700563,
+        "httpOnly": false,
+        "secure": false,
+        "sameSite": "Lax"
+      }
+    ],
+    "origins": []
+  },
+  "cookies": [
+    {
+      "name": "app-version",
+      "value": "myaadhaar_legacy",
+      "domain": "myaadhaar.uidai.gov.in",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.1671726321.1781164371",
+      "domain": ".uidai.gov.in",
+      "path": "/",
+      "expires": 1815724370.604887,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_WG95FV0Z2C",
+      "value": "GS2.1.s1781164370$o1$g0$t1781164370$j60$l0$h0",
+      "domain": ".uidai.gov.in",
+      "path": "/",
+      "expires": 1815724370.642607,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_MZFVDTJHT3",
+      "value": "GS2.1.s1781164370$o1$g0$t1781164370$j60$l0$h1784192470",
+      "domain": ".uidai.gov.in",
+      "path": "/",
+      "expires": 1815724370.700563,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ]
+}

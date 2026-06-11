@@ -14,6 +14,8 @@ from typing import Any
 log = logging.getLogger('proxy-india')
 
 UIDAI_TEST_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
+# Live-tested bake proxy (Gandhinagar) — bake_uidai_session.py / uidai_baked_session.json
+BAKED_PROXY = 'http://117.236.124.166:3128'
 CACHE_FILE = Path(__file__).parent / 'proxy_cache.json'
 RANKED_FILE = Path(__file__).parent / 'proxy_ranked.json'
 SEEDS_FILE = Path(__file__).parent / 'indian_proxy_seeds.txt'

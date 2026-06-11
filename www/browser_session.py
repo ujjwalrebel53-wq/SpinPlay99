@@ -326,24 +326,34 @@ async def warm_standby_uidai(proxy: str | None) -> bool:
                     await sb['context'].close()
                 except Exception:
                     pass
-            ctx = await browser.new_context(
-                viewport={'width': 390, 'height': 844},
-                user_agent=MOBILE_UA,
-                locale='en-IN',
-                timezone_id='Asia/Kolkata',
-                geolocation={'latitude': 28.6139, 'longitude': 77.2090},
-                permissions=['geolocation'],
-            )
-            await ctx.add_init_script(SKIP_FONTS_JS)
-            try:
-                from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
+            from uidai_cookie_session import baked_session_ready
 
-                if cookie_jar_ready():
-                    pw_cookies = load_playwright_cookies()
-                    if pw_cookies:
-                        await ctx.add_cookies(pw_cookies)
-            except Exception as e:
-                log.debug('standby cookie inject skip: %s', e)
+            kwargs: dict[str, Any] = {
+                'viewport': {'width': 390, 'height': 844},
+                'user_agent': MOBILE_UA,
+                'locale': 'en-IN',
+                'timezone_id': 'Asia/Kolkata',
+                'geolocation': {'latitude': 28.6139, 'longitude': 77.2090},
+                'permissions': ['geolocation'],
+            }
+            if baked_session_ready():
+                from uidai_cookie_session import get_isolated_storage_state
+
+                state = get_isolated_storage_state()
+                if state:
+                    kwargs['storage_state'] = state
+            ctx = await browser.new_context(**kwargs)
+            await ctx.add_init_script(SKIP_FONTS_JS)
+            if not baked_session_ready():
+                try:
+                    from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
+
+                    if cookie_jar_ready():
+                        pw_cookies = load_playwright_cookies()
+                        if pw_cookies:
+                            await ctx.add_cookies(pw_cookies)
+                except Exception as e:
+                    log.debug('standby cookie inject skip: %s', e)
             page = await ctx.new_page()
             sb['context'] = ctx
             sb['page'] = page
@@ -667,7 +677,7 @@ class UidaiBrowserSession:
         )
 
     async def _inject_saved_cookies(self) -> int:
-        """Saved cookies browser me — hamesha ke liye reuse."""
+        """Baked/runtime cookies — isolated copy browser context me."""
         from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
 
         if not cookie_jar_ready() or not self._context:
@@ -677,11 +687,29 @@ class UidaiBrowserSession:
             return 0
         try:
             await self._context.add_cookies(cookies)
-            log.info('Saved cookies injected — %d', len(cookies))
+            log.info('Cookies injected (isolated) — %d', len(cookies))
             return len(cookies)
         except Exception as e:
             log.warning('cookie inject fail: %s', e)
             return 0
+
+    def _browser_context_kwargs(self) -> dict[str, Any]:
+        """Har session isolated — same baked storage_state ki copy."""
+        from uidai_cookie_session import baked_session_ready, get_isolated_storage_state
+
+        base: dict[str, Any] = {
+            'viewport': {'width': 390, 'height': 844},
+            'user_agent': MOBILE_UA,
+            'locale': 'en-IN',
+            'timezone_id': 'Asia/Kolkata',
+            'geolocation': {'latitude': 28.6139, 'longitude': 77.2090},
+            'permissions': ['geolocation'],
+        }
+        if baked_session_ready():
+            state = get_isolated_storage_state()
+            if state:
+                base['storage_state'] = state
+        return base
 
     async def _persist_browser_cookies(self) -> None:
         """Site load ke baad cookies save — agli baar bina proxy."""
@@ -706,13 +734,21 @@ class UidaiBrowserSession:
             log.debug('browser cookie persist skip: %s', e)
 
     async def _resolve_proxy(self) -> str | None:
-        from uidai_cookie_session import cookie_jar_ready
+        from uidai_cookie_session import baked_session_ready, cookie_jar_ready, load_baked_session
 
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
             return await self._connect_proxy(self.proxy)
 
+        if baked_session_ready():
+            baked = load_baked_session()
+            city = baked.get('proxy_city') or 'India'
+            n = len(baked.get('cookies') or [])
+            self.proxy_label = f'🍪 Baked cookies ({n}) — {city} · bina proxy'
+            await self._step(1, 8, self.proxy_label)
+            return None
+
         if cookie_jar_ready():
-            self.proxy_label = '🍪 Saved cookies — proxy skip (trial nahi)'
+            self.proxy_label = '🍪 Saved cookies — proxy skip'
             await self._step(1, 8, self.proxy_label)
             return None
 
@@ -759,16 +795,12 @@ class UidaiBrowserSession:
             try:
                 browser, reused = await _pool_browser(proxy)
                 self._active_proxy = proxy
-                self._context = await browser.new_context(
-                    viewport={'width': 390, 'height': 844},
-                    user_agent=MOBILE_UA,
-                    locale='en-IN',
-                    timezone_id='Asia/Kolkata',
-                    geolocation={'latitude': 28.6139, 'longitude': 77.2090},
-                    permissions=['geolocation'],
-                )
+                from uidai_cookie_session import baked_session_ready as _baked_ready
+
+                self._context = await browser.new_context(**self._browser_context_kwargs())
                 await self._context.add_init_script(SKIP_FONTS_JS)
-                await self._inject_saved_cookies()
+                if not _baked_ready():
+                    await self._inject_saved_cookies()
                 self._page = await self._context.new_page()
                 return reused
             except Exception as e:

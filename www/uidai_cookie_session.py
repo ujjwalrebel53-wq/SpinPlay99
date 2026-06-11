@@ -1,7 +1,8 @@
-"""UIDAI cookie session — direct-first, persistent jar (bina proxy)."""
+"""UIDAI cookie session — baked proxy cookies + isolated per-session copies."""
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -19,6 +20,12 @@ log = logging.getLogger('uidai-cookies')
 PORTAL_HOME = 'https://myaadhaar.uidai.gov.in/'
 TATHYA_ORIGIN = 'https://tathya.uidai.gov.in'
 COOKIE_JAR_FILE = Path(__file__).parent / 'uidai_cookies.json'
+BAKED_SESSION_FILE = Path(__file__).parent / 'uidai_baked_session.json'
+
+# Proxy se capture — Gandhinagar (live tested)
+BAKED_PROXY_DEFAULT = 'http://117.236.124.166:3128'
+
+_BAKED_CACHE: dict[str, Any] | None = None
 
 BROWSER_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
@@ -32,6 +39,95 @@ def cookie_seed_enabled() -> bool:
 
 def cookie_persist_enabled() -> bool:
     return os.getenv('UIDAI_COOKIE_PERSIST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def baked_session_enabled() -> bool:
+    return os.getenv('UIDAI_BAKED_SESSION', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def load_baked_session(*, reload: bool = False) -> dict[str, Any]:
+    """Code me baked uidai_baked_session.json — proxy + cookies + storage_state."""
+    global _BAKED_CACHE
+    if _BAKED_CACHE is not None and not reload:
+        return _BAKED_CACHE
+    if not baked_session_enabled() or not BAKED_SESSION_FILE.exists():
+        _BAKED_CACHE = {}
+        return _BAKED_CACHE
+    try:
+        data = json.loads(BAKED_SESSION_FILE.read_text(encoding='utf-8'))
+        _BAKED_CACHE = data if isinstance(data, dict) else {}
+        return _BAKED_CACHE
+    except Exception as e:
+        log.warning('Baked session load fail: %s', e)
+        _BAKED_CACHE = {}
+        return _BAKED_CACHE
+
+
+def baked_session_ready() -> bool:
+    data = load_baked_session()
+    cookies = list(data.get('cookies') or [])
+    return bool(data.get('baked') and cookies)
+
+
+def get_baked_proxy() -> str | None:
+    data = load_baked_session()
+    return (data.get('proxy') or BAKED_PROXY_DEFAULT or '').strip() or None
+
+
+def get_baked_cookies() -> list[dict[str, Any]]:
+    """Baked cookies — har session ko copy deni hai (isolated)."""
+    data = load_baked_session()
+    return list(data.get('cookies') or [])
+
+
+def get_isolated_baked_cookies() -> list[dict[str, Any]]:
+    return copy.deepcopy(get_baked_cookies())
+
+
+def get_isolated_storage_state() -> dict[str, Any] | None:
+    """Playwright new_context(storage_state=…) — per-session deep copy."""
+    data = load_baked_session()
+    state = data.get('storage_state')
+    if not isinstance(state, dict) or not state.get('cookies'):
+        cookies = get_baked_cookies()
+        if not cookies:
+            return None
+        state = {'cookies': cookies, 'origins': data.get('origins') or []}
+    return copy.deepcopy(state)
+
+
+def apply_isolated_baked_cookies(session: requests.Session) -> int:
+    """HTTP session — baked cookies ki isolated copy."""
+    cookies = get_isolated_baked_cookies()
+    if not cookies:
+        return 0
+    return import_playwright_cookies(session, cookies)
+
+
+def sync_baked_to_runtime_jar() -> bool:
+    """Bot start — baked cookies runtime jar me (optional)."""
+    if not baked_session_ready() or not cookie_persist_enabled():
+        return False
+    if COOKIE_JAR_FILE.exists():
+        data = _read_cookie_jar_data()
+        if data.get('bootstrapped') and data.get('cookies'):
+            return False
+    try:
+        baked = load_baked_session()
+        payload = {
+            'ts': time.time(),
+            'cookies': copy.deepcopy(baked.get('cookies') or []),
+            'bootstrapped': True,
+            'forever': True,
+            'from_baked': True,
+            'proxy': baked.get('proxy'),
+        }
+        COOKIE_JAR_FILE.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        log.info('Baked cookies synced → uidai_cookies.json (%d)', len(payload['cookies']))
+        return True
+    except Exception as e:
+        log.warning('Baked sync fail: %s', e)
+        return False
 
 
 def _proxies(proxy_url: str | None) -> dict[str, str] | None:
@@ -89,7 +185,9 @@ def _read_cookie_jar_data() -> dict[str, Any]:
 
 
 def cookie_jar_ready() -> bool:
-    """Site ek baar load ho chuki — saved cookies hamesha reuse."""
+    """Baked ya runtime jar — cookies ready for all sessions."""
+    if baked_session_ready():
+        return True
     if not cookie_persist_enabled():
         return False
     data = _read_cookie_jar_data()
@@ -102,7 +200,9 @@ def cookie_jar_ready() -> bool:
 
 
 def load_cookie_jar() -> list[dict[str, Any]]:
-    """Disk se saved cookies — bootstrapped jar kabhi expire nahi."""
+    """Baked cookies pehle, phir disk jar — hamesha isolated copy."""
+    if baked_session_ready():
+        return get_isolated_baked_cookies()
     if not cookie_persist_enabled() or not COOKIE_JAR_FILE.exists():
         return []
     try:
@@ -124,9 +224,9 @@ def load_cookie_jar() -> list[dict[str, Any]]:
 
 
 def load_playwright_cookies() -> list[dict[str, Any]]:
-    """Playwright context.add_cookies() ke liye format."""
+    """Playwright add_cookies — baked/runtime se isolated."""
     rows: list[dict[str, Any]] = []
-    for c in load_cookie_jar():
+    for c in get_isolated_baked_cookies() if baked_session_ready() else load_cookie_jar():
         name = c.get('name')
         value = c.get('value')
         if not name or value is None:
@@ -294,7 +394,9 @@ def bootstrap_uidai_session(
 ) -> dict[str, Any]:
     """Bootstrapped jar → sirf load. Pehli baar → portal seed + save."""
     loaded = 0
-    if cookie_persist_enabled():
+    if baked_session_ready():
+        loaded = apply_isolated_baked_cookies(session)
+    elif cookie_persist_enabled():
         loaded = apply_cookie_jar_to_session(session, load_cookie_jar())
 
     if cookie_jar_ready() and not force_seed:
