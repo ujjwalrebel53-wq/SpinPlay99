@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -38,11 +39,11 @@ except ImportError as exc:
 
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
-    PRIMARY_INDIAN_PROXY,
     UidaiBrowserSession,
     ensure_pool_warm,
     pool_is_warm,
 )
+from proxy_india import fastest_proxy_url
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
 load_dotenv(Path(__file__).parent / '.env')
@@ -370,7 +371,7 @@ def _connection_error_hint(exc: Exception) -> str:
         return (
             '❌ Indian VPN connect fail.\n\n'
             'VPS .env me ye add karo:\n'
-            'UIDAI_PROXY=http://117.236.124.166:3128\n\n'
+            'UIDAI_PROXY=http://14.143.222.113:57738\n\n'
             'Phir: /close → /open dubara'
         )
     if 'browser' in low or 'closed' in low or 'chromium' in low:
@@ -633,13 +634,33 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
+async def benchmark_proxy_job(context) -> None:
+    """Background — 50 proxy test, fastest first save."""
+    import asyncio
+    from pathlib import Path
+
+    ranked = Path(__file__).parent / 'proxy_ranked.json'
+    if ranked.exists() and (time.time() - ranked.stat().st_mtime) < 3600 * 4:
+        return
+    try:
+        from benchmark_proxies import benchmark_pool
+        from proxy_india import save_ranked_proxies
+
+        rows = await asyncio.to_thread(benchmark_pool, 50)
+        if rows:
+            save_ranked_proxies(rows)
+            log.info('Proxy benchmark done — fastest %s', rows[0]['proxy'])
+    except Exception as e:
+        log.warning('proxy benchmark skip: %s', e)
+
+
 async def warm_pool_job(context) -> None:
     """Bot start pe Chromium background me launch — 24/7."""
     if pool_is_warm():
         return
     proxy = PROXY
     if not proxy or (proxy or '').lower() in ('auto', 'india'):
-        proxy = PRIMARY_INDIAN_PROXY or None
+        proxy = fastest_proxy_url() or None
     await ensure_pool_warm(proxy)
 
 
@@ -688,7 +709,8 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     if app.job_queue:
-        app.job_queue.run_once(warm_pool_job, when=8)
+        app.job_queue.run_once(benchmark_proxy_job, when=5)
+        app.job_queue.run_once(warm_pool_job, when=15)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 

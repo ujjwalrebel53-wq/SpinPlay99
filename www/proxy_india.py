@@ -1,4 +1,4 @@
-"""Indian HTTP proxy — parallel fast pick + UIDAI reachability test."""
+"""Indian HTTP proxy — 50 pool, benchmarked fastest-first."""
 
 from __future__ import annotations
 
@@ -15,24 +15,117 @@ log = logging.getLogger('proxy-india')
 
 UIDAI_TEST_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 CACHE_FILE = Path(__file__).parent / 'proxy_cache.json'
+RANKED_FILE = Path(__file__).parent / 'proxy_ranked.json'
+SEEDS_FILE = Path(__file__).parent / 'indian_proxy_seeds.txt'
+RANKED_MAX_AGE_SEC = int(os.getenv('UIDAI_PROXY_RANK_HOURS', '6')) * 3600
 
-# Verified / high-priority Indian proxies (pehle try)
+# 50 seeds — benchmark ke baad proxy_ranked.json fastest-first override karta hai
 DEFAULT_INDIAN_PROXIES = [
+    'http://14.143.222.113:57738',
+    'http://14.143.222.113:57788',
+    'http://14.143.222.113:10174',
+    'http://14.143.222.113:10175',
+    'http://14.143.130.210:1111',
     'http://139.167.218.162:3127',
     'http://117.236.124.166:3128',
+    'http://117.236.124.166:3129',
     'http://111.92.88.27:3128',
+    'http://111.125.242.34:1111',
+    'http://111.125.242.34:80',
+    'http://219.65.73.81:80',
+    'http://27.34.242.98:80',
+    'http://152.67.191.232:6800',
+    'http://175.101.240.38:80',
+    'http://139.59.59.122:8118',
     'http://103.172.254.145:80',
     'http://103.94.52.70:3128',
     'http://117.74.113.104:8080',
     'http://103.155.98.163:8080',
     'http://103.149.162.195:80',
     'http://103.152.112.162:80',
-    'http://45.67.59.98:80',
-    'http://165.227.29.139:80',
     'http://103.127.1.130:80',
+    'http://103.48.68.218:83',
+    'http://103.48.71.30:83',
+    'http://202.62.75.38:84',
+    'http://202.62.84.210:53281',
+    'http://103.230.150.58:8080',
+    'http://45.249.77.145:83',
+    'http://115.247.115.38:8080',
+    'http://172.105.62.167:8080',
+    'http://103.179.46.49:6789',
+    'http://203.115.101.61:82',
+    'http://103.74.146.1:82',
+    'http://49.229.100.42:8080',
+    'http://116.80.90.141:3172',
+    'http://116.80.48.236:3172',
+    'http://103.153.149.138:8080',
+    'http://103.80.118.33:8080',
+    'http://52.140.3.27:3333',
+    'http://103.152.112.145:80',
+    'http://103.152.112.135:80',
+    'http://103.152.112.136:80',
+    'http://103.152.112.137:80',
+    'http://103.152.112.138:80',
+    'http://103.152.112.139:80',
+    'http://103.152.112.140:80',
+    'http://165.227.29.139:80',
+    'http://45.67.59.98:80',
+    'http://136.233.136.41:48976',
 ]
 
-LIVE_PROXY_URL = 'https://raw.githubusercontent.com/stormsia/proxy-list/main/http.txt'
+
+def _load_seeds_file() -> list[str]:
+    if not SEEDS_FILE.exists():
+        return []
+    return [x.strip() for x in SEEDS_FILE.read_text(encoding='utf-8').splitlines() if x.strip()]
+
+
+def load_ranked_proxies(*, max_age_sec: int | None = None) -> list[dict[str, Any]]:
+    """proxy_ranked.json — benchmarked fastest first."""
+    if not RANKED_FILE.exists():
+        return []
+    try:
+        data = json.loads(RANKED_FILE.read_text(encoding='utf-8'))
+        age_limit = max_age_sec if max_age_sec is not None else RANKED_MAX_AGE_SEC
+        if age_limit > 0 and time.time() - float(data.get('ts', 0)) > age_limit:
+            log.info('proxy_ranked.json stale — seeds use honge')
+            return []
+        return list(data.get('proxies') or [])
+    except Exception as e:
+        log.warning('proxy_ranked load fail: %s', e)
+        return []
+
+
+def save_ranked_proxies(rows: list[dict[str, Any]]) -> None:
+    payload = {
+        'ts': time.time(),
+        'proxies': [
+            {
+                'proxy': r['proxy'],
+                'score': r.get('score', r.get('uidai_sec', 999)),
+                'city': (r.get('info') or {}).get('city', '?'),
+            }
+            for r in rows
+        ],
+    }
+    RANKED_FILE.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+
+
+def ranked_proxy_urls() -> list[str]:
+    """Fastest-first URL list — benchmark > seeds > defaults."""
+    ranked = load_ranked_proxies()
+    if ranked:
+        return [r['proxy'] for r in ranked if r.get('proxy')]
+
+    seeds = _load_seeds_file()
+    base = seeds or DEFAULT_INDIAN_PROXIES
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in base:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out[:50]
 
 
 def _load_cache() -> str | None:
@@ -56,25 +149,6 @@ def _save_cache(proxy: str) -> None:
         log.debug('proxy cache save fail: %s', e)
 
 
-def _fetch_live_proxies(limit: int = 40) -> list[str]:
-    """Optional live list — stormsia HTTP proxies."""
-    try:
-        req = urllib.request.Request(LIVE_PROXY_URL, headers={'User-Agent': 'RebelAdharBot/1.0'})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            lines = resp.read().decode().splitlines()
-        out: list[str] = []
-        for line in lines:
-            p = line.strip()
-            if p.startswith('http://') or p.startswith('https://'):
-                out.append(p if p.startswith('http') else f'http://{p}')
-            if len(out) >= limit:
-                break
-        return out
-    except Exception as e:
-        log.debug('live proxy fetch fail: %s', e)
-        return []
-
-
 def proxy_list_from_env() -> list[str]:
     raw = os.getenv('UIDAI_PROXY_LIST', '').strip()
     if raw:
@@ -84,8 +158,8 @@ def proxy_list_from_env() -> list[str]:
         if one and one.lower() not in ('auto', 'india', 'none', 'no', ''):
             items = [one]
         else:
-            items = list(DEFAULT_INDIAN_PROXIES)
-            items.extend(_fetch_live_proxies(30))
+            items = ranked_proxy_urls()
+
     seen: set[str] = set()
     out: list[str] = []
     cached = _load_cache()
@@ -99,13 +173,19 @@ def proxy_list_from_env() -> list[str]:
     return out
 
 
+def fastest_proxy_url() -> str:
+    urls = ranked_proxy_urls()
+    if urls:
+        return urls[0]
+    return DEFAULT_INDIAN_PROXIES[0]
+
+
 def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
     handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
     return urllib.request.build_opener(handler)
 
 
 def check_direct_india(timeout: int = 6) -> dict[str, Any] | None:
-    """Server India me ho to proxy ki zaroorat nahi."""
     try:
         url = 'http://ip-api.com/json/?fields=status,country,countryCode,city,regionName,query'
         req = urllib.request.Request(url, headers={'User-Agent': 'RebelAdharBot/1.0'})
@@ -168,7 +248,7 @@ def score_proxy(proxy: str, *, require_uidai: bool = True) -> dict[str, Any] | N
 def pick_ranked_proxies(
     proxies: list[str] | None = None,
     limit: int = 5,
-    workers: int = 12,
+    workers: int = 20,
     *,
     require_uidai: bool = True,
     stop_early: bool = False,
@@ -198,26 +278,38 @@ def pick_ranked_proxies(
 
 
 def pick_indian_proxy(proxies: list[str] | None = None) -> tuple[str, dict[str, Any]]:
+    """Fastest-first — ranked list se ek-ek karke try."""
+    pool = proxies or proxy_list_from_env()
+
     cached = _load_cache()
-    if cached:
+    if cached and cached in pool:
         row = score_proxy(cached, require_uidai=True)
         if row:
             log.info('Proxy cache hit — %s', cached)
             return row['proxy'], row['info']
-        log.info('Proxy cache stale — %s', cached)
+        row = score_proxy(cached, require_uidai=False)
+        if row:
+            return row['proxy'], row['info']
 
-    ranked = pick_ranked_proxies(proxies, limit=1, require_uidai=True, stop_early=True)
-    if not ranked:
-        log.warning('Strict proxy test fail — trying India IP only')
-        ranked = pick_ranked_proxies(proxies, limit=1, require_uidai=False, stop_early=True)
-    if not ranked:
-        raise RuntimeError(
-            'Koi Indian proxy kaam nahi kiya.\n'
-            '.env me set karo: UIDAI_PROXY=http://117.236.124.166:3128'
-        )
-    best = ranked[0]
-    _save_cache(best['proxy'])
-    return best['proxy'], best['info']
+    for proxy in pool[:50]:
+        row = score_proxy(proxy, require_uidai=True)
+        if row:
+            _save_cache(proxy)
+            log.info('Proxy picked %s — %.1fs %s', proxy, row['score'], row['info'].get('city'))
+            return proxy, row['info']
+
+    log.warning('UIDAI strict fail — India IP only try')
+    for proxy in pool[:50]:
+        row = score_proxy(proxy, require_uidai=False)
+        if row:
+            _save_cache(proxy)
+            return proxy, row['info']
+
+    raise RuntimeError(
+        '50 proxy me se koi kaam nahi kiya.\n'
+        'Chalao: python3 benchmark_proxies.py\n'
+        'Ya .env: UIDAI_PROXY=http://14.143.222.113:57738'
+    )
 
 
 def format_proxy_line(info: dict[str, Any], proxy: str) -> str:

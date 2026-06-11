@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.4.2'
+BOT_ENGINE_VERSION = '2.4.3'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 OTP_API_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid'

@@ -10,6 +10,9 @@ www/
 ├── requirements.txt
 ├── setup.sh
 ├── proxy_india.py
+├── indian_proxy_seeds.txt  ← 50 proxy pool
+├── proxy_ranked.json       ← benchmark fastest-first
+├── benchmark_proxies.py  ← proxy test script
 └── README.md
 
 Setup (nano nahi — sirf ye commands):

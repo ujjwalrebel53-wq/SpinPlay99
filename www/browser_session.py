@@ -17,6 +17,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 from proxy_india import (
     check_direct_india,
     check_proxy,
+    fastest_proxy_url,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
@@ -50,9 +51,8 @@ log = logging.getLogger('uidai-browser')
 SESSION_TTL_SEC = int(os.getenv('UIDAI_SESSION_HOURS', '24')) * 3600
 KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
 PROXY_CONNECT_TRIES = int(os.getenv('UIDAI_PROXY_TRIES', '3'))
-PRIMARY_INDIAN_PROXY = os.getenv(
-    'UIDAI_PRIMARY_PROXY', 'http://139.167.218.162:3127',
-).strip()
+def _primary_proxy() -> str:
+    return os.getenv('UIDAI_PRIMARY_PROXY', '').strip() or fastest_proxy_url()
 
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
@@ -294,10 +294,11 @@ class UidaiBrowserSession:
             return None
 
         await self._step(1, 8, 'Indian VPN connect…')
-        if PRIMARY_INDIAN_PROXY:
+        primary = _primary_proxy()
+        if primary:
             try:
-                self.proxy = PRIMARY_INDIAN_PROXY
-                return await self._connect_proxy(PRIMARY_INDIAN_PROXY)
+                self.proxy = primary
+                return await self._connect_proxy(primary)
             except Exception as e:
                 log.warning('primary proxy fail after %s tries: %s', PROXY_CONNECT_TRIES, e)
 
