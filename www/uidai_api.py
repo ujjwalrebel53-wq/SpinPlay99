@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.6.1'
+BOT_ENGINE_VERSION = '2.6.2'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
@@ -47,13 +47,16 @@ def build_otp_payload(
     *,
     name: str,
     mobile: str,
-    captcha: str,
-    captcha_txn_id: str,
+    captcha: str | None = '',
+    captcha_txn_id: str | None = '',
     option: str = 'UID',
     resend: bool = False,
+    captcha_bypass: bool | None = None,
 ) -> dict[str, Any]:
-    """OTP generate — dob:null proven working without DOB field on form."""
-    return {
+    """OTP generate — dob:null + optional captcha:null bypass."""
+    from captcha_solver import apply_captcha_bypass_fields, captcha_bypass_enabled
+
+    payload: dict[str, Any] = {
         'mobileNumber': mobile.strip(),
         'dob': None,
         'email': None,
@@ -61,26 +64,39 @@ def build_otp_payload(
         'option': option if option in ('UID', 'EID') else 'UID',
         'otp': None,
         'otpTxnId': None,
-        'captchaTxnId': captcha_txn_id.strip(),
-        'captcha': captcha.strip().lower(),
         'resendOtp': resend,
     }
+    force = captcha_bypass if captcha_bypass is not None else captcha_bypass_enabled()
+    return apply_captcha_bypass_fields(
+        payload,
+        captcha=captcha,
+        captcha_txn_id=captcha_txn_id,
+        force_bypass=force and not (captcha or '').strip(),
+    )
 
 
 def build_download_otp_payload(
     *,
     uid: str,
-    captcha: str,
-    captcha_txn_id: str,
+    captcha: str | None = '',
+    captcha_txn_id: str | None = '',
+    captcha_bypass: bool | None = None,
 ) -> dict[str, Any]:
     """Phase 2 — e-Aadhaar download OTP (dob not required)."""
-    return {
+    from captcha_solver import apply_captcha_bypass_fields, captcha_bypass_enabled
+
+    payload: dict[str, Any] = {
         'uid': uid.strip(),
-        'captcha': captcha.strip().lower(),
-        'captchaTxnId': captcha_txn_id.strip(),
         'otp': None,
         'otpTxnId': None,
     }
+    force = captcha_bypass if captcha_bypass is not None else captcha_bypass_enabled()
+    return apply_captcha_bypass_fields(
+        payload,
+        captcha=captcha,
+        captcha_txn_id=captcha_txn_id,
+        force_bypass=force and not (captcha or '').strip(),
+    )
 
 
 def build_download_pdf_payload(
@@ -104,13 +120,16 @@ def build_retrieve_payload(
     *,
     name: str,
     mobile: str,
-    captcha: str,
-    captcha_txn_id: str,
+    captcha: str | None = '',
+    captcha_txn_id: str | None = '',
     otp: str,
     otp_txn_id: str,
     option: str = 'UID',
+    captcha_bypass: bool | None = None,
 ) -> dict[str, Any]:
-    return {
+    from captcha_solver import apply_captcha_bypass_fields, captcha_bypass_enabled
+
+    payload: dict[str, Any] = {
         'mobileNumber': mobile.strip(),
         'dob': None,
         'email': None,
@@ -118,10 +137,15 @@ def build_retrieve_payload(
         'option': option if option in ('UID', 'EID') else 'UID',
         'otp': otp.strip(),
         'otpTxnId': otp_txn_id.strip(),
-        'captchaTxnId': captcha_txn_id.strip(),
-        'captcha': captcha.strip().lower(),
         'resendOtp': False,
     }
+    force = captcha_bypass if captcha_bypass is not None else captcha_bypass_enabled()
+    return apply_captcha_bypass_fields(
+        payload,
+        captcha=captcha,
+        captcha_txn_id=captcha_txn_id,
+        force_bypass=force and not (captcha or '').strip(),
+    )
 
 
 def uidai_headers(request_id: str | None = None) -> dict[str, str]:

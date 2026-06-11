@@ -17,6 +17,7 @@ from audio_captcha import (
     parse_captcha_generation,
     whisper_enabled,
 )
+from captcha_solver import captcha_attempt_values, captcha_bypass_enabled
 from proxy_india import (
     check_direct_india,
     format_direct_line,
@@ -258,17 +259,28 @@ class UidaiHttpSession:
             'audio_bytes': b'',
         }
 
-    async def send_retrieve_otp(self, captcha: str) -> dict[str, Any]:
+    async def send_retrieve_otp(
+        self,
+        captcha: str | None = '',
+        *,
+        captcha_txn_id: str | None = None,
+        captcha_bypass: bool = False,
+    ) -> dict[str, Any]:
         logs: list[dict[str, Any]] = []
-        cap = normalize_captcha_text(captcha or self.captcha_text)
-        self.captcha_text = cap
+        txn = (captcha_txn_id or self.captcha_txn_id or '').strip()
+        cap = normalize_captcha_text(captcha or self.captcha_text or '')
+        if cap:
+            self.captcha_text = cap
+        if txn:
+            self.captcha_txn_id = txn
         await self._step(3, 6, 'Phase 1 — OTP request (EID)')
         payload = build_otp_payload(
             name=self.name,
             mobile=self.mobile,
             captcha=cap,
-            captcha_txn_id=self.captcha_txn_id,
+            captcha_txn_id=txn,
             option=self.option,
+            captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not cap),
         )
         status, text = self._post_json(
             OTP_API_URL, payload, referer=RETRIEVE_PAGE_URL, logs=logs, label='Retrieve OTP',
@@ -282,6 +294,26 @@ class UidaiHttpSession:
             'msg': msg,
             'extra': extra,
         }
+
+    async def auto_send_retrieve_otp(self, png: bytes) -> dict[str, Any]:
+        """Captcha bypass — null payload, then OCR, no user typing."""
+        txn = self.captcha_txn_id
+        result: dict[str, Any] = {'otp_ok': False}
+        for label, cap, try_txn in captcha_attempt_values(png, txn):
+            use_txn = try_txn or txn
+            await self._step(3, 6, f'Auto captcha — {label}')
+            result = await self.send_retrieve_otp(
+                cap,
+                captcha_txn_id=use_txn,
+                captcha_bypass=label.startswith('null'),
+            )
+            if result.get('otp_ok'):
+                result['auto_captcha'] = label
+                return result
+            reason = (result.get('extra') or {}).get('reason')
+            if reason not in ('invalid_captcha', 'captcha_expired', None):
+                return result
+        return result
 
     async def verify_retrieve_otp(self, otp: str) -> dict[str, Any]:
         logs: list[dict[str, Any]] = []
@@ -318,36 +350,46 @@ class UidaiHttpSession:
 
         await self._step(1, 5, 'Phase 2 — fresh captcha')
         cap_data = await self.fetch_captcha(prefer_audio=whisper_enabled(), referer=DOWNLOAD_PAGE_URL)
-        if not cap_data.get('captcha_auto'):
-            return {
-                'otp_ok': False,
-                'needs_captcha': True,
-                'image_png': cap_data.get('image_png') or b'',
-                'logs': logs + cap_data.get('logs', []),
-            }
+        png = cap_data.get('image_png') or b''
+        auto = cap_data.get('captcha_auto') or ''
 
-        self.captcha_text = cap_data['captcha_auto']
-        await self._step(3, 5, 'Phase 2 — download OTP')
-        payload = build_download_otp_payload(
-            uid=self.uid,
-            captcha=self.captcha_text,
-            captcha_txn_id=self.captcha_txn_id,
-        )
-        status, text = self._post_json(
-            DOWNLOAD_OTP_API_URL,
-            payload,
-            referer=DOWNLOAD_PAGE_URL,
-            logs=logs,
-            label='Download OTP',
-        )
-        ok, msg, extra = parse_download_response(status, text)
-        if extra.get('otpTxnId'):
-            self.download_otp_txn_id = extra['otpTxnId']
+        for label, cap, try_txn in captcha_attempt_values(png, self.captcha_txn_id):
+            if auto and label == 'ocr':
+                cap = auto
+            await self._step(3, 5, f'Phase 2 auto — {label}')
+            payload = build_download_otp_payload(
+                uid=self.uid,
+                captcha=cap,
+                captcha_txn_id=try_txn or self.captcha_txn_id,
+                captcha_bypass=label.startswith('null'),
+            )
+            status, text = self._post_json(
+                DOWNLOAD_OTP_API_URL,
+                payload,
+                referer=DOWNLOAD_PAGE_URL,
+                logs=logs,
+                label='Download OTP',
+            )
+            ok, msg, extra = parse_download_response(status, text)
+            if extra.get('otpTxnId'):
+                self.download_otp_txn_id = extra['otpTxnId']
+            if ok and extra.get('reason') in ('otp_sent', 'download_otp_sent'):
+                self.captcha_text = cap
+                return {
+                    'otp_ok': True,
+                    'logs': logs,
+                    'msg': msg,
+                    'extra': extra,
+                    'auto_captcha': label,
+                }
+            if extra.get('reason') not in ('invalid_captcha', 'captcha_expired', None):
+                break
+
         return {
-            'otp_ok': ok and extra.get('reason') in ('otp_sent', 'download_otp_sent'),
-            'logs': logs,
-            'msg': msg,
-            'extra': extra,
+            'otp_ok': False,
+            'needs_captcha': True,
+            'image_png': png,
+            'logs': logs + cap_data.get('logs', []),
         }
 
     async def send_download_otp_with_captcha(self, captcha: str) -> dict[str, Any]:

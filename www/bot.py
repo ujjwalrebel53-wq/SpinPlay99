@@ -392,15 +392,35 @@ async def _send_captcha_ready(
     progress: LoadingScreen,
     *,
     instant_sent: bool = False,
+    chat_id: int | None = None,
 ) -> None:
+    cid = chat_id or (update.effective_chat.id if update.effective_chat else 0)
+    await progress.update(7, 8, 'Auto captcha bypass')
+    try:
+        auto_result = await sess.auto_send_otp(on_step=progress.update)
+        if auto_result.get('otp_ok'):
+            FLOW[cid] = {
+                **FLOW.get(cid, {}),
+                'step': STEP_OTP,
+                'name': sess.name,
+                'mobile': sess.mobile,
+                'mode': FLOW_MODE_RETRIEVE,
+            }
+            mode = auto_result.get('auto_captcha') or 'auto'
+            await progress.done(f'OTP sent — captcha bypass ({mode})')
+            await update.message.reply_text(uidai_user_message(auto_result, kind='otp'))
+            return
+    except Exception as e:
+        log.debug('auto captcha open flow: %s', e)
+
     if not instant_sent:
         cap = await sess.captcha_png(use_cache=True)
         ttl = sess.ttl_label() if sess.last_activity_at else ''
         await update.message.reply_photo(
             photo=cap,
-            caption=_captcha_caption(ttl=ttl),
+            caption=_captcha_caption(ttl=ttl) + '\nOr send: auto',
         )
-    await progress.done('Captcha ready — reply with text')
+    await progress.done('Captcha ready — reply with text or auto')
 
 
 async def _fail_open(
@@ -479,7 +499,9 @@ async def open_uidai_session(
         try:
             await existing.start()
             await existing.open_form(name, mobile, force_reload=False)
-            await _send_captcha_ready(update, existing, progress, instant_sent=instant_sent)
+            await _send_captcha_ready(
+                update, existing, progress, instant_sent=instant_sent, chat_id=chat_id,
+            )
         except Exception as e:
             await _fail_open(chat_id, existing, progress, e)
         return
@@ -558,28 +580,30 @@ async def _start_download_flow(
 
     try:
         cap = await sess.fetch_captcha(prefer_audio=None)
-        auto = cap.get('captcha_auto') or ''
         png = cap.get('image_png') or b''
-        if auto and len(auto) >= 4:
-            FLOW[chat_id]['captcha_auto'] = auto
-            await progress.done('Audio captcha solved — sending OTP 1…')
-            result = await sess.send_retrieve_otp(auto)
-            if result.get('otp_ok'):
-                FLOW[chat_id]['step'] = STEP_OTP_1
-                await update.message.reply_text(uidai_user_message(result, kind='otp'))
-                return
+
+        await progress.update(2, 4, 'Auto captcha bypass')
+        result = await sess.auto_send_retrieve_otp(png)
+        if result.get('otp_ok'):
+            FLOW[chat_id]['step'] = STEP_OTP_1
+            mode = result.get('auto_captcha') or 'auto'
+            await progress.done(f'OTP 1 sent — captcha bypass ({mode})')
+            await update.message.reply_text(uidai_user_message(result, kind='otp'))
+            return
+
         if png and len(png) > 500:
-            await progress.done('Captcha ready — reply with text (Phase 1)')
+            await progress.done('Auto bypass failed — type captcha manually')
             await update.message.reply_photo(
                 photo=png,
                 caption=(
-                    '🔐 Phase 1 — EID retrieve (DOB bypass)\n'
-                    'Reply with captcha text (4–8 chars)\n'
+                    '🔐 Phase 1 — type captcha (4–8 chars)\n'
+                    'Or send: auto\n'
                     '/close — cancel'
                 ),
             )
             return
-        await progress.fail('Could not fetch captcha — try /pdf again or set UIDAI_PROXY')
+
+        await progress.fail('Captcha bypass failed — try /pdf again or set UIDAI_PROXY')
     except Exception as e:
         log.exception('download flow start failed')
         clear_flow(chat_id)
@@ -963,14 +987,46 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if step != STEP_CAPTCHA:
         return
 
-    if mode == FLOW_MODE_DOWNLOAD:
-        if not CAPTCHA_RE.match(text):
-            await update.message.reply_text('Captcha must be 4–8 letters/numbers.')
+    if mode == FLOW_MODE_RETRIEVE and text.lower() in ('auto', 'skip', 'bypass'):
+        sess = get_session(cid)
+        if not sess:
+            clear_flow(cid)
+            await update.message.reply_text('Session expired — /open again.')
             return
+        wait = await update.message.reply_text('⏳ Auto captcha…')
+        progress = LoadingScreen(wait, sess.name, sess.mobile, title='Send OTP', subtitle='Auto bypass')
+        try:
+            result = await sess.auto_send_otp(on_step=progress.update)
+            if result.get('otp_ok'):
+                FLOW[cid]['step'] = STEP_OTP
+                await progress.done(uidai_user_message(result, kind='otp'))
+            else:
+                await progress.fail(uidai_user_message(result, kind='otp'))
+        except Exception as e:
+            await progress.fail(f'Auto fail: {e}')
+        return
+
+    if mode == FLOW_MODE_DOWNLOAD:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
+            return
+        if text.lower() in ('auto', 'skip', 'bypass'):
+            wait = await update.message.reply_text('⏳ Auto captcha retry…')
+            progress = LoadingScreen(wait, sess.name, sess.mobile, title='OTP 1', subtitle='Auto bypass')
+            try:
+                result = await sess.auto_send_retrieve_otp(b'')
+                if result.get('otp_ok'):
+                    FLOW[cid]['step'] = STEP_OTP_1
+                    await progress.done(uidai_user_message(result, kind='otp'))
+                else:
+                    await progress.fail(uidai_user_message(result, kind='otp'))
+            except Exception as e:
+                await progress.fail(f'Auto fail: {e}')
+            return
+        if not CAPTCHA_RE.match(text):
+            await update.message.reply_text('Captcha 4–8 chars, or send: auto')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
         progress = LoadingScreen(

@@ -39,6 +39,63 @@ GET_OPTION_JS = """() => {
   return uid ? 'UID' : 'EID';
 }"""
 
+EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
+  function fiberKey(el) {
+    return Object.keys(el || {}).find((k) => k.startsWith('__reactFiber'));
+  }
+  function fromState(st) {
+    if (!st) return null;
+    const txn = st.captchaTxnID || st.captchaTxnId || st.captchaTxn;
+    const img = st.captchaImage || st.captchaImg || st.imageBase64 || st.captcha;
+    if (!txn && !img) return null;
+    return {
+      txn: txn ? String(txn).trim() : '',
+      image: img ? String(img).trim() : '',
+    };
+  }
+  function scanFiber(f) {
+    for (let j = 0; j < 28 && f; j++, f = f.return) {
+      const hit = fromState(f.pendingProps?.state) || fromState(f.memoizedState);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const btn = [...document.querySelectorAll('button')].find(
+    (b) => /send\\s*otp/i.test((b.textContent || '').trim())
+  );
+  if (btn) {
+    const fk = fiberKey(btn);
+    if (fk) {
+      const hit = scanFiber(btn[fk]);
+      if (hit) return hit;
+    }
+  }
+  for (const el of document.querySelectorAll('#root button, main button, app-root *')) {
+    const fk = fiberKey(el);
+    if (!fk) continue;
+    const hit = scanFiber(el[fk]);
+    if (hit) return hit;
+  }
+  const img = document.querySelector('img[alt*="CAPTCHA" i]');
+  if (img) {
+    const src = img.src || '';
+    if (src.startsWith('data:image')) {
+      const m = src.match(/^data:image\\/[^;]+;base64,(.+)$/);
+      if (m) return { txn: '', image: m[1] };
+    }
+    if (img.naturalWidth > 10) {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        return { txn: '', image: c.toDataURL('image/png').split(',')[1] };
+      } catch (e) {}
+    }
+  }
+  return null;
+}"""
+
 SET_OPTION_JS = """(opt) => {
   const want = String(opt || 'UID').toUpperCase();
   const val = want === 'EID' ? 'eid' : 'uid';

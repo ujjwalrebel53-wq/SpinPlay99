@@ -25,6 +25,7 @@ from proxy_india import (
 )
 from react_extract import (
     CLICK_REFRESH_CAPTCHA_JS,
+    EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
     GET_OPTION_JS,
     SEND_OTP_FETCH_JS,
@@ -192,9 +193,23 @@ async def fetch_captcha_from_page(
         auto_india_proxy=auto_india_proxy,
         on_step=on_step,
     )
+    net_captcha: dict[str, Any] = {}
+
+    async def _on_captcha_response(response) -> None:
+        url = (response.url or '').lower()
+        if response.status != 200:
+            return
+        if 'captcha' not in url or 'generation' not in url:
+            return
+        try:
+            net_captcha['json'] = await response.json()
+        except Exception:
+            pass
+
     try:
         await sess.start()
         await sess._step(1, 4, 'UIDAI page open')
+        sess.page.on('response', _on_captcha_response)
         await sess.page.goto(page_url, wait_until='commit', timeout=45_000)
         if is_retrieve:
             if not await sess._poll_form(22.0):
@@ -208,6 +223,13 @@ async def fetch_captcha_from_page(
             await el.wait_for(state='visible', timeout=20_000)
             await sess._wait_captcha_txn(18.0)
         png, txn = await _capture_page_captcha(sess.page)
+        if not txn and net_captcha.get('json'):
+            from audio_captcha import parse_captcha_generation
+
+            parsed = parse_captcha_generation(net_captcha['json'])
+            txn = str(parsed.get('captchaTxnId') or '')
+            if len(png) < 500 and parsed.get('image_png'):
+                png = parsed['image_png']
         if not txn:
             raise RuntimeError('captchaTxnId missing — try /pdf again')
         return png, txn
@@ -216,15 +238,63 @@ async def fetch_captcha_from_page(
 
 
 async def _capture_page_captcha(page: Page) -> tuple[bytes, str]:
+    import base64
+
+    txn = ''
+    png = b''
+
+    bundle = await page.evaluate(EXTRACT_CAPTCHA_BUNDLE_JS)
+    if isinstance(bundle, dict):
+        txn = str(bundle.get('txn') or '').strip()
+        img_b64 = str(bundle.get('image') or '').strip()
+        if img_b64.startswith('data:'):
+            img_b64 = img_b64.split(',', 1)[-1]
+        if img_b64:
+            try:
+                png = base64.b64decode(img_b64)
+            except Exception:
+                png = b''
+
     el = page.locator('img[alt*="CAPTCHA" i]').first
-    await el.wait_for(state='visible', timeout=15_000)
-    for _ in range(40):
-        if await el.evaluate('(img) => img.complete && img.naturalWidth > 10'):
+    try:
+        await el.wait_for(state='visible', timeout=12_000)
+    except Exception:
+        if png and txn:
+            return png, txn
+        raise
+
+    for attempt in range(50):
+        loaded = await el.evaluate(
+            '(img) => img.complete && img.naturalWidth > 10 && img.naturalHeight > 5'
+        )
+        if loaded:
             break
-        await asyncio.sleep(0.2)
-    png = await el.screenshot(type='png', timeout=8_000)
-    txn = await page.evaluate(EXTRACT_CAPTCHA_TXN_JS)
-    return png, str(txn or '')
+        if attempt == 20:
+            await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+        await asyncio.sleep(0.25)
+
+    if len(png) < 500:
+        try:
+            shot = await el.screenshot(type='png', timeout=8_000)
+            if len(shot) > len(png):
+                png = shot
+        except Exception:
+            pass
+
+    if not txn:
+        txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+
+    if len(png) < 200 and txn:
+        bundle2 = await page.evaluate(EXTRACT_CAPTCHA_BUNDLE_JS)
+        if isinstance(bundle2, dict):
+            img_b64 = str(bundle2.get('image') or '').strip()
+            if img_b64:
+                try:
+                    png = base64.b64decode(img_b64.split(',')[-1])
+                except Exception:
+                    pass
+
+    return png, txn
 
 
 async def _refresh_standby_captcha_locked(page: Page) -> None:
@@ -871,8 +941,51 @@ class UidaiBrowserSession:
             ok, status, text, extra = await self._post_uidai_in_page(payload, logs, 'xhr', label)
         return ok, status, text, extra
 
-    async def send_otp(self, captcha: str, on_step: StepCb | None = None) -> dict[str, Any]:
-        captcha = captcha.strip().lower()
+    async def auto_send_otp(self, on_step: StepCb | None = None) -> dict[str, Any]:
+        """Captcha bypass — null / OCR without user typing."""
+        from captcha_solver import captcha_attempt_values
+
+        png = self.peek_captcha_png() or b''
+        if len(png) < 200 and self._page:
+            try:
+                png, txn = await _capture_page_captcha(self.page)
+                if txn:
+                    self.captcha_txn_id = txn
+            except Exception:
+                pass
+        txn = self.captcha_txn_id
+        result: dict[str, Any] = {'otp_ok': False}
+        for label, cap, try_txn in captcha_attempt_values(png, txn):
+            use_txn = try_txn or txn
+            if use_txn:
+                self.captcha_txn_id = use_txn
+            result = await self.send_otp(
+                cap or 'auto',
+                on_step=on_step,
+                captcha_bypass=label.startswith('null'),
+            )
+            if result.get('otp_ok'):
+                result['auto_captcha'] = label
+                return result
+            reason = None
+            for item in reversed(result.get('logs') or []):
+                d = item.get('d')
+                if isinstance(d, dict) and d.get('reason'):
+                    reason = d['reason']
+            if reason not in ('invalid_captcha', 'captcha_expired', None):
+                return result
+        return result
+
+    async def send_otp(
+        self,
+        captcha: str,
+        on_step: StepCb | None = None,
+        *,
+        captcha_bypass: bool = False,
+    ) -> dict[str, Any]:
+        captcha = (captcha or '').strip().lower()
+        if captcha == 'auto':
+            captcha = ''
         step_fn = on_step or self._on_step
         total = 6
         logs: list[dict[str, Any]] = []
@@ -882,8 +995,11 @@ class UidaiBrowserSession:
             if step_fn:
                 await step_fn(n, total, msg)
 
-        await s(1, f'Captcha fill: {captcha}')
-        await self.page.fill('input[name="captcha"]', captcha)
+        if captcha:
+            await s(1, f'Captcha fill: {captcha}')
+            await self.page.fill('input[name="captcha"]', captcha)
+        else:
+            await s(1, 'Captcha bypass (null)')
 
         await s(2, 'captchaTxnID read…')
         txn = await self._extract_captcha_txn()
@@ -891,21 +1007,27 @@ class UidaiBrowserSession:
             try:
                 txn = await self._wait_captcha_txn(8.0)
             except RuntimeError:
-                append_log(logs, 'warn', 'captchaTxnId missing — /refresh karo')
-                await s(3, 'captchaTxnID missing')
-                await s(4, 'Done')
-                await s(5, 'Done')
-                await s(6, 'Done')
-                self.last_logs = logs
-                return self._api_result(logs, otp_ok=False, captcha=captcha)
+                if captcha_bypass:
+                    txn = self.captcha_txn_id or ''
+                if not txn:
+                    append_log(logs, 'warn', 'captchaTxnId missing — /refresh karo')
+                    await s(3, 'captchaTxnID missing')
+                    await s(4, 'Done')
+                    await s(5, 'Done')
+                    await s(6, 'Done')
+                    self.last_logs = logs
+                    return self._api_result(logs, otp_ok=False, captcha=captcha)
 
         option = await self._read_option()
+        from captcha_solver import captcha_bypass_enabled
+
         payload = build_otp_payload(
             name=self.name,
             mobile=self.mobile,
             captcha=captcha,
             captcha_txn_id=txn,
             option=option,
+            captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not captcha),
         )
         append_log(logs, 'info', 'OTP bhej rahe hain', {
             'mobile': self.mobile,
