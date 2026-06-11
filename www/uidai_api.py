@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.11.6'
+BOT_ENGINE_VERSION = '2.12.0'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
@@ -20,7 +20,7 @@ DOWNLOAD_OTP_API_URL = (
 )
 DOWNLOAD_PDF_API_URL = 'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download'
 
-# Naam optional — DOB ki tarah placeholder (UIDAI mobile OTP pe verify karta hai)
+# Name optional — placeholder like DOB (UIDAI verifies via mobile OTP)
 PLACEHOLDER_NAME = 'Mr'
 SKIP_NAME_TOKENS = frozenset({
     'mr', 'mister', 'skip', 'unknown', 'unk', 'na', 'n/a', 'no', 'none', '?', '-', 'x', 'naam',
@@ -33,7 +33,7 @@ def is_skip_name(name: str) -> bool:
 
 
 def normalize_name(name: str) -> str:
-    """Real naam ya placeholder Mr — API + form dono ke liye."""
+    """Real name or placeholder Mr — for API and form."""
     if is_skip_name(name):
         return PLACEHOLDER_NAME
     return ' '.join(str(name).split()).upper()
@@ -313,7 +313,7 @@ def _deep_get(obj: Any, *keys: str) -> Any:
 
 
 def extract_otp_txn_id(data: dict[str, Any]) -> str | None:
-    """OTP send success response se otpTxnId nikaalo."""
+    """Extract otpTxnId from OTP send success response."""
     candidates = [
         data.get('otpTxnId'),
         data.get('otpTxnID'),
@@ -372,7 +372,7 @@ def extract_aadhaar_number(data: dict[str, Any]) -> str | None:
 
 
 def extract_aadhaar_hint(data: dict[str, Any]) -> str | None:
-    """Retrieve response se UID/EID hint (masked) agar mile."""
+    """Extract UID/EID hint (masked) from retrieve response if present."""
     for key in (
         'uid', 'UID', 'aadhaar', 'aadhaarNumber', 'aadhaarNo',
         'eid', 'EID', 'enrolmentId', 'enrolmentNumber', 'maskedAadhaar',
@@ -530,4 +530,4 @@ def summarize_logs(logs: list[dict[str, Any]], limit: int = 15) -> str:
         data = item.get('d') if 'd' in item else item.get('data')
         extra = f' {json.dumps(data)}' if data is not None else ''
         lines.append(f'[{level}] {msg}{extra}')
-    return '\n'.join(lines) or 'Koi log nahi'
+    return '\n'.join(lines) or 'No logs'

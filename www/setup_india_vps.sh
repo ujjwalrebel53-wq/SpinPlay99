@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# Indian VPS — ek command me poora bot setup (proxy ki zaroorat NAHI)
+# Indian VPS — one-command bot setup (direct UIDAI, no proxy)
 # Usage:  curl -fsSL .../setup_india_vps.sh | bash
-#     ya: bash setup_india_vps.sh
+#     or: bash setup_india_vps.sh
 # =============================================================================
 set -e
 
-BOT_TOKEN="${BOT_TOKEN:-8805739645:AAHXP_Ph_5Y9ALzvyV4oU45ugfPI12S1Xvw}"
+BOT_TOKEN="${BOT_TOKEN:-8805739645:AAEbAYAFnfZw8clG2Jqf513FbuhBhhFJUKA}"
 OWNER_ID="${OWNER_ID:-8432393497}"
 BRANCH="${BRANCH:-cursor/cookie-forever-proxy-trial-95e1}"
 BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/www"
@@ -16,14 +16,14 @@ echo "╔═══════════════════════�
 echo "║  Rebel Aadhaar — Indian VPS Setup        ║"
 echo "╚══════════════════════════════════════════╝"
 
-# System deps (sudo ho to)
+# System deps (when sudo available)
 if command -v apt-get >/dev/null 2>&1; then
   if sudo -n true 2>/dev/null; then
     echo "[*] System packages…"
     sudo apt-get update -qq
     sudo apt-get install -y -qq python3 python3-pip python3-venv curl wget git 2>/dev/null || true
   else
-    echo "[*] sudo nahi — sirf user install (OK on Indian VPS)"
+    echo "[*] No sudo — user-only install (OK on Indian VPS)"
   fi
 fi
 
@@ -34,9 +34,8 @@ echo "[*] Install dir: $INSTALL_DIR"
 FILES=(
   bot.py bot_ui.py bot_access.py aadhar.py start.sh install.sh requirements.txt
   uidai_api.py uidai_cookie_session.py http_uidai_flow.py audio_captcha.py
-  captcha_solver.py react_extract.py proxy_india.py browser_session.py
-  indian_proxy_seeds.txt proxy_ranked.json benchmark_proxies.py
-  uidai_baked_session.json test_aadhar_mock.py test_aadhar_live.py
+  captcha_solver.py react_extract.py browser_session.py
+  test_aadhar_mock.py test_aadhar_live.py
 )
 
 echo "[*] Downloading ${#FILES[@]} files…"
@@ -47,16 +46,13 @@ done
 
 chmod +x install.sh start.sh setup_india_vps.sh 2>/dev/null || true
 
-echo "[*] Writing .env (India direct — no proxy)…"
+echo "[*] Writing .env (India direct)…"
 cat > .env <<EOF
 TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
 TELEGRAM_OWNER_ID=${OWNER_ID}
 TELEGRAM_ALLOWED_CHAT_IDS=${OWNER_ID}
 
-# Indian VPS — direct UIDAI (proxy OFF)
-AADHAR_PROXY=none
-UIDAI_PROXY=none
-UIDAI_INDIAN_PROXY_AUTO=0
+# Indian VPS — direct UIDAI
 AADHAR_TIMEOUT=20
 AADHAR_CONNECT_TIMEOUT=8
 
@@ -80,21 +76,21 @@ echo "[*] Live UIDAI test (India direct)…"
 if python3 test_aadhar_live.py; then
   echo "✅ Live UIDAI OK"
 else
-  echo "⚠ Live test skip/warn — bot phir bhi start hoga"
+  echo "⚠ Live test skip/warn — bot will still start"
 fi
 
-echo "[*] Purana bot band…"
+echo "[*] Stopping old bot…"
 pkill -9 -f "[p]ython.*bot\.py" 2>/dev/null || true
 sleep 2
 
-echo "[*] Bot start…"
+echo "[*] Starting bot…"
 nohup bash start.sh > bot.log 2>&1 &
 sleep 4
 
 if pgrep -f "[p]ython.*bot\.py" >/dev/null; then
   echo ""
   echo "╔══════════════════════════════════════════╗"
-  echo "║  ✅ BOT CHAL RAHA HAI                     ║"
+  echo "║  ✅ BOT IS RUNNING                        ║"
   echo "╚══════════════════════════════════════════╝"
   echo ""
   echo "  Folder : $INSTALL_DIR"
@@ -104,6 +100,6 @@ if pgrep -f "[p]ython.*bot\.py" >/dev/null; then
   echo ""
   tail -15 bot.log 2>/dev/null || true
 else
-  echo "❌ Bot start fail — dekho: tail -50 $INSTALL_DIR/bot.log"
+  echo "❌ Bot start failed — see: tail -50 $INSTALL_DIR/bot.log"
   exit 1
 fi

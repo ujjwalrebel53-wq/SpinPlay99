@@ -19,21 +19,12 @@ from audio_captcha import (
     whisper_enabled,
 )
 from captcha_solver import captcha_attempt_values, captcha_bypass_enabled, ocr_captcha_png
-from proxy_india import (
-    check_direct_india,
-    fast_mode,
-    format_direct_line,
-    format_proxy_line,
-    pick_indian_proxy,
-)
 from uidai_cookie_session import (
     apply_isolated_baked_cookies,
     baked_session_ready,
     bootstrap_uidai_session,
     cookie_jar_ready,
     cookie_summary,
-    needs_baked_proxy,
-    resolve_baked_route,
 )
 from uidai_api import (
     AUDIO_CAPTCHA_API_URL,
@@ -67,13 +58,13 @@ StepCb = Callable[[int, int, str], Awaitable[None]]
 
 
 def http_mode_preferred() -> bool:
-    """Foreign VPS / explicit HTTP — skip Playwright when possible."""
+    """Use HTTP flow when enabled (Indian VPS direct)."""
     mode = os.getenv('UIDAI_HTTP_MODE', 'auto').strip().lower()
     if mode in ('1', 'true', 'yes', 'http', 'on'):
         return True
     if mode in ('0', 'false', 'no', 'playwright', 'browser', 'off'):
         return False
-    return check_direct_india(timeout=4) is None
+    return True
 
 
 def pdf_flow_pure_http() -> bool:
@@ -91,15 +82,10 @@ class UidaiHttpSession:
     def __init__(
         self,
         *,
-        proxy: str | None = None,
-        auto_proxy: bool = True,
         on_step: StepCb | None = None,
     ) -> None:
-        self.proxy_url = proxy
-        self.auto_proxy = auto_proxy
         self._on_step = on_step
         self._session = requests.Session()
-        self.proxy_info: dict[str, Any] = {}
         self.name = ''
         self.mobile = ''
         self.dob: str | None = None
@@ -117,63 +103,13 @@ class UidaiHttpSession:
         if baked_session_ready():
             apply_isolated_baked_cookies(self._session)
 
-    @property
-    def proxies(self) -> dict[str, str] | None:
-        if not self.proxy_url:
-            return None
-        return {'http': self.proxy_url, 'https': self.proxy_url}
-
     async def _step(self, n: int, total: int, msg: str) -> None:
         if self._on_step:
             await self._on_step(n, total, msg)
 
-    def _ensure_proxy(self, *, deep_scan: bool = False) -> None:
-        if self.proxy_url:
-            return
-
-        if baked_session_ready() or cookie_jar_ready():
-            bootstrap_uidai_session(self._session, None)
-            if needs_baked_proxy():
-                from uidai_cookie_session import get_baked_proxy_info
-
-                proxy_url, label = resolve_baked_route()
-                if proxy_url:
-                    self.proxy_url = proxy_url
-                    self.proxy_info = get_baked_proxy_info()
-                    log.info('HTTP %s — %s (no scan)', label, proxy_url)
-            else:
-                log.info('HTTP baked cookies — direct India (isolated)')
-            return
-
-        if not self.auto_proxy:
-            india = check_direct_india(timeout=3)
-            if india:
-                self.proxy_info = india
-            bootstrap_uidai_session(self._session, None)
-            return
-
-        try:
-            proxy, info = pick_indian_proxy(limit=50, full_trial=True)
-            self.proxy_url = proxy
-            self.proxy_info = info
-            log.info('HTTP proxy scan — %s', proxy)
-        except Exception as e:
-            india = check_direct_india(timeout=3)
-            if india:
-                self.proxy_info = india
-                bootstrap_uidai_session(self._session, None)
-                log.info('HTTP direct India fallback')
-                return
-            raise RuntimeError(f'No working India route: {e}') from e
-
-    def proxy_label(self) -> str:
-        if self.proxy_url and self.proxy_info:
-            line = format_proxy_line(self.proxy_info, self.proxy_url)
-        elif self.proxy_info:
-            line = format_direct_line(self.proxy_info)
-        else:
-            line = 'HTTP — UIDAI gateway'
+    def route_label(self) -> str:
         cc = self.cookie_info.get('count', 0)
+        line = 'Direct HTTP — UIDAI gateway'
         if cc:
             return f'{line} · cookies:{cc}'
         return line
@@ -182,10 +118,9 @@ class UidaiHttpSession:
         key = page_url.split('?')[0].rstrip('/')
         if key in self._cookie_pages:
             return
-        self._ensure_proxy()
         info = bootstrap_uidai_session(
             self._session,
-            self.proxy_url,
+            None,
             page_url=page_url,
         )
         self.cookie_info = info
@@ -203,7 +138,6 @@ class UidaiHttpSession:
         label: str,
         req_id: str | None = None,
     ) -> tuple[int, str]:
-        self._ensure_proxy()
         self._ensure_cookies(referer, logs)
         rid = (req_id or '').strip() or new_request_id()
         headers = get_header(rid)
@@ -221,20 +155,13 @@ class UidaiHttpSession:
                 url,
                 headers=headers,
                 json=body,
-                proxies=self.proxies,
+                proxies=None,
                 timeout=int(os.getenv('UIDAI_HTTP_TIMEOUT', '45')),
             )
             text = r.text or ''
             append_log(logs, 'info', f'{label} HTTP {r.status_code}', {'body': text[:400]})
             return r.status_code, text
         except requests.RequestException as e:
-            if fast_mode() and not getattr(self, '_proxy_deep_tried', False):
-                self._proxy_deep_tried = True
-                self.proxy_url = None
-                self._ensure_proxy(deep_scan=True)
-                return self._post_json(
-                    url, payload, referer=referer, logs=logs, label=label, req_id=rid,
-                )
             append_log(logs, 'error', f'{label} network', {'err': str(e)})
             raise RuntimeError(f'{label} network error: {e}') from e
 
@@ -291,7 +218,7 @@ class UidaiHttpSession:
         """Phase 1 — audio captcha + OTP request (fully automated captcha)."""
         logs: list[dict[str, Any]] = []
         self._phase_req_id = new_request_id()
-        await self._step(1, 5, self.proxy_label())
+        await self._step(1, 5, self.route_label())
         try:
             cap = await self.solve_audio_captcha(referer=RETRIEVE_PAGE_URL, logs=logs)
         except Exception as e:
@@ -572,17 +499,9 @@ class UidaiHttpSession:
         from browser_session import fetch_captcha_from_page
 
         await self._step(2, 6, 'Browser captcha (live page)')
-        if not self.proxy_url and self.auto_proxy:
-            try:
-                self._ensure_proxy()
-            except Exception:
-                pass
-        self._ensure_proxy()
         self._ensure_cookies(page_url)
         return await fetch_captcha_from_page(
             page_url,
-            proxy=self.proxy_url,
-            auto_india_proxy=self.auto_proxy,
             name=self.name,
             mobile=self.mobile,
             option=self.option,
@@ -600,7 +519,7 @@ class UidaiHttpSession:
         ref = referer or (DOWNLOAD_PAGE_URL if self.flow == 'download' else RETRIEVE_PAGE_URL)
         is_download_page = 'genricDownloadAadhaar' in ref or 'download' in ref.lower()
         page_url = DOWNLOAD_PAGE_URL if is_download_page else RETRIEVE_PAGE_URL
-        await self._step(1, 4, self.proxy_label())
+        await self._step(1, 4, self.route_label())
 
         use_audio = prefer_audio if prefer_audio is not None else whisper_enabled()
         if use_audio and pdf_flow_pure_http():
@@ -674,7 +593,6 @@ def get_http_session(chat_id: int) -> UidaiHttpSession | None:
 async def sync_from_browser(http_sess: UidaiHttpSession, browser: Any) -> None:
     from uidai_cookie_session import merge_browser_cookies_into_session
 
-    http_sess.proxy_url = getattr(browser, '_active_proxy', None) or browser.proxy
     http_sess.name = browser.name
     http_sess.mobile = browser.mobile
     http_sess.captcha_txn_id = browser.captcha_txn_id

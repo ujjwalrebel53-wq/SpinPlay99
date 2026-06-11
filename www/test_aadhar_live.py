@@ -26,7 +26,7 @@ def test_log_listener() -> bool:
 
 async def test_captcha_fetch() -> bool:
     print('\n=== 2. Live captcha fetch (UIDAI API) ===')
-    print('  (max ~20s — agar atke to Ctrl+C, .env me AADHAR_PROXY=none check karo)')
+    print('  (max ~20s — if stuck press Ctrl+C; requires Indian VPS direct access)')
     lines: list[str] = []
 
     def on_log(m: str) -> None:
@@ -68,7 +68,7 @@ async def test_captcha_fetch() -> bool:
     ok = has_txn and has_logs and (has_media or result.get('otp_ok'))
     if not ok:
         print('  NOTE: Live UIDAI blocked from this server — run test_aadhar_mock.py')
-        print('  VPS pe India proxy ke saath chalega')
+        print('  Run on Indian VPS with direct UIDAI access')
     print(f'  {"PASS" if ok else "SKIP (network)"}')
     return ok or not has_txn  # skip live if network blocked, not fail suite
 

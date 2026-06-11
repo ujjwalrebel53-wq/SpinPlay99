@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram bot — UIDAI retrieve page live + captcha Telegram se bharo.
+Telegram bot — live UIDAI retrieve page + captcha via Telegram.
 
 Python-first OTP (no extension bundle) — dob:null direct API.
 
@@ -17,7 +17,6 @@ import asyncio
 import logging
 import os
 import re
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -37,7 +36,7 @@ try:
 except ImportError as exc:
     raise SystemExit(
         '❌ bot_ui.py / bot_access.py missing!\n\n'
-        'VPS pe ye chalao:\n'
+        'On VPS run:\n'
         '  cd www\n'
         '  BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/www"\n'
         '  wget -O bot_ui.py "$BASE/bot_ui.py"\n'
@@ -64,14 +63,8 @@ from browser_session import (
     pool_is_warm,
     refresh_standby_captcha,
 )
-from proxy_india import fastest_proxy_url, pick_indian_proxy
 from uidai_cookie_session import baked_session_ready, cookie_jar_ready, sync_baked_to_runtime_jar
-from http_uidai_flow import (
-    UidaiHttpSession,
-    HTTP_SESSIONS,
-    get_http_session,
-    sync_from_browser,
-)
+from http_uidai_flow import HTTP_SESSIONS
 from react_extract import SET_OPTION_JS
 from uidai_api import (
     BOT_ENGINE_VERSION,
@@ -97,17 +90,6 @@ OWNER_ID = os.getenv('TELEGRAM_OWNER_ID', '8432393497').strip()
 if not OWNER_ID and len(ALLOWED) == 1:
     OWNER_ID = next(iter(ALLOWED))
 ACCESS = AccessControl(OWNER_ID, ALLOWED)
-PROXY_RAW = os.getenv('UIDAI_PROXY', 'auto').strip().lower()
-if PROXY_RAW in ('none', 'no', 'off', 'direct'):
-    PROXY = None
-    AUTO_INDIA = False
-elif PROXY_RAW in ('', 'auto', 'india'):
-    PROXY = None
-    # Pehli baar proxy scan; cookies save ke baad hamesha cookies-only
-    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '1') == '1'
-else:
-    PROXY = os.getenv('UIDAI_PROXY', '').strip()
-    AUTO_INDIA = False
 DEFAULT_NAME = os.getenv('UIDAI_NAME', 'KAMAR JAHAN').strip()
 DEFAULT_MOBILE = os.getenv('UIDAI_MOBILE', '7651892956').strip()
 
@@ -292,9 +274,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f'Mode: {"PDF download (2-OTP)" if mode == FLOW_MODE_DOWNLOAD else "SMS retrieve"}',
         f'Step: {step_labels.get(step, "Ready" if not step else step)}',
     ]
-    http_sess = get_http_session(cid)
-    if http_sess:
-        lines.append(f'Route: {http_sess.proxy_label()}')
     if draft.get('name'):
         lines.append(f'Name: {draft["name"]}')
     if draft.get('mobile'):
@@ -315,7 +294,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     user_id, chat_id = _ids(update)
     await update.message.reply_text(
-        f'🆔 Aapka Chat ID: `{chat_id}`\n'
+        f'🆔 Your Chat ID: `{chat_id}`\n'
         f'User ID: `{user_id}`\n\n'
         'Share this ID with the owner for approval.',
         parse_mode='Markdown',
@@ -458,13 +437,6 @@ async def _fail_open(
 def _connection_error_hint(exc: Exception) -> str:
     msg = str(exc).strip()
     low = msg.lower()
-    if 'proxy' in low or 'vpn' in low or 'indian' in low:
-        return (
-            '❌ VPN connection failed.\n\n'
-            'Add to .env:\n'
-            'UIDAI_PROXY=http://14.143.222.113:57738\n\n'
-            'Then: /close → /open'
-        )
     if 'browser' in low or 'closed' in low or 'chromium' in low:
         return '❌ Browser crashed.\nTry /close then /open.'
     if 'uidai open' in low or 'timeout' in low:
@@ -538,11 +510,7 @@ async def open_uidai_session(
     async def on_step(n: int, total: int, text: str) -> None:
         await progress.update(n, total, text)
 
-    sess = UidaiBrowserSession(
-        proxy=PROXY,
-        auto_india_proxy=AUTO_INDIA,
-        on_step=on_step,
-    )
+    sess = UidaiBrowserSession(on_step=on_step)
     SESSIONS[chat_id] = sess
 
     try:
@@ -748,7 +716,7 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else 'You will be asked for DOB (DD/MM/YYYY).\n\n'
     )
     await update.message.reply_text(
-        '📥 2-OTP e-Aadhaar PDF (aadhar.py — no proxy/cookies)\n\n'
+        '📥 2-OTP e-Aadhaar PDF (aadhar.py engine)\n\n'
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
         'Unknown name? Send "Mr" or "skip"\n\n'
@@ -1110,7 +1078,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = get_session(cid)
     if not sess:
         clear_flow(cid)
-        await update.message.reply_text('Session expire — /open dubara.')
+        await update.message.reply_text('Session expired — run /open again.')
         return
 
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
@@ -1145,46 +1113,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
-async def benchmark_proxy_job(context) -> None:
-    """Background — 50 proxy test, fastest first save."""
-    import asyncio
-    from pathlib import Path
-
-    if baked_session_ready():
-        log.info('Proxy benchmark skip — baked working proxy use ho raha hai')
-        return
-
-    ranked = Path(__file__).parent / 'proxy_ranked.json'
-    if ranked.exists() and (time.time() - ranked.stat().st_mtime) < 3600 * 4:
-        return
-    try:
-        from benchmark_proxies import benchmark_pool
-        from proxy_india import save_ranked_proxies
-
-        rows = await asyncio.to_thread(benchmark_pool, 50)
-        if rows:
-            save_ranked_proxies(rows)
-            log.info('Proxy benchmark done — fastest %s', rows[0]['proxy'])
-    except Exception as e:
-        log.warning('proxy benchmark skip: %s', e)
-
-
 async def warm_pool_job(context) -> None:
-    """Bot start — baked working proxy se page pre-load (turant /open)."""
+    """Pre-load UIDAI page on bot start for faster /open."""
     if pool_is_warm():
         return
     if not cookie_jar_ready() and not baked_session_ready():
-        log.info('Pool warm skip — cookies nahi')
+        log.info('Pool warm skip — no saved cookies yet')
         return
-    from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
-
-    proxy = None
-    if use_baked_proxy_fast():
-        proxy = get_baked_proxy()
-        log.info('Pool warm — baked proxy %s', proxy)
-    elif PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
-        proxy = PROXY
-    await ensure_pool_warm(proxy)
+    await ensure_pool_warm()
 
 
 async def standby_captcha_job(context) -> None:
@@ -1214,9 +1150,9 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err = context.error
     if isinstance(err, Conflict):
         log.error(
-            '409 Conflict — same bot token do jagah polling ho rahi hai.\n'
-            'VPS pe: pkill -9 -f bot.py && bash start.sh\n'
-            'Local/duplicate copy band karo.'
+            '409 Conflict — same bot token is polling in two places.\n'
+            'On VPS: pkill -9 -f bot.py && bash start.sh\n'
+            'Stop any duplicate local copy.'
         )
         return
     if err:
@@ -1241,14 +1177,11 @@ def main() -> None:
         log.info('Baked UIDAI session loaded — all chats use isolated cookie copies')
 
     async def _bot_post_init(application: Application) -> None:
-        """Startup inside PTB event loop — asyncio.run() mat use karo."""
+        """Startup inside PTB event loop — do not use asyncio.run()."""
         try:
-            if baked_session_ready():
-                from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
-
-                proxy = get_baked_proxy() if use_baked_proxy_fast() else None
-                log.info('Startup pool warm — proxy=%s', proxy or 'direct')
-                await ensure_pool_warm(proxy)
+            if baked_session_ready() or cookie_jar_ready():
+                log.info('Startup pool warm — direct connection')
+                await ensure_pool_warm()
         except Exception as e:
             log.warning('post_init pool warm skip: %s', e)
         try:
@@ -1284,19 +1217,16 @@ def main() -> None:
 
     if app.job_queue:
         app.job_queue.run_once(warm_pool_job, when=1)
-        if not baked_session_ready():
-            app.job_queue.run_once(benchmark_proxy_job, when=30)
         app.job_queue.run_repeating(standby_captcha_job, interval=300, first=90)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 
     log.info(
-        'Bot start v%s — access: %s approved: %s owner: %s proxy: %s http: %s',
+        'Bot start v%s — access: %s approved: %s owner: %s http: %s',
         BOT_ENGINE_VERSION,
         ACCESS.mode,
         ACCESS.approved_count,
         OWNER_ID or '—',
-        PROXY or 'auto',
         os.getenv('UIDAI_HTTP_MODE', 'auto'),
     )
     app.run_polling(

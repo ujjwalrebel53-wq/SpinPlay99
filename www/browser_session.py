@@ -14,16 +14,6 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
-from proxy_india import (
-    check_direct_india,
-    check_proxy,
-    fast_mode,
-    fastest_proxy_url,
-    format_direct_line,
-    format_proxy_line,
-    pick_indian_proxy,
-    test_uidai,
-)
 from react_extract import (
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
@@ -55,14 +45,6 @@ log = logging.getLogger('uidai-browser')
 SESSION_TTL_SEC = int(os.getenv('UIDAI_SESSION_HOURS', '24')) * 3600
 KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
 CAPTCHA_CACHE_TTL_SEC = int(os.getenv('UIDAI_CAPTCHA_CACHE_MIN', '15')) * 60
-PROXY_CONNECT_TRIES = int(os.getenv('UIDAI_PROXY_TRIES', '3'))
-def _primary_proxy() -> str:
-    from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
-    from proxy_india import BAKED_PROXY
-
-    if use_baked_proxy_fast():
-        return get_baked_proxy() or BAKED_PROXY
-    return os.getenv('UIDAI_PRIMARY_PROXY', '').strip() or fastest_proxy_url()
 
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
@@ -82,8 +64,6 @@ _POOL: dict[str, Any] = {
     'lock': asyncio.Lock(),
     'pw': None,
     'browser': None,
-    'proxy': None,
-    'proxy_info': None,
     'standby': {
         'context': None,
         'page': None,
@@ -140,8 +120,6 @@ async def _pool_shutdown() -> None:
             except Exception:
                 pass
         _POOL['pw'] = None
-        _POOL['proxy'] = None
-        _POOL['proxy_info'] = None
 
 
 def pool_is_warm() -> bool:
@@ -149,9 +127,7 @@ def pool_is_warm() -> bool:
         return False
     sb = _POOL.get('standby') or {}
     page = sb.get('page')
-    if page and not page.is_closed():
-        return True
-    return _POOL.get('proxy') is not None
+    return bool(page and not page.is_closed())
 
 
 def standby_has_captcha() -> bool:
@@ -185,8 +161,6 @@ def get_standby_captcha_pair() -> tuple[bytes, str] | None:
 async def fetch_captcha_from_page(
     page_url: str,
     *,
-    proxy: str | None = None,
-    auto_india_proxy: bool = True,
     name: str = '',
     mobile: str = '',
     option: str = 'EID',
@@ -201,11 +175,7 @@ async def fetch_captcha_from_page(
             log.info('fetch_captcha_from_page — standby cache hit')
             return pair
 
-    sess = UidaiBrowserSession(
-        proxy=proxy,
-        auto_india_proxy=auto_india_proxy,
-        on_step=on_step,
-    )
+    sess = UidaiBrowserSession(on_step=on_step)
     net_captcha: dict[str, Any] = {}
 
     async def _on_captcha_response(response) -> None:
@@ -326,10 +296,10 @@ async def _refresh_standby_captcha_locked(page: Page) -> None:
     log.info('Standby captcha cached — txn=%s bytes=%s', (txn or '')[:8], len(png))
 
 
-async def warm_standby_uidai(proxy: str | None) -> bool:
+async def warm_standby_uidai() -> bool:
     """UIDAI page + captcha prefetch — 24/7 standby tab."""
     try:
-        browser, _ = await _pool_browser(proxy)
+        browser, _ = await _pool_browser()
         sb = _POOL['standby']
         if not sb.get('page') or sb['page'].is_closed():
             if sb.get('context'):
@@ -408,35 +378,32 @@ async def refresh_standby_captcha() -> bool:
         return False
 
 
-async def ensure_pool_warm(proxy: str | None = None) -> bool:
+async def ensure_pool_warm() -> bool:
     """Chromium + UIDAI standby page + captcha prefetch."""
     try:
-        await _pool_browser(proxy)
-        ok = await warm_standby_uidai(proxy)
-        log.info('Pool warm — proxy=%s standby=%s', proxy or 'direct', ok)
+        await _pool_browser()
+        ok = await warm_standby_uidai()
+        log.info('Pool warm — direct standby=%s', ok)
         return ok
     except Exception as e:
         log.warning('Pool warm fail: %s', e)
         return False
 
 
-async def _pool_browser(proxy: str | None) -> tuple[Browser, bool]:
+async def _pool_browser() -> tuple[Browser, bool]:
     """Return (browser, reused). Dead pool entry auto-relaunch."""
     async with _POOL['lock']:
-        if _POOL['browser'] and _POOL['proxy'] == proxy:
+        if _POOL['browser']:
             if _browser_connected(_POOL['browser']):
-                log.info('Pre-warm: browser reuse (proxy=%s)', proxy or 'direct')
+                log.info('Pre-warm: browser reuse (direct)')
                 return _POOL['browser'], True
             log.warning('Pre-warm: dead browser in pool — relaunch')
-            await _pool_drop_browser_locked()
-
-        if _POOL['browser']:
             await _pool_drop_browser_locked()
 
         if not _POOL['pw']:
             _POOL['pw'] = await async_playwright().start()
 
-        log.info('Pre-warm: naya browser launch (proxy=%s)', proxy or 'direct')
+        log.info('Pre-warm: launching browser (direct)')
         opts: dict[str, Any] = {
             'headless': True,
             'args': [
@@ -446,10 +413,7 @@ async def _pool_browser(proxy: str | None) -> tuple[Browser, bool]:
                 '--disable-gpu',
             ],
         }
-        if proxy:
-            opts['proxy'] = {'server': proxy}
         _POOL['browser'] = await _POOL['pw'].chromium.launch(**opts)
-        _POOL['proxy'] = proxy
         return _POOL['browser'], False
 
 
@@ -459,14 +423,10 @@ class UidaiBrowserSession:
     def __init__(
         self,
         bundle_path: Path | None = None,
-        proxy: str | None = None,
-        auto_india_proxy: bool = True,
         on_step: StepCb | None = None,
     ) -> None:
         # bundle_path kept for backward compat — no longer used
         self.bundle_path = bundle_path
-        self.proxy = proxy
-        self.auto_india_proxy = auto_india_proxy
         self._on_step = on_step
         self._context: BrowserContext | None = None
         self._page: Page | None = None
@@ -481,9 +441,7 @@ class UidaiBrowserSession:
         self.last_activity_at = 0.0
         self.page_loaded_at = 0.0
         self.last_logs: list[dict[str, Any]] = []
-        self.proxy_info: dict[str, Any] = {}
-        self.proxy_label = ''
-        self._active_proxy: str | None = None
+        self.connection_label = 'Direct'
         self._captcha_png_cache: bytes = b''
         self._captcha_cache_txn: str = ''
         self._captcha_cache_at: float = 0.0
@@ -491,7 +449,7 @@ class UidaiBrowserSession:
     @property
     def page(self) -> Page:
         if not self._page:
-            raise RuntimeError('Browser not started — /open pehle chalao')
+            raise RuntimeError('Browser not started — run /open first')
         return self._page
 
     @property
@@ -578,10 +536,8 @@ class UidaiBrowserSession:
         self.form_ready = True
         return png
 
-    async def _try_adopt_standby(self, proxy: str | None) -> bool:
+    async def _try_adopt_standby(self) -> bool:
         sb = _POOL.get('standby') or {}
-        if _POOL.get('proxy') != proxy:
-            return False
         page = sb.get('page')
         ctx = sb.get('context')
         if not page or page.is_closed() or not ctx:
@@ -602,110 +558,20 @@ class UidaiBrowserSession:
         return True
 
     async def reset_for_next_attempt(self) -> None:
-        """Retrieve ke baad — same page pe naya captcha."""
+        """After retrieve — refresh captcha on the same page."""
         self.otp_txn_id = ''
         self.last_captcha = ''
         await self.refresh_captcha()
 
-    async def _connect_proxy(self, proxy: str) -> str:
-        """Baked/working proxy turant — scan sirf fallback pe."""
-        from uidai_cookie_session import cookie_jar_ready, get_baked_proxy, get_baked_proxy_info, use_baked_proxy_fast
+    async def _prepare_connection(self) -> None:
+        """Direct connection — Indian VPS (no proxy)."""
+        from uidai_cookie_session import cookie_jar_ready
 
-        if use_baked_proxy_fast() and proxy == get_baked_proxy():
-            self.proxy_info = _POOL.get('proxy_info') or get_baked_proxy_info()
-            _POOL['proxy_info'] = self.proxy_info
-            _POOL['proxy'] = proxy
-            self.proxy_label = format_proxy_line(self.proxy_info, proxy)
-            await self._step(1, 8, f'⚡ {self.proxy_label}')
-            return proxy
-
-        if (
-            _POOL['proxy'] == proxy
-            and _POOL.get('proxy_info')
-            and pool_is_warm()
-        ):
-            self.proxy_info = _POOL['proxy_info']
-            self.proxy_label = format_proxy_line(self.proxy_info, proxy)
-            await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
-            return proxy
-
-        trial = int(os.getenv('UIDAI_PROXY_TRIAL_SEC', '30'))
-        tries = PROXY_CONNECT_TRIES
-        last_err: Exception | None = None
-        for attempt in range(tries):
-            try:
-                await self._step(1, 8, f'VPN try {attempt + 1}/{tries} — {trial}s max…')
-                info = await asyncio.to_thread(check_proxy, proxy, trial)
-                if info.get('countryCode') != 'IN':
-                    raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
-                await asyncio.to_thread(test_uidai, proxy, trial)
-                self.proxy_info = info
-                _POOL['proxy_info'] = info
-                self.proxy_label = format_proxy_line(info, proxy)
-                await self._step(1, 8, f'VPN connected — {self.proxy_label}')
-                return proxy
-            except Exception as e:
-                last_err = e
-                log.warning('proxy %s attempt %s/%s: %s', proxy, attempt + 1, tries, e)
-                if attempt < tries - 1:
-                    await asyncio.sleep(1.5)
-        raise RuntimeError(
-            f'VPN fail ({tries} try × {trial}s): {last_err}'
-        ) from last_err
-
-    async def _pick_proxy_with_trial(self) -> tuple[str, dict[str, Any]]:
-        """Telegram pe har proxy trial dikhao — 30s max each."""
-        from proxy_india import (
-            proxy_list_from_env,
-            proxy_trial_timeout,
-            score_proxy,
-            _save_cache,
-            proxy_cache_enabled,
-        )
-
-        pool = proxy_list_from_env()[:50]
-        trial = proxy_trial_timeout()
-        await self._step(1, 8, f'Proxy scan — {len(pool)} proxies × {trial}s…')
-
-        if proxy_cache_enabled():
-            from proxy_india import _load_cache
-
-            cached = _load_cache()
-            if cached and cached in pool:
-                host = cached.split('//')[-1]
-                await self._step(1, 8, f'Cache proxy — {host} ({trial}s)…')
-                row = await asyncio.to_thread(score_proxy, cached, require_uidai=True)
-                if row:
-                    return cached, row['info']
-
-        for i, proxy in enumerate(pool, 1):
-            host = proxy.split('//')[-1].split('@')[-1]
-            await self._step(1, 8, f'Proxy {i}/{len(pool)} — {host} ({trial}s)…')
-            t0 = time.monotonic()
-            row = await asyncio.to_thread(score_proxy, proxy, require_uidai=True)
-            elapsed = time.monotonic() - t0
-            if row:
-                if proxy_cache_enabled():
-                    _save_cache(proxy)
-                city = row['info'].get('city', '?')
-                await self._step(1, 8, f'VPN OK — {city} ({elapsed:.0f}s)')
-                return proxy, row['info']
-            log.info('Proxy %d/%d fail — %.1fs', i, len(pool), elapsed)
-
-        log.warning('UIDAI strict fail — India IP only')
-        for i, proxy in enumerate(pool, 1):
-            host = proxy.split('//')[-1]
-            await self._step(1, 8, f'Retry {i}/{len(pool)} India-only — {host}…')
-            row = await asyncio.to_thread(score_proxy, proxy, require_uidai=False)
-            if row:
-                if proxy_cache_enabled():
-                    _save_cache(proxy)
-                return proxy, row['info']
-
-        raise RuntimeError(
-            f'{len(pool)} proxy fail ({trial}s/try).\n'
-            'UIDAI_PROXY=http://ip:port ya rm proxy_cache.json'
-        )
+        if cookie_jar_ready():
+            self.connection_label = 'Saved cookies — direct'
+        else:
+            self.connection_label = 'Direct connection'
+        await self._step(1, 8, self.connection_label)
 
     async def _inject_saved_cookies(self) -> int:
         """Baked/runtime cookies — isolated copy browser context me."""
@@ -743,7 +609,7 @@ class UidaiBrowserSession:
         return base
 
     async def _persist_browser_cookies(self) -> None:
-        """Site load ke baad cookies save — agli baar bina proxy."""
+        """Persist browser cookies after first successful page load."""
         if not self._context:
             return
         try:
@@ -764,60 +630,8 @@ class UidaiBrowserSession:
         except Exception as e:
             log.debug('browser cookie persist skip: %s', e)
 
-    async def _resolve_proxy(self) -> str | None:
-        from uidai_cookie_session import baked_session_ready, cookie_jar_ready, load_baked_session
-
-        if self.proxy and self.proxy.lower() not in ('auto', 'india'):
-            return await self._connect_proxy(self.proxy)
-
-        if baked_session_ready():
-            from uidai_cookie_session import get_baked_proxy, get_baked_proxy_info, resolve_baked_route, use_baked_proxy_fast
-
-            proxy_url, label = resolve_baked_route()
-            self.proxy_label = label
-            await self._step(1, 8, label)
-            if proxy_url and use_baked_proxy_fast():
-                self.proxy = proxy_url
-                self.proxy_info = get_baked_proxy_info()
-                _POOL['proxy'] = proxy_url
-                _POOL['proxy_info'] = self.proxy_info
-                self.proxy_label = format_proxy_line(self.proxy_info, proxy_url)
-                await self._step(1, 8, self.proxy_label)
-                return proxy_url
-            if proxy_url:
-                return await self._connect_proxy(proxy_url)
-            return None
-
-        if cookie_jar_ready():
-            self.proxy_label = '🍪 Saved cookies — proxy skip'
-            await self._step(1, 8, self.proxy_label)
-            return None
-
-        if not self.auto_india_proxy and not self.proxy:
-            self.proxy_label = '⚠️ Direct — pehli load pe cookies save'
-            await self._step(1, 8, self.proxy_label)
-            return None
-
-        try:
-            proxy, info = await self._pick_proxy_with_trial()
-            self.proxy = proxy
-            self.proxy_info = info
-            self.proxy_label = format_proxy_line(info, proxy)
-            _POOL['proxy_info'] = info
-            await self._step(1, 8, f'VPN connected — {self.proxy_label}')
-            return proxy
-        except RuntimeError:
-            direct = await asyncio.to_thread(check_direct_india)
-            if direct:
-                log.info('Proxy pool fail — direct India IP')
-                self.proxy_info = direct
-                self.proxy_label = format_direct_line(direct)
-                await self._step(1, 8, f'Direct India — {self.proxy_label}')
-                return None
-            raise
-
-    async def _new_page(self, proxy: str | None) -> bool:
-        """New context + page. Returns True if Chromium pool reuse hua."""
+    async def _new_page(self) -> bool:
+        """New context + page. Returns True if Chromium pool was reused."""
         if self._context:
             try:
                 await self._context.close()
@@ -826,16 +640,15 @@ class UidaiBrowserSession:
             self._context = None
             self._page = None
 
-        if await self._try_adopt_standby(proxy):
-            browser, reused = await _pool_browser(proxy)
-            asyncio.create_task(warm_standby_uidai(proxy))
+        if await self._try_adopt_standby():
+            browser, reused = await _pool_browser()
+            asyncio.create_task(warm_standby_uidai())
             return reused
 
         last_err: Exception | None = None
         for attempt in range(3):
             try:
-                browser, reused = await _pool_browser(proxy)
-                self._active_proxy = proxy
+                browser, reused = await _pool_browser()
                 from uidai_cookie_session import baked_session_ready as _baked_ready
 
                 self._context = await browser.new_context(**self._browser_context_kwargs())
@@ -864,9 +677,8 @@ class UidaiBrowserSession:
         if self._page:
             self._page = None
             self._context = None
-        proxy = await self._resolve_proxy()
-        self._active_proxy = proxy
-        reused = await self._new_page(proxy)
+        await self._prepare_connection()
+        reused = await self._new_page()
         if await self._form_on_page():
             self.form_ready = True
             await self._step(2, 8, 'Pool page ready ⚡')
@@ -941,7 +753,7 @@ class UidaiBrowserSession:
             if txn:
                 return txn
             await asyncio.sleep(0.4)
-        raise RuntimeError('captchaTxnID nahi mila — page reload / proxy change karo')
+        raise RuntimeError('captchaTxnID missing — reload page or run /open again')
 
     async def _read_option(self) -> str:
         opt = await self.page.evaluate(GET_OPTION_JS)
@@ -975,21 +787,17 @@ class UidaiBrowserSession:
             if pair and not self.captcha_txn_id:
                 self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
                 self._captcha_cache_at = time.monotonic()
-            await self._step(2, 8, 'Pool ready — skip proxy reload ⚡')
+            await self._step(2, 8, 'Pool ready — fast reopen ⚡')
             await self._fill_fields_and_captcha(fresh_captcha=False)
             asyncio.create_task(self._prefetch_next_captcha())
-            proxy = self._active_proxy
-            if proxy is not None:
-                asyncio.create_task(warm_standby_uidai(proxy))
+            asyncio.create_task(warm_standby_uidai())
             return self.peek_captcha_png() or self._captcha_png_cache or b''
 
         self.captcha_txn_id = ''
-        from uidai_cookie_session import use_baked_proxy_fast
-
-        await self._step(3, 8, 'UIDAI site open…')
-        goto_timeout = 35_000 if use_baked_proxy_fast() else 45_000
-        poll_sec = 18.0 if use_baked_proxy_fast() else 22.0
-        max_tries = 2 if use_baked_proxy_fast() else 3
+        await self._step(3, 8, 'Opening UIDAI site…')
+        goto_timeout = 45_000
+        poll_sec = 22.0
+        max_tries = 3
         last_err: Exception | None = None
         for attempt in range(max_tries):
             try:
@@ -1010,7 +818,7 @@ class UidaiBrowserSession:
         if last_err:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
-        await self._step(3, 8, 'UIDAI page load ho gayi')
+        await self._step(3, 8, 'UIDAI page loaded')
         if not self._captcha_png_cache:
             await self._persist_browser_cookies()
         await self._step(4, 8, 'Form ready')
@@ -1078,7 +886,7 @@ class UidaiBrowserSession:
             log.info('Captcha refresh fallback — page reload')
             await self.page.reload(wait_until='commit', timeout=45_000)
             if not await self._poll_form(20.0):
-                raise RuntimeError('Form reload timeout — /open dubara')
+                raise RuntimeError('Form reload timeout — run /open again')
             await self.page.fill('input[name="name"]', self.name)
             await self.page.fill('input[name="mobile"]', self.mobile)
             await self._wait_captcha_image(20)
@@ -1110,7 +918,7 @@ class UidaiBrowserSession:
             })
             ok, msg, extra = parse_uidai_response(status, text)
             if msg:
-                append_log(logs, 'info', 'UIDAI jawab', {'status': status, 'msg': msg[:160], **extra})
+                append_log(logs, 'info', 'UIDAI response', {'status': status, 'msg': msg[:160], **extra})
             return ok, status, text, extra
         except Exception as e:
             log.warning('Playwright request.post failed: %s', e)
@@ -1138,7 +946,7 @@ class UidaiBrowserSession:
         })
         ok, msg, extra = parse_uidai_response(status, text)
         if msg:
-            append_log(logs, 'info', 'UIDAI jawab', {'status': status, 'msg': msg[:160], **extra})
+            append_log(logs, 'info', 'UIDAI response', {'status': status, 'msg': msg[:160], **extra})
         return ok, status, text, extra
 
     async def _call_uidai(
@@ -1226,7 +1034,7 @@ class UidaiBrowserSession:
                 if captcha_bypass:
                     txn = self.captcha_txn_id or ''
                 if not txn:
-                    append_log(logs, 'warn', 'captchaTxnId missing — /refresh karo')
+                    append_log(logs, 'warn', 'captchaTxnId missing — use /refresh')
                     await s(3, 'captchaTxnID missing')
                     await s(4, 'Done')
                     await s(5, 'Done')
@@ -1245,13 +1053,13 @@ class UidaiBrowserSession:
             option=option,
             captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not captcha),
         )
-        append_log(logs, 'info', 'OTP bhej rahe hain', {
+        append_log(logs, 'info', 'Sending OTP', {
             'mobile': self.mobile,
             'captchaTxnId': txn,
             'option': option,
         })
 
-        await s(3, 'UIDAI API — OTP bhej rahe hain…')
+        await s(3, 'UIDAI API — sending OTP…')
         otp_ok, status, text, extra = await self._call_uidai(payload, logs, 'OTP')
 
         if otp_ok and extra.get('reason') == 'otp_sent':
@@ -1268,26 +1076,26 @@ class UidaiBrowserSession:
             self.last_captcha = captcha
             otp_ok = True
             append_log(logs, 'info', f'OTP sent — UIDAI {status}', {'otpTxnId': self.otp_txn_id or None})
-            await s(4, 'OTP SMS bheja gaya')
-            await s(5, 'Ab OTP reply karo')
-            await s(6, '6 digit OTP bhejo')
+            await s(4, 'OTP sent via SMS')
+            await s(5, 'Reply with your OTP')
+            await s(6, 'Send 6-digit OTP')
         elif otp_ok:
             otp_ok = False
         elif status == 0 and not text:
-            append_log(logs, 'warn', 'OTP network error — proxy / page reload try karo')
-            await s(6, 'Network fail — /open dubara')
+            append_log(logs, 'warn', 'OTP network error — reload page or run /open again')
+            await s(6, 'Network fail — run /open again')
         else:
             captcha_bad = any(
                 'Captcha' in (x.get('m') or '') or 'captcha' in (x.get('m') or '').lower()
                 for x in logs
             )
-            await s(6, 'Captcha issue — /refresh' if captcha_bad else 'UIDAI ne reject — logs dekho')
+            await s(6, 'Captcha issue — /refresh' if captcha_bad else 'UIDAI rejected — check logs')
 
         self.last_logs = logs
         return self._api_result(logs, otp_ok=otp_ok, captcha=captcha)
 
     async def submit_otp(self, otp: str, on_step: StepCb | None = None) -> dict[str, Any]:
-        """SMS OTP bharo — UIDAI registered mobile pe Aadhaar/EID bhejega."""
+        """Verify SMS OTP — UIDAI sends Aadhaar/EID to registered mobile."""
         otp = re.sub(r'\s+', '', otp.strip())
         step_fn = on_step or self._on_step
         total = 5
@@ -1299,12 +1107,12 @@ class UidaiBrowserSession:
                 await step_fn(n, total, msg)
 
         if not self.otp_txn_id:
-            append_log(logs, 'warn', 'otpTxnId missing — pehle captcha se OTP bhejo')
+            append_log(logs, 'warn', 'otpTxnId missing — send captcha OTP first')
             self.last_logs = logs
             return self._api_result(logs, retrieve_ok=False)
 
         if not self.last_captcha or not self.captcha_txn_id:
-            append_log(logs, 'warn', 'Session data missing — /open dubara')
+            append_log(logs, 'warn', 'Session data missing — run /open again')
             self.last_logs = logs
             return self._api_result(logs, retrieve_ok=False)
 
@@ -1329,23 +1137,23 @@ class UidaiBrowserSession:
             'otpTxnId': self.otp_txn_id[:12] + '…',
         })
 
-        await s(2, 'UIDAI ko OTP bhej rahe hain…')
+        await s(2, 'Sending OTP to UIDAI…')
         ok, status, text, extra = await self._call_uidai(payload, logs, 'Retrieve')
 
         if ok and extra.get('reason') == 'retrieve_ok':
             retrieve_ok = True
             hint = extra.get('aadhaar_hint')
             append_log(logs, 'info', f'Retrieve OK — UIDAI {status}', {'hint': hint} if hint else None)
-            await s(3, 'UIDAI ne SMS bheja')
-            await s(4, 'Registered mobile check karo')
+            await s(3, 'UIDAI sent SMS')
+            await s(4, 'Check registered mobile')
             await s(5, 'Done')
         elif extra.get('reason') == 'invalid_otp':
-            append_log(logs, 'warn', 'Galat OTP — dubara bharo')
-            await s(3, 'Galat OTP')
-            await s(4, 'Dubara try karo')
+            append_log(logs, 'warn', 'Invalid OTP — try again')
+            await s(3, 'Invalid OTP')
+            await s(4, 'Try again')
             await s(5, 'Done')
         elif status == 0 and not text:
-            append_log(logs, 'warn', 'Network error — dubara try karo')
+            append_log(logs, 'warn', 'Network error — try again')
             await s(3, 'Network fail')
             await s(4, 'Done')
             await s(5, 'Done')
@@ -1353,13 +1161,13 @@ class UidaiBrowserSession:
             msg = extra.get('msg', '')
             if ok:
                 retrieve_ok = True
-                append_log(logs, 'info', 'Request OK — SMS check karo', {'msg': msg[:120]})
-                await s(3, 'SMS check karo')
+                append_log(logs, 'info', 'Request OK — check SMS', {'msg': msg[:120]})
+                await s(3, 'Check SMS')
                 await s(4, 'Done')
                 await s(5, 'Done')
             else:
                 append_log(logs, 'warn', 'Retrieve fail', {'msg': msg[:120]})
-                await s(3, 'Fail — logs dekho')
+                await s(3, 'Failed — check logs')
                 await s(4, 'Done')
                 await s(5, 'Done')
 
@@ -1386,7 +1194,7 @@ class UidaiBrowserSession:
                 'option': self.option,
             },
             'version': BOT_ENGINE_VERSION,
-            'proxy_label': self.proxy_label,
+            'connection_label': self.connection_label,
             'otp_ok': otp_ok,
             'retrieve_ok': retrieve_ok,
         }

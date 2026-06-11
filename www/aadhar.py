@@ -157,45 +157,6 @@ def _short_json(obj: Any, limit: int = 280) -> str:
     return s[:limit] + ('…' if len(s) > limit else '')
 
 
-def _read_baked_proxy_url() -> str:
-    """Sirf proxy URL — cookies nahi."""
-    try:
-        p = Path(__file__).parent / 'uidai_baked_session.json'
-        if p.exists():
-            return str(json.loads(p.read_text(encoding='utf-8')).get('proxy') or '').strip()
-    except Exception:
-        pass
-    return 'http://117.236.124.166:3128'
-
-
-def _india_direct_env() -> bool:
-    return os.getenv('AADHAR_INDIA_DIRECT', 'auto').strip().lower() in (
-        '1', 'true', 'yes', 'on', 'auto',
-    )
-
-
-def _proxy_env_raw() -> str:
-    return os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', 'auto')).strip().lower()
-
-
-def direct_only_mode() -> bool:
-    """Indian VPS — sirf direct, proxy rotate mat karo."""
-    return _proxy_env_raw() in ('none', 'no', 'off', 'direct', '0', 'false')
-
-
-def resolve_aadhar_proxy() -> str | None:
-    """Indian VPS → direct. Foreign → proxy URL / auto baked."""
-    raw = _proxy_env_raw()
-    if direct_only_mode():
-        return None
-    if raw in ('', 'auto', 'india'):
-        if _india_direct_env():
-            return None
-        return _read_baked_proxy_url()
-    val = os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', '')).strip()
-    return val if val.startswith('http') else None
-
-
 def request_timeout() -> tuple[int, int]:
     """(connect, read) seconds — hang avoid."""
     t = int(os.getenv('AADHAR_TIMEOUT', '20'))
@@ -208,8 +169,6 @@ class AadharSession:
 
     def __init__(self, on_log: LogCb | None = None) -> None:
         self._session = requests.Session()
-        self.proxy_url: str | None = resolve_aadhar_proxy()
-        self._via_proxy = False
         self.on_log = on_log
         self.logs: list[str] = []
         self.name = ''
@@ -257,34 +216,7 @@ class AadharSession:
             f'[*] Captcha bypass: {"ON" if captcha_bypass_on() else "OFF"} | '
             f'Whisper: {"ON" if whisper else "OFF"}'
         )
-        if self.proxy_url:
-            self._log(f'[*] India proxy ready: {self.proxy_url} (auto on direct fail)')
-        else:
-            self._log('[*] Direct only — India VPS recommended')
-
-    @property
-    def _proxies(self) -> dict[str, str] | None:
-        if not self.proxy_url or not self._via_proxy:
-            return None
-        return {'http': self.proxy_url, 'https': self.proxy_url}
-
-    def _proxy_candidates(self) -> list[str]:
-        if direct_only_mode():
-            return []
-        urls: list[str] = []
-        if self.proxy_url:
-            urls.append(self.proxy_url)
-        try:
-            ranked = json.loads(
-                (Path(__file__).parent / 'proxy_ranked.json').read_text(encoding='utf-8'),
-            ).get('proxies') or []
-            for row in ranked[:3]:
-                p = str((row or {}).get('proxy') or '').strip()
-                if p.startswith('http') and p not in urls:
-                    urls.append(p)
-        except Exception:
-            pass
-        return urls
+        self._log('[*] Direct connection — Indian VPS recommended')
 
     def _post(
         self,
@@ -294,45 +226,17 @@ class AadharSession:
         payload: dict[str, Any] | None = None,
         timeout: int | tuple[int, int] | None = None,
     ) -> requests.Response:
-        """Direct first → proxy retry (sirf jab AADHAR_PROXY=auto/http)."""
+        """Direct POST to UIDAI APIs."""
         body = payload if payload is not None else {}
         tmo = timeout if timeout is not None else request_timeout()
-        last_err: Exception | None = None
-
-        self._log(f'[*] POST {url.split("/")[-1]}… (direct, timeout={tmo})')
+        self._log(f'[*] POST {url.split("/")[-1]}… (timeout={tmo})')
         try:
-            r = self._session.post(
+            return self._session.post(
                 url, headers=headers, json=body, timeout=tmo, proxies=None,
             )
-            if r.status_code < 500:
-                return r
-            self._log(f'[!] Direct HTTP {r.status_code}')
         except requests.RequestException as e:
-            last_err = e
-            self._log(f'[!] Direct fail: {str(e)[:80]}')
-
-        candidates = self._proxy_candidates()
-        if not candidates:
-            if last_err:
-                raise last_err
-            raise RuntimeError('UIDAI request failed — check network / .env AADHAR_PROXY')
-
-        for proxy in candidates:
-            self._via_proxy = True
-            self.proxy_url = proxy
-            proxies = {'http': proxy, 'https': proxy}
-            self._log(f'[*] Retry via {proxy}')
-            try:
-                return self._session.post(
-                    url, headers=headers, json=body, timeout=tmo, proxies=proxies,
-                )
-            except requests.RequestException as e:
-                last_err = e
-                self._log(f'[-] Proxy fail: {str(e)[:60]}')
-
-        if last_err:
-            raise last_err
-        raise RuntimeError('All routes failed')
+            self._log(f'[!] Request failed: {str(e)[:80]}')
+            raise RuntimeError('UIDAI request failed — check network on Indian VPS') from e
 
     def _fetch_captcha_bundle(
         self, headers: dict[str, str], *, tag: str,
@@ -483,8 +387,7 @@ class AadharSession:
         self._log(f'[*] [{tag}] Payload: {_short_json(payload)}')
         try:
             r = self._post(EID_OTP_URL, headers=headers, payload=payload)
-            route = 'proxy' if self._via_proxy else 'direct'
-            self._log(f'[*] [{tag}] Response HTTP {r.status_code} ({route})')
+            self._log(f'[*] [{tag}] Response HTTP {r.status_code}')
             data = r.json()
             self._log(f'[*] [{tag}] Response: {_short_json(data)}')
             return data
@@ -698,7 +601,7 @@ def attach_log_callback(sess: AadharSession, loop: asyncio.AbstractEventLoop, pr
 
 
 async def send_captcha_to_bot(update: Any, result: dict[str, Any], *, phase: str) -> None:
-    """Audio + image captcha Telegram pe bhejo."""
+    """Send audio + image captcha to Telegram."""
     if not update or not update.message:
         return
     cap = result.get('captcha_text') or ''

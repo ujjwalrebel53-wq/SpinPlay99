@@ -18,7 +18,7 @@ def humanize_step(raw: str) -> str:
     if 'session active' in low or 'reuse' in low or 'skip reload' in low:
         return 'Active session detected'
     if 'vpn' in low or 'proxy' in low:
-        return 'Secure VPN tunnel'
+        return 'Network connection'
     if 'chromium' in low or 'browser' in low:
         return 'Browser engine ready'
     if 'uidai' in low and ('open' in low or 'load' in low):
@@ -163,7 +163,7 @@ class LoadingScreen:
             self._detail_logs = self._detail_logs[-self._max_logs:]
 
     async def log_detail(self, line: str) -> None:
-        """Raw detailed log line — loading screen me dikhega."""
+        """Raw detailed log line — shown on loading screen."""
         self._push_log(line)
         await self._render()
 
