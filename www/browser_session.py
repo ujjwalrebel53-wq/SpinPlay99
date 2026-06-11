@@ -14,7 +14,13 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
-from proxy_india import check_proxy, format_proxy_line, pick_indian_proxy
+from proxy_india import (
+    check_direct_india,
+    check_proxy,
+    format_direct_line,
+    format_proxy_line,
+    pick_indian_proxy,
+)
 from react_extract import (
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_TXN_JS,
@@ -251,12 +257,22 @@ class UidaiBrowserSession:
             return None
 
         await self._step(1, 8, 'Indian VPN connect…')
-        proxy, info = await asyncio.to_thread(pick_indian_proxy)
-        self.proxy = proxy
-        self.proxy_info = info
-        self.proxy_label = format_proxy_line(info, proxy)
-        await self._step(1, 8, f'VPN connected — {self.proxy_label}')
-        return proxy
+        try:
+            proxy, info = await asyncio.to_thread(pick_indian_proxy)
+            self.proxy = proxy
+            self.proxy_info = info
+            self.proxy_label = format_proxy_line(info, proxy)
+            await self._step(1, 8, f'VPN connected — {self.proxy_label}')
+            return proxy
+        except RuntimeError:
+            direct = await asyncio.to_thread(check_direct_india)
+            if direct:
+                log.info('Proxy pool fail — direct India IP')
+                self.proxy_info = direct
+                self.proxy_label = format_direct_line(direct)
+                await self._step(1, 8, f'Direct India — {self.proxy_label}')
+                return None
+            raise
 
     async def _new_page(self, proxy: str | None) -> bool:
         """New context + page. Returns True if Chromium pool reuse hua."""

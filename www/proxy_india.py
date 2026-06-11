@@ -8,40 +8,71 @@ import os
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger('proxy-india')
 
 UIDAI_TEST_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
+CACHE_FILE = Path(__file__).parent / 'proxy_cache.json'
 
-# Indian HTTP proxies — fast parallel test, .env se override
+# Verified / high-priority Indian proxies (pehle try)
 DEFAULT_INDIAN_PROXIES = [
+    'http://117.236.124.166:3128',
     'http://139.167.218.162:3127',
-    'http://103.152.112.162:80',
-    'http://103.152.112.145:80',
-    'http://45.67.59.98:80',
-    'http://103.152.112.135:80',
-    'http://103.152.112.136:80',
-    'http://103.152.112.137:80',
-    'http://103.152.112.138:80',
-    'http://103.152.112.139:80',
-    'http://103.152.112.140:80',
-    'http://103.152.112.141:80',
-    'http://103.152.112.142:80',
-    'http://103.152.112.143:80',
-    'http://103.152.112.144:80',
-    'http://103.152.112.146:80',
-    'http://103.152.112.147:80',
-    'http://103.152.112.148:80',
-    'http://103.152.112.149:80',
-    'http://103.152.112.150:80',
-    'http://165.227.29.139:80',
-    'http://117.74.113.104:8080',
-    'http://103.127.1.130:80',
+    'http://111.92.88.27:3128',
+    'http://103.172.254.145:80',
     'http://103.94.52.70:3128',
+    'http://117.74.113.104:8080',
     'http://103.155.98.163:8080',
     'http://103.149.162.195:80',
+    'http://103.152.112.162:80',
+    'http://45.67.59.98:80',
+    'http://165.227.29.139:80',
+    'http://103.127.1.130:80',
 ]
+
+LIVE_PROXY_URL = 'https://raw.githubusercontent.com/stormsia/proxy-list/main/http.txt'
+
+
+def _load_cache() -> str | None:
+    if not CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(CACHE_FILE.read_text(encoding='utf-8'))
+        p = (data.get('proxy') or '').strip()
+        return p or None
+    except Exception:
+        return None
+
+
+def _save_cache(proxy: str) -> None:
+    try:
+        CACHE_FILE.write_text(
+            json.dumps({'proxy': proxy, 'ts': int(time.time())}, indent=2),
+            encoding='utf-8',
+        )
+    except Exception as e:
+        log.debug('proxy cache save fail: %s', e)
+
+
+def _fetch_live_proxies(limit: int = 40) -> list[str]:
+    """Optional live list — stormsia HTTP proxies."""
+    try:
+        req = urllib.request.Request(LIVE_PROXY_URL, headers={'User-Agent': 'RebelAdharBot/1.0'})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            lines = resp.read().decode().splitlines()
+        out: list[str] = []
+        for line in lines:
+            p = line.strip()
+            if p.startswith('http://') or p.startswith('https://'):
+                out.append(p if p.startswith('http') else f'http://{p}')
+            if len(out) >= limit:
+                break
+        return out
+    except Exception as e:
+        log.debug('live proxy fetch fail: %s', e)
+        return []
 
 
 def proxy_list_from_env() -> list[str]:
@@ -54,9 +85,13 @@ def proxy_list_from_env() -> list[str]:
             items = [one]
         else:
             items = list(DEFAULT_INDIAN_PROXIES)
-    # unique, order preserve
+            items.extend(_fetch_live_proxies(30))
     seen: set[str] = set()
     out: list[str] = []
+    cached = _load_cache()
+    if cached:
+        out.append(cached)
+        seen.add(cached)
     for p in items:
         if p not in seen:
             seen.add(p)
@@ -67,6 +102,20 @@ def proxy_list_from_env() -> list[str]:
 def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
     handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
     return urllib.request.build_opener(handler)
+
+
+def check_direct_india(timeout: int = 6) -> dict[str, Any] | None:
+    """Server India me ho to proxy ki zaroorat nahi."""
+    try:
+        url = 'http://ip-api.com/json/?fields=status,country,countryCode,city,regionName,query'
+        req = urllib.request.Request(url, headers={'User-Agent': 'RebelAdharBot/1.0'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get('status') == 'success' and data.get('countryCode') == 'IN':
+            return data
+    except Exception as e:
+        log.debug('direct india check fail: %s', e)
+    return None
 
 
 def check_proxy(proxy: str, timeout: int = 6) -> dict[str, Any]:
@@ -81,7 +130,6 @@ def check_proxy(proxy: str, timeout: int = 6) -> dict[str, Any]:
 
 
 def test_uidai(proxy: str, timeout: int = 10) -> float:
-    """UIDAI HEAD test — seconds return, fail = raise."""
     opener = _proxy_opener(proxy)
     req = urllib.request.Request(
         UIDAI_TEST_URL,
@@ -98,14 +146,14 @@ def test_uidai(proxy: str, timeout: int = 10) -> float:
     return time.monotonic() - t0
 
 
-def score_proxy(proxy: str) -> dict[str, Any] | None:
-    """Ek proxy score — None = fail."""
+def score_proxy(proxy: str, *, require_uidai: bool = True) -> dict[str, Any] | None:
     try:
         info = check_proxy(proxy, timeout=5)
         if info.get('countryCode') != 'IN':
-            log.debug('skip %s country=%s', proxy, info.get('countryCode'))
             return None
-        uidai_s = test_uidai(proxy, timeout=12)
+        uidai_s = 5.0
+        if require_uidai:
+            uidai_s = test_uidai(proxy, timeout=12)
         return {
             'proxy': proxy,
             'info': info,
@@ -117,27 +165,21 @@ def score_proxy(proxy: str) -> dict[str, Any] | None:
         return None
 
 
-def pick_indian_proxy(proxies: list[str] | None = None) -> tuple[str, dict[str, Any]]:
-    ranked = pick_ranked_proxies(proxies, limit=1)
-    if not ranked:
-        raise RuntimeError('Koi Indian proxy kaam nahi kiya — UIDAI_PROXY_LIST .env me dalo')
-    best = ranked[0]
-    return best['proxy'], best['info']
-
-
 def pick_ranked_proxies(
     proxies: list[str] | None = None,
     limit: int = 5,
     workers: int = 12,
+    *,
+    require_uidai: bool = True,
+    stop_early: bool = False,
 ) -> list[dict[str, Any]]:
-    """Parallel test — fastest Indian + UIDAI reachable proxies."""
     pool = proxies or proxy_list_from_env()
-    log.info('Proxy parallel test — %d candidates', len(pool))
+    log.info('Proxy parallel test — %d candidates (uidai=%s)', len(pool), require_uidai)
     results: list[dict[str, Any]] = []
     workers = min(workers, max(1, len(pool)))
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(score_proxy, p): p for p in pool}
+        futs = [ex.submit(score_proxy, p, require_uidai=require_uidai) for p in pool]
         for fut in as_completed(futs):
             row = fut.result()
             if row:
@@ -148,9 +190,34 @@ def pick_ranked_proxies(
                     row['info'].get('city', '?'),
                     row['uidai_sec'],
                 )
+                if stop_early and len(results) >= limit:
+                    break
 
     results.sort(key=lambda x: x['score'])
     return results[:limit]
+
+
+def pick_indian_proxy(proxies: list[str] | None = None) -> tuple[str, dict[str, Any]]:
+    cached = _load_cache()
+    if cached:
+        row = score_proxy(cached, require_uidai=True)
+        if row:
+            log.info('Proxy cache hit — %s', cached)
+            return row['proxy'], row['info']
+        log.info('Proxy cache stale — %s', cached)
+
+    ranked = pick_ranked_proxies(proxies, limit=1, require_uidai=True, stop_early=True)
+    if not ranked:
+        log.warning('Strict proxy test fail — trying India IP only')
+        ranked = pick_ranked_proxies(proxies, limit=1, require_uidai=False, stop_early=True)
+    if not ranked:
+        raise RuntimeError(
+            'Koi Indian proxy kaam nahi kiya.\n'
+            '.env me set karo: UIDAI_PROXY=http://117.236.124.166:3128'
+        )
+    best = ranked[0]
+    _save_cache(best['proxy'])
+    return best['proxy'], best['info']
 
 
 def format_proxy_line(info: dict[str, Any], proxy: str) -> str:
@@ -158,3 +225,9 @@ def format_proxy_line(info: dict[str, Any], proxy: str) -> str:
     ip = info.get('query', '?')
     host = proxy.split('//')[-1].split('@')[-1]
     return f'🇮🇳 VPN India — {city} ({ip} via {host})'
+
+
+def format_direct_line(info: dict[str, Any]) -> str:
+    city = info.get('city') or info.get('regionName') or 'India'
+    ip = info.get('query', '?')
+    return f'🇮🇳 Direct India — {city} ({ip})'

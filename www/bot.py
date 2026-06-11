@@ -345,7 +345,27 @@ async def _fail_open(
         await sess.close(keep_warm=True)
     SESSIONS.pop(chat_id, None)
     clear_flow(chat_id)
-    await progress.fail(f'Connection fail.\n/close phir /open dubara try karo.')
+    hint = _connection_error_hint(exc)
+    await progress.fail(hint)
+
+
+def _connection_error_hint(exc: Exception) -> str:
+    msg = str(exc).strip()
+    low = msg.lower()
+    if 'proxy' in low or 'vpn' in low or 'indian' in low:
+        return (
+            '❌ Indian VPN connect fail.\n\n'
+            'VPS .env me ye add karo:\n'
+            'UIDAI_PROXY=http://117.236.124.166:3128\n\n'
+            'Phir: /close → /open dubara'
+        )
+    if 'browser' in low or 'closed' in low or 'chromium' in low:
+        return '❌ Browser crash.\n/close phir /open dubara try karo.'
+    if 'uidai open' in low or 'timeout' in low:
+        return '❌ UIDAI site slow/down.\nThodi der baad /open fresh try karo.'
+    if msg and len(msg) < 200:
+        return f'❌ {msg}\n\n/close phir /open dubara'
+    return '❌ Connection fail.\n/close phir /open dubara try karo.'
 
 
 async def open_uidai_session(
