@@ -403,7 +403,10 @@ async def _pool_browser() -> tuple[Browser, bool]:
         if not _POOL['pw']:
             _POOL['pw'] = await async_playwright().start()
 
-        log.info('Pre-warm: launching browser (direct)')
+        from uidai_proxy import proxy_url
+
+        route = 'proxy' if proxy_url() else 'direct'
+        log.info('Pre-warm: launching browser (%s)', route)
         opts: dict[str, Any] = {
             'headless': True,
             'args': [
@@ -564,13 +567,16 @@ class UidaiBrowserSession:
         await self.refresh_captcha()
 
     async def _prepare_connection(self) -> None:
-        """Direct connection — Indian VPS (no proxy)."""
+        """Direct Indian VPS or explicit UIDAI_PROXY forward proxy."""
         from uidai_cookie_session import cookie_jar_ready
+        from uidai_proxy import connection_label, proxy_url
 
-        if cookie_jar_ready():
+        if proxy_url():
+            self.connection_label = connection_label()
+        elif cookie_jar_ready():
             self.connection_label = 'Saved cookies — direct'
         else:
-            self.connection_label = 'Direct connection'
+            self.connection_label = connection_label()
         await self._step(1, 8, self.connection_label)
 
     async def _inject_saved_cookies(self) -> int:
@@ -606,6 +612,11 @@ class UidaiBrowserSession:
             state = get_isolated_storage_state()
             if state:
                 base['storage_state'] = state
+        from uidai_proxy import playwright_proxy
+
+        pw_proxy = playwright_proxy()
+        if pw_proxy:
+            base['proxy'] = pw_proxy
         return base
 
     async def _persist_browser_cookies(self) -> None:

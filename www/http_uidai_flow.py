@@ -151,11 +151,13 @@ class UidaiHttpSession:
             'cookies': cookie_summary(self._session),
         })
         try:
+            from uidai_proxy import requests_proxies
+
             r = self._session.post(
                 url,
                 headers=headers,
                 json=body,
-                proxies=None,
+                proxies=requests_proxies(),
                 timeout=int(os.getenv('UIDAI_HTTP_TIMEOUT', '45')),
             )
             text = r.text or ''
