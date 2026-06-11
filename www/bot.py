@@ -39,7 +39,14 @@ except ImportError as exc:
         f'\nDetail: {exc}'
     ) from exc
 
-from audio_captcha import whisper_enabled
+from aadhar import (
+    AadharSession,
+    clear_aadhar_session,
+    dob_bypass_on,
+    get_aadhar_session,
+    pdf_password,
+    run_aadhar,
+)
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
@@ -141,6 +148,7 @@ def clear_flow(chat_id: int) -> None:
 
 def clear_http_session(chat_id: int) -> None:
     HTTP_SESSIONS.pop(chat_id, None)
+    clear_aadhar_session(chat_id)
 
 
 def flow_mode(chat_id: int) -> str:
@@ -210,7 +218,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         'Commands:',
         '/open — SMS retrieve (captcha → OTP → Aadhaar SMS)',
         '/open 7651892956 — mobile only (instant captcha ⚡)',
-        '/pdf — 2-OTP e-Aadhaar PDF (HTTP + Whisper, foreign VPS OK)',
+        '/pdf — 2-OTP e-Aadhaar PDF (aadhar.py engine)',
         '/pdf 01/01/1991 7651892956 — DOB + mobile (name Mr)',
         '/pdf KAMAR JAHAN 01/01/1991 7651892956 — full',
         '/captcha · /refresh · /status',
@@ -218,7 +226,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/myid — your chat ID',
         '',
         'Retrieve: captcha → OTP → SMS',
-        'Download: HTTP session → OTP1 (EID) → OTP2 → PDF',
+        'Download (/pdf): aadhar.py — OTP1 → OTP2 → PDF',
         '',
         '👥 Multi-user — each user gets an isolated session.',
     ]
@@ -549,11 +557,13 @@ async def _start_download_flow(
     mobile: str,
     dob: str | None = None,
 ) -> None:
-    """2-OTP PDF — pure HTTP (script flow), per-user isolated session + shared cookies."""
-    name = normalize_name(name)
+    """2-OTP PDF — aadhar.py engine (no cookies, no proxy, per-user session)."""
+    from aadhar import normalize_name as aadhar_name
+
+    name = aadhar_name(name)
     mobile = mobile.strip()
     dob_norm = normalize_dob(dob) if dob else None
-    if not dob_bypass_enabled() and not dob_norm:
+    if not dob_bypass_on() and not dob_norm:
         FLOW[chat_id] = {
             'step': STEP_DOB,
             'mode': FLOW_MODE_DOWNLOAD,
@@ -576,26 +586,19 @@ async def _start_download_flow(
         except Exception:
             pass
 
-    wait = await update.message.reply_text('⏳ PDF flow — HTTP session (isolated)…')
+    wait = await update.message.reply_text('⏳ PDF flow — aadhar.py session…')
     progress = LoadingScreen(
         wait, name, mobile,
         title='2-OTP PDF',
-        subtitle='Audio captcha + EID',
+        subtitle='Bypass + EID',
     )
 
-    async def on_step(n: int, total: int, text: str) -> None:
-        await progress.update(n, total, text)
+    sess = AadharSession()
+    sess.setup(name, mobile, dob_norm or dob)
+    from aadhar import AADHAR_SESSIONS
+    AADHAR_SESSIONS[chat_id] = sess
 
-    use_auto_proxy = not baked_session_ready()
-    http_sess = UidaiHttpSession(proxy=None, auto_proxy=use_auto_proxy, on_step=on_step)
-    http_sess.name = name
-    http_sess.mobile = mobile
-    http_sess.dob = dob_norm
-    http_sess.option = 'EID'
-    http_sess.flow = 'download'
-    HTTP_SESSIONS[chat_id] = http_sess
-
-    pdf_pass = generate_pdf_password(name, dob_norm)
+    pdf_pass = pdf_password(name, dob_norm or dob)
     FLOW[chat_id] = {
         'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
@@ -603,41 +606,21 @@ async def _start_download_flow(
         'mobile': mobile,
         'dob': dob_norm,
         'pdf_password': pdf_pass,
+        'engine': 'aadhar',
     }
 
     try:
-        if pdf_flow_pure_http():
-            result = await http_sess.start_phase1_auto()
-            if result.get('otp_ok'):
-                FLOW[chat_id]['step'] = STEP_OTP_1
-                hint = f'\nPDF password will be: {pdf_pass}' if pdf_pass else ''
-                await progress.done(uidai_user_message(result, kind='otp') + hint)
-                return
-            if result.get('needs_captcha'):
-                FLOW[chat_id]['step'] = STEP_CAPTCHA
-                await progress.done(
-                    'Audio captcha failed — reply captcha text (4–8 chars) from SMS/page'
-                )
-                return
-            await progress.fail(uidai_user_message(result, kind='otp'))
+        result = await run_aadhar(sess.phase1_start)
+        if result.get('otp_ok'):
+            FLOW[chat_id]['step'] = STEP_OTP_1
+            hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
+            await progress.done(uidai_user_message(result, kind='otp') + hint)
             return
-
-        cap_data = await http_sess.fetch_captcha(prefer_audio=whisper_enabled())
-        png = cap_data.get('image_png') or b''
-        auto = cap_data.get('captcha_auto') or ''
-        FLOW[chat_id]['step'] = STEP_CAPTCHA
-        if png:
-            await update.message.reply_photo(
-                photo=png,
-                caption='Phase 1 captcha — reply with text (4–8 chars)',
-            )
-        elif auto:
-            result = await http_sess.send_retrieve_otp(auto, script_mode=True)
-            if result.get('otp_ok'):
-                FLOW[chat_id]['step'] = STEP_OTP_1
-                await progress.done(uidai_user_message(result, kind='otp'))
-                return
-        await progress.done('Captcha ready — reply with text')
+        if result.get('needs_captcha'):
+            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            await progress.done('Captcha needed — reply 4–8 chars')
+            return
+        await progress.fail(result.get('msg') or 'Phase 1 OTP failed')
     except Exception as e:
         log.exception('download flow start failed')
         clear_flow(chat_id)
@@ -648,58 +631,32 @@ async def _start_download_flow(
 async def _phase2_after_otp1(
     update: Update,
     chat_id: int,
-    sess: UidaiHttpSession,
-    *,
-    uid: str = '',
-    eid: str = '',
+    sess: AadharSession,
 ) -> None:
-    """After OTP1 — request download OTP (Phase 2)."""
-    if eid:
-        sess.eid = eid
-        FLOW[chat_id]['eid'] = eid
-    if uid:
-        sess.uid = uid
-        FLOW[chat_id]['uid'] = uid
-
-    if not sess.eid and not UID_RE.match(sess.uid or ''):
-        FLOW[chat_id]['step'] = STEP_UID
-        await update.message.reply_text(
-            '📲 Phase 1 done.\n'
-            'Send your 12-digit Aadhaar number for PDF download (Phase 2).'
-        )
+    """After OTP1 — aadhar.py Phase 2 download OTP."""
+    if not sess.eid:
+        await update.message.reply_text('EID missing — /pdf again.')
         return
 
-    wait = await update.message.reply_text('⏳ Phase 2 — requesting download OTP…')
+    wait = await update.message.reply_text('⏳ Phase 2 — download OTP…')
     progress = LoadingScreen(
         wait, sess.name, sess.mobile,
         title='OTP 2',
         subtitle='e-Aadhaar PDF',
     )
 
-    async def on_step(n: int, total: int, msg: str) -> None:
-        await progress.update(n, total, msg)
-
-    sess._on_step = on_step
     try:
-        result = await sess.send_download_otp()
+        result = await run_aadhar(sess.phase2_start)
         if result.get('needs_captcha'):
-            png = result.get('image_png') or b''
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
-            if png:
-                await progress.done('Phase 2 captcha — reply with text')
-                await update.message.reply_photo(
-                    photo=png,
-                    caption='Phase 2 captcha — reply with text (4–8 chars)',
-                )
-            else:
-                await progress.fail('Phase 2 captcha failed — /pdf again')
+            await progress.done('Phase 2 captcha — reply 4–8 chars')
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
             await progress.done(uidai_user_message(result, kind='download_otp'))
         else:
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
-            await progress.fail(uidai_user_message(result, kind='otp'))
+            await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
     except Exception as e:
         log.exception('phase2 otp request failed')
         await progress.fail(f'Phase 2 fail: {e}')
@@ -752,11 +709,11 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD}
     dob_hint = (
         'DOB bypass on — skip DOB step.\n\n'
-        if dob_bypass_enabled()
+        if dob_bypass_on()
         else 'You will be asked for DOB (DD/MM/YYYY).\n\n'
     )
     await update.message.reply_text(
-        '📥 2-OTP e-Aadhaar PDF (HTTP session — isolated per user)\n\n'
+        '📥 2-OTP e-Aadhaar PDF (aadhar.py — no proxy/cookies)\n\n'
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
         'Unknown name? Send "Mr" or "skip"\n\n'
@@ -883,7 +840,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
         await update.message.reply_text(f'OK — {name} / {mobile}')
         if mode == FLOW_MODE_DOWNLOAD:
-            if dob_bypass_enabled():
+            if dob_bypass_on():
                 await _start_download_flow(update, cid, name, mobile)
             else:
                 FLOW[cid] = {
@@ -909,37 +866,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _start_download_flow(update, cid, name, mobile, dob=dob)
         return
 
-    if step == STEP_UID and mode == FLOW_MODE_DOWNLOAD:
-        uid = re.sub(r'\D', '', text)
-        if not UID_RE.match(uid):
-            await update.message.reply_text('Send exactly 12 digits — your Aadhaar number.')
-            return
-        sess = get_http_session(cid)
-        if not sess:
-            clear_flow(cid)
-            await update.message.reply_text('Session expired — /pdf again.')
-            return
-        await _phase2_after_otp1(update, cid, sess, uid=uid)
-        return
-
     if step == STEP_CAPTCHA and mode == FLOW_MODE_DOWNLOAD:
         if not CAPTCHA_RE.match(text):
             await update.message.reply_text('Captcha 4–8 chars.')
             return
-        http_sess = get_http_session(cid)
-        if not http_sess:
+        a_sess = get_aadhar_session(cid)
+        if not a_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
-        progress = LoadingScreen(wait, http_sess.name, http_sess.mobile, title='OTP 1', subtitle='EID')
+        progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 1', subtitle='EID')
         try:
-            result = await http_sess.send_retrieve_otp(text, script_mode=True)
+            result = await run_aadhar(a_sess.phase1_otp_manual, text)
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.done(uidai_user_message(result, kind='otp'))
             else:
-                await progress.fail(uidai_user_message(result, kind='otp'))
+                await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
             await progress.fail(f'OTP 1 fail: {e}')
         return
@@ -948,20 +892,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not CAPTCHA_RE.match(text):
             await update.message.reply_text('Captcha must be 4–8 letters/numbers.')
             return
-        sess = get_http_session(cid)
-        if not sess:
+        a_sess = get_aadhar_session(cid)
+        if not a_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 2…')
-        progress = LoadingScreen(wait, sess.name, sess.mobile, title='OTP 2', subtitle='Phase 2')
+        progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 2', subtitle='Phase 2')
         try:
-            result = await sess.send_download_otp_with_captcha(text)
+            result = await run_aadhar(a_sess.phase2_otp_manual, text)
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.done(uidai_user_message(result, kind='download_otp'))
             else:
-                await progress.fail(uidai_user_message(result, kind='otp'))
+                await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:
             await progress.fail(f'OTP 2 fail: {e}')
         return
@@ -970,27 +914,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not OTP_RE.match(text):
             await update.message.reply_text('Send 6-digit OTP 1 from SMS.')
             return
-        http_sess = get_http_session(cid)
-        if not http_sess:
+        a_sess = get_aadhar_session(cid)
+        if not a_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Verifying OTP 1…')
         progress = LoadingScreen(
-            wait, http_sess.name, http_sess.mobile,
+            wait, a_sess.name, a_sess.mobile,
             title='Phase 1',
             subtitle='EID retrieve',
         )
         try:
-            result = await http_sess.verify_retrieve_otp(text)
-            uid = result.get('uid') or ''
+            result = await run_aadhar(a_sess.phase1_verify, text)
             eid = result.get('eid') or ''
             if result.get('retrieve_ok'):
-                await progress.done(uidai_user_message({**result, 'uid': uid, 'eid': eid}, kind='retrieve'))
-                await _phase2_after_otp1(update, cid, http_sess, uid=uid, eid=eid)
+                await progress.done(uidai_user_message({**result, 'eid': eid}, kind='retrieve'))
+                await _phase2_after_otp1(update, cid, a_sess)
             else:
                 FLOW[cid]['step'] = STEP_OTP_1
-                await progress.fail(uidai_user_message(result, kind='retrieve'))
+                await progress.fail(result.get('msg') or 'OTP 1 verify failed')
         except Exception as e:
             log.exception('otp1 verify failed')
             FLOW[cid]['step'] = STEP_OTP_1
@@ -1001,23 +944,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not OTP_RE.match(text):
             await update.message.reply_text('Send 6-digit OTP 2 from SMS.')
             return
-        sess = get_http_session(cid)
-        if not sess:
+        a_sess = get_aadhar_session(cid)
+        if not a_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Downloading PDF…')
         progress = LoadingScreen(
-            wait, sess.name, sess.mobile,
+            wait, a_sess.name, a_sess.mobile,
             title='PDF Download',
             subtitle='Phase 2 verify',
         )
         try:
-            result = await sess.download_pdf(text)
+            result = await run_aadhar(a_sess.phase2_download, text)
             if result.get('download_ok'):
                 pdf = result.get('pdf_bytes') or b''
-                pdf_pass = FLOW.get(cid, {}).get('pdf_password') or generate_pdf_password(
-                    sess.name, sess.dob,
+                pdf_pass = FLOW.get(cid, {}).get('pdf_password') or pdf_password(
+                    a_sess.name, a_sess.dob_raw,
                 )
                 await progress.done(uidai_user_message(result, kind='download'))
                 await update.message.reply_document(
