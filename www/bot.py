@@ -192,8 +192,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         'Commands:',
         '/open — SMS retrieve (captcha → OTP → Aadhaar SMS)',
         '/open 7651892956 — mobile only (instant captcha ⚡)',
-        '/download — 2-OTP e-Aadhaar PDF (HTTP, foreign VPS OK)',
-        '/download 7651892956 — PDF flow, mobile only',
+        '/pdf — 2-OTP e-Aadhaar PDF (HTTP, foreign VPS OK)',
+        '/pdf 7651892956 — PDF flow, mobile only',
         '/captcha · /refresh · /status',
         '/close — end session (browser stays 24/7)',
         '/myid — your chat ID',
@@ -579,7 +579,7 @@ async def _start_download_flow(
                 ),
             )
             return
-        await progress.fail('Could not fetch captcha — try /download again or set UIDAI_PROXY')
+        await progress.fail('Could not fetch captcha — try /pdf again or set UIDAI_PROXY')
     except Exception as e:
         log.exception('download flow start failed')
         clear_flow(chat_id)
@@ -630,7 +630,7 @@ async def _phase2_after_otp1(
                     caption='Phase 2 captcha — reply with text (4–8 chars)',
                 )
             else:
-                await progress.fail('Phase 2 captcha failed — /download again')
+                await progress.fail('Phase 2 captcha failed — /pdf again')
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
@@ -643,7 +643,7 @@ async def _phase2_after_otp1(
         await progress.fail(f'Phase 2 fail: {e}')
 
 
-async def cmd_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
     if not TOKEN:
@@ -676,7 +676,7 @@ async def cmd_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
         'Unknown name? Send "Mr" or "skip"\n\n'
-        'Or quick start: /download 7651892956\n'
+        'Or quick start: /pdf 7651892956\n'
         'Cancel: /close'
     )
 
@@ -811,7 +811,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /download again.')
+            await update.message.reply_text('Session expired — /pdf again.')
             return
         await _phase2_after_otp1(update, cid, sess, uid=uid)
         return
@@ -823,7 +823,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /download again.')
+            await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 2…')
         progress = LoadingScreen(wait, sess.name, sess.mobile, title='OTP 2', subtitle='Phase 2')
@@ -845,7 +845,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /download again.')
+            await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Verifying OTP 1…')
         progress = LoadingScreen(
@@ -875,7 +875,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /download again.')
+            await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Downloading PDF…')
         progress = LoadingScreen(
@@ -970,7 +970,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sess = get_http_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /download again.')
+            await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
         progress = LoadingScreen(
@@ -1103,7 +1103,8 @@ def main() -> None:
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
     app.add_handler(CommandHandler('open', cmd_open))
-    app.add_handler(CommandHandler('download', cmd_download))
+    app.add_handler(CommandHandler('pdf', cmd_pdf))
+    app.add_handler(CommandHandler('download', cmd_pdf))  # alias
     app.add_handler(CommandHandler('captcha', cmd_captcha))
     app.add_handler(CommandHandler('refresh', cmd_refresh))
     app.add_handler(CommandHandler('status', cmd_status))
