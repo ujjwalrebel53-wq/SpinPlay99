@@ -4,6 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 DEFAULT_PROXY="auto"
+DEFAULT_OWNER="8432393497"
 
 TOKEN="${1:-}"
 CHAT_ID="${2:-}"
@@ -14,9 +15,10 @@ if [ -z "$TOKEN" ]; then
   read -r TOKEN
 fi
 if [ -z "$CHAT_ID" ]; then
-  echo "@userinfobot se apna chat id bhejo:"
+  echo "@userinfobot se apna chat id bhejo (Enter = $DEFAULT_OWNER):"
   read -r CHAT_ID
 fi
+CHAT_ID="${CHAT_ID:-$DEFAULT_OWNER}"
 if [ -z "$PROXY_IN" ]; then
   echo "Indian VPN? Enter=auto India proxy, no=bina proxy:"
   read -r PROXY_IN
@@ -30,6 +32,7 @@ esac
 
 cat > .env <<EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
+TELEGRAM_OWNER_ID=$DEFAULT_OWNER
 TELEGRAM_ALLOWED_CHAT_IDS=$CHAT_ID
 UIDAI_PROXY=$PROXY
 UIDAI_INDIAN_PROXY_AUTO=1

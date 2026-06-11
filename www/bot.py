@@ -38,7 +38,7 @@ ALLOWED = {
     for x in os.getenv('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',')
     if x.strip()
 }
-OWNER_ID = os.getenv('TELEGRAM_OWNER_ID', '').strip()
+OWNER_ID = os.getenv('TELEGRAM_OWNER_ID', '8432393497').strip()
 if not OWNER_ID and len(ALLOWED) == 1:
     OWNER_ID = next(iter(ALLOWED))
 ACCESS = AccessControl(OWNER_ID, ALLOWED)
