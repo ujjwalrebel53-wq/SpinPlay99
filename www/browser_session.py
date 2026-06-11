@@ -574,25 +574,30 @@ class UidaiBrowserSession:
         await self.refresh_captcha()
 
     async def _connect_proxy(self, proxy: str) -> str:
-        """Ek proxy — 3 try (pehle wala Bengaluru logic)."""
-        if _POOL['proxy'] == proxy and _POOL.get('proxy_info') and pool_is_warm():
+        """Ek proxy — har try max UIDAI_PROXY_TRIAL_SEC (default 30s)."""
+        from uidai_cookie_session import cookie_jar_ready
+
+        if (
+            cookie_jar_ready()
+            and _POOL['proxy'] == proxy
+            and _POOL.get('proxy_info')
+            and pool_is_warm()
+        ):
             self.proxy_info = _POOL['proxy_info']
             self.proxy_label = format_proxy_line(self.proxy_info, proxy)
             await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
             return proxy
 
-        tries = 2 if fast_mode() else PROXY_CONNECT_TRIES
-        pto = 5 if fast_mode() else 8
-        uto = 8 if fast_mode() else 12
+        trial = int(os.getenv('UIDAI_PROXY_TRIAL_SEC', '30'))
+        tries = PROXY_CONNECT_TRIES
         last_err: Exception | None = None
         for attempt in range(tries):
             try:
-                await self._step(1, 8, f'VPN try {attempt + 1}/{tries}…')
-                info = await asyncio.to_thread(check_proxy, proxy, pto)
+                await self._step(1, 8, f'VPN try {attempt + 1}/{tries} — {trial}s max…')
+                info = await asyncio.to_thread(check_proxy, proxy, trial)
                 if info.get('countryCode') != 'IN':
                     raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
-                if not fast_mode() or attempt > 0:
-                    await asyncio.to_thread(test_uidai, proxy, uto)
+                await asyncio.to_thread(test_uidai, proxy, trial)
                 self.proxy_info = info
                 _POOL['proxy_info'] = info
                 self.proxy_label = format_proxy_line(info, proxy)
@@ -600,12 +605,66 @@ class UidaiBrowserSession:
                 return proxy
             except Exception as e:
                 last_err = e
-                log.warning('proxy %s attempt %s/%s: %s', proxy, attempt + 1, PROXY_CONNECT_TRIES, e)
-                if attempt < PROXY_CONNECT_TRIES - 1:
+                log.warning('proxy %s attempt %s/%s: %s', proxy, attempt + 1, tries, e)
+                if attempt < tries - 1:
                     await asyncio.sleep(1.5)
         raise RuntimeError(
-            f'VPN fail ({PROXY_CONNECT_TRIES} try): {last_err}'
+            f'VPN fail ({tries} try × {trial}s): {last_err}'
         ) from last_err
+
+    async def _pick_proxy_with_trial(self) -> tuple[str, dict[str, Any]]:
+        """Telegram pe har proxy trial dikhao — 30s max each."""
+        from proxy_india import (
+            proxy_list_from_env,
+            proxy_trial_timeout,
+            score_proxy,
+            _save_cache,
+            proxy_cache_enabled,
+        )
+
+        pool = proxy_list_from_env()[:50]
+        trial = proxy_trial_timeout()
+        await self._step(1, 8, f'Proxy scan — {len(pool)} proxies × {trial}s…')
+
+        if proxy_cache_enabled():
+            from proxy_india import _load_cache
+
+            cached = _load_cache()
+            if cached and cached in pool:
+                host = cached.split('//')[-1]
+                await self._step(1, 8, f'Cache proxy — {host} ({trial}s)…')
+                row = await asyncio.to_thread(score_proxy, cached, require_uidai=True)
+                if row:
+                    return cached, row['info']
+
+        for i, proxy in enumerate(pool, 1):
+            host = proxy.split('//')[-1].split('@')[-1]
+            await self._step(1, 8, f'Proxy {i}/{len(pool)} — {host} ({trial}s)…')
+            t0 = time.monotonic()
+            row = await asyncio.to_thread(score_proxy, proxy, require_uidai=True)
+            elapsed = time.monotonic() - t0
+            if row:
+                if proxy_cache_enabled():
+                    _save_cache(proxy)
+                city = row['info'].get('city', '?')
+                await self._step(1, 8, f'VPN OK — {city} ({elapsed:.0f}s)')
+                return proxy, row['info']
+            log.info('Proxy %d/%d fail — %.1fs', i, len(pool), elapsed)
+
+        log.warning('UIDAI strict fail — India IP only')
+        for i, proxy in enumerate(pool, 1):
+            host = proxy.split('//')[-1]
+            await self._step(1, 8, f'Retry {i}/{len(pool)} India-only — {host}…')
+            row = await asyncio.to_thread(score_proxy, proxy, require_uidai=False)
+            if row:
+                if proxy_cache_enabled():
+                    _save_cache(proxy)
+                return proxy, row['info']
+
+        raise RuntimeError(
+            f'{len(pool)} proxy fail ({trial}s/try).\n'
+            'UIDAI_PROXY=http://ip:port ya rm proxy_cache.json'
+        )
 
     async def _inject_saved_cookies(self) -> int:
         """Saved cookies browser me — hamesha ke liye reuse."""
@@ -653,7 +712,7 @@ class UidaiBrowserSession:
             return await self._connect_proxy(self.proxy)
 
         if cookie_jar_ready():
-            self.proxy_label = '🍪 Saved cookies — bina proxy'
+            self.proxy_label = '🍪 Saved cookies — proxy skip (trial nahi)'
             await self._step(1, 8, self.proxy_label)
             return None
 
@@ -662,9 +721,8 @@ class UidaiBrowserSession:
             await self._step(1, 8, self.proxy_label)
             return None
 
-        await self._step(1, 8, 'Proxy scan — ~30s per try…')
         try:
-            proxy, info = await asyncio.to_thread(pick_indian_proxy, limit=50)
+            proxy, info = await self._pick_proxy_with_trial()
             self.proxy = proxy
             self.proxy_info = info
             self.proxy_label = format_proxy_line(info, proxy)

@@ -1105,19 +1105,15 @@ async def benchmark_proxy_job(context) -> None:
 
 
 async def warm_pool_job(context) -> None:
-    """Bot start pe Chromium background me launch — 24/7."""
+    """Cookies ready ho to pool warm — warna pehla /open proxy trial karega."""
     if pool_is_warm():
         return
-    if cookie_jar_ready():
-        proxy = None
-    elif PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
+    if not cookie_jar_ready():
+        log.info('Pool warm skip — cookies nahi; pehla /open full proxy trial (~30s/try)')
+        return
+    proxy = None
+    if PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
         proxy = PROXY
-    else:
-        try:
-            proxy, _ = await asyncio.to_thread(pick_indian_proxy, limit=50)
-        except Exception as e:
-            log.warning('Pool warm proxy skip: %s', e)
-            proxy = None
     await ensure_pool_warm(proxy)
 
 

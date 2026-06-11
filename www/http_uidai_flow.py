@@ -126,11 +126,10 @@ class UidaiHttpSession:
             return
 
         try:
-            limit = 50
-            proxy, info = pick_indian_proxy(limit=limit)
+            proxy, info = pick_indian_proxy(limit=50, full_trial=True)
             self.proxy_url = proxy
             self.proxy_info = info
-            log.info('HTTP proxy scan (~30s/try) — %s', proxy)
+            log.info('HTTP proxy scan — %s', proxy)
         except Exception as e:
             india = check_direct_india(timeout=3)
             if india:

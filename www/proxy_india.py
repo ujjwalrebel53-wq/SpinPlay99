@@ -269,6 +269,11 @@ def proxy_trial_timeout() -> int:
     return int(os.getenv('UIDAI_PROXY_TRIAL_SEC', '30'))
 
 
+def proxy_cache_enabled() -> bool:
+    """Cache hit = instant skip. Bootstrap trial ke liye default band."""
+    return os.getenv('UIDAI_PROXY_CACHE', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
     handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
     return urllib.request.build_opener(handler)
@@ -316,22 +321,30 @@ def test_uidai(proxy: str, timeout: int = 10) -> float:
 
 
 def score_proxy(proxy: str, *, require_uidai: bool = True) -> dict[str, Any] | None:
+    trial = proxy_trial_timeout()
+    host = proxy.split('//')[-1].split('@')[-1]
+    t0 = time.monotonic()
     try:
-        trial = proxy_trial_timeout()
-        info = check_proxy(proxy, timeout=min(trial, 15))
+        log.info('Proxy trial start — %s (max %ds)', host, trial)
+        info = check_proxy(proxy, timeout=trial)
         if info.get('countryCode') != 'IN':
+            log.info('Proxy trial fail — %s not India (%.1fs)', host, time.monotonic() - t0)
             return None
         uidai_s = 5.0
         if require_uidai:
             uidai_s = test_uidai(proxy, timeout=trial)
+        elapsed = time.monotonic() - t0
+        log.info('Proxy trial OK — %s %s UIDAI %.1fs', host, info.get('city', '?'), elapsed)
         return {
             'proxy': proxy,
             'info': info,
             'uidai_sec': uidai_s,
             'score': uidai_s,
+            'trial_sec': elapsed,
         }
     except Exception as e:
-        log.debug('proxy fail %s: %s', proxy, e)
+        elapsed = time.monotonic() - t0
+        log.info('Proxy trial fail — %s %.1fs: %s', host, elapsed, e)
         return None
 
 
@@ -371,38 +384,47 @@ def pick_indian_proxy(
     proxies: list[str] | None = None,
     *,
     limit: int | None = None,
+    full_trial: bool = True,
 ) -> tuple[str, dict[str, Any]]:
-    """Fastest-first — ranked list se ek-ek karke try."""
+    """Sequential proxy trial — har proxy max UIDAI_PROXY_TRIAL_SEC (default 30s)."""
     pool = proxies or proxy_list_from_env()
     if limit:
         pool = pool[:limit]
+    pool = pool[:50]
+    trial = proxy_trial_timeout()
 
-    cached = _load_cache()
-    if cached and cached in pool:
-        row = score_proxy(cached, require_uidai=True)
-        if row:
-            log.info('Proxy cache hit — %s', cached)
-            return row['proxy'], row['info']
-        row = score_proxy(cached, require_uidai=False)
-        if row:
-            return row['proxy'], row['info']
+    use_cache = proxy_cache_enabled() and not full_trial
+    if use_cache:
+        cached = _load_cache()
+        if cached and cached in pool:
+            row = score_proxy(cached, require_uidai=True)
+            if row:
+                log.info('Proxy cache hit — %s', cached)
+                return row['proxy'], row['info']
+            row = score_proxy(cached, require_uidai=False)
+            if row:
+                return row['proxy'], row['info']
 
-    for proxy in pool[:50]:
+    log.info('Proxy full trial — %d proxies, %ds each', len(pool), trial)
+    for i, proxy in enumerate(pool, 1):
+        log.info('Proxy trial %d/%d — %s', i, len(pool), proxy.split('//')[-1])
         row = score_proxy(proxy, require_uidai=True)
         if row:
-            _save_cache(proxy)
-            log.info('Proxy picked %s — %.1fs %s', proxy, row['score'], row['info'].get('city'))
+            if use_cache or proxy_cache_enabled():
+                _save_cache(proxy)
+            log.info('Proxy picked %s — %.1fs %s', proxy, row.get('trial_sec', row['score']), row['info'].get('city'))
             return proxy, row['info']
 
     log.warning('UIDAI strict fail — India IP only try')
-    for proxy in pool[:50]:
+    for i, proxy in enumerate(pool, 1):
         row = score_proxy(proxy, require_uidai=False)
         if row:
-            _save_cache(proxy)
+            if use_cache or proxy_cache_enabled():
+                _save_cache(proxy)
             return proxy, row['info']
 
     raise RuntimeError(
-        '50 proxy me se koi kaam nahi kiya.\n'
+        f'{len(pool)} proxy me se koi kaam nahi ({trial}s/try).\n'
         'Chalao: python3 benchmark_proxies.py\n'
         'Ya .env: UIDAI_PROXY=http://14.143.222.113:57738'
     )
