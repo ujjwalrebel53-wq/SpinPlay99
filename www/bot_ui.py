@@ -1,73 +1,63 @@
-"""Professional Telegram loading UI — user-facing messages, no raw logs."""
+"""Professional Telegram UI — English, advanced loading animation."""
 
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
+
+SPINNERS = ('◐', '◓', '◑', '◒')
+WAVE = ('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂')
 
 
 def humanize_step(raw: str) -> str:
-    """Technical browser steps → clean user labels."""
     t = (raw or '').strip()
     low = t.lower()
     if not t:
-        return 'Processing…'
-    if '24h session' in low or 'reuse' in low or 'reload skip' in low:
-        return 'Reusing active session'
-    if 'vpn' in low or 'proxy' in low or ('indian' in low and 'connect' in low):
-        return 'Secure connection'
+        return 'Processing'
+    if 'session active' in low or 'reuse' in low or 'skip reload' in low:
+        return 'Active session detected'
+    if 'vpn' in low or 'proxy' in low:
+        return 'Secure VPN tunnel'
     if 'chromium' in low or 'browser' in low:
-        return 'Secure browser ready'
-    if 'uidai' in low and ('open' in low or 'load' in low or 'site' in low):
-        return 'Opening UIDAI portal'
+        return 'Browser engine ready'
+    if 'uidai' in low and ('open' in low or 'load' in low):
+        return 'UIDAI portal online'
     if 'retry' in low:
         return 'Retrying connection'
-    if 'form' in low:
-        return 'Preparing form'
-    if 'naam' in low or 'name' in low:
-        return 'Entering name'
-    if 'mobile bhara' in low or 'mobile:' in low:
-        return 'Entering mobile number'
+    if 'form' in low or 'updating' in low:
+        return 'Preparing secure form'
+    if 'name' in low or 'naam' in low:
+        return 'Applying name'
+    if 'mobile' in low:
+        return 'Applying mobile number'
+    if 'pre-loaded' in low or 'cached' in low:
+        return 'Instant captcha delivery'
     if 'captcha' in low:
-        if 'ready' in low or 'txn=' in low:
+        if 'refresh' in low:
+            return 'Refreshing captcha'
+        if 'ready' in low:
             return 'Captcha ready'
-        if 'missing' in low:
-            return 'Captcha refresh needed'
-        if 'fill' in low:
-            return 'Verifying captcha'
-        if 'issue' in low or 'refresh' in low:
-            return 'Captcha verification'
         return 'Loading captcha'
-    if 'otp bhej' in low or 'otp sms' in low or 'otp sent' in low:
-        return 'Sending OTP to mobile'
-    if 'otp verify' in low or 'otp:' in low:
-        return 'Verifying OTP'
-    if 'uidai api' in low or 'uidai ko' in low:
-        return 'Contacting UIDAI servers'
+    if 'otp' in low:
+        return 'OTP verification'
     if 'retrieve' in low or 'aadhaar' in low:
-        return 'Retrieving Aadhaar details'
-    if 'sms' in low and 'check' in low:
-        return 'Check your registered mobile'
+        return 'Retrieving Aadhaar'
     if 'network' in low:
-        return 'Connection issue'
-    if 'galat otp' in low:
-        return 'Invalid OTP'
-    if 'done' in low:
-        return 'Finishing up'
-    if 'python engine' in low:
-        return 'System ready'
+        return 'Network check'
+    if 'engine' in low:
+        return 'System initialized'
     t = re.sub(r'\(txn=[^)]+\)', '', t)
     t = re.sub(r'v\d+\.\d+\.\d+', '', t).strip(' —')
-    return t[:48] if t else 'Processing…'
+    return t[:42] if t else 'Processing'
 
 
 def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
-    """Clean user message from API result — logs server pe rehte hain."""
     if kind == 'otp' and result.get('otp_ok'):
-        return '📱 OTP aapke mobile pe bhej diya gaya. 6 digit code yahan reply karo.'
+        return '📱 OTP sent to your mobile. Reply with the 6-digit code here.'
 
     if kind == 'retrieve' and result.get('retrieve_ok'):
-        return '📲 Aadhaar number aapke registered mobile pe SMS se bhej diya gaya. Phone check karo.'
+        return '📲 Aadhaar number sent via SMS to your registered mobile. Check your phone.'
 
     logs = result.get('logs') or []
     for item in reversed(logs):
@@ -77,30 +67,30 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
         reason = data.get('reason')
         msg = str(data.get('msg') or '')
         if reason == 'invalid_captcha':
-            return '❌ Galat captcha. /refresh karke naya captcha lo aur dubara try karo.'
+            return '❌ Invalid captcha. Use /refresh and try again.'
         if reason == 'captcha_expired':
-            return '⏱ Captcha expire ho gaya. /refresh karo aur dubara bharo.'
+            return '⏱ Captcha expired. Use /refresh and enter a new one.'
         if reason == 'invalid_otp':
-            return '❌ Galat OTP. Sahi 6 digit code dubara bhejo.'
+            return '❌ Invalid OTP. Send the correct 6-digit code.'
         if reason == 'otp_sent':
-            return '📱 OTP mobile pe bhej diya gaya.'
+            return '📱 OTP sent to your mobile.'
         if reason == 'retrieve_ok':
-            return '📲 Registered mobile pe SMS check karo.'
+            return '📲 Check SMS on your registered mobile.'
         if msg:
             if re.search(r'invalid.*captcha', msg, re.I):
-                return '❌ Galat captcha — /refresh karo.'
+                return '❌ Invalid captcha — use /refresh.'
             if re.search(r'invalid.*otp', msg, re.I):
-                return '❌ Galat OTP — dubara try karo.'
+                return '❌ Invalid OTP — try again.'
             if re.search(r'otp.*sent', msg, re.I):
-                return '📱 OTP bhej diya gaya.'
+                return '📱 OTP sent successfully.'
 
     if kind == 'otp':
-        return '❌ OTP nahi bheja ja saka. Captcha sahi hai? /refresh try karo.'
-    return '❌ Request fail. Thodi der baad /open dubara try karo.'
+        return '❌ Could not send OTP. Verify captcha or use /refresh.'
+    return '❌ Request failed. Try /open again in a moment.'
 
 
 class LoadingScreen:
-    """Single editable Telegram message — progress bar + clean steps."""
+    """Animated progress panel — spinner + wave bar."""
 
     def __init__(
         self,
@@ -109,7 +99,7 @@ class LoadingScreen:
         mobile: str,
         *,
         title: str = 'Rebel Aadhaar',
-        subtitle: str = 'UIDAI Secure Retrieve',
+        subtitle: str = 'Secure UIDAI Gateway',
     ) -> None:
         self._msg = msg
         self.name = name
@@ -121,11 +111,23 @@ class LoadingScreen:
         self._total = 8
         self._status = 'loading'
         self._footer = ''
+        self._frame = 0
+        self._started = time.monotonic()
 
-    def _bar(self, pct: int) -> str:
+    def _spinner(self) -> str:
+        self._frame += 1
+        return SPINNERS[self._frame % len(SPINNERS)]
+
+    def _wave_bar(self, pct: int) -> str:
         pct = max(0, min(100, pct))
-        filled = round(pct / 10)
-        return '▰' * filled + '▱' * (10 - filled)
+        pos = int((pct / 100) * (len(WAVE) - 1))
+        idx = (pos + self._frame) % len(WAVE)
+        chunk = ''.join(WAVE[(idx + i) % len(WAVE)] for i in range(10))
+        return chunk
+
+    def _elapsed(self) -> str:
+        sec = int(time.monotonic() - self._started)
+        return f'{sec}s'
 
     async def update(self, n: int, total: int, text: str) -> None:
         self._total = max(total, 1)
@@ -136,18 +138,19 @@ class LoadingScreen:
         if n >= 1:
             for i in range(n - 1):
                 if i < len(self._steps) and self._steps[i]:
-                    self._steps[i] = f'✓ {self._steps[i].lstrip("✓✗› ")}'
+                    self._steps[i] = f'✓ {self._steps[i].lstrip("✓✗▸ ")}'
         idx = n - 1
+        line = f'▸ {label}'
         if idx < len(self._steps):
-            self._steps[idx] = f'› {label}'
+            self._steps[idx] = line
         else:
-            self._steps.append(f'› {label}')
+            self._steps.append(line)
         await self._render()
 
     async def done(self, final: str = '') -> None:
         self._status = 'done'
         for i, s in enumerate(self._steps):
-            self._steps[i] = f'✓ {s.lstrip("✓✗› ")}'
+            self._steps[i] = f'✓ {s.lstrip("✓✗▸ ")}'
         self._footer = final
         await self._render()
 
@@ -155,7 +158,7 @@ class LoadingScreen:
         self._status = 'fail'
         if self._steps and self._current >= 1:
             idx = self._current - 1
-            self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗› ")}'
+            self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'
         self._footer = err
         await self._render()
 
@@ -163,25 +166,37 @@ class LoadingScreen:
         pct = int((self._current / self._total) * 100) if self._total else 0
         if self._status == 'done':
             pct = 100
-        icon = '⏳' if self._status == 'loading' else ('✅' if self._status == 'done' else '⚠️')
+
+        if self._status == 'loading':
+            head = f'{self._spinner()} {self.title}'
+            state = 'INITIALIZING'
+        elif self._status == 'done':
+            head = f'✓ {self.title}'
+            state = 'COMPLETE'
+        else:
+            head = f'⚠ {self.title}'
+            state = 'ATTENTION'
 
         lines = [
-            '━━━━━━━━━━━━━━━━━━━━',
-            f'  {icon} {self.title}',
-            f'  {self.subtitle}',
-            '━━━━━━━━━━━━━━━━━━━━',
+            '╔══════════════════════════╗',
+            f'║  {head[:24]:<24}║',
+            f'║  {self.subtitle[:24]:<24}║',
+            '╠══════════════════════════╣',
+            f'  Status │ {state}',
+            f'  Elapsed │ {self._elapsed()}',
             '',
-            f'👤 {self.name}',
-            f'📱 {self.mobile}',
+            f'  {self._wave_bar(pct)}  {pct}%',
             '',
-            f'{self._bar(pct)}  {pct}%',
+            f'  Name   {self.name}',
+            f'  Mobile {self.mobile}',
             '',
         ]
-        for s in self._steps[-6:]:
+        for s in self._steps[-5:]:
             if s:
-                lines.append(s)
+                lines.append(f'  {s}')
         if self._footer:
-            lines.extend(['', self._footer])
+            lines.extend(['', f'  {self._footer}'])
+        lines.append('╚══════════════════════════╝')
         try:
             await self._msg.edit_text('\n'.join(lines)[:4000])
         except Exception:

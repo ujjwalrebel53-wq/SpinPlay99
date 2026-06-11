@@ -87,7 +87,7 @@ class AccessControl:
         self._save()
 
     def status_lines(self, active_sessions: int = 0) -> list[str]:
-        mode_label = '🌍 OPEN — sab users' if self._mode == 'free' else '🔒 LOCKED — sirf approved'
+        mode_label = '🌍 OPEN — all users' if self._mode == 'free' else '🔒 LOCKED — approved only'
         lines = [
             mode_label,
             f'Approved users: {self.approved_count}',

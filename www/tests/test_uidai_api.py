@@ -15,7 +15,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.4.3')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.5.0')
 
     def test_normalize_name_skip(self) -> None:
         self.assertEqual(normalize_name('skip'), PLACEHOLDER_NAME)
