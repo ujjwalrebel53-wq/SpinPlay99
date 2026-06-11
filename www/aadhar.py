@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 import logging
 import os
@@ -37,6 +38,22 @@ SKIP_NAME_TOKENS = frozenset({
 })
 
 _WHISPER_MODEL = None
+_AADHAR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix='aadhar',
+)
+
+
+def ensure_whisper_loaded() -> None:
+    """Startup pe load — worker thread me torch/event-loop error avoid."""
+    global _WHISPER_MODEL
+    if whisper is None or _WHISPER_MODEL is not None:
+        return
+    try:
+        model_name = os.getenv('WHISPER_MODEL', 'base').strip() or 'base'
+        log.info('Loading Whisper %s…', model_name)
+        _WHISPER_MODEL = whisper.load_model(model_name)
+    except Exception as e:
+        log.warning('Whisper preload skip: %s', e)
 
 
 def _env_on(primary: str, secondary: str = '', default: str = '1') -> bool:
@@ -395,7 +412,12 @@ def clear_aadhar_session(chat_id: int) -> None:
 
 
 async def run_aadhar(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    return await asyncio.to_thread(fn, *args, **kwargs)
+    """Run sync aadhar code off the asyncio loop (fixed thread pool)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _AADHAR_EXECUTOR,
+        lambda: fn(*args, **kwargs),
+    )
 
 
 def main() -> None:

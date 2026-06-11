@@ -23,7 +23,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.error import Conflict
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 try:
     from bot_access import AccessControl
@@ -61,8 +67,6 @@ from http_uidai_flow import (
     UidaiHttpSession,
     HTTP_SESSIONS,
     get_http_session,
-    http_mode_preferred,
-    pdf_flow_pure_http,
     sync_from_browser,
 )
 from react_extract import SET_OPTION_JS
@@ -70,8 +74,6 @@ from uidai_api import (
     BOT_ENGINE_VERSION,
     DOB_RE,
     PLACEHOLDER_NAME,
-    dob_bypass_enabled,
-    generate_pdf_password,
     is_skip_name,
     normalize_dob,
     normalize_name,
@@ -1197,21 +1199,30 @@ def main() -> None:
         sync_baked_to_runtime_jar()
         log.info('Baked UIDAI session loaded — all chats use isolated cookie copies')
 
-    async def _startup_pool_warm() -> None:
-        from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
+    async def _bot_post_init(application: Application) -> None:
+        """Startup inside PTB event loop — asyncio.run() mat use karo."""
+        try:
+            if baked_session_ready():
+                from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
 
-        if not baked_session_ready():
-            return
-        proxy = get_baked_proxy() if use_baked_proxy_fast() else None
-        log.info('Startup pool warm — proxy=%s', proxy or 'direct')
-        await ensure_pool_warm(proxy)
+                proxy = get_baked_proxy() if use_baked_proxy_fast() else None
+                log.info('Startup pool warm — proxy=%s', proxy or 'direct')
+                await ensure_pool_warm(proxy)
+        except Exception as e:
+            log.warning('post_init pool warm skip: %s', e)
+        try:
+            from aadhar import ensure_whisper_loaded
 
-    try:
-        asyncio.run(_startup_pool_warm())
-    except Exception as e:
-        log.warning('Startup pool warm skip: %s', e)
+            ensure_whisper_loaded()
+        except Exception as e:
+            log.warning('post_init whisper skip: %s', e)
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(_bot_post_init)
+        .build()
+    )
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
     app.add_handler(CommandHandler('open', cmd_open))
