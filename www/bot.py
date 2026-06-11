@@ -248,7 +248,11 @@ async def open_uidai_session(
 ) -> None:
     old = SESSIONS.pop(chat_id, None)
     if old:
-        await old.close(keep_warm=True)
+        try:
+            await old.close(keep_warm=True)
+        except Exception:
+            from browser_session import _pool_shutdown
+            await _pool_shutdown()
 
     status_msg = await update.message.reply_text('🚀 Shuru ho raha hai…')
     progress = LiveProgress(status_msg, name, mobile)
@@ -283,10 +287,15 @@ async def open_uidai_session(
         await progress.done('✅ Ready — captcha reply karo')
     except Exception as e:
         log.exception('open failed')
-        await sess.close(keep_warm=True)
+        from browser_session import _is_browser_closed_error, _pool_shutdown
+
+        if _is_browser_closed_error(e):
+            await _pool_shutdown()
+        else:
+            await sess.close(keep_warm=True)
         SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
-        await progress.fail(f'❌ Fail: {e}')
+        await progress.fail(f'❌ Fail: {e}\n\nTip: /close phir /open dubara')
 
 
 async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

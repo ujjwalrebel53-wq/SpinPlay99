@@ -12,7 +12,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.1.0')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.1.1')
 
     def test_build_otp_payload(self) -> None:
         p = build_otp_payload(

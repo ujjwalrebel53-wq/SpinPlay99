@@ -59,42 +59,74 @@ _POOL: dict[str, Any] = {
 }
 
 
+def _browser_connected(browser: Browser | None) -> bool:
+    if not browser:
+        return False
+    try:
+        return browser.is_connected()
+    except Exception:
+        return False
+
+
+def _is_browser_closed_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return 'has been closed' in msg or 'target closed' in msg or 'browser has been closed' in msg
+
+
+async def _pool_drop_browser_locked() -> None:
+    """Pool lock held — browser ref hatao (Chromium crash / stale)."""
+    if _POOL['browser']:
+        try:
+            await _POOL['browser'].close()
+        except Exception:
+            pass
+    _POOL['browser'] = None
+
+
 async def _pool_shutdown() -> None:
     async with _POOL['lock']:
-        if _POOL['browser']:
-            await _POOL['browser'].close()
+        await _pool_drop_browser_locked()
         if _POOL['pw']:
-            await _POOL['pw'].stop()
+            try:
+                await _POOL['pw'].stop()
+            except Exception:
+                pass
         _POOL['pw'] = None
-        _POOL['browser'] = None
         _POOL['proxy'] = None
         _POOL['proxy_info'] = None
 
 
-async def _pool_browser(proxy: str | None) -> Browser:
+async def _pool_browser(proxy: str | None) -> tuple[Browser, bool]:
+    """Return (browser, reused). Dead pool entry auto-relaunch."""
     async with _POOL['lock']:
         if _POOL['browser'] and _POOL['proxy'] == proxy:
-            log.info('Pre-warm: browser reuse (proxy=%s)', proxy or 'direct')
-            return _POOL['browser']
+            if _browser_connected(_POOL['browser']):
+                log.info('Pre-warm: browser reuse (proxy=%s)', proxy or 'direct')
+                return _POOL['browser'], True
+            log.warning('Pre-warm: dead browser in pool — relaunch')
+            await _pool_drop_browser_locked()
 
         if _POOL['browser']:
-            await _POOL['browser'].close()
-            _POOL['browser'] = None
-        if _POOL['pw']:
-            await _POOL['pw'].stop()
-            _POOL['pw'] = None
+            await _pool_drop_browser_locked()
+
+        if not _POOL['pw']:
+            _POOL['pw'] = await async_playwright().start()
 
         log.info('Pre-warm: naya browser launch (proxy=%s)', proxy or 'direct')
-        _POOL['pw'] = await async_playwright().start()
         opts: dict[str, Any] = {
             'headless': True,
-            'args': ['--disable-remote-fonts', '--no-sandbox', '--disable-dev-shm-usage'],
+            'args': [
+                '--disable-remote-fonts',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
         }
         if proxy:
             opts['proxy'] = {'server': proxy}
         _POOL['browser'] = await _POOL['pw'].chromium.launch(**opts)
         _POOL['proxy'] = proxy
-        return _POOL['browser']
+        return _POOL['browser'], False
 
 
 class UidaiBrowserSession:
@@ -169,38 +201,61 @@ class UidaiBrowserSession:
         await self._step(1, 8, f'VPN connected — {self.proxy_label}')
         return proxy
 
-    async def _new_page(self, proxy: str | None) -> None:
+    async def _new_page(self, proxy: str | None) -> bool:
+        """New context + page. Returns True if Chromium pool reuse hua."""
         if self._context:
-            await self._context.close()
-        browser = await _pool_browser(proxy)
-        self._active_proxy = proxy
-        self._context = await browser.new_context(
-            viewport={'width': 390, 'height': 844},
-            user_agent=MOBILE_UA,
-            locale='en-IN',
-            timezone_id='Asia/Kolkata',
-            geolocation={'latitude': 28.6139, 'longitude': 77.2090},
-            permissions=['geolocation'],
-        )
-        await self._context.add_init_script(SKIP_FONTS_JS)
-        self._page = await self._context.new_page()
+            try:
+                await self._context.close()
+            except Exception:
+                pass
+            self._context = None
+            self._page = None
+
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                browser, reused = await _pool_browser(proxy)
+                self._active_proxy = proxy
+                self._context = await browser.new_context(
+                    viewport={'width': 390, 'height': 844},
+                    user_agent=MOBILE_UA,
+                    locale='en-IN',
+                    timezone_id='Asia/Kolkata',
+                    geolocation={'latitude': 28.6139, 'longitude': 77.2090},
+                    permissions=['geolocation'],
+                )
+                await self._context.add_init_script(SKIP_FONTS_JS)
+                self._page = await self._context.new_page()
+                return reused
+            except Exception as e:
+                last_err = e
+                log.warning('new_context fail attempt %s: %s', attempt + 1, e)
+                if attempt == 0 and _is_browser_closed_error(e):
+                    async with _POOL['lock']:
+                        await _pool_drop_browser_locked()
+                    continue
+                raise
+        if last_err:
+            raise last_err
+        return False
 
     async def start(self) -> None:
         if self._page:
             return
         proxy = await self._resolve_proxy()
-        reused = _POOL['browser'] is not None and _POOL['proxy'] == proxy
+        await self._step(2, 8, 'Chromium start…')
+        reused = await self._new_page(proxy)
         if reused:
             await self._step(2, 8, 'Browser pre-warm — turant ready ⚡')
         else:
-            await self._step(2, 8, 'Chromium start…')
-        await self._new_page(proxy)
-        if not reused:
             await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
 
     async def close(self, keep_warm: bool = True) -> None:
         if self._context:
-            await self._context.close()
+            try:
+                await self._context.close()
+            except Exception:
+                pass
         self._context = None
         self._page = None
         self.captcha_txn_id = ''
