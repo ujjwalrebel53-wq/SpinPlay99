@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.0.1'
+BOT_ENGINE_VERSION = '2.1.0'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 OTP_API_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid'
@@ -78,6 +78,47 @@ def uidai_headers(request_id: str | None = None) -> dict[str, str]:
     }
 
 
+def _deep_get(obj: Any, *keys: str) -> Any:
+    cur = obj
+    for k in keys:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def extract_otp_txn_id(data: dict[str, Any]) -> str | None:
+    """OTP send success response se otpTxnId nikaalo."""
+    candidates = [
+        data.get('otpTxnId'),
+        data.get('otpTxnID'),
+        data.get('otpTransactionId'),
+        _deep_get(data, 'data', 'otpTxnId'),
+        _deep_get(data, 'response', 'otpTxnId'),
+        _deep_get(data, 'responseData', 'otpTxnId'),
+        _deep_get(data, 'result', 'otpTxnId'),
+    ]
+    for c in candidates:
+        if c and str(c).strip():
+            return str(c).strip()
+    return None
+
+
+def extract_aadhaar_hint(data: dict[str, Any]) -> str | None:
+    """Retrieve response se UID/EID hint (masked) agar mile."""
+    for key in (
+        'uid', 'UID', 'aadhaar', 'aadhaarNumber', 'aadhaarNo',
+        'eid', 'EID', 'enrolmentId', 'enrolmentNumber', 'maskedAadhaar',
+    ):
+        val = data.get(key)
+        if val and str(val).strip():
+            return f'{key}: {str(val).strip()[:20]}'
+    nested = data.get('data') or data.get('response') or data.get('responseData')
+    if isinstance(nested, dict):
+        return extract_aadhaar_hint(nested)
+    return None
+
+
 def parse_uidai_response(status: int, text: str) -> tuple[bool, str, dict[str, Any]]:
     """Return (success, message, extra)."""
     extra: dict[str, Any] = {'status': status}
@@ -102,19 +143,32 @@ def parse_uidai_response(status: int, text: str) -> tuple[bool, str, dict[str, A
     extra['json'] = j
     extra['msg'] = msg_s[:200]
 
-    if j.get('otpTxnId'):
-        extra['otpTxnId'] = j['otpTxnId']
+    otp_txn = extract_otp_txn_id(j)
+    if otp_txn:
+        extra['otpTxnId'] = otp_txn
     if j.get('transactionId'):
         extra['transactionId'] = j['transactionId']
+
+    hint = extract_aadhaar_hint(j)
+    if hint:
+        extra['aadhaar_hint'] = hint
 
     if re.search(r'invalid.*captcha', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_captcha'}
     if re.search(r'timed?\s*out|refresh the captcha', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'captcha_expired'}
-    if j.get('errorCode') and not re.search(r'otp.*sent|success', msg_s, re.I):
+    if re.search(r'invalid.*otp|incorrect.*otp|otp.*expired|otp.*mismatch', msg_s, re.I):
+        return False, msg_s, {**extra, 'reason': 'invalid_otp'}
+    if re.search(
+        r'aadhaar.*sent|uid.*sent|eid.*sent|enrolment.*sent|sent to.*mobile|sent to your',
+        msg_s,
+        re.I,
+    ):
+        return True, msg_s, {**extra, 'reason': 'retrieve_ok'}
+    if j.get('errorCode') and not re.search(r'otp.*sent|success|sent to', msg_s, re.I):
         return False, msg_s, extra
-    if re.search(r'otp.*sent|success|transaction', msg_s, re.I):
-        return True, msg_s, extra
+    if re.search(r'otp.*sent|success', msg_s, re.I):
+        return True, msg_s, {**extra, 'reason': 'otp_sent'}
     return 200 <= status < 300, msg_s, extra
 
 

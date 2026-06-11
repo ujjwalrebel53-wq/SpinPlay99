@@ -56,6 +56,9 @@ NAME_RE = re.compile(r'^[A-Za-z][A-Za-z\s\.]{1,59}$')
 STEP_NAME = 'name'
 STEP_MOBILE = 'mobile'
 STEP_CAPTCHA = 'captcha'
+STEP_OTP = 'otp'
+
+OTP_RE = re.compile(r'^\d{6}$')
 
 SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
@@ -162,8 +165,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        'Python OTP — extension bundle ki zaroorat nahi\n'
-        'Flow: /open → naam → mobile → captcha reply'
+        'Flow: /open → naam → mobile → captcha → SMS OTP → Aadhaar SMS pe aayega'
     )
 
 
@@ -200,6 +202,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'Name: {sess.name}',
             f'Mobile: {sess.mobile}',
             f'captchaTxn: {sess.captcha_txn_id[:12] + "…" if sess.captcha_txn_id else "—"}',
+            f'otpTxn: {sess.otp_txn_id[:12] + "…" if sess.otp_txn_id else "—"}',
+            f'Flow: {step or "—"}',
         ])
     await update.message.reply_text('\n'.join(lines))
 
@@ -360,6 +364,42 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await open_uidai_session(update, cid, name, mobile)
         return
 
+    if step == STEP_OTP:
+        if not OTP_RE.match(text):
+            await update.message.reply_text('6 digit OTP bhejo (SMS wala). Example: 482910')
+            return
+        sess = get_session(cid)
+        if not sess:
+            clear_flow(cid)
+            await update.message.reply_text('Session expire — /open dubara.')
+            return
+        FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
+        wait_msg = await update.message.reply_text('🚀 OTP verify + Aadhaar retrieve…')
+        otp_progress = LiveProgress(wait_msg, sess.name, sess.mobile, title='Retrieve Aadhaar')
+        if sess.proxy_label:
+            await otp_progress.set_proxy(sess.proxy_label)
+
+        async def retrieve_step(n: int, total: int, msg: str) -> None:
+            await otp_progress.update(n, total, msg)
+
+        try:
+            result = await sess.submit_otp(text, on_step=retrieve_step)
+            summary = result.get('summary', '')
+            version = result.get('version', BOT_ENGINE_VERSION)
+            retrieve_ok = result.get('retrieve_ok', False)
+            if retrieve_ok:
+                status = '✅ UIDAI ne registered mobile pe SMS bheja — phone check karo'
+            else:
+                status = 'Check logs — OTP galat ya fail'
+            await otp_progress.done(status)
+            await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
+            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP if not retrieve_ok else None}
+        except Exception as e:
+            log.exception('retrieve failed')
+            await otp_progress.fail(f'Retrieve fail: {e}')
+            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+        return
+
     if step != STEP_CAPTCHA:
         return
 
@@ -396,14 +436,21 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for x in result.get('logs', [])
         )
 
-        status = '✅ OTP request gayi — SMS check karo' if otp_ok else 'Check logs — shayad captcha galat'
+        status = '✅ OTP SMS bheja — ab 6 digit OTP reply karo' if otp_ok else 'Check logs — shayad captcha galat'
         if captcha_warn:
             status = 'Captcha issue — /refresh karke dubara'
 
         await otp_progress.done(status)
         await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
 
-        FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+        if otp_ok:
+            await update.message.reply_text(
+                '📱 SMS me 6 digit OTP aaya hoga.\n'
+                'Yahi chat me OTP reply karo — UIDAI Aadhaar number SMS pe bhejega.'
+            )
+            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+        else:
+            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:
         log.exception('otp failed')
         await otp_progress.fail(f'OTP fail: {e}')

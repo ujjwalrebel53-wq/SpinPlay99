@@ -39,7 +39,7 @@ UIDAI_PROXY=auto
 | `/status` | Session + captchaTxnId |
 | `/close` | Browser band |
 
-**Flow:** `/open` → naam → mobile → 8 live steps → captcha photo → captcha reply → OTP (fetch → xhr → Playwright fallback).
+**Flow:** `/open` → naam → mobile → captcha → OTP SMS → **6 digit OTP reply** → Aadhaar/EID registered mobile pe SMS.
 
 ## Architecture (v2)
 

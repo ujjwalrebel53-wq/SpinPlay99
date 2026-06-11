@@ -12,7 +12,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.0.1')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.1.0')
 
     def test_build_otp_payload(self) -> None:
         p = build_otp_payload(
@@ -60,6 +60,22 @@ class TestUidaiApi(unittest.TestCase):
         logs = [{'l': 'info', 'm': 'test', 'd': {'a': 1}}]
         s = summarize_logs(logs)
         self.assertIn('[info] test', s)
+
+    def test_parse_retrieve_success(self) -> None:
+        body = json.dumps({
+            'messageEnglish': 'Your Aadhaar number has been sent to your registered mobile number',
+        })
+        ok, _, extra = parse_uidai_response(200, body)
+        self.assertTrue(ok)
+        self.assertEqual(extra.get('reason'), 'retrieve_ok')
+
+    def test_parse_invalid_otp(self) -> None:
+        body = json.dumps({
+            'errorDetails': {'messageEnglish': 'Invalid OTP entered. Please try again.'},
+        })
+        ok, _, extra = parse_uidai_response(200, body)
+        self.assertFalse(ok)
+        self.assertEqual(extra.get('reason'), 'invalid_otp')
 
 
 if __name__ == '__main__':

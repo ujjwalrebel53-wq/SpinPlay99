@@ -34,6 +34,7 @@ VPS update:
   wget -O uidai_api.py "$BASE/uidai_api.py"
   wget -O react_extract.py "$BASE/react_extract.py"
   wget -O run_all_tests.py "$BASE/run_all_tests.py"
+  # v2.1+ OTP ke baad Aadhaar SMS retrieve
   mkdir -p tests
   wget -O tests/test_uidai_api.py "$BASE/tests/test_uidai_api.py"
   touch tests/__init__.py
