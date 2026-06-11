@@ -37,9 +37,11 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ "$TELEGRAM_BOT_TOKEN" = "123456789:ABCdefGH
   exit 1
 fi
 
-if [ -d .venv ]; then
+if [ -f .venv/bin/activate ]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
+elif [ -d .venv ] && [ ! -f .venv/bin/activate ]; then
+  echo "⚠ Broken .venv — run: rm -rf .venv && python3 -m venv .venv && pip install -r requirements.txt"
 fi
 
 if ! python3 -c "import telegram, playwright, dotenv, requests" 2>/dev/null; then
