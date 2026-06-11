@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 import requests
@@ -156,11 +157,35 @@ def _short_json(obj: Any, limit: int = 280) -> str:
     return s[:limit] + ('…' if len(s) > limit else '')
 
 
+def _read_baked_proxy_url() -> str:
+    """Sirf proxy URL — cookies nahi."""
+    try:
+        p = Path(__file__).parent / 'uidai_baked_session.json'
+        if p.exists():
+            return str(json.loads(p.read_text(encoding='utf-8')).get('proxy') or '').strip()
+    except Exception:
+        pass
+    return 'http://117.236.124.166:3128'
+
+
+def resolve_aadhar_proxy() -> str | None:
+    """Foreign VPS — direct fail pe India proxy (URL only, no cookies)."""
+    raw = os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', 'auto')).strip()
+    low = raw.lower()
+    if low in ('none', 'no', 'off', 'direct', '0', 'false'):
+        return None
+    if low in ('', 'auto', 'india'):
+        return _read_baked_proxy_url()
+    return raw if raw.startswith('http') else None
+
+
 class AadharSession:
     """Per-user requests.Session — Telegram /pdf engine with live logs."""
 
     def __init__(self, on_log: LogCb | None = None) -> None:
         self._session = requests.Session()
+        self.proxy_url: str | None = resolve_aadhar_proxy()
+        self._via_proxy = False
         self.on_log = on_log
         self.logs: list[str] = []
         self.name = ''
@@ -208,6 +233,71 @@ class AadharSession:
             f'[*] Captcha bypass: {"ON" if captcha_bypass_on() else "OFF"} | '
             f'Whisper: {"ON" if whisper else "OFF"}'
         )
+        if self.proxy_url:
+            self._log(f'[*] India proxy ready: {self.proxy_url} (auto on direct fail)')
+        else:
+            self._log('[*] Direct only — India VPS recommended')
+
+    @property
+    def _proxies(self) -> dict[str, str] | None:
+        if not self.proxy_url or not self._via_proxy:
+            return None
+        return {'http': self.proxy_url, 'https': self.proxy_url}
+
+    def _proxy_candidates(self) -> list[str]:
+        urls: list[str] = []
+        if self.proxy_url:
+            urls.append(self.proxy_url)
+        try:
+            ranked = json.loads(
+                (Path(__file__).parent / 'proxy_ranked.json').read_text(encoding='utf-8'),
+            ).get('proxies') or []
+            for row in ranked[:6]:
+                p = str((row or {}).get('proxy') or '').strip()
+                if p.startswith('http') and p not in urls:
+                    urls.append(p)
+        except Exception:
+            pass
+        return urls
+
+    def _post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        payload: dict[str, Any] | None = None,
+        timeout: int = 45,
+    ) -> requests.Response:
+        """Direct first → rotate India proxies (foreign VPS)."""
+        body = payload if payload is not None else {}
+        last_err: Exception | None = None
+
+        try:
+            r = self._session.post(
+                url, headers=headers, json=body, timeout=timeout, proxies=None,
+            )
+            if r.status_code < 500:
+                return r
+        except requests.RequestException as e:
+            last_err = e
+            self._log(f'[!] Direct fail: {str(e)[:80]}')
+
+        for proxy in self._proxy_candidates():
+            self._via_proxy = True
+            self.proxy_url = proxy
+            proxies = {'http': proxy, 'https': proxy}
+            self._log(f'[*] Retry via {proxy}')
+            try:
+                return self._session.post(
+                    url, headers=headers, json=body, timeout=timeout, proxies=proxies,
+                )
+            except requests.RequestException as e:
+                last_err = e
+                self._log(f'[-] Proxy fail {proxy}: {str(e)[:60]}')
+
+        if last_err:
+            raise last_err
+        raise RuntimeError('All routes failed — check India proxy / VPS location')
 
     def _fetch_captcha_bundle(
         self, headers: dict[str, str], *, tag: str,
@@ -217,7 +307,7 @@ class AadharSession:
         payload = {'captchaLength': '6', 'captchaType': '2', 'audioCaptchaRequired': True}
         out: dict[str, Any] = {'audio_b64': '', 'txn': '', 'image_png': b'', 'raw': {}}
         try:
-            r = self._session.post(AUDIO_CAPTCHA_URL, headers=headers, json=payload, timeout=45)
+            r = self._post(AUDIO_CAPTCHA_URL, headers=headers, payload=payload)
             self._log(f'[*] [{tag}] Audio API HTTP {r.status_code}')
             if r.status_code != 200:
                 self._log(f'[-] [{tag}] Body: {(r.text or "")[:200]}')
@@ -247,7 +337,7 @@ class AadharSession:
         if not out['image_png']:
             self._log(f'[*] [{tag}] Fetching image captcha fallback…')
             try:
-                r2 = self._session.post(IMAGE_CAPTCHA_URL, headers=headers, json={}, timeout=45)
+                r2 = self._post(IMAGE_CAPTCHA_URL, headers=headers, payload={})
                 self._log(f'[*] [{tag}] Image API HTTP {r2.status_code}')
                 if r2.status_code == 200:
                     d2 = r2.json()
@@ -357,8 +447,9 @@ class AadharSession:
         self._log(f'[*] [{tag}] POST {EID_OTP_URL}')
         self._log(f'[*] [{tag}] Payload: {_short_json(payload)}')
         try:
-            r = self._session.post(EID_OTP_URL, headers=headers, json=payload, timeout=45)
-            self._log(f'[*] [{tag}] Response HTTP {r.status_code}')
+            r = self._post(EID_OTP_URL, headers=headers, payload=payload)
+            route = 'proxy' if self._via_proxy else 'direct'
+            self._log(f'[*] [{tag}] Response HTTP {r.status_code} ({route})')
             data = r.json()
             self._log(f'[*] [{tag}] Response: {_short_json(data)}')
             return data
@@ -436,7 +527,7 @@ class AadharSession:
         }
         self._log(f'[*] POST {EID_OTP_URL} (verify)')
         try:
-            r = self._session.post(EID_OTP_URL, headers=self.phase1_headers, json=payload, timeout=45)
+            r = self._post(EID_OTP_URL, headers=self.phase1_headers, payload=payload)
             resp = r.json()
             self._log(f'[*] Verify HTTP {r.status_code}: {_short_json(resp)}')
         except Exception as e:
@@ -464,7 +555,7 @@ class AadharSession:
         self._log(f'[*] POST {DOWNLOAD_OTP_URL}')
         self._log(f'[*] Payload: {_short_json(payload)}')
         try:
-            r = self._session.post(DOWNLOAD_OTP_URL, headers=self.phase2_headers, json=payload, timeout=45)
+            r = self._post(DOWNLOAD_OTP_URL, headers=self.phase2_headers, payload=payload)
             data = r.json()
             self._log(f'[*] [{tag}] HTTP {r.status_code}: {_short_json(data)}')
             return data
@@ -529,7 +620,7 @@ class AadharSession:
         }
         self._log(f'[*] POST {DOWNLOAD_PDF_URL}')
         try:
-            r = self._session.post(DOWNLOAD_PDF_URL, headers=self.phase2_headers, json=payload, timeout=45)
+            r = self._post(DOWNLOAD_PDF_URL, headers=self.phase2_headers, payload=payload)
             resp = r.json()
             self._log(f'[*] Download HTTP {r.status_code}: {_short_json(resp)}')
         except Exception as e:
