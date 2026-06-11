@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-/open SMS retrieve bot — captcha → OTP → Aadhaar/EID on registered mobile.
+Rebel Aadhaar — classic /open SMS retrieve (v2.5 flow).
 
-Direct Indian VPS only (no proxy/VPN). Playwright + UIDAI live page.
+Captcha → OTP on mobile → Aadhaar/EID on SMS.
+Direct Indian VPS only — no proxy, no VPN, no cookies.
 
 Usage:
-  cd www
-  pip install -r requirements.txt
-  playwright install chromium
   python sex.py
 """
 
@@ -18,6 +16,12 @@ import logging
 import os
 import re
 from pathlib import Path
+
+# Disable baked cookies before any UIDAI imports
+os.environ.setdefault('UIDAI_BAKED_SESSION', '0')
+os.environ.setdefault('UIDAI_COOKIE_SEED', '0')
+os.environ.setdefault('UIDAI_COOKIE_PERSIST', '0')
+os.environ.setdefault('UIDAI_POOL_WARM', '0')
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -30,8 +34,10 @@ from telegram.ext import (
     filters,
 )
 
+load_dotenv(Path(__file__).parent / '.env')
+
 from bot_access import AccessControl
-from bot_ui import LoadingScreen, uidai_user_message
+from bot_ui_classic import LoadingScreen, uidai_user_message
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
@@ -40,10 +46,7 @@ from browser_session import (
     pool_is_warm,
     refresh_standby_captcha,
 )
-from uidai_cookie_session import baked_session_ready, cookie_jar_ready, sync_baked_to_runtime_jar
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
-
-load_dotenv(Path(__file__).parent / '.env')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('sex-bot')
@@ -170,7 +173,7 @@ async def _send_captcha_ready(
             photo=cap,
             caption=_captcha_caption(ttl=ttl),
         )
-    await progress.done('Captcha ready — reply with 4–8 characters')
+    await progress.done('Captcha ready — reply with text')
 
 
 async def _fail_open(
@@ -199,7 +202,6 @@ async def open_uidai_session(
     *,
     force_new: bool = False,
 ) -> None:
-    """Open UIDAI retrieve page — captcha → OTP SMS → Aadhaar/EID SMS."""
     name = normalize_name(name)
     mobile = mobile.strip()
     clear_flow(chat_id)
@@ -212,7 +214,11 @@ async def open_uidai_session(
     existing = SESSIONS.get(chat_id)
     if not force_new and existing and await existing.page_alive():
         status_msg = await update.message.reply_text('⏳ Fast reopen…')
-        progress = LoadingScreen(status_msg, name, mobile, title='Fast Reopen', subtitle='Live session')
+        progress = LoadingScreen(
+            status_msg, name, mobile,
+            title='Fast Reopen',
+            subtitle='Live session',
+        )
 
         async def on_step(n: int, total: int, text: str) -> None:
             await progress.update(n, total, text)
@@ -237,9 +243,7 @@ async def open_uidai_session(
     if not instant_sent:
         instant_sent = await _try_instant_captcha(update)
 
-    status_msg = await update.message.reply_text(
-        '⚡ Pool ready — form fill…' if pool_is_warm() else '⏳ Initializing…',
-    )
+    status_msg = await update.message.reply_text('⏳ Initializing…')
     progress = LoadingScreen(status_msg, name, mobile)
 
     async def on_step(n: int, total: int, text: str) -> None:
@@ -260,24 +264,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
     lines = [
-        f'🔐 SMS Retrieve Bot v{BOT_ENGINE_VERSION}',
-        '',
-        'Flow: /open → captcha → OTP → Aadhaar/EID on your SMS',
+        f'🔐 Rebel Aadhaar — UIDAI Bot v{BOT_ENGINE_VERSION}',
         '',
         'Commands:',
-        '/open — start retrieve session',
-        '/open 7651892956 — mobile only ⚡',
-        '/open KAMAR JAHAN 7651892956 — name + mobile',
-        '/open fresh 7651892956 — full page reload',
-        '/captcha · /refresh · /status · /close',
+        '/open — name + mobile',
+        '/open 7651892956 — mobile only (instant captcha ⚡)',
+        '/open fresh 7651892956 — full reload',
+        '/captcha · /refresh · /status',
+        '/close — end session (browser stays 24/7)',
         '/myid — your chat ID',
         '',
-        '👥 Each user gets an isolated browser session.',
+        'Flow: name → mobile → captcha → OTP → Aadhaar SMS',
+        '',
+        '👥 Multi-user — each user gets an isolated session.',
     ]
     if is_owner(update):
         lines.extend([
             '',
-            '👑 Owner: /free · /lock · /approve · /deny · /access',
+            '👑 Owner:',
+            '/free — public access',
+            '/lock — approved users only',
+            '/approve CHAT_ID · /deny CHAT_ID · /access',
         ])
     await update.message.reply_text('\n'.join(lines))
 
@@ -290,9 +297,11 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     clear_flow(cid)
     if sess:
         await sess.close(keep_warm=True)
-    pool_note = '🟢 Browser pool active' if pool_is_warm() else '⏳ Pool warms on next /open'
+    pool_note = '🟢 Browser pool active 24/7' if pool_is_warm() else '⏳ Pool warms on next /open'
     await update.message.reply_text(
-        f'✅ Session closed.\n{pool_note}\nUse /open again.'
+        '✅ Session closed.\n'
+        f'{pool_note}\n'
+        'Use /open again for instant captcha ⚡'
     )
 
 
@@ -305,24 +314,32 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not sess and not step:
         await update.message.reply_text('No active session — use /open.')
         return
-    labels = {
+    draft = FLOW.get(cid, {})
+    step_labels = {
         STEP_NAME: 'Enter name',
         STEP_MOBILE: 'Enter mobile',
         STEP_CAPTCHA: 'Enter captcha',
-        STEP_OTP: 'Enter OTP from SMS',
+        STEP_OTP: 'Enter OTP',
     }
     lines = [
-        '📊 Session Status',
-        f'Step: {labels.get(step, "Ready")}',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '  📊 Session Status',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '',
+        f'Step: {step_labels.get(step, "Ready" if not step else step)}',
     ]
-    draft = FLOW.get(cid, {})
     if draft.get('name'):
         lines.append(f'Name: {draft["name"]}')
     if draft.get('mobile'):
         lines.append(f'Mobile: {draft["mobile"]}')
     if sess:
-        lines.append(f'Active — {sess.ttl_label()} left')
-    lines.append('🟢 Pool warm' if pool_is_warm() else '⚪ Pool idle')
+        lines.extend([
+            '',
+            '✅ Session active',
+            f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
+        ])
+    lines.append('')
+    lines.append('🟢 Browser pool: active 24/7' if pool_is_warm() else '⚪ Browser pool: idle')
     await update.message.reply_text('\n'.join(lines))
 
 
@@ -331,50 +348,75 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     user_id, chat_id = _ids(update)
     await update.message.reply_text(
-        f'🆔 Your Chat ID: `{chat_id}`\nUser ID: `{user_id}`',
+        f'🆔 Your Chat ID: `{chat_id}`\n'
+        f'User ID: `{user_id}`\n\n'
+        'Share this ID with the owner for approval.',
         parse_mode='Markdown',
     )
 
 
 async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update):
-        await update.message.reply_text('Owner only.')
+        await update.message.reply_text('Owner only command.')
         return
-    await update.message.reply_text(
-        '👑 Access Control\n\n'
-        + '\n'.join(ACCESS.status_lines(len(SESSIONS)))
-        + '\n\n/free · /lock · /approve CHAT_ID · /deny CHAT_ID'
-    )
+    lines = [
+        '━━━━━━━━━━━━━━━━━━━━',
+        '  👑 Access Control',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '',
+        *ACCESS.status_lines(len(SESSIONS)),
+        '',
+        '/free — public | /lock — approved only',
+        '/approve CHAT_ID · /deny CHAT_ID',
+    ]
+    await update.message.reply_text('\n'.join(lines))
 
 
 async def cmd_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
         return
     ACCESS.set_free()
-    await update.message.reply_text('🌍 Bot is PUBLIC. Lock: /lock')
+    await update.message.reply_text(
+        '🌍 Bot is now PUBLIC — anyone can use /start.\n'
+        'Lock again: /lock'
+    )
 
 
 async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
         return
     ACCESS.set_locked()
-    await update.message.reply_text(f'🔒 Bot LOCKED. Approved: {ACCESS.approved_count}')
+    await update.message.reply_text(
+        '🔒 Bot LOCKED — approved users only.\n'
+        f'Approved: {ACCESS.approved_count} users\n'
+        'Add user: /approve CHAT_ID'
+    )
 
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_owner(update) or not context.args:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
         await update.message.reply_text('Usage: /approve CHAT_ID')
         return
-    ACCESS.approve(context.args[0].strip())
-    await update.message.reply_text(f'✅ Approved: `{context.args[0]}`', parse_mode='Markdown')
+    uid = context.args[0].strip()
+    ACCESS.approve(uid)
+    await update.message.reply_text(f'✅ Approved: `{uid}`', parse_mode='Markdown')
 
 
 async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_owner(update) or not context.args:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
         await update.message.reply_text('Usage: /deny CHAT_ID')
         return
-    ACCESS.deny(context.args[0].strip())
-    await update.message.reply_text(f'🚫 Removed: `{context.args[0]}`', parse_mode='Markdown')
+    uid = context.args[0].strip()
+    ACCESS.deny(uid)
+    await update.message.reply_text(f'🚫 Removed: `{uid}`', parse_mode='Markdown')
 
 
 async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -427,27 +469,33 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = normalize_name(' '.join(args[:-1]))
         mobile = args[-1]
         if not MOBILE_RE.match(mobile):
-            await update.message.reply_text('Mobile must be 10 digits starting with 6–9.')
+            await update.message.reply_text('Mobile must be 10 digits starting with 6–9. Example: 7651892956')
             return
         await open_uidai_session(update, cid, name, mobile, force_new=force_new)
         return
 
-    if len(args) == 1 and MOBILE_RE.match(args[0].strip()):
-        await open_uidai_session(update, cid, PLACEHOLDER_NAME, args[0].strip(), force_new=force_new)
-        return
-
     if len(args) == 1:
+        one = args[0].strip()
+        if MOBILE_RE.match(one):
+            await open_uidai_session(update, cid, PLACEHOLDER_NAME, one, force_new=force_new)
+            return
         await update.message.reply_text(
-            'Examples:\n/open 7651892956\n/open fresh 7651892956\n/open NAME 7651892956'
+            'Examples:\n'
+            '/open 7651892956 — instant captcha ⚡\n'
+            '/open fresh 7651892956 — full reload\n'
+            '/open KAMAR JAHAN 7651892956 — name + mobile'
         )
         return
 
-    SESSIONS.pop(cid, None)
-    clear_flow(cid)
+    old = SESSIONS.pop(cid, None)
+    if old:
+        await old.close(keep_warm=True)
     FLOW[cid] = {'step': STEP_NAME}
     await update.message.reply_text(
-        'Send full name (as on Aadhaar)\nExample: KAMAR JAHAN\n\n'
-        'Unknown? Send "Mr" or "skip"\n\nCancel: /close'
+        'Send full name (as on Aadhaar)\n'
+        'Example: KAMAR JAHAN\n\n'
+        'Unknown name? Send "Mr" or "skip"\n\n'
+        'Cancel: /close'
     )
 
 
@@ -456,9 +504,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if not update.message or not update.message.text:
         return
-
     cid = update.effective_chat.id
     text = update.message.text.strip()
+
     if text.startswith('/'):
         return
 
@@ -466,18 +514,32 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == STEP_NAME:
         if not valid_name_input(text):
-            await update.message.reply_text('Invalid name. Example: KAMAR JAHAN or Mr/skip')
+            await update.message.reply_text(
+                'Name must use letters and spaces.\n'
+                'Example: KAMAR JAHAN\n'
+                'Or send "Mr" / "skip" if unknown'
+            )
             return
         name = normalize_name(text)
         FLOW[cid] = {'step': STEP_MOBILE, 'name': name}
-        hint = f'Name skipped — {PLACEHOLDER_NAME}\n\n' if is_skip_name(text) else f'Name: {name}\n\n'
-        await update.message.reply_text(f'{hint}Send 10-digit mobile (OTP goes to this number).')
+        hint = (
+            f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
+            if is_skip_name(text)
+            else f'Name: {name}\n\n'
+        )
+        await update.message.reply_text(
+            f'{hint}'
+            'Send 10-digit mobile number (OTP will be sent here).\n'
+            'Example: 7651892956'
+        )
         return
 
     if step == STEP_MOBILE:
         mobile = re.sub(r'\s+', '', text)
         if not MOBILE_RE.match(mobile):
-            await update.message.reply_text('Invalid mobile — 10 digits starting with 6–9.')
+            await update.message.reply_text(
+                'Invalid number — 10 digits starting with 6–9.\nExample: 7651892956'
+            )
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
         await update.message.reply_text(f'OK — {name} / {mobile}')
@@ -486,47 +548,53 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == STEP_OTP:
         if not OTP_RE.match(text):
-            await update.message.reply_text('Send 6-digit OTP from SMS.')
+            await update.message.reply_text('Send 6-digit OTP from SMS. Example: 482910')
             return
         sess = get_session(cid)
         if not sess:
             clear_flow(cid)
-            await update.message.reply_text('Session expired — /open again.')
+            await update.message.reply_text('Session expired — use /open again.')
             return
-
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
         wait_msg = await update.message.reply_text('⏳ Verifying OTP…')
-        progress = LoadingScreen(
+        otp_progress = LoadingScreen(
             wait_msg, sess.name, sess.mobile,
             title='Retrieve Aadhaar',
             subtitle='OTP verification',
         )
 
         async def retrieve_step(n: int, total: int, msg: str) -> None:
-            await progress.update(n, total, msg)
+            await otp_progress.update(n, total, msg)
 
         try:
             result = await sess.submit_otp(text, on_step=retrieve_step)
-            ok = result.get('retrieve_ok', False)
-            msg = uidai_user_message(result, kind='retrieve')
-            if ok:
-                await progress.done(msg)
+            retrieve_ok = result.get('retrieve_ok', False)
+            user_msg = uidai_user_message(result, kind='retrieve')
+            if retrieve_ok:
+                await otp_progress.done(user_msg)
+            else:
+                await otp_progress.fail(user_msg)
+            if retrieve_ok:
                 sess.touch()
                 await update.message.reply_text(
                     f'🔒 Session active — {sess.ttl_label()} left\n'
-                    'Again: /open MOBILE\nFull reload: /open fresh MOBILE'
+                    'Again: /open MOBILE ⚡\n'
+                    'Full reload: /open fresh MOBILE'
                 )
                 try:
                     await sess.prefetch_captcha()
                 except Exception:
                     pass
-                FLOW[cid] = {'step': STEP_CAPTCHA, 'name': sess.name, 'mobile': sess.mobile}
+                FLOW[cid] = {
+                    'step': STEP_CAPTCHA,
+                    'name': sess.name,
+                    'mobile': sess.mobile,
+                }
             else:
-                await progress.fail(msg)
                 FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
         except Exception as e:
             log.exception('retrieve failed')
-            await progress.fail(f'Retrieve fail: {e}')
+            await otp_progress.fail(f'Retrieve fail: {e}')
             FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
         return
 
@@ -540,35 +608,38 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = get_session(cid)
     if not sess:
         clear_flow(cid)
-        await update.message.reply_text('Session expired — /open again.')
+        await update.message.reply_text('Session expired — use /open again.')
         return
 
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-    wait_msg = await update.message.reply_text('⏳ Sending OTP to your mobile…')
-    progress = LoadingScreen(
+    wait_msg = await update.message.reply_text('⏳ Sending OTP…')
+    otp_progress = LoadingScreen(
         wait_msg, sess.name, sess.mobile,
         title='Send OTP',
         subtitle='UIDAI verification',
     )
 
     async def otp_step(n: int, total: int, msg: str) -> None:
-        await progress.update(n, total, msg)
+        await otp_progress.update(n, total, msg)
 
     try:
         result = await sess.send_otp(text, on_step=otp_step)
         otp_ok = result.get('otp_ok')
         if otp_ok is None:
-            otp_ok = any('OTP sent' in (x.get('m') or '') for x in result.get('logs', []))
+            otp_ok = any(
+                'OTP sent' in (x.get('m') or '') for x in result.get('logs', [])
+            )
         user_msg = uidai_user_message(result, kind='otp')
+
         if otp_ok:
-            await progress.done(user_msg)
+            await otp_progress.done(user_msg)
             FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
         else:
-            await progress.fail(user_msg)
+            await otp_progress.fail(user_msg)
             FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
     except Exception as e:
         log.exception('otp failed')
-        await progress.fail(f'OTP fail: {e}')
+        await otp_progress.fail(f'OTP fail: {e}')
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
@@ -587,7 +658,7 @@ async def standby_captcha_job(context) -> None:
     try:
         await refresh_standby_captcha()
     except Exception as e:
-        log.debug('standby captcha: %s', e)
+        log.debug('standby captcha refresh: %s', e)
 
 
 async def keepalive_job(context) -> None:
@@ -595,7 +666,11 @@ async def keepalive_job(context) -> None:
         try:
             if await sess.keepalive_ping():
                 continue
-            await sess.close(keep_warm=True)
+            log.info('24h session expire chat=%s', cid)
+            try:
+                await sess.close(keep_warm=True)
+            except Exception:
+                pass
             SESSIONS.pop(cid, None)
         except Exception as e:
             log.warning('keepalive chat=%s: %s', cid, e)
@@ -603,7 +678,7 @@ async def keepalive_job(context) -> None:
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if isinstance(context.error, Conflict):
-        log.error('409 Conflict — stop duplicate bot.py / sex.py instances')
+        log.error('409 Conflict — stop duplicate bot instances (bot.py / sex.py)')
         return
     if context.error:
         log.exception('Bot error: %s', context.error)
@@ -611,44 +686,44 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     if not TOKEN:
-        raise SystemExit('❌ TELEGRAM_BOT_TOKEN missing in .env')
+        raise SystemExit(
+            '❌ TELEGRAM_BOT_TOKEN missing!\n\n'
+            f'  cd {Path(__file__).parent}\n'
+            '  bash setup.sh "YOUR_BOT_TOKEN" "8432393497"'
+        )
+    if ':' not in TOKEN or len(TOKEN) < 20:
+        raise SystemExit('❌ Invalid TELEGRAM_BOT_TOKEN — copy from @BotFather')
 
-    if baked_session_ready():
-        sync_baked_to_runtime_jar()
-
-    async def _post_init(application: Application) -> None:
-        if os.getenv('UIDAI_POOL_WARM', '0').strip().lower() in ('0', 'false', 'no', 'off'):
-            return
-        try:
-            import playwright  # noqa: F401
-            await asyncio.wait_for(ensure_pool_warm(), timeout=45)
-        except Exception as e:
-            log.warning('post_init pool warm skip: %s', e)
-
-    app = Application.builder().token(TOKEN).post_init(_post_init).build()
+    app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
     app.add_handler(CommandHandler('open', cmd_open))
-    app.add_handler(CommandHandler('close', cmd_close))
-    app.add_handler(CommandHandler('status', cmd_status))
     app.add_handler(CommandHandler('captcha', cmd_captcha))
     app.add_handler(CommandHandler('refresh', cmd_refresh))
+    app.add_handler(CommandHandler('status', cmd_status))
+    app.add_handler(CommandHandler('close', cmd_close))
     app.add_handler(CommandHandler('myid', cmd_myid))
-    app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(CommandHandler('free', cmd_free))
     app.add_handler(CommandHandler('lock', cmd_lock))
     app.add_handler(CommandHandler('approve', cmd_approve))
     app.add_handler(CommandHandler('deny', cmd_deny))
+    app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        app.job_queue.run_once(warm_pool_job, when=2)
+        app.job_queue.run_once(warm_pool_job, when=15)
         app.job_queue.run_repeating(standby_captcha_job, interval=300, first=90)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
+        log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 
-    log.info('sex.py start v%s — owner=%s access=%s', BOT_ENGINE_VERSION, OWNER_ID, ACCESS.mode)
-    app.run_polling(drop_pending_updates=True)
+    log.info(
+        'sex.py classic v%s — owner=%s access=%s (direct, no cookies/proxy)',
+        BOT_ENGINE_VERSION,
+        OWNER_ID,
+        ACCESS.mode,
+    )
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == '__main__':

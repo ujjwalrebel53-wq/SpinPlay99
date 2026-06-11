@@ -32,7 +32,7 @@ cd "$INSTALL_DIR"
 echo "[*] Install dir: $INSTALL_DIR"
 
 FILES=(
-  bot.py bot_ui.py bot_access.py aadhar.py start.sh install.sh requirements.txt
+  bot.py bot_ui.py bot_ui_classic.py bot_access.py aadhar.py sex.py start.sh install.sh requirements.txt
   uidai_api.py uidai_cookie_session.py http_uidai_flow.py audio_captcha.py
   captcha_solver.py react_extract.py browser_session.py
   test_aadhar_mock.py test_aadhar_live.py
