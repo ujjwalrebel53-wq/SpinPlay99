@@ -168,13 +168,21 @@ def _read_baked_proxy_url() -> str:
     return 'http://117.236.124.166:3128'
 
 
+def _india_direct_env() -> bool:
+    return os.getenv('AADHAR_INDIA_DIRECT', 'auto').strip().lower() in (
+        '1', 'true', 'yes', 'on', 'auto',
+    )
+
+
 def resolve_aadhar_proxy() -> str | None:
-    """Foreign VPS — direct fail pe India proxy (URL only, no cookies)."""
+    """Indian VPS → direct. Foreign → proxy URL / auto baked."""
     raw = os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', 'auto')).strip()
     low = raw.lower()
     if low in ('none', 'no', 'off', 'direct', '0', 'false'):
         return None
     if low in ('', 'auto', 'india'):
+        if _india_direct_env():
+            return None
         return _read_baked_proxy_url()
     return raw if raw.startswith('http') else None
 
