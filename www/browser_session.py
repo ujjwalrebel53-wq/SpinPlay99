@@ -965,41 +965,6 @@ class UidaiBrowserSession:
             ok, status, text, extra = await self._post_uidai_in_page(payload, logs, 'xhr', label)
         return ok, status, text, extra
 
-    async def auto_send_otp(self, on_step: StepCb | None = None) -> dict[str, Any]:
-        """Captcha bypass — null / OCR without user typing."""
-        from captcha_solver import captcha_attempt_values
-
-        png = self.peek_captcha_png() or b''
-        if len(png) < 200 and self._page:
-            try:
-                png, txn = await _capture_page_captcha(self.page)
-                if txn:
-                    self.captcha_txn_id = txn
-            except Exception:
-                pass
-        txn = self.captcha_txn_id
-        result: dict[str, Any] = {'otp_ok': False}
-        for label, cap, try_txn in captcha_attempt_values(png, txn):
-            use_txn = try_txn or txn
-            if use_txn:
-                self.captcha_txn_id = use_txn
-            result = await self.send_otp(
-                cap or 'auto',
-                on_step=on_step,
-                captcha_bypass=label.startswith('null'),
-            )
-            if result.get('otp_ok'):
-                result['auto_captcha'] = label
-                return result
-            reason = None
-            for item in reversed(result.get('logs') or []):
-                d = item.get('d')
-                if isinstance(d, dict) and d.get('reason'):
-                    reason = d['reason']
-            if reason not in ('invalid_captcha', 'captcha_expired', None):
-                return result
-        return result
-
     async def send_otp(
         self,
         captcha: str,
@@ -1008,8 +973,8 @@ class UidaiBrowserSession:
         captcha_bypass: bool = False,
     ) -> dict[str, Any]:
         captcha = (captcha or '').strip().lower()
-        if captcha == 'auto':
-            captcha = ''
+        if not captcha:
+            raise ValueError('Captcha required — enter 4–8 characters from the image')
         step_fn = on_step or self._on_step
         total = 6
         logs: list[dict[str, Any]] = []
@@ -1019,11 +984,8 @@ class UidaiBrowserSession:
             if step_fn:
                 await step_fn(n, total, msg)
 
-        if captcha:
-            await s(1, f'Captcha fill: {captcha}')
-            await self.page.fill('input[name="captcha"]', captcha)
-        else:
-            await s(1, 'Captcha bypass (null)')
+        await s(1, f'Captcha fill: {captcha}')
+        await self.page.fill('input[name="captcha"]', captcha)
 
         await s(2, 'captchaTxnID read…')
         txn = await self._extract_captcha_txn()
@@ -1031,8 +993,6 @@ class UidaiBrowserSession:
             try:
                 txn = await self._wait_captcha_txn(8.0)
             except RuntimeError:
-                if captcha_bypass:
-                    txn = self.captcha_txn_id or ''
                 if not txn:
                     append_log(logs, 'warn', 'captchaTxnId missing — use /refresh')
                     await s(3, 'captchaTxnID missing')
@@ -1043,7 +1003,6 @@ class UidaiBrowserSession:
                     return self._api_result(logs, otp_ok=False, captcha=captcha)
 
         option = await self._read_option()
-        from captcha_solver import captcha_bypass_enabled
 
         payload = build_otp_payload(
             name=self.name,
@@ -1051,7 +1010,7 @@ class UidaiBrowserSession:
             captcha=captcha,
             captcha_txn_id=txn,
             option=option,
-            captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not captcha),
+            captcha_bypass=False,
         )
         append_log(logs, 'info', 'Sending OTP', {
             'mobile': self.mobile,

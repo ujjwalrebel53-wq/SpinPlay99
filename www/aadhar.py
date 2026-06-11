@@ -75,7 +75,7 @@ def dob_bypass_on() -> bool:
 
 
 def captcha_bypass_on() -> bool:
-    return _env_on('CAPTCHA_BYPASS', 'UIDAI_CAPTCHA_BYPASS', '1')
+    return _env_on('CAPTCHA_BYPASS', 'UIDAI_CAPTCHA_BYPASS', '0')
 
 
 def get_headers(req_id: str) -> dict[str, str]:
@@ -212,10 +212,7 @@ class AadharSession:
             self._log(f'[*] DOB: {self.dob}')
         else:
             self._log('[!] DOB missing — null')
-        self._log(
-            f'[*] Captcha bypass: {"ON" if captcha_bypass_on() else "OFF"} | '
-            f'Whisper: {"ON" if whisper else "OFF"}'
-        )
+        self._log('[*] Captcha: manual entry only')
         self._log('[*] Direct connection — Indian VPS recommended')
 
     def _post(
@@ -325,16 +322,14 @@ class AadharSession:
         return cap
 
     def _captcha_pair(self, text: str, txn: str) -> tuple[str | None, str | None]:
-        if captcha_bypass_on() and not text:
-            return None, txn or None
         cap = normalize_captcha(text) if text else None
         return cap, txn or None
 
-    def _solve_captcha_auto(self, headers: dict[str, str], tag: str) -> tuple[str, str]:
+    def _fetch_captcha_for_user(self, headers: dict[str, str], tag: str) -> tuple[str, str]:
+        """Fetch captcha image/audio — user types the answer manually."""
         self.last_phase = tag
         bundle = self._fetch_captcha_bundle(headers, tag=tag)
         txn = bundle.get('txn') or ''
-        audio_b64 = bundle.get('audio_b64') or ''
         if bundle.get('image_png'):
             self.last_captcha_image = bundle['image_png']
 
@@ -343,29 +338,8 @@ class AadharSession:
             return '', ''
 
         self.captcha_txn_id = txn
-        if captcha_bypass_on():
-            self._log(f'[*] [{tag}] captcha:null bypass try (txn={txn[:12]}…)')
-            return '', txn
-
-        if audio_b64:
-            audio_path = self._decode_audio(audio_b64, f'audio_{tag}.wav')
-            solved = self._whisper(audio_path, tag=tag)
-            if solved and 'error' not in solved:
-                return solved, txn
-            if os.path.exists(audio_path):
-                shutil.copy(audio_path, f'failed_{tag}_{txn}.mp3')
-
-        self._log(f'[!] [{tag}] Auto captcha failed — manual needed')
+        self._log(f'[+] [{tag}] Captcha ready — reply with 4–8 characters')
         return '', txn
-
-    def _whisper_retry(self, headers: dict[str, str], tag: str) -> str:
-        self._log(f'[*] [{tag}] Bypass failed — Whisper retry…')
-        bundle = self._fetch_captcha_bundle(headers, tag=f'{tag}-retry')
-        audio_b64 = bundle.get('audio_b64') or ''
-        if not audio_b64:
-            return ''
-        audio_path = self._decode_audio(audio_b64, f'audio_{tag}_retry.wav')
-        return self._whisper(audio_path, tag=f'{tag}-retry')
 
     def _request_eid_otp(self, cap: str, txn: str, headers: dict[str, str], *, tag: str) -> dict | None:
         c, t = self._captcha_pair(cap, txn)
@@ -410,30 +384,19 @@ class AadharSession:
         self.phase1_headers = get_headers(rid)
         self._log(f'[*] Phase1 req_id: {rid[:8]}…')
 
-        cap, txn = self._solve_captcha_auto(self.phase1_headers, 'phase1')
+        cap, txn = self._fetch_captcha_for_user(self.phase1_headers, 'phase1')
         self.captcha_text = cap
         self.captcha_txn_id = txn
 
         if not txn:
             return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': 'Captcha txn missing'}
 
-        resp = self._request_eid_otp(cap, txn, self.phase1_headers, tag='phase1')
-        if invalid_captcha(resp) and captcha_bypass_on():
-            self._log('[-] phase1 captcha:null failed — Whisper retry')
-            cap = self._whisper_retry(self.phase1_headers, 'phase1')
-            if cap:
-                self.captcha_text = cap
-                resp = self._request_eid_otp(cap, txn, self.phase1_headers, tag='phase1-retry')
-
-        if not is_success(resp):
-            err = _short_json(resp) if resp else 'no response'
-            if invalid_captcha(resp):
-                return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': err}
-            return {**self._result_base(), 'otp_ok': False, 'msg': err}
-
-        self.otp_txn_id = (resp.get('responseData') or {}).get('otpTxnId') or ''
-        self._log(f'[+] Phase1 OTP sent! otpTxnId={self.otp_txn_id[:12]}…')
-        return {**self._result_base(), 'otp_ok': True, 'msg': 'OTP 1 sent to mobile'}
+        return {
+            **self._result_base(),
+            'otp_ok': False,
+            'needs_captcha': True,
+            'msg': 'Enter captcha from image/audio above (4–8 characters)',
+        }
 
     def phase1_otp_manual(self, captcha: str) -> dict[str, Any]:
         cap = normalize_captcha(captcha)
@@ -510,30 +473,19 @@ class AadharSession:
         self.phase2_headers = get_headers(self.phase2_req_id)
         self._log(f'[*] Phase2 req_id: {self.phase2_req_id[:8]}…')
 
-        cap, txn = self._solve_captcha_auto(self.phase2_headers, 'phase2')
+        cap, txn = self._fetch_captcha_for_user(self.phase2_headers, 'phase2')
         self.captcha_text = cap
         self.captcha_txn_id = txn
 
         if not txn:
             return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': 'Phase 2 captcha failed'}
 
-        resp = self._request_download_otp(cap, txn, tag='phase2')
-        if invalid_captcha(resp) and captcha_bypass_on():
-            self._log('[-] phase2 captcha:null failed — Whisper retry')
-            cap = self._whisper_retry(self.phase2_headers, 'phase2')
-            if cap:
-                self.captcha_text = cap
-                resp = self._request_download_otp(cap, txn, tag='phase2-retry')
-
-        if not is_success(resp):
-            err = _short_json(resp) if resp else 'no response'
-            if invalid_captcha(resp):
-                return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': err}
-            return {**self._result_base(), 'otp_ok': False, 'msg': err}
-
-        self.download_otp_txn_id = str(resp.get('txnId') or '')
-        self._log(f'[+] Phase2 OTP sent! txnId={self.download_otp_txn_id[:12]}…')
-        return {**self._result_base(), 'otp_ok': True, 'msg': 'OTP 2 sent for PDF download'}
+        return {
+            **self._result_base(),
+            'otp_ok': False,
+            'needs_captcha': True,
+            'msg': 'Enter Phase 2 captcha from image/audio above',
+        }
 
     def phase2_otp_manual(self, captcha: str) -> dict[str, Any]:
         cap = normalize_captcha(captcha)

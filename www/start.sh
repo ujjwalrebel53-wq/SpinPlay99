@@ -105,5 +105,9 @@ if command -v curl >/dev/null 2>&1; then
     && echo "✅ Webhook cleared" || echo "⚠ Webhook clear skipped"
 fi
 
+if ! python3 -c "import playwright" 2>/dev/null; then
+  echo "⚠ Playwright not installed — /pdf works; for /open run: pip install playwright && playwright install chromium"
+fi
+
 echo "✅ OK — starting bot…"
 exec python3 bot.py

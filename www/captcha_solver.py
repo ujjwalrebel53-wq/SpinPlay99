@@ -12,7 +12,7 @@ log = logging.getLogger('captcha-solver')
 
 
 def captcha_bypass_enabled() -> bool:
-    return os.getenv('UIDAI_CAPTCHA_BYPASS', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    return os.getenv('UIDAI_CAPTCHA_BYPASS', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def ocr_enabled() -> bool:

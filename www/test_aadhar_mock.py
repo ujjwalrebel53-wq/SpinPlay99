@@ -69,19 +69,25 @@ async def test_full_flow_mock() -> bool:
         sess.setup('KAMAR JAHAN', '7651892956', '01/01/1991')
 
         r1 = await run_aadhar(sess.phase1_start)
-        assert r1.get('otp_ok'), r1
+        assert r1.get('needs_captcha'), r1
         assert len(r1.get('audio_bytes') or b'') > 50, 'audio missing'
         assert len(r1.get('image_png') or b'') > 50, 'image missing'
         assert r1.get('captcha_txn_id'), 'txn missing'
-        print(f'  Phase1 OK — logs:{len(logs)} audio:{len(r1["audio_bytes"])}B')
+        print(f'  Phase1 captcha fetched — logs:{len(logs)} audio:{len(r1["audio_bytes"])}B')
+
+        r1b = await run_aadhar(sess.phase1_otp_manual, 'ab12cd')
+        assert r1b.get('otp_ok'), r1b
+        print('  Phase1 OTP sent (manual captcha)')
 
         v1 = await run_aadhar(sess.phase1_verify, '482910')
         assert v1.get('retrieve_ok') and v1.get('eid'), v1
         print(f'  EID: {v1["eid"]}')
 
         r2 = await run_aadhar(sess.phase2_start)
-        assert r2.get('otp_ok'), r2
-        print('  Phase2 OTP OK')
+        assert r2.get('needs_captcha'), r2
+        r2b = await run_aadhar(sess.phase2_otp_manual, 'xy34zw')
+        assert r2b.get('otp_ok'), r2b
+        print('  Phase2 OTP sent (manual captcha)')
 
         dl = await run_aadhar(sess.phase2_download, '593021')
         assert dl.get('download_ok') and dl.get('pdf_bytes'), dl

@@ -410,9 +410,9 @@ async def _send_captcha_ready(
         ttl = sess.ttl_label() if sess.last_activity_at else ''
         await update.message.reply_photo(
             photo=cap,
-            caption=_captcha_caption(ttl=ttl) + '\nOr send: auto',
+            caption=_captcha_caption(ttl=ttl),
         )
-    await progress.done('Captcha ready — reply with text or auto')
+    await progress.done('Captcha ready — reply with 4–8 characters')
 
 
 async def _fail_open(
@@ -589,7 +589,7 @@ async def _start_download_flow(
     progress = LoadingScreen(
         wait, name, mobile,
         title='2-OTP PDF',
-        subtitle='Bypass + EID',
+        subtitle='EID retrieve',
     )
 
     sess = AadharSession()
@@ -612,16 +612,16 @@ async def _start_download_flow(
         result = await _run_aadhar_with_ui(
             update, sess, progress, sess.phase1_start, phase='Phase 1',
         )
+        if result.get('needs_captcha') or not result.get('otp_ok'):
+            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            await progress.done(result.get('msg') or 'Enter captcha (see audio/image above)')
+            return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_1
             hint = f'PDF password: {pdf_pass}' if pdf_pass else ''
             await progress.done(uidai_user_message(result, kind='otp') + ('\n' + hint if hint else ''))
             return
-        if result.get('needs_captcha'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
-            await progress.done('Captcha needed — reply 4–8 chars (see audio/image above)')
-            return
-        await progress.fail(result.get('msg') or 'Phase 1 OTP failed')
+        await progress.fail(result.get('msg') or 'Phase 1 failed')
     except Exception as e:
         log.exception('download flow start failed')
         clear_flow(chat_id)
@@ -1052,25 +1052,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if step != STEP_CAPTCHA:
         return
 
-    if mode == FLOW_MODE_RETRIEVE and text.lower() in ('auto', 'skip', 'bypass'):
-        sess = get_session(cid)
-        if not sess:
-            clear_flow(cid)
-            await update.message.reply_text('Session expired — /open again.')
-            return
-        wait = await update.message.reply_text('⏳ Auto captcha…')
-        progress = LoadingScreen(wait, sess.name, sess.mobile, title='Send OTP', subtitle='Auto bypass')
-        try:
-            result = await sess.auto_send_otp(on_step=progress.update)
-            if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP
-                await progress.done(uidai_user_message(result, kind='otp'))
-            else:
-                await progress.fail(uidai_user_message(result, kind='otp'))
-        except Exception as e:
-            await progress.fail(f'Auto fail: {e}')
-        return
-
     if not CAPTCHA_RE.match(text):
         await update.message.reply_text('Captcha must be 4–8 letters/numbers. Example: 6fhxdf')
         return
@@ -1115,12 +1096,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def warm_pool_job(context) -> None:
     """Pre-load UIDAI page on bot start for faster /open."""
+    if os.getenv('UIDAI_POOL_WARM', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+        return
     if pool_is_warm():
         return
     if not cookie_jar_ready() and not baked_session_ready():
         log.info('Pool warm skip — no saved cookies yet')
         return
-    await ensure_pool_warm()
+    try:
+        await asyncio.wait_for(ensure_pool_warm(), timeout=45)
+    except Exception as e:
+        log.warning('warm_pool_job skip: %s', e)
 
 
 async def standby_captcha_job(context) -> None:
@@ -1177,19 +1163,19 @@ def main() -> None:
         log.info('Baked UIDAI session loaded — all chats use isolated cookie copies')
 
     async def _bot_post_init(application: Application) -> None:
-        """Startup inside PTB event loop — do not use asyncio.run()."""
+        """Startup inside PTB event loop — pool warm is optional and non-blocking."""
+        if os.getenv('UIDAI_POOL_WARM', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+            return
         try:
-            if baked_session_ready() or cookie_jar_ready():
-                log.info('Startup pool warm — direct connection')
-                await ensure_pool_warm()
+            import playwright  # noqa: F401
+        except ImportError:
+            log.info('Playwright not installed — pool warm skipped (/open needs chromium)')
+            return
+        try:
+            log.info('Startup pool warm — direct connection (max 45s)')
+            await asyncio.wait_for(ensure_pool_warm(), timeout=45)
         except Exception as e:
             log.warning('post_init pool warm skip: %s', e)
-        try:
-            from aadhar import ensure_whisper_loaded
-
-            ensure_whisper_loaded()
-        except Exception as e:
-            log.warning('post_init whisper skip: %s', e)
 
     app = (
         Application.builder()
