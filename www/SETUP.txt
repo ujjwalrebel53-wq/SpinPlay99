@@ -43,9 +43,16 @@ VPS update:
   mkdir -p tests
   wget -O tests/test_uidai_api.py "$BASE/tests/test_uidai_api.py"
   touch tests/__init__.py
+  chmod +x start.sh
   pkill -9 -f bot.py
   source .venv/bin/activate
-  nohup python bot.py > bot.log 2>&1 &
+  pip install -r requirements.txt
+  nohup bash start.sh > bot.log 2>&1 &
+
+Bot start nahi ho to:
+  cd www
+  bash start.sh
+  # error screen pe dikhega — missing file / token / deps
 
 Test chalao (www folder ke ANDAR):
 

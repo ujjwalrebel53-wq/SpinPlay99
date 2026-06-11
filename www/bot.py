@@ -22,8 +22,20 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from bot_access import AccessControl
-from bot_ui import LoadingScreen, uidai_user_message
+try:
+    from bot_access import AccessControl
+    from bot_ui import LoadingScreen, uidai_user_message
+except ImportError as exc:
+    raise SystemExit(
+        '❌ bot_ui.py / bot_access.py missing!\n\n'
+        'VPS pe ye chalao:\n'
+        '  cd www\n'
+        '  BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/www"\n'
+        '  wget -O bot_ui.py "$BASE/bot_ui.py"\n'
+        '  wget -O bot_access.py "$BASE/bot_access.py"\n'
+        f'\nDetail: {exc}'
+    ) from exc
+
 from browser_session import KEEPALIVE_INTERVAL_SEC, UidaiBrowserSession
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
@@ -604,7 +616,16 @@ async def keepalive_job(context) -> None:
 
 def main() -> None:
     if not TOKEN:
-        raise SystemExit('TELEGRAM_BOT_TOKEN .env me set karo — .env.example dekho')
+        raise SystemExit(
+            '❌ TELEGRAM_BOT_TOKEN missing!\n\n'
+            f'  cd {Path(__file__).parent}\n'
+            '  bash setup.sh "BOT_TOKEN_YAHAN" "8432393497"\n'
+            '  ya .env me TELEGRAM_BOT_TOKEN=... likho'
+        )
+    if ':' not in TOKEN or len(TOKEN) < 20:
+        raise SystemExit(
+            '❌ TELEGRAM_BOT_TOKEN galat lag raha hai — @BotFather se sahi token copy karo'
+        )
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))
