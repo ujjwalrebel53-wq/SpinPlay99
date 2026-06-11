@@ -31,6 +31,8 @@ from uidai_cookie_session import (
     bootstrap_uidai_session,
     cookie_jar_ready,
     cookie_summary,
+    needs_baked_proxy,
+    resolve_baked_route,
 )
 from uidai_api import (
     AUDIO_CAPTCHA_API_URL,
@@ -119,7 +121,17 @@ class UidaiHttpSession:
 
         if baked_session_ready() or cookie_jar_ready():
             bootstrap_uidai_session(self._session, None)
-            log.info('HTTP baked cookies — bina proxy (isolated copy)')
+            if needs_baked_proxy():
+                proxy_url, label = resolve_baked_route()
+                if proxy_url:
+                    self.proxy_url = proxy_url
+                    try:
+                        self.proxy_info = check_proxy(proxy_url, timeout=12)
+                    except Exception as e:
+                        log.warning('baked proxy check: %s', e)
+                    log.info('HTTP %s — %s', label, proxy_url)
+            else:
+                log.info('HTTP baked cookies — direct India (isolated)')
             return
 
         if not self.auto_proxy:

@@ -740,11 +740,31 @@ class UidaiBrowserSession:
             return await self._connect_proxy(self.proxy)
 
         if baked_session_ready():
-            baked = load_baked_session()
-            city = baked.get('proxy_city') or 'India'
-            n = len(baked.get('cookies') or [])
-            self.proxy_label = f'🍪 Baked cookies ({n}) — {city} · bina proxy'
-            await self._step(1, 8, self.proxy_label)
+            from uidai_cookie_session import get_baked_proxy, resolve_baked_route
+
+            proxy_url, label = resolve_baked_route()
+            self.proxy_label = label
+            await self._step(1, 8, label)
+            if proxy_url:
+                self.proxy = proxy_url
+                baked_proxy = get_baked_proxy()
+                if proxy_url == baked_proxy:
+                    try:
+                        info = await asyncio.to_thread(check_proxy, proxy_url, 8)
+                        self.proxy_info = info
+                        _POOL['proxy_info'] = info
+                        self.proxy_label = format_proxy_line(info, proxy_url)
+                        await self._step(1, 8, self.proxy_label)
+                        return proxy_url
+                    except Exception as e:
+                        log.warning('baked proxy dead — scan fallback: %s', e)
+                        await self._step(1, 8, 'Baked VPN down — scanning…')
+                        proxy, info = await self._pick_proxy_with_trial()
+                        self.proxy = proxy
+                        self.proxy_info = info
+                        self.proxy_label = format_proxy_line(info, proxy)
+                        return proxy
+                return await self._connect_proxy(proxy_url)
             return None
 
         if cookie_jar_ready():

@@ -104,6 +104,31 @@ def apply_isolated_baked_cookies(session: requests.Session) -> int:
     return import_playwright_cookies(session, cookies)
 
 
+def needs_baked_proxy() -> bool:
+    """Foreign VPS — cookies ke sath baked proxy bhi chahiye."""
+    if not baked_session_ready():
+        return False
+    try:
+        from proxy_india import check_direct_india
+
+        return check_direct_india(timeout=4) is None
+    except Exception:
+        return True
+
+
+def resolve_baked_route() -> tuple[str | None, str]:
+    """(proxy_url, label) — India direct = cookies only; foreign = cookies + baked proxy."""
+    if not baked_session_ready():
+        return None, ''
+    baked = load_baked_session()
+    n = len(baked.get('cookies') or [])
+    city = baked.get('proxy_city') or 'India'
+    if needs_baked_proxy():
+        proxy = get_baked_proxy()
+        return proxy, f'🍪 Baked ({n}) + VPN {city}'
+    return None, f'🍪 Baked cookies ({n}) — direct India'
+
+
 def sync_baked_to_runtime_jar() -> bool:
     """Bot start — baked cookies runtime jar me (optional)."""
     if not baked_session_ready() or not cookie_persist_enabled():
