@@ -46,12 +46,15 @@ except ImportError as exc:
     ) from exc
 
 from aadhar import (
+    AADHAR_SESSIONS,
     AadharSession,
+    attach_log_callback,
     clear_aadhar_session,
     dob_bypass_on,
     get_aadhar_session,
     pdf_password,
     run_aadhar,
+    send_captcha_to_bot,
 )
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
@@ -552,6 +555,32 @@ async def open_uidai_session(
         await _fail_open(chat_id, sess, progress, e)
 
 
+def _wire_aadhar_logs(sess: AadharSession, progress: LoadingScreen) -> None:
+    """Live logs → loading screen (thread-safe)."""
+    loop = asyncio.get_running_loop()
+    attach_log_callback(sess, loop, progress)
+
+
+async def _run_aadhar_with_ui(
+    update: Update,
+    sess: AadharSession,
+    progress: LoadingScreen,
+    fn,
+    *args,
+    phase: str = 'Phase',
+    send_captcha: bool = True,
+    **kwargs,
+) -> dict:
+    _wire_aadhar_logs(sess, progress)
+    result = await run_aadhar(fn, *args, **kwargs)
+    if send_captcha:
+        await send_captcha_to_bot(update, result, phase=phase)
+    cap = result.get('captcha_text') or sess.captcha_text
+    if cap:
+        await progress.log_detail(f'🔑 Captcha used: {cap}')
+    return result
+
+
 async def _start_download_flow(
     update: Update,
     chat_id: int,
@@ -596,9 +625,9 @@ async def _start_download_flow(
     )
 
     sess = AadharSession()
-    sess.setup(name, mobile, dob_norm or dob)
-    from aadhar import AADHAR_SESSIONS
     AADHAR_SESSIONS[chat_id] = sess
+    await run_aadhar(sess.setup, name, mobile, dob_norm or dob)
+    await progress.log_detail('Session ready — starting Phase 1')
 
     pdf_pass = pdf_password(name, dob_norm or dob)
     FLOW[chat_id] = {
@@ -612,15 +641,17 @@ async def _start_download_flow(
     }
 
     try:
-        result = await run_aadhar(sess.phase1_start)
+        result = await _run_aadhar_with_ui(
+            update, sess, progress, sess.phase1_start, phase='Phase 1',
+        )
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_1
-            hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
-            await progress.done(uidai_user_message(result, kind='otp') + hint)
+            hint = f'PDF password: {pdf_pass}' if pdf_pass else ''
+            await progress.done(uidai_user_message(result, kind='otp') + ('\n' + hint if hint else ''))
             return
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA
-            await progress.done('Captcha needed — reply 4–8 chars')
+            await progress.done('Captcha needed — reply 4–8 chars (see audio/image above)')
             return
         await progress.fail(result.get('msg') or 'Phase 1 OTP failed')
     except Exception as e:
@@ -648,10 +679,12 @@ async def _phase2_after_otp1(
     )
 
     try:
-        result = await run_aadhar(sess.phase2_start)
+        result = await _run_aadhar_with_ui(
+            update, sess, progress, sess.phase2_start, phase='Phase 2',
+        )
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
-            await progress.done('Phase 2 captcha — reply 4–8 chars')
+            await progress.done('Phase 2 captcha — reply 4–8 chars (see above)')
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
@@ -880,7 +913,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 1', subtitle='EID')
         try:
-            result = await run_aadhar(a_sess.phase1_otp_manual, text)
+            result = await _run_aadhar_with_ui(
+                update, a_sess, progress, a_sess.phase1_otp_manual, text,
+                phase='Phase 1', send_captcha=False,
+            )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.done(uidai_user_message(result, kind='otp'))
@@ -902,7 +938,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 2…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 2', subtitle='Phase 2')
         try:
-            result = await run_aadhar(a_sess.phase2_otp_manual, text)
+            result = await _run_aadhar_with_ui(
+                update, a_sess, progress, a_sess.phase2_otp_manual, text,
+                phase='Phase 2', send_captcha=False,
+            )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.done(uidai_user_message(result, kind='download_otp'))
@@ -928,6 +967,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             subtitle='EID retrieve',
         )
         try:
+            _wire_aadhar_logs(a_sess, progress)
             result = await run_aadhar(a_sess.phase1_verify, text)
             eid = result.get('eid') or ''
             if result.get('retrieve_ok'):
@@ -958,6 +998,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             subtitle='Phase 2 verify',
         )
         try:
+            _wire_aadhar_logs(a_sess, progress)
             result = await run_aadhar(a_sess.phase2_download, text)
             if result.get('download_ok'):
                 pdf = result.get('pdf_bytes') or b''

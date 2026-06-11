@@ -112,7 +112,7 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
 
 
 class LoadingScreen:
-    """Animated progress panel — spinner + wave bar."""
+    """Animated progress panel — spinner + wave bar + detailed logs."""
 
     def __init__(
         self,
@@ -122,6 +122,7 @@ class LoadingScreen:
         *,
         title: str = 'Rebel Aadhaar',
         subtitle: str = 'Secure UIDAI Gateway',
+        max_logs: int = 18,
     ) -> None:
         self._msg = msg
         self.name = name
@@ -129,6 +130,8 @@ class LoadingScreen:
         self.title = title
         self.subtitle = subtitle
         self._steps: list[str] = []
+        self._detail_logs: list[str] = []
+        self._max_logs = max_logs
         self._current = 0
         self._total = 8
         self._status = 'loading'
@@ -151,10 +154,29 @@ class LoadingScreen:
         sec = int(time.monotonic() - self._started)
         return f'{sec}s'
 
+    def _push_log(self, line: str) -> None:
+        t = (line or '').strip()
+        if not t:
+            return
+        self._detail_logs.append(t[:220])
+        if len(self._detail_logs) > self._max_logs:
+            self._detail_logs = self._detail_logs[-self._max_logs:]
+
+    async def log_detail(self, line: str) -> None:
+        """Raw detailed log line — loading screen me dikhega."""
+        self._push_log(line)
+        await self._render()
+
+    async def log_many(self, lines: list[str]) -> None:
+        for line in lines:
+            self._push_log(line)
+        await self._render()
+
     async def update(self, n: int, total: int, text: str) -> None:
         self._total = max(total, 1)
         self._current = n
         label = humanize_step(text)
+        self._push_log(text)
         if n > len(self._steps):
             self._steps.extend([''] * (n - len(self._steps)))
         if n >= 1:
@@ -174,6 +196,8 @@ class LoadingScreen:
         for i, s in enumerate(self._steps):
             self._steps[i] = f'✓ {s.lstrip("✓✗▸ ")}'
         self._footer = final
+        if final:
+            self._push_log(final)
         await self._render()
 
     async def fail(self, err: str) -> None:
@@ -182,6 +206,7 @@ class LoadingScreen:
             idx = self._current - 1
             self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'
         self._footer = err
+        self._push_log(f'[-] {err}')
         await self._render()
 
     async def _render(self) -> None:
@@ -213,11 +238,15 @@ class LoadingScreen:
             f'  Mobile {self.mobile}',
             '',
         ]
-        for s in self._steps[-5:]:
+        for s in self._steps[-4:]:
             if s:
                 lines.append(f'  {s}')
+        if self._detail_logs:
+            lines.extend(['', '  ── Logs ──'])
+            for lg in self._detail_logs[-12:]:
+                lines.append(f'  {lg[:58]}')
         if self._footer:
-            lines.extend(['', f'  {self._footer}'])
+            lines.extend(['', f'  {self._footer[:200]}'])
         lines.append('╚══════════════════════════╝')
         try:
             await self._msg.edit_text('\n'.join(lines)[:4000])
