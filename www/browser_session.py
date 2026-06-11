@@ -20,6 +20,7 @@ from proxy_india import (
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
+    test_uidai,
 )
 from react_extract import (
     CLICK_REFRESH_CAPTCHA_JS,
@@ -48,6 +49,10 @@ log = logging.getLogger('uidai-browser')
 
 SESSION_TTL_SEC = int(os.getenv('UIDAI_SESSION_HOURS', '24')) * 3600
 KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
+PROXY_CONNECT_TRIES = int(os.getenv('UIDAI_PROXY_TRIES', '3'))
+PRIMARY_INDIAN_PROXY = os.getenv(
+    'UIDAI_PRIMARY_PROXY', 'http://139.167.218.162:3127',
+).strip()
 
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
@@ -107,6 +112,21 @@ async def _pool_shutdown() -> None:
         _POOL['pw'] = None
         _POOL['proxy'] = None
         _POOL['proxy_info'] = None
+
+
+def pool_is_warm() -> bool:
+    return _browser_connected(_POOL.get('browser'))
+
+
+async def ensure_pool_warm(proxy: str | None = None) -> bool:
+    """Chromium pool launch — 24/7 background (session alag band hoti hai)."""
+    try:
+        _, reused = await _pool_browser(proxy)
+        log.info('Pool warm — proxy=%s reused=%s', proxy or 'direct', reused)
+        return True
+    except Exception as e:
+        log.warning('Pool warm fail: %s', e)
+        return False
 
 
 async def _pool_browser(proxy: str | None) -> tuple[Browser, bool]:
@@ -234,22 +254,39 @@ class UidaiBrowserSession:
         self.last_captcha = ''
         await self.refresh_captcha()
 
+    async def _connect_proxy(self, proxy: str) -> str:
+        """Ek proxy — 3 try (pehle wala Bengaluru logic)."""
+        if _POOL['proxy'] == proxy and _POOL.get('proxy_info') and pool_is_warm():
+            self.proxy_info = _POOL['proxy_info']
+            self.proxy_label = format_proxy_line(self.proxy_info, proxy)
+            await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
+            return proxy
+
+        last_err: Exception | None = None
+        for attempt in range(PROXY_CONNECT_TRIES):
+            try:
+                await self._step(1, 8, f'VPN try {attempt + 1}/{PROXY_CONNECT_TRIES}…')
+                info = await asyncio.to_thread(check_proxy, proxy, 8)
+                if info.get('countryCode') != 'IN':
+                    raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
+                await asyncio.to_thread(test_uidai, proxy, 12)
+                self.proxy_info = info
+                _POOL['proxy_info'] = info
+                self.proxy_label = format_proxy_line(info, proxy)
+                await self._step(1, 8, f'VPN connected — {self.proxy_label}')
+                return proxy
+            except Exception as e:
+                last_err = e
+                log.warning('proxy %s attempt %s/%s: %s', proxy, attempt + 1, PROXY_CONNECT_TRIES, e)
+                if attempt < PROXY_CONNECT_TRIES - 1:
+                    await asyncio.sleep(1.5)
+        raise RuntimeError(
+            f'VPN fail ({PROXY_CONNECT_TRIES} try): {last_err}'
+        ) from last_err
+
     async def _resolve_proxy(self) -> str | None:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
-            if _POOL['proxy'] == self.proxy and _POOL.get('proxy_info'):
-                self.proxy_info = _POOL['proxy_info']
-                self.proxy_label = format_proxy_line(self.proxy_info, self.proxy)
-                await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
-                return self.proxy
-            await self._step(1, 8, 'Indian proxy check…')
-            info = await asyncio.to_thread(check_proxy, self.proxy, 8)
-            if info.get('countryCode') != 'IN':
-                raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
-            self.proxy_info = info
-            _POOL['proxy_info'] = info
-            self.proxy_label = format_proxy_line(info, self.proxy)
-            await self._step(1, 8, f'VPN connected — {self.proxy_label}')
-            return self.proxy
+            return await self._connect_proxy(self.proxy)
 
         if not self.auto_india_proxy and not self.proxy:
             self.proxy_label = '⚠️ Direct'
@@ -257,11 +294,19 @@ class UidaiBrowserSession:
             return None
 
         await self._step(1, 8, 'Indian VPN connect…')
+        if PRIMARY_INDIAN_PROXY:
+            try:
+                self.proxy = PRIMARY_INDIAN_PROXY
+                return await self._connect_proxy(PRIMARY_INDIAN_PROXY)
+            except Exception as e:
+                log.warning('primary proxy fail after %s tries: %s', PROXY_CONNECT_TRIES, e)
+
         try:
             proxy, info = await asyncio.to_thread(pick_indian_proxy)
             self.proxy = proxy
             self.proxy_info = info
             self.proxy_label = format_proxy_line(info, proxy)
+            _POOL['proxy_info'] = info
             await self._step(1, 8, f'VPN connected — {self.proxy_label}')
             return proxy
         except RuntimeError:
@@ -285,7 +330,7 @@ class UidaiBrowserSession:
             self._page = None
 
         last_err: Exception | None = None
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 browser, reused = await _pool_browser(proxy)
                 self._active_proxy = proxy
@@ -303,9 +348,10 @@ class UidaiBrowserSession:
             except Exception as e:
                 last_err = e
                 log.warning('new_context fail attempt %s: %s', attempt + 1, e)
-                if attempt == 0 and _is_browser_closed_error(e):
+                if attempt < 2 and _is_browser_closed_error(e):
                     async with _POOL['lock']:
                         await _pool_drop_browser_locked()
+                    await asyncio.sleep(1)
                     continue
                 raise
         if last_err:

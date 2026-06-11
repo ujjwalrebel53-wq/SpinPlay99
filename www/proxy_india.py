@@ -18,8 +18,8 @@ CACHE_FILE = Path(__file__).parent / 'proxy_cache.json'
 
 # Verified / high-priority Indian proxies (pehle try)
 DEFAULT_INDIAN_PROXIES = [
-    'http://117.236.124.166:3128',
     'http://139.167.218.162:3127',
+    'http://117.236.124.166:3128',
     'http://111.92.88.27:3128',
     'http://103.172.254.145:80',
     'http://103.94.52.70:3128',

@@ -36,7 +36,13 @@ except ImportError as exc:
         f'\nDetail: {exc}'
     ) from exc
 
-from browser_session import KEEPALIVE_INTERVAL_SEC, UidaiBrowserSession
+from browser_session import (
+    KEEPALIVE_INTERVAL_SEC,
+    PRIMARY_INDIAN_PROXY,
+    UidaiBrowserSession,
+    ensure_pool_warm,
+    pool_is_warm,
+)
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
 load_dotenv(Path(__file__).parent / '.env')
@@ -134,7 +140,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/open — naam + mobile',
         '/open 7651892956 — sirf mobile (24h reuse ⚡)',
         '/open fresh 7651892956 — pura naya load',
-        '/captcha · /refresh · /status · /close',
+        '/captcha · /refresh · /status',
+        '/close — sirf session band (browser 24/7 chalta rahega)',
         '/myid — apna chat ID dekho',
         '',
         'Flow: naam → mobile → captcha → OTP → Aadhaar SMS',
@@ -160,8 +167,13 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = SESSIONS.pop(cid, None)
     clear_flow(cid)
     if sess:
-        await sess.close(keep_warm=False)
-    await update.message.reply_text('Session band — browser pool bhi band.')
+        await sess.close(keep_warm=True)
+    pool_note = '🟢 Browser pool ON — 24/7 ready' if pool_is_warm() else '⏳ Pool next /open pe warm hoga'
+    await update.message.reply_text(
+        '✅ Aapka session band.\n'
+        f'{pool_note}\n'
+        'Dubara /open — turant start ⚡'
+    )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -197,6 +209,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             '✅ Session active',
             f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
         ])
+    lines.append('')
+    lines.append('🟢 Browser pool 24/7 ON' if pool_is_warm() else '⚪ Browser pool idle')
     await update.message.reply_text('\n'.join(lines))
 
 
@@ -619,6 +633,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
+async def warm_pool_job(context) -> None:
+    """Bot start pe Chromium background me launch — 24/7."""
+    if pool_is_warm():
+        return
+    proxy = PROXY
+    if not proxy or (proxy or '').lower() in ('auto', 'india'):
+        proxy = PRIMARY_INDIAN_PROXY or None
+    await ensure_pool_warm(proxy)
+
+
 async def keepalive_job(context) -> None:
     for cid, sess in list(SESSIONS.items()):
         try:
@@ -664,6 +688,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     if app.job_queue:
+        app.job_queue.run_once(warm_pool_job, when=8)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 
