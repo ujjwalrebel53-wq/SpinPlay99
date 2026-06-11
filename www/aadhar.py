@@ -148,29 +148,31 @@ class AadharSession:
         return None, None
 
     def _decode_audio(self, b64: str, path: str) -> str:
+        """Save audio — mp3 direct (ffmpeg/pydub optional, sudo not needed)."""
         b64 = b64.strip()
         pad = len(b64) % 4
         if pad:
             b64 += '=' * (4 - pad)
-        raw = 'temp_raw_audio.mp3'
-        with open(raw, 'wb') as f:
+        mp3_path = path if path.endswith('.mp3') else path.rsplit('.', 1)[0] + '.mp3'
+        with open(mp3_path, 'wb') as f:
             f.write(base64.b64decode(b64))
-        try:
-            if AudioSegment is None:
-                raise RuntimeError('pydub missing — pip install pydub')
-            AudioSegment.from_file(raw).export(path, format='wav')
-        finally:
-            if os.path.exists(raw):
-                os.remove(raw)
-        return path
+        if AudioSegment is not None:
+            try:
+                AudioSegment.from_file(mp3_path).export(path, format='wav')
+                if os.path.exists(mp3_path) and path != mp3_path:
+                    os.remove(mp3_path)
+                return path
+            except Exception as e:
+                log.debug('pydub convert skip: %s', e)
+        return mp3_path
 
-    def _whisper(self, wav_path: str) -> str:
+    def _whisper(self, audio_path: str) -> str:
         global _WHISPER_MODEL
         if whisper is None:
             return ''
         if _WHISPER_MODEL is None:
             _WHISPER_MODEL = whisper.load_model(os.getenv('WHISPER_MODEL', 'base'))
-        result = _WHISPER_MODEL.transcribe(wav_path, language='en', fp16=False)
+        result = _WHISPER_MODEL.transcribe(audio_path, language='en', fp16=False)
         text = str(result.get('text') or '')
         return text.replace(' ', '').replace('.', '').replace(',', '').strip().lower()
 
@@ -188,20 +190,20 @@ class AadharSession:
         if captcha_bypass_on():
             return '', txn
         if audio_b64:
-            wav = self._decode_audio(audio_b64, f'audio_{tag}.wav')
-            solved = self._whisper(wav)
+            audio_path = self._decode_audio(audio_b64, f'audio_{tag}.wav')
+            solved = self._whisper(audio_path)
             if solved and 'error' not in solved:
                 return solved, txn
-            if os.path.exists(wav):
-                shutil.copy(wav, f'failed_{tag}_{txn}.wav')
+            if os.path.exists(audio_path):
+                shutil.copy(audio_path, f'failed_{tag}_{txn}.mp3')
         return '', txn
 
     def _whisper_retry(self, headers: dict[str, str], tag: str) -> str:
         audio_b64, _ = self._fetch_audio_captcha(headers)
         if not audio_b64:
             return ''
-        wav = self._decode_audio(audio_b64, f'audio_{tag}_retry.wav')
-        return self._whisper(wav)
+        audio_path = self._decode_audio(audio_b64, f'audio_{tag}_retry.wav')
+        return self._whisper(audio_path)
 
     def _request_eid_otp(self, cap: str, txn: str, headers: dict[str, str]) -> dict | None:
         c, t = self._captcha_pair(cap, txn)

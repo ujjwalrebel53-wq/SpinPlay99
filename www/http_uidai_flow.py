@@ -81,6 +81,10 @@ def pdf_flow_pure_http() -> bool:
     return os.getenv('UIDAI_PDF_HTTP', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+# Backward compat — purane bot.py / mixed VPS imports
+pdf_flow_pure = pdf_flow_pure_http
+
+
 class UidaiHttpSession:
     """Per-user requests.Session — shared baked cookies, isolated jar."""
 

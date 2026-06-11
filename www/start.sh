@@ -61,23 +61,41 @@ if [ "$USE_VENV" = 0 ]; then
     source .venv/bin/activate
     USE_VENV=1
     echo "📦 venv ready"
+  else
+    echo "📦 venv fail — try: bash install.sh"
+    pip3 install --user virtualenv 2>/dev/null || true
+    if python3 -m virtualenv .venv 2>/dev/null || ~/.local/bin/virtualenv .venv 2>/dev/null; then
+      # shellcheck disable=SC1091
+      source .venv/bin/activate
+      USE_VENV=1
+    fi
   fi
 fi
 
-if ! python3 -c "import telegram, playwright, dotenv, requests" 2>/dev/null; then
-  echo "📦 Installing dependencies…"
+need_install=0
+python3 -c "import telegram, dotenv, requests" 2>/dev/null || need_install=1
+
+if [ "$need_install" = 1 ]; then
+  echo "📦 Installing dependencies (venv, no sudo)…"
   if [ "$USE_VENV" = 1 ]; then
     pip install -q -r requirements.txt
   else
     pip install -q --user -r requirements.txt 2>/dev/null || pip install -q -r requirements.txt
   fi
+fi
+
+# playwright optional — /pdf = aadhar.py, /open = browser
+if python3 -c "import playwright" 2>/dev/null; then
   playwright install chromium 2>/dev/null || true
 fi
 
-if ! python3 -c "import telegram, playwright, dotenv, requests" 2>/dev/null; then
-  echo "❌ Dependencies missing — chalao:"
-  echo "  pip install -r requirements.txt"
-  echo "  playwright install chromium"
+if ! python3 -c "import telegram, dotenv, requests" 2>/dev/null; then
+  echo "❌ Dependencies missing — pehle: bash install.sh"
+  exit 1
+fi
+
+if ! python3 -c "import aadhar" 2>/dev/null; then
+  echo "❌ aadhar.py missing — wget se download karo"
   exit 1
 fi
 
