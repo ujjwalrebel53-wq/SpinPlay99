@@ -46,13 +46,15 @@ from browser_session import (
     pool_is_warm,
     refresh_standby_captcha,
 )
-from proxy_india import fastest_proxy_url
+from proxy_india import fastest_proxy_url, resolve_proxy_fast
 from http_uidai_flow import (
     UidaiHttpSession,
     HTTP_SESSIONS,
     get_http_session,
     http_mode_preferred,
+    sync_from_browser,
 )
+from react_extract import SET_OPTION_JS
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
 load_dotenv(Path(__file__).parent / '.env')
@@ -395,25 +397,6 @@ async def _send_captcha_ready(
     instant_sent: bool = False,
     chat_id: int | None = None,
 ) -> None:
-    cid = chat_id or (update.effective_chat.id if update.effective_chat else 0)
-    await progress.update(7, 8, 'Auto captcha bypass')
-    try:
-        auto_result = await sess.auto_send_otp(on_step=progress.update)
-        if auto_result.get('otp_ok'):
-            FLOW[cid] = {
-                **FLOW.get(cid, {}),
-                'step': STEP_OTP,
-                'name': sess.name,
-                'mobile': sess.mobile,
-                'mode': FLOW_MODE_RETRIEVE,
-            }
-            mode = auto_result.get('auto_captcha') or 'auto'
-            await progress.done(f'OTP sent — captcha bypass ({mode})')
-            await update.message.reply_text(uidai_user_message(auto_result, kind='otp'))
-            return
-    except Exception as e:
-        log.debug('auto captcha open flow: %s', e)
-
     if not instant_sent:
         cap = await sess.captcha_png(use_cache=True)
         ttl = sess.ttl_label() if sess.last_activity_at else ''
@@ -547,32 +530,46 @@ async def _start_download_flow(
     name: str,
     mobile: str,
 ) -> None:
-    """HTTP 2-OTP flow — foreign VPS friendly (requests + optional audio captcha)."""
+    """2-OTP PDF — Phase 1 browser pool (fast), Phase 2 HTTP + cookies."""
     name = normalize_name(name)
     mobile = mobile.strip()
     clear_flow(chat_id)
     clear_http_session(chat_id)
 
-    wait = await update.message.reply_text('⏳ Starting PDF download flow (HTTP)…')
+    old = SESSIONS.pop(chat_id, None)
+    if old:
+        try:
+            await old.close(keep_warm=True)
+        except Exception:
+            pass
+
+    instant_sent = await _try_instant_captcha(update)
+    wait = await update.message.reply_text('⏳ PDF flow — fast open…')
     progress = LoadingScreen(
         wait, name, mobile,
-        title='2-OTP Download',
-        subtitle='HTTP OTP + browser captcha',
+        title='2-OTP PDF',
+        subtitle='Pool + EID retrieve',
     )
 
     async def on_step(n: int, total: int, text: str) -> None:
         await progress.update(n, total, text)
 
-    sess = UidaiHttpSession(
+    browser_sess = UidaiBrowserSession(
         proxy=PROXY,
-        auto_proxy=AUTO_INDIA or http_mode_preferred(),
+        auto_india_proxy=AUTO_INDIA,
         on_step=on_step,
     )
-    sess.name = name
-    sess.mobile = mobile
-    sess.option = 'EID'
-    sess.flow = 'download'
-    HTTP_SESSIONS[chat_id] = sess
+    browser_sess.name = name
+    browser_sess.mobile = mobile
+    browser_sess.option = 'EID'
+    SESSIONS[chat_id] = browser_sess
+
+    http_sess = UidaiHttpSession(proxy=None, auto_proxy=False, on_step=on_step)
+    http_sess.name = name
+    http_sess.mobile = mobile
+    http_sess.option = 'EID'
+    http_sess.flow = 'download'
+    HTTP_SESSIONS[chat_id] = http_sess
 
     FLOW[chat_id] = {
         'step': STEP_CAPTCHA,
@@ -582,33 +579,28 @@ async def _start_download_flow(
     }
 
     try:
-        cap = await sess.fetch_captcha(prefer_audio=None)
-        png = cap.get('image_png') or b''
+        await browser_sess.start()
+        http_sess.proxy_url = browser_sess._active_proxy or PROXY
+        await browser_sess.open_form(name, mobile, force_reload=False)
+        await browser_sess.page.evaluate(SET_OPTION_JS, 'EID')
+        browser_sess.option = 'EID'
+        await sync_from_browser(http_sess, browser_sess)
 
-        await progress.update(2, 4, 'Auto captcha bypass')
-        result = await sess.auto_send_retrieve_otp(png)
-        if result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_OTP_1
-            mode = result.get('auto_captcha') or 'auto'
-            await progress.done(f'OTP 1 sent — captcha bypass ({mode})')
-            await update.message.reply_text(uidai_user_message(result, kind='otp'))
-            return
-
-        if png and len(png) > 500:
-            await progress.done('Auto bypass failed — type captcha manually')
+        if not instant_sent:
+            cap = await browser_sess.captcha_png(use_cache=True)
+            ttl = browser_sess.ttl_label() if browser_sess.last_activity_at else ''
             await update.message.reply_photo(
-                photo=png,
+                photo=cap,
                 caption=(
-                    '🔐 Phase 1 — type captcha (4–8 chars)\n'
-                    'Or send: auto\n'
+                    '🔐 Phase 1 — EID retrieve (DOB bypass)\n'
+                    'Reply captcha (4–8 chars)\n'
                     '/close — cancel'
-                ),
+                ) + (f'\nSession: {ttl}' if ttl else ''),
             )
-            return
-
-        await progress.fail('Captcha bypass failed — try /pdf again or set UIDAI_PROXY')
+        await progress.done('Captcha ready — reply with text')
     except Exception as e:
         log.exception('download flow start failed')
+        SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
         clear_http_session(chat_id)
         await progress.fail(_connection_error_hint(e))
@@ -843,6 +835,30 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _phase2_after_otp1(update, cid, sess, uid=uid)
         return
 
+    if step == STEP_CAPTCHA and mode == FLOW_MODE_DOWNLOAD:
+        if not CAPTCHA_RE.match(text):
+            await update.message.reply_text('Captcha 4–8 chars.')
+            return
+        browser_sess = get_session(cid)
+        http_sess = get_http_session(cid)
+        if not browser_sess or not http_sess:
+            clear_flow(cid)
+            await update.message.reply_text('Session expired — /pdf again.')
+            return
+        wait = await update.message.reply_text('⏳ Sending OTP 1…')
+        progress = LoadingScreen(wait, browser_sess.name, browser_sess.mobile, title='OTP 1', subtitle='EID')
+        try:
+            result = await browser_sess.send_otp(text, on_step=progress.update)
+            await sync_from_browser(http_sess, browser_sess)
+            if result.get('otp_ok'):
+                FLOW[cid]['step'] = STEP_OTP_1
+                await progress.done(uidai_user_message(result, kind='otp'))
+            else:
+                await progress.fail(uidai_user_message(result, kind='otp'))
+        except Exception as e:
+            await progress.fail(f'OTP 1 fail: {e}')
+        return
+
     if step == STEP_CAPTCHA_2 and mode == FLOW_MODE_DOWNLOAD:
         if not CAPTCHA_RE.match(text):
             await update.message.reply_text('Captcha must be 4–8 letters/numbers.')
@@ -869,23 +885,35 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not OTP_RE.match(text):
             await update.message.reply_text('Send 6-digit OTP 1 from SMS.')
             return
-        sess = get_http_session(cid)
-        if not sess:
+        browser_sess = get_session(cid)
+        http_sess = get_http_session(cid)
+        if not browser_sess or not http_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Verifying OTP 1…')
         progress = LoadingScreen(
-            wait, sess.name, sess.mobile,
+            wait, browser_sess.name, browser_sess.mobile,
             title='Phase 1',
             subtitle='EID retrieve',
         )
         try:
-            result = await sess.verify_retrieve_otp(text)
-            uid = result.get('uid') or ''
+            result = await browser_sess.submit_otp(text, on_step=progress.update)
+            await sync_from_browser(http_sess, browser_sess)
+            uid = ''
+            if result.get('retrieve_ok'):
+                from uidai_api import extract_aadhaar_number
+                for item in reversed(result.get('logs') or []):
+                    data = item.get('d')
+                    if isinstance(data, dict) and isinstance(data.get('json'), dict):
+                        uid = extract_aadhaar_number(data['json']) or ''
+                        if uid:
+                            break
+                if uid:
+                    http_sess.uid = uid
             if result.get('retrieve_ok'):
                 await progress.done(uidai_user_message({**result, 'uid': uid}, kind='retrieve'))
-                await _phase2_after_otp1(update, cid, sess, uid=uid)
+                await _phase2_after_otp1(update, cid, http_sess, uid=uid)
             else:
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.fail(uidai_user_message(result, kind='retrieve'))
@@ -926,6 +954,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 clear_flow(cid)
                 clear_http_session(cid)
+                browser_sess = SESSIONS.pop(cid, None)
+                if browser_sess:
+                    await browser_sess.close(keep_warm=True)
             else:
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.fail(uidai_user_message(result, kind='download'))
@@ -1007,47 +1038,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await progress.fail(uidai_user_message(result, kind='otp'))
         except Exception as e:
             await progress.fail(f'Auto fail: {e}')
-        return
-
-    if mode == FLOW_MODE_DOWNLOAD:
-        sess = get_http_session(cid)
-        if not sess:
-            clear_flow(cid)
-            await update.message.reply_text('Session expired — /pdf again.')
-            return
-        if text.lower() in ('auto', 'skip', 'bypass'):
-            wait = await update.message.reply_text('⏳ Auto captcha retry…')
-            progress = LoadingScreen(wait, sess.name, sess.mobile, title='OTP 1', subtitle='Auto bypass')
-            try:
-                result = await sess.auto_send_retrieve_otp(b'')
-                if result.get('otp_ok'):
-                    FLOW[cid]['step'] = STEP_OTP_1
-                    await progress.done(uidai_user_message(result, kind='otp'))
-                else:
-                    await progress.fail(uidai_user_message(result, kind='otp'))
-            except Exception as e:
-                await progress.fail(f'Auto fail: {e}')
-            return
-        if not CAPTCHA_RE.match(text):
-            await update.message.reply_text('Captcha 4–8 chars, or send: auto')
-            return
-        wait = await update.message.reply_text('⏳ Sending OTP 1…')
-        progress = LoadingScreen(
-            wait, sess.name, sess.mobile,
-            title='OTP 1',
-            subtitle='EID retrieve',
-        )
-        try:
-            result = await sess.send_retrieve_otp(text)
-            if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP_1
-                await progress.done(uidai_user_message(result, kind='otp'))
-            else:
-                FLOW[cid]['step'] = STEP_CAPTCHA
-                await progress.fail(uidai_user_message(result, kind='otp'))
-        except Exception as e:
-            await progress.fail(f'OTP 1 fail: {e}')
-            FLOW[cid]['step'] = STEP_CAPTCHA
         return
 
     if not CAPTCHA_RE.match(text):

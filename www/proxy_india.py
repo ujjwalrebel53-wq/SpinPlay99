@@ -180,6 +180,24 @@ def fastest_proxy_url() -> str:
     return DEFAULT_INDIAN_PROXIES[0]
 
 
+def resolve_proxy_fast() -> str | None:
+    """Hot path — cache/ranked first. No 50-proxy scan (saves ~30s)."""
+    raw = os.getenv('UIDAI_PROXY', '').strip()
+    if raw and raw.lower() not in ('auto', 'india', 'none', 'no', ''):
+        return raw
+    cached = _load_cache()
+    if cached:
+        return cached
+    try:
+        return fastest_proxy_url()
+    except Exception:
+        return DEFAULT_INDIAN_PROXIES[0] if DEFAULT_INDIAN_PROXIES else None
+
+
+def fast_mode() -> bool:
+    return os.getenv('UIDAI_FAST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
     handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
     return urllib.request.build_opener(handler)
@@ -277,9 +295,15 @@ def pick_ranked_proxies(
     return results[:limit]
 
 
-def pick_indian_proxy(proxies: list[str] | None = None) -> tuple[str, dict[str, Any]]:
+def pick_indian_proxy(
+    proxies: list[str] | None = None,
+    *,
+    limit: int | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Fastest-first — ranked list se ek-ek karke try."""
     pool = proxies or proxy_list_from_env()
+    if limit:
+        pool = pool[:limit]
 
     cached = _load_cache()
     if cached and cached in pool:

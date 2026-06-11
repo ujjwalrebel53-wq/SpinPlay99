@@ -20,10 +20,11 @@ from audio_captcha import (
 from captcha_solver import captcha_attempt_values, captcha_bypass_enabled
 from proxy_india import (
     check_direct_india,
+    fast_mode,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
-    proxy_list_from_env,
+    resolve_proxy_fast,
 )
 from uidai_cookie_session import cookie_summary, seed_uidai_cookies
 from uidai_api import (
@@ -105,21 +106,27 @@ class UidaiHttpSession:
         if self._on_step:
             await self._on_step(n, total, msg)
 
-    def _ensure_proxy(self) -> None:
+    def _ensure_proxy(self, *, deep_scan: bool = False) -> None:
         if self.proxy_url:
             return
         if not self.auto_proxy:
-            india = check_direct_india(timeout=5)
+            india = check_direct_india(timeout=3)
             if india:
                 self.proxy_info = india
             return
+        fast = resolve_proxy_fast()
+        if fast and not deep_scan:
+            self.proxy_url = fast
+            log.info('HTTP proxy fast — %s', fast)
+            return
         try:
-            proxy, info = pick_indian_proxy(proxy_list_from_env())
+            limit = 5 if fast_mode() else 50
+            proxy, info = pick_indian_proxy(limit=limit)
             self.proxy_url = proxy
             self.proxy_info = info
-            log.info('HTTP proxy %s', proxy)
+            log.info('HTTP proxy scanned — %s', proxy)
         except Exception as e:
-            india = check_direct_india(timeout=5)
+            india = check_direct_india(timeout=3)
             if india:
                 self.proxy_info = india
                 log.info('HTTP direct India fallback')
@@ -186,6 +193,11 @@ class UidaiHttpSession:
             append_log(logs, 'info', f'{label} HTTP {r.status_code}', {'body': text[:400]})
             return r.status_code, text
         except requests.RequestException as e:
+            if fast_mode() and not getattr(self, '_proxy_deep_tried', False):
+                self._proxy_deep_tried = True
+                self.proxy_url = None
+                self._ensure_proxy(deep_scan=True)
+                return self._post_json(url, payload, referer=referer, logs=logs, label=label)
             append_log(logs, 'error', f'{label} network', {'err': str(e)})
             raise RuntimeError(f'{label} network error: {e}') from e
 
@@ -237,50 +249,26 @@ class UidaiHttpSession:
         prefer_audio: bool | None = None,
         referer: str | None = None,
     ) -> dict[str, Any]:
-        """Captcha PNG + txn — browser page (HTTP captcha API unreliable)."""
+        """Captcha — browser pool first (fast). HTTP API only fallback."""
         logs: list[dict[str, Any]] = []
         ref = referer or (DOWNLOAD_PAGE_URL if self.flow == 'download' else RETRIEVE_PAGE_URL)
         is_download_page = 'genricDownloadAadhaar' in ref or 'download' in ref.lower()
         page_url = DOWNLOAD_PAGE_URL if is_download_page else RETRIEVE_PAGE_URL
-        await self._step(1, 6, self.proxy_label())
+        await self._step(1, 4, self.proxy_label())
 
-        captcha_text = ''
-        png = b''
-        txn = ''
+        from browser_session import get_standby_captcha_pair
 
-        use_audio = prefer_audio if prefer_audio is not None else whisper_enabled()
-        if use_audio and not is_download_page:
-            await self._step(2, 6, 'Audio captcha try')
-            try:
-                parsed = self._fetch_captcha_raw(audio=True, logs=logs, referer=ref)
-                captcha_text = decode_audio_captcha(
-                    parsed.get('audio_bytes') or b'',
-                    mime=str(parsed.get('audio_mime') or 'audio/wav'),
-                ) or ''
-                txn = str(parsed.get('captchaTxnId') or '')
-                png = parsed.get('image_png') or b''
-            except Exception as e:
-                log.warning('Audio captcha API skip: %s', e)
+        png, txn = b'', ''
+        pair = get_standby_captcha_pair() if not is_download_page else None
+        if pair:
+            png, txn = pair
+            append_log(logs, 'info', 'Standby captcha', {'txn': txn[:8], 'bytes': len(png)})
 
-        if not txn or len(png) < 500:
-            try:
-                png, txn = await self._fetch_captcha_via_browser(page_url)
-                append_log(logs, 'info', 'Browser captcha OK', {'txn': txn[:8], 'bytes': len(png)})
-            except Exception as browser_err:
-                log.warning('Browser captcha fail: %s — trying HTTP image API', browser_err)
-                try:
-                    parsed = self._fetch_captcha_raw(audio=False, logs=logs, referer=ref)
-                    txn = str(parsed.get('captchaTxnId') or '')
-                    png = parsed.get('image_png') or b''
-                except Exception as http_err:
-                    raise RuntimeError(
-                        f'Captcha fail — browser: {browser_err}; API: {http_err}'
-                    ) from http_err
+        if not txn:
+            png, txn = await self._fetch_captcha_via_browser(page_url)
+            append_log(logs, 'info', 'Browser captcha', {'txn': txn[:8], 'bytes': len(png)})
 
         self.captcha_txn_id = txn
-        if captcha_text:
-            self.captcha_text = normalize_captcha_text(captcha_text)
-
         if not self.captcha_txn_id:
             raise RuntimeError('captchaTxnId missing — try /pdf again')
 
@@ -492,6 +480,26 @@ HTTP_SESSIONS: dict[int, UidaiHttpSession] = {}
 
 def get_http_session(chat_id: int) -> UidaiHttpSession | None:
     return HTTP_SESSIONS.get(chat_id)
+
+
+async def sync_from_browser(http_sess: UidaiHttpSession, browser: Any) -> None:
+    """Phase 2 — browser cookies + txn state copy to HTTP session."""
+    from uidai_cookie_session import merge_browser_cookies_into_session
+
+    http_sess.proxy_url = getattr(browser, '_active_proxy', None) or browser.proxy
+    http_sess.name = browser.name
+    http_sess.mobile = browser.mobile
+    http_sess.captcha_txn_id = browser.captcha_txn_id
+    http_sess.captcha_text = browser.last_captcha
+    http_sess.otp_txn_id = browser.otp_txn_id
+    http_sess.option = getattr(browser, 'option', 'EID')
+    ctx = getattr(browser, '_context', None)
+    if ctx:
+        try:
+            pw_cookies = await ctx.cookies()
+            merge_browser_cookies_into_session(http_sess._session, pw_cookies)
+        except Exception as e:
+            log.debug('cookie sync skip: %s', e)
 
 
 async def run_in_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

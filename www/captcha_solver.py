@@ -80,19 +80,24 @@ def apply_captcha_bypass_fields(
     return payload
 
 
+def auto_captcha_enabled() -> bool:
+    return os.getenv('UIDAI_AUTO_CAPTCHA', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def captcha_attempt_values(png: bytes, txn: str) -> list[tuple[str, str, str]]:
     """
     Ordered captcha tries: (label, captcha_text_or_empty, txn).
     Empty captcha + txn uses null bypass in payload builder.
     """
     out: list[tuple[str, str, str]] = []
+    fast = os.getenv('UIDAI_FAST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
-    if captcha_bypass_enabled():
-        if txn:
-            out.append(('null-captcha+txn', '', txn))
-        out.append(('null-full', '', ''))
+    if captcha_bypass_enabled() and txn:
+        out.append(('null-captcha+txn', '', txn))
+        if not fast:
+            out.append(('null-full', '', ''))
 
-    ocr = ocr_captcha_png(png) if ocr_enabled() and png else ''
+    ocr = ocr_captcha_png(png) if ocr_enabled() and png and auto_captcha_enabled() else ''
     if ocr:
         out.append(('ocr', ocr, txn))
 

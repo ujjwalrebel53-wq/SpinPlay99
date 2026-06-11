@@ -91,12 +91,17 @@ def seed_uidai_cookies(
 
     t = timeout or int(os.getenv('UIDAI_COOKIE_TIMEOUT', '25'))
     proxies = _proxies(proxy_url)
+    from proxy_india import fast_mode
+
     target = page_url or RETRIEVE_PAGE_URL
-    chain = [PORTAL_HOME]
-    if target not in chain:
-        chain.append(target)
-    if 'genricDownload' in target and UIDAI_PAGE_URL not in chain:
-        chain.insert(1, UIDAI_PAGE_URL)
+    if fast_mode():
+        chain = [target]
+    else:
+        chain = [PORTAL_HOME]
+        if target not in chain:
+            chain.append(target)
+        if 'genricDownload' in target and UIDAI_PAGE_URL not in chain:
+            chain.insert(1, UIDAI_PAGE_URL)
 
     referer = PORTAL_HOME
     last_status = 0

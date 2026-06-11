@@ -17,10 +17,12 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 from proxy_india import (
     check_direct_india,
     check_proxy,
+    fast_mode,
     fastest_proxy_url,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
+    resolve_proxy_fast,
     test_uidai,
 )
 from react_extract import (
@@ -571,14 +573,18 @@ class UidaiBrowserSession:
             await self._step(1, 8, f'VPN reuse — {self.proxy_label}')
             return proxy
 
+        tries = 2 if fast_mode() else PROXY_CONNECT_TRIES
+        pto = 5 if fast_mode() else 8
+        uto = 8 if fast_mode() else 12
         last_err: Exception | None = None
-        for attempt in range(PROXY_CONNECT_TRIES):
+        for attempt in range(tries):
             try:
-                await self._step(1, 8, f'VPN try {attempt + 1}/{PROXY_CONNECT_TRIES}…')
-                info = await asyncio.to_thread(check_proxy, proxy, 8)
+                await self._step(1, 8, f'VPN try {attempt + 1}/{tries}…')
+                info = await asyncio.to_thread(check_proxy, proxy, pto)
                 if info.get('countryCode') != 'IN':
                     raise RuntimeError(f'Proxy India nahi: {info.get("country")}')
-                await asyncio.to_thread(test_uidai, proxy, 12)
+                if not fast_mode() or attempt > 0:
+                    await asyncio.to_thread(test_uidai, proxy, uto)
                 self.proxy_info = info
                 _POOL['proxy_info'] = info
                 self.proxy_label = format_proxy_line(info, proxy)
@@ -603,16 +609,18 @@ class UidaiBrowserSession:
             return None
 
         await self._step(1, 8, 'Indian VPN connect…')
-        primary = _primary_proxy()
-        if primary:
+        for candidate in (resolve_proxy_fast(), _primary_proxy()):
+            if not candidate:
+                continue
             try:
-                self.proxy = primary
-                return await self._connect_proxy(primary)
+                self.proxy = candidate
+                return await self._connect_proxy(candidate)
             except Exception as e:
-                log.warning('primary proxy fail after %s tries: %s', PROXY_CONNECT_TRIES, e)
+                log.warning('proxy candidate fail %s: %s', candidate, e)
 
         try:
-            proxy, info = await asyncio.to_thread(pick_indian_proxy)
+            limit = 5 if fast_mode() else 50
+            proxy, info = await asyncio.to_thread(pick_indian_proxy, limit=limit)
             self.proxy = proxy
             self.proxy_info = info
             self.proxy_label = format_proxy_line(info, proxy)
