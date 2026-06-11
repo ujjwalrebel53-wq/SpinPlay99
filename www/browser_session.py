@@ -17,14 +17,11 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 from proxy_india import (
     check_direct_india,
     check_proxy,
-    direct_first_enabled,
     fast_mode,
     fastest_proxy_url,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
-    proxy_fallback_enabled,
-    resolve_proxy_fast,
     test_uidai,
 )
 from react_extract import (
@@ -338,6 +335,15 @@ async def warm_standby_uidai(proxy: str | None) -> bool:
                 permissions=['geolocation'],
             )
             await ctx.add_init_script(SKIP_FONTS_JS)
+            try:
+                from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
+
+                if cookie_jar_ready():
+                    pw_cookies = load_playwright_cookies()
+                    if pw_cookies:
+                        await ctx.add_cookies(pw_cookies)
+            except Exception as e:
+                log.debug('standby cookie inject skip: %s', e)
             page = await ctx.new_page()
             sb['context'] = ctx
             sb['page'] = page
@@ -601,82 +607,64 @@ class UidaiBrowserSession:
             f'VPN fail ({PROXY_CONNECT_TRIES} try): {last_err}'
         ) from last_err
 
+    async def _inject_saved_cookies(self) -> int:
+        """Saved cookies browser me — hamesha ke liye reuse."""
+        from uidai_cookie_session import cookie_jar_ready, load_playwright_cookies
+
+        if not cookie_jar_ready() or not self._context:
+            return 0
+        cookies = load_playwright_cookies()
+        if not cookies:
+            return 0
+        try:
+            await self._context.add_cookies(cookies)
+            log.info('Saved cookies injected — %d', len(cookies))
+            return len(cookies)
+        except Exception as e:
+            log.warning('cookie inject fail: %s', e)
+            return 0
+
     async def _persist_browser_cookies(self) -> None:
-        """Playwright cookies disk pe — agli baar direct se chale."""
+        """Site load ke baad cookies save — agli baar bina proxy."""
         if not self._context:
             return
         try:
             import requests
-            from uidai_cookie_session import import_playwright_cookies, save_cookie_jar
+            from uidai_cookie_session import (
+                import_playwright_cookies,
+                mark_cookie_jar_bootstrapped,
+                save_cookie_jar,
+            )
 
             pw = await self._context.cookies()
             if not pw:
                 return
             tmp = requests.Session()
             import_playwright_cookies(tmp, pw)
-            save_cookie_jar(tmp)
+            save_cookie_jar(tmp, bootstrapped=True)
+            mark_cookie_jar_bootstrapped(tmp)
         except Exception as e:
             log.debug('browser cookie persist skip: %s', e)
 
-    async def _probe_direct_route(self) -> bool:
-        """Direct + saved cookies se UIDAI khulta hai ya nahi."""
-        from uidai_cookie_session import probe_uidai_access
-
-        await self._step(1, 8, 'Direct + cookies check…')
-        probe = await asyncio.to_thread(
-            probe_uidai_access,
-            None,
-            None,
-            bootstrap=True,
-        )
-        if probe.get('ok'):
-            geo = probe.get('geo') or {}
-            if geo:
-                self.proxy_info = geo
-                self.proxy_label = format_direct_line(geo)
-            else:
-                cc = (probe.get('cookies') or {}).get('count', 0)
-                self.proxy_label = f'🌐 Direct + cookies ({cc})'
-            await self._step(1, 8, self.proxy_label)
-            return True
-        log.info('Direct probe fail — status=%s', probe.get('status'))
-        return False
-
     async def _resolve_proxy(self) -> str | None:
+        from uidai_cookie_session import cookie_jar_ready
+
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
             return await self._connect_proxy(self.proxy)
 
-        if not self.auto_india_proxy and not self.proxy:
-            if direct_first_enabled():
-                await self._probe_direct_route()
-            else:
-                self.proxy_label = '⚠️ Direct'
-                await self._step(1, 8, 'Direct connect')
+        if cookie_jar_ready():
+            self.proxy_label = '🍪 Saved cookies — bina proxy'
+            await self._step(1, 8, self.proxy_label)
             return None
 
-        if direct_first_enabled():
-            if await self._probe_direct_route():
-                return None
-            if not proxy_fallback_enabled():
-                raise RuntimeError(
-                    'UIDAI direct fail — proxy band hai.\n'
-                    'UIDAI_PROXY_FALLBACK=1 ya UIDAI_PROXY=http://ip:port'
-                )
-            await self._step(1, 8, 'Direct fail — VPN fallback…')
+        if not self.auto_india_proxy and not self.proxy:
+            self.proxy_label = '⚠️ Direct — pehli load pe cookies save'
+            await self._step(1, 8, self.proxy_label)
+            return None
 
-        await self._step(1, 8, 'Indian VPN connect…')
-        for candidate in (resolve_proxy_fast(for_fallback=True), _primary_proxy()):
-            if not candidate:
-                continue
-            try:
-                self.proxy = candidate
-                return await self._connect_proxy(candidate)
-            except Exception as e:
-                log.warning('proxy candidate fail %s: %s', candidate, e)
-
+        await self._step(1, 8, 'Proxy scan — ~30s per try…')
         try:
-            limit = 5 if fast_mode() else 50
-            proxy, info = await asyncio.to_thread(pick_indian_proxy, limit=limit)
+            proxy, info = await asyncio.to_thread(pick_indian_proxy, limit=50)
             self.proxy = proxy
             self.proxy_info = info
             self.proxy_label = format_proxy_line(info, proxy)
@@ -722,6 +710,7 @@ class UidaiBrowserSession:
                     permissions=['geolocation'],
                 )
                 await self._context.add_init_script(SKIP_FONTS_JS)
+                await self._inject_saved_cookies()
                 self._page = await self._context.new_page()
                 return reused
             except Exception as e:

@@ -20,19 +20,15 @@ from audio_captcha import (
 from captcha_solver import captcha_attempt_values, captcha_bypass_enabled
 from proxy_india import (
     check_direct_india,
-    direct_first_enabled,
     fast_mode,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
-    proxy_fallback_enabled,
-    resolve_proxy_fast,
 )
 from uidai_cookie_session import (
     bootstrap_uidai_session,
+    cookie_jar_ready,
     cookie_summary,
-    probe_uidai_access,
-    seed_uidai_cookies,
 )
 from uidai_api import (
     AUDIO_CAPTCHA_API_URL,
@@ -116,6 +112,12 @@ class UidaiHttpSession:
     def _ensure_proxy(self, *, deep_scan: bool = False) -> None:
         if self.proxy_url:
             return
+
+        if cookie_jar_ready():
+            bootstrap_uidai_session(self._session, None)
+            log.info('HTTP cookies-only — bina proxy')
+            return
+
         if not self.auto_proxy:
             india = check_direct_india(timeout=3)
             if india:
@@ -123,32 +125,12 @@ class UidaiHttpSession:
             bootstrap_uidai_session(self._session, None)
             return
 
-        if direct_first_enabled() and not deep_scan:
-            probe = probe_uidai_access(self._session, None, bootstrap=True)
-            if probe.get('ok'):
-                geo = probe.get('geo') or {}
-                if geo:
-                    self.proxy_info = geo
-                log.info('HTTP direct + cookies — status=%s', probe.get('status'))
-                return
-            if not proxy_fallback_enabled():
-                raise RuntimeError(
-                    'UIDAI direct fail — proxy band.\n'
-                    'UIDAI_PROXY_FALLBACK=1 ya apna proxy lagao.'
-                )
-            log.info('HTTP direct fail — proxy fallback')
-
-        fast = resolve_proxy_fast(for_fallback=True)
-        if fast and not deep_scan:
-            self.proxy_url = fast
-            log.info('HTTP proxy fast — %s', fast)
-            return
         try:
-            limit = 5 if fast_mode() else 50
+            limit = 50
             proxy, info = pick_indian_proxy(limit=limit)
             self.proxy_url = proxy
             self.proxy_info = info
-            log.info('HTTP proxy scanned — %s', proxy)
+            log.info('HTTP proxy scan (~30s/try) — %s', proxy)
         except Exception as e:
             india = check_direct_india(timeout=3)
             if india:

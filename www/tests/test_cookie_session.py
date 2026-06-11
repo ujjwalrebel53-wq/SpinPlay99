@@ -10,12 +10,14 @@ import requests
 from uidai_cookie_session import (
     apply_cookie_jar_to_session,
     bootstrap_uidai_session,
+    cookie_jar_ready,
     cookie_persist_enabled,
     cookie_seed_enabled,
     cookie_summary,
     export_session_cookies,
     import_playwright_cookies,
     load_cookie_jar,
+    mark_cookie_jar_bootstrapped,
     save_cookie_jar,
     seed_uidai_cookies,
 )
@@ -83,6 +85,34 @@ class TestCookieSession(unittest.TestCase):
         info = bootstrap_uidai_session(s, None)
         mock_seed.assert_called_once()
         self.assertEqual(info.get('count'), 2)
+
+    def test_cookie_jar_ready_bootstrapped(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'uidai_cookies.json'
+            with patch('uidai_cookie_session.COOKIE_JAR_FILE', path):
+                self.assertFalse(cookie_jar_ready())
+                s = requests.Session()
+                import_playwright_cookies(s, [
+                    {'name': 'sid', 'value': 'x', 'domain': '.uidai.gov.in', 'path': '/'},
+                ])
+                with patch('uidai_cookie_session.cookie_persist_enabled', return_value=True):
+                    save_cookie_jar(s, bootstrapped=True)
+                with patch('uidai_cookie_session.cookie_persist_enabled', return_value=True):
+                    self.assertTrue(cookie_jar_ready())
+
+    def test_mark_bootstrapped_forever(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'uidai_cookies.json'
+            with patch('uidai_cookie_session.COOKIE_JAR_FILE', path):
+                s = requests.Session()
+                import_playwright_cookies(s, [
+                    {'name': 'a', 'value': '1', 'domain': '.uidai.gov.in', 'path': '/'},
+                ])
+                with patch('uidai_cookie_session.cookie_persist_enabled', return_value=True):
+                    mark_cookie_jar_bootstrapped(s)
+                data = json.loads(path.read_text())
+                self.assertTrue(data.get('forever'))
+                self.assertTrue(data.get('bootstrapped'))
 
     def test_seed_enabled_default(self) -> None:
         self.assertTrue(cookie_seed_enabled())

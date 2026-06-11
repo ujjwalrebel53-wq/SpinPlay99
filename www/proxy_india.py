@@ -261,7 +261,12 @@ def resolve_route(
 
 
 def fast_mode() -> bool:
-    return os.getenv('UIDAI_FAST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    return os.getenv('UIDAI_FAST', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def proxy_trial_timeout() -> int:
+    """Har proxy try ka timeout — default 30s (pehle wala trial)."""
+    return int(os.getenv('UIDAI_PROXY_TRIAL_SEC', '30'))
 
 
 def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
@@ -312,12 +317,13 @@ def test_uidai(proxy: str, timeout: int = 10) -> float:
 
 def score_proxy(proxy: str, *, require_uidai: bool = True) -> dict[str, Any] | None:
     try:
-        info = check_proxy(proxy, timeout=5)
+        trial = proxy_trial_timeout()
+        info = check_proxy(proxy, timeout=min(trial, 15))
         if info.get('countryCode') != 'IN':
             return None
         uidai_s = 5.0
         if require_uidai:
-            uidai_s = test_uidai(proxy, timeout=12)
+            uidai_s = test_uidai(proxy, timeout=trial)
         return {
             'proxy': proxy,
             'info': info,

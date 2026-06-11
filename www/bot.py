@@ -46,7 +46,8 @@ from browser_session import (
     pool_is_warm,
     refresh_standby_captcha,
 )
-from proxy_india import fastest_proxy_url, resolve_proxy_fast
+from proxy_india import fastest_proxy_url, pick_indian_proxy
+from uidai_cookie_session import cookie_jar_ready
 from http_uidai_flow import (
     UidaiHttpSession,
     HTTP_SESSIONS,
@@ -78,8 +79,8 @@ if PROXY_RAW in ('none', 'no', 'off', 'direct'):
     AUTO_INDIA = False
 elif PROXY_RAW in ('', 'auto', 'india'):
     PROXY = None
-    # Default: direct + cookies pehle, proxy sirf fallback (UIDAI_PROXY_FALLBACK=1)
-    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '0') == '1'
+    # Pehli baar proxy scan; cookies save ke baad hamesha cookies-only
+    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '1') == '1'
 else:
     PROXY = os.getenv('UIDAI_PROXY', '').strip()
     AUTO_INDIA = False
@@ -1107,7 +1108,16 @@ async def warm_pool_job(context) -> None:
     """Bot start pe Chromium background me launch — 24/7."""
     if pool_is_warm():
         return
-    proxy = PROXY if PROXY and str(PROXY).lower() not in ('auto', 'india', '') else resolve_proxy_fast()
+    if cookie_jar_ready():
+        proxy = None
+    elif PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
+        proxy = PROXY
+    else:
+        try:
+            proxy, _ = await asyncio.to_thread(pick_indian_proxy, limit=50)
+        except Exception as e:
+            log.warning('Pool warm proxy skip: %s', e)
+            proxy = None
     await ensure_pool_warm(proxy)
 
 

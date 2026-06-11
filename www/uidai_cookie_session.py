@@ -77,15 +77,42 @@ def export_session_cookies(session: requests.Session) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_cookie_jar_data() -> dict[str, Any]:
+    if not COOKIE_JAR_FILE.exists():
+        return {}
+    try:
+        data = json.loads(COOKIE_JAR_FILE.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        log.warning('Cookie jar read fail: %s', e)
+        return {}
+
+
+def cookie_jar_ready() -> bool:
+    """Site ek baar load ho chuki — saved cookies hamesha reuse."""
+    if not cookie_persist_enabled():
+        return False
+    data = _read_cookie_jar_data()
+    cookies = list(data.get('cookies') or [])
+    if not cookies:
+        return False
+    if data.get('bootstrapped') or data.get('forever'):
+        return True
+    return False
+
+
 def load_cookie_jar() -> list[dict[str, Any]]:
-    """Disk se saved cookies — pehle wale session reuse."""
+    """Disk se saved cookies — bootstrapped jar kabhi expire nahi."""
     if not cookie_persist_enabled() or not COOKIE_JAR_FILE.exists():
         return []
     try:
-        data = json.loads(COOKIE_JAR_FILE.read_text(encoding='utf-8'))
+        data = _read_cookie_jar_data()
         cookies = list(data.get('cookies') or [])
+        if data.get('bootstrapped') or data.get('forever'):
+            log.debug('Cookie jar loaded (forever) — %d cookies', len(cookies))
+            return cookies
         age = time.time() - float(data.get('ts', 0))
-        max_age = int(os.getenv('UIDAI_COOKIE_MAX_AGE_HOURS', '48')) * 3600
+        max_age = int(os.getenv('UIDAI_COOKIE_MAX_AGE_HOURS', '0')) * 3600
         if max_age > 0 and age > max_age:
             log.info('Cookie jar stale (%.0fh) — fresh seed hoga', age / 3600)
             return []
@@ -96,19 +123,69 @@ def load_cookie_jar() -> list[dict[str, Any]]:
         return []
 
 
-def save_cookie_jar(session: requests.Session) -> None:
-    """Session cookies disk pe — next run bina proxy ke kaam aayenge."""
+def load_playwright_cookies() -> list[dict[str, Any]]:
+    """Playwright context.add_cookies() ke liye format."""
+    rows: list[dict[str, Any]] = []
+    for c in load_cookie_jar():
+        name = c.get('name')
+        value = c.get('value')
+        if not name or value is None:
+            continue
+        domain = (c.get('domain') or '.uidai.gov.in').lstrip()
+        if domain and not domain.startswith('.'):
+            domain = '.' + domain
+        row: dict[str, Any] = {
+            'name': name,
+            'value': value,
+            'domain': domain,
+            'path': c.get('path') or '/',
+        }
+        if c.get('secure'):
+            row['secure'] = True
+        if c.get('httpOnly'):
+            row['httpOnly'] = True
+        rows.append(row)
+    return rows
+
+
+def save_cookie_jar(session: requests.Session, *, bootstrapped: bool = False) -> None:
+    """Session cookies disk pe — bootstrapped=True → hamesha ke liye."""
     if not cookie_persist_enabled():
         return
     try:
-        payload = {
+        prev = _read_cookie_jar_data()
+        payload: dict[str, Any] = {
             'ts': time.time(),
             'cookies': export_session_cookies(session),
         }
+        if bootstrapped or prev.get('bootstrapped') or prev.get('forever'):
+            payload['bootstrapped'] = True
+            payload['forever'] = True
         COOKIE_JAR_FILE.write_text(json.dumps(payload, indent=2), encoding='utf-8')
-        log.debug('Cookie jar saved — %d cookies', len(payload['cookies']))
+        log.info(
+            'Cookie jar saved — %d cookies bootstrapped=%s',
+            len(payload['cookies']),
+            payload.get('bootstrapped', False),
+        )
     except Exception as e:
         log.warning('Cookie jar save fail: %s', e)
+
+
+def mark_cookie_jar_bootstrapped(session: requests.Session | None = None) -> None:
+    """Pehli successful site load ke baad — proxy skip, cookies forever."""
+    if not cookie_persist_enabled():
+        return
+    try:
+        data = _read_cookie_jar_data()
+        if session is not None:
+            data['cookies'] = export_session_cookies(session)
+        data['bootstrapped'] = True
+        data['forever'] = True
+        data['ts'] = time.time()
+        COOKIE_JAR_FILE.write_text(json.dumps(data, indent=2), encoding='utf-8')
+        log.info('Cookie jar bootstrapped — ab hamesha cookies se, bina proxy')
+    except Exception as e:
+        log.warning('Cookie bootstrap mark fail: %s', e)
 
 
 def apply_cookie_jar_to_session(
@@ -213,11 +290,20 @@ def bootstrap_uidai_session(
     proxy_url: str | None = None,
     *,
     page_url: str | None = None,
+    force_seed: bool = False,
 ) -> dict[str, Any]:
-    """Saved jar load → portal seed → save — direct-first ke liye."""
+    """Bootstrapped jar → sirf load. Pehli baar → portal seed + save."""
     loaded = 0
     if cookie_persist_enabled():
         loaded = apply_cookie_jar_to_session(session, load_cookie_jar())
+
+    if cookie_jar_ready() and not force_seed:
+        summary = cookie_summary(session)
+        summary['loaded_from_disk'] = loaded
+        summary['cookies_only'] = True
+        log.info('Cookies-only session — %s', summary)
+        return summary
+
     info = seed_uidai_cookies(session, proxy_url, page_url=page_url, save=True)
     info['loaded_from_disk'] = loaded
     return info
@@ -297,6 +383,7 @@ def merge_browser_cookies_into_session(
     before = cookie_summary(http_session)
     added = import_playwright_cookies(http_session, browser_cookies)
     after = cookie_summary(http_session)
-    save_cookie_jar(http_session)
+    save_cookie_jar(http_session, bootstrapped=True)
+    mark_cookie_jar_bootstrapped(http_session)
     log.info('Browser cookies merged — added=%s before=%s after=%s', added, before['count'], after['count'])
     return {'added': added, 'before': before, 'after': after}
