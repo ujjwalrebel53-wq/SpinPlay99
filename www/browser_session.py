@@ -145,7 +145,13 @@ async def _pool_shutdown() -> None:
 
 
 def pool_is_warm() -> bool:
-    return _browser_connected(_POOL.get('browser'))
+    if not _browser_connected(_POOL.get('browser')):
+        return False
+    sb = _POOL.get('standby') or {}
+    page = sb.get('page')
+    if page and not page.is_closed():
+        return True
+    return _POOL.get('proxy') is not None
 
 
 def standby_has_captcha() -> bool:
@@ -364,11 +370,11 @@ async def warm_standby_uidai(proxy: str | None) -> bool:
             sb['page'] = page
             for attempt in range(3):
                 try:
-                    await page.goto(UIDAI_PAGE_URL, wait_until='commit', timeout=45_000)
-                    for _ in range(int(25 / 0.15)):
+                    await page.goto(UIDAI_PAGE_URL, wait_until='commit', timeout=40_000)
+                    for _ in range(100):
                         if await page.locator('input[name="name"]').count():
                             break
-                        await asyncio.sleep(0.15)
+                        await asyncio.sleep(0.1)
                     break
                 except Exception as e:
                     log.warning('standby goto attempt %s: %s', attempt + 1, e)
@@ -512,6 +518,16 @@ class UidaiBrowserSession:
         m = rem // 60
         return f'{h}h {m}m'
 
+    async def _form_on_page(self) -> bool:
+        if not self._page or not self._context:
+            return False
+        try:
+            if self._page.is_closed():
+                return False
+            return await self.page.locator('input[name="name"]').count() > 0
+        except Exception:
+            return False
+
     async def page_alive(self) -> bool:
         if not self._page or not self._context:
             return False
@@ -579,6 +595,9 @@ class UidaiBrowserSession:
             self._captcha_cache_txn = sb.get('captcha_txn_id', '')
             self.captcha_txn_id = self._captcha_cache_txn
             self._captcha_cache_at = float(sb.get('cached_at') or time.monotonic())
+        self.form_ready = True
+        self.page_loaded_at = time.monotonic()
+        self.touch()
         log.info('Adopted standby UIDAI page — instant captcha ready')
         return True
 
@@ -846,14 +865,18 @@ class UidaiBrowserSession:
             self._page = None
             self._context = None
         proxy = await self._resolve_proxy()
-        await self._step(2, 8, 'Chromium start…')
+        self._active_proxy = proxy
         reused = await self._new_page(proxy)
-        if reused:
-            await self._step(2, 8, 'Browser pre-warm — turant ready ⚡')
+        if await self._form_on_page():
+            self.form_ready = True
+            await self._step(2, 8, 'Pool page ready ⚡')
+        elif reused:
+            await self._step(2, 8, 'Browser reuse ⚡')
         else:
-            await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
+            await self._step(2, 8, 'Browser start…')
         self.touch()
-        self.page_loaded_at = time.monotonic()
+        if not self.page_loaded_at:
+            self.page_loaded_at = time.monotonic()
 
     async def close(self, keep_warm: bool = True) -> None:
         if self._context:
@@ -941,18 +964,29 @@ class UidaiBrowserSession:
 
         if not force_reload and await self.page_alive():
             await self._step(1, 8, f'Session active — {self.ttl_label()} left')
-            await self._step(2, 8, 'Reusing live page')
-            await self._step(3, 8, 'Skip reload')
-            await self._step(4, 8, 'Updating form')
-            await self._step(5, 8, f'Engine v{BOT_ENGINE_VERSION}')
             await self._fill_fields_and_captcha(fresh_captcha=False)
             asyncio.create_task(self._prefetch_next_captcha())
             return self.peek_captcha_png() or b''
 
+        if not force_reload and await self._form_on_page():
+            self.touch()
+            self.page_loaded_at = time.monotonic()
+            pair = get_standby_captcha_pair()
+            if pair and not self.captcha_txn_id:
+                self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
+                self._captcha_cache_at = time.monotonic()
+            await self._step(2, 8, 'Pool ready — skip proxy reload ⚡')
+            await self._fill_fields_and_captcha(fresh_captcha=False)
+            asyncio.create_task(self._prefetch_next_captcha())
+            proxy = self._active_proxy
+            if proxy is not None:
+                asyncio.create_task(warm_standby_uidai(proxy))
+            return self.peek_captcha_png() or self._captcha_png_cache or b''
+
         self.captcha_txn_id = ''
         from uidai_cookie_session import use_baked_proxy_fast
 
-        await self._step(3, 8, 'UIDAI site open (fast)…')
+        await self._step(3, 8, 'UIDAI site open…')
         goto_timeout = 35_000 if use_baked_proxy_fast() else 45_000
         poll_sec = 18.0 if use_baked_proxy_fast() else 22.0
         max_tries = 2 if use_baked_proxy_fast() else 3
@@ -977,8 +1011,9 @@ class UidaiBrowserSession:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
         await self._step(3, 8, 'UIDAI page load ho gayi')
-        await self._persist_browser_cookies()
-        await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
+        if not self._captcha_png_cache:
+            await self._persist_browser_cookies()
+        await self._step(4, 8, 'Form ready')
         await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
         await self._fill_fields_and_captcha(fresh_captcha=False)
         self.page_loaded_at = time.monotonic()

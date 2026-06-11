@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -503,7 +504,9 @@ async def open_uidai_session(
     if not instant_sent:
         instant_sent = await _try_instant_captcha(update)
 
-    status_msg = await update.message.reply_text('⏳ Initializing…')
+    status_msg = await update.message.reply_text(
+        '⚡ Pool ready — form fill…' if pool_is_warm() else '⏳ Initializing…',
+    )
     progress = LoadingScreen(status_msg, name, mobile)
 
     async def on_step(n: int, total: int, text: str) -> None:
@@ -1178,6 +1181,20 @@ def main() -> None:
     if baked_session_ready():
         sync_baked_to_runtime_jar()
         log.info('Baked UIDAI session loaded — all chats use isolated cookie copies')
+
+    async def _startup_pool_warm() -> None:
+        from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
+
+        if not baked_session_ready():
+            return
+        proxy = get_baked_proxy() if use_baked_proxy_fast() else None
+        log.info('Startup pool warm — proxy=%s', proxy or 'direct')
+        await ensure_pool_warm(proxy)
+
+    try:
+        asyncio.run(_startup_pool_warm())
+    except Exception as e:
+        log.warning('Startup pool warm skip: %s', e)
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))
