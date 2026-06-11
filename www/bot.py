@@ -21,6 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import Conflict
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 try:
@@ -533,7 +534,9 @@ async def open_uidai_session(
     try:
         await sess.start()
         await sess.open_form(name, mobile, force_reload=force_new)
-        await _send_captcha_ready(update, sess, progress, instant_sent=instant_sent)
+        await _send_captcha_ready(
+            update, sess, progress, instant_sent=instant_sent, chat_id=chat_id,
+        )
     except Exception as e:
         await _fail_open(chat_id, sess, progress, e)
 
@@ -1142,6 +1145,19 @@ async def keepalive_job(context) -> None:
             log.warning('keepalive chat=%s: %s', cid, e)
 
 
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    err = context.error
+    if isinstance(err, Conflict):
+        log.error(
+            '409 Conflict — same bot token do jagah polling ho rahi hai.\n'
+            'VPS pe: pkill -9 -f bot.py && bash start.sh\n'
+            'Local/duplicate copy band karo.'
+        )
+        return
+    if err:
+        log.exception('Bot error: %s', err)
+
+
 def main() -> None:
     if not TOKEN:
         raise SystemExit(
@@ -1172,6 +1188,7 @@ def main() -> None:
     app.add_handler(CommandHandler('deny', cmd_deny))
     app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_error_handler(on_error)
 
     if app.job_queue:
         app.job_queue.run_once(benchmark_proxy_job, when=5)
@@ -1189,7 +1206,10 @@ def main() -> None:
         PROXY or 'auto',
         os.getenv('UIDAI_HTTP_MODE', 'auto'),
     )
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
 
 
 if __name__ == '__main__':
