@@ -36,6 +36,8 @@ UIDAI_PROXY=auto
 | `/open 7651892956` | Sirf mobile — **24h session reuse** (reload skip ⚡) |
 | `/open KAMAR JAHAN 7651892956` | Seedha naam + mobile |
 | `/open fresh 7651892956` | Pura naya page load (force reload) |
+| `/download` | **2-OTP e-Aadhaar PDF** — HTTP (foreign VPS OK), `dob:null` |
+| `/download 7651892956` | PDF flow — mobile only |
 | `/captcha` | Captcha image dubara |
 | `/refresh` | Naya captcha |
 | `/status` | Session status (clean UI) |

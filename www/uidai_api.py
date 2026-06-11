@@ -7,10 +7,18 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.5.0'
+BOT_ENGINE_VERSION = '2.6.0'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
+RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
+DOWNLOAD_PAGE_URL = 'https://myaadhaar.uidai.gov.in/genricDownloadAadhaar/en'
 OTP_API_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid'
+CAPTCHA_API_URL = 'https://tathya.uidai.gov.in/captchaService/api/captcha/v3/generation'
+AUDIO_CAPTCHA_API_URL = 'https://tathya.uidai.gov.in/audioCaptchaService/api/captcha/v3/generation'
+DOWNLOAD_OTP_API_URL = (
+    'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp'
+)
+DOWNLOAD_PDF_API_URL = 'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download'
 
 # Naam optional — DOB ki tarah placeholder (UIDAI mobile OTP pe verify karta hai)
 PLACEHOLDER_NAME = 'Mr'
@@ -56,6 +64,39 @@ def build_otp_payload(
         'captchaTxnId': captcha_txn_id.strip(),
         'captcha': captcha.strip().lower(),
         'resendOtp': resend,
+    }
+
+
+def build_download_otp_payload(
+    *,
+    uid: str,
+    captcha: str,
+    captcha_txn_id: str,
+) -> dict[str, Any]:
+    """Phase 2 — e-Aadhaar download OTP (dob not required)."""
+    return {
+        'uid': uid.strip(),
+        'captcha': captcha.strip().lower(),
+        'captchaTxnId': captcha_txn_id.strip(),
+        'otp': None,
+        'otpTxnId': None,
+    }
+
+
+def build_download_pdf_payload(
+    *,
+    uid: str,
+    captcha: str,
+    captcha_txn_id: str,
+    otp: str,
+    otp_txn_id: str,
+) -> dict[str, Any]:
+    return {
+        'uid': uid.strip(),
+        'captcha': captcha.strip().lower(),
+        'captchaTxnId': captcha_txn_id.strip(),
+        'otp': otp.strip(),
+        'otpTxnId': otp_txn_id.strip(),
     }
 
 
@@ -119,6 +160,29 @@ def extract_otp_txn_id(data: dict[str, Any]) -> str | None:
     for c in candidates:
         if c and str(c).strip():
             return str(c).strip()
+    return None
+
+
+def extract_aadhaar_number(data: dict[str, Any]) -> str | None:
+    """Full 12-digit UID from API JSON if present."""
+    if not isinstance(data, dict):
+        return None
+    for key in (
+        'uid', 'UID', 'aadhaarNumber', 'aadhaarNo', 'aadhaar',
+        'maskedAadhaar', 'aadhaarNumberMasked',
+    ):
+        val = data.get(key)
+        if not val:
+            continue
+        digits = re.sub(r'\D', '', str(val))
+        if len(digits) == 12:
+            return digits
+    for nested_key in ('data', 'response', 'responseData', 'result', 'aadhaarResponse'):
+        nested = data.get(nested_key)
+        if isinstance(nested, dict):
+            found = extract_aadhaar_number(nested)
+            if found:
+                return found
     return None
 
 
@@ -187,6 +251,62 @@ def parse_uidai_response(status: int, text: str) -> tuple[bool, str, dict[str, A
         return False, msg_s, extra
     if re.search(r'otp.*sent|success', msg_s, re.I):
         return True, msg_s, {**extra, 'reason': 'otp_sent'}
+    return 200 <= status < 300, msg_s, extra
+
+
+def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str, Any]]:
+    """Download OTP / PDF API responses."""
+    extra: dict[str, Any] = {'status': status}
+    if not text:
+        ok = 200 <= status < 300
+        return ok, '' if ok else f'HTTP {status}', extra
+
+    try:
+        j = json.loads(text)
+    except json.JSONDecodeError:
+        extra['raw'] = text[:200]
+        return 200 <= status < 300, text[:160], extra
+
+    msg = (
+        (j.get('errorDetails') or {}).get('messageEnglish')
+        or j.get('messageEnglish')
+        or j.get('message')
+        or j.get('status')
+        or ''
+    )
+    msg_s = str(msg)
+    extra['json'] = j
+    extra['msg'] = msg_s[:200]
+
+    otp_txn = extract_otp_txn_id(j)
+    if otp_txn:
+        extra['otpTxnId'] = otp_txn
+
+    for key in (
+        'eAadhaar', 'eaadhaar', 'pdf', 'pdfData', 'aadhaarPdf',
+        'base64', 'file', 'data',
+    ):
+        val = j.get(key)
+        if isinstance(val, str) and len(val) > 200:
+            extra['pdf_b64'] = val
+            break
+        if isinstance(val, dict):
+            for sub in ('eAadhaar', 'pdf', 'base64', 'content'):
+                sub_val = val.get(sub)
+                if isinstance(sub_val, str) and len(sub_val) > 200:
+                    extra['pdf_b64'] = sub_val
+                    break
+
+    if re.search(r'invalid.*captcha', msg_s, re.I):
+        return False, msg_s, {**extra, 'reason': 'invalid_captcha'}
+    if re.search(r'invalid.*otp|incorrect.*otp|otp.*expired', msg_s, re.I):
+        return False, msg_s, {**extra, 'reason': 'invalid_otp'}
+    if extra.get('pdf_b64'):
+        return True, msg_s, {**extra, 'reason': 'pdf_ok'}
+    if re.search(r'otp.*sent|sent to.*mobile|success', msg_s, re.I):
+        return True, msg_s, {**extra, 'reason': 'download_otp_sent'}
+    if j.get('errorCode') and not re.search(r'success|sent', msg_s, re.I):
+        return False, msg_s, extra
     return 200 <= status < 300, msg_s, extra
 
 

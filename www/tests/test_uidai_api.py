@@ -5,9 +5,13 @@ import unittest
 from uidai_api import (
     BOT_ENGINE_VERSION,
     PLACEHOLDER_NAME,
+    build_download_otp_payload,
+    build_download_pdf_payload,
     build_otp_payload,
+    extract_aadhaar_number,
     is_skip_name,
     normalize_name,
+    parse_download_response,
     parse_uidai_response,
     summarize_logs,
 )
@@ -15,7 +19,36 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.5.0')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.6.0')
+
+    def test_build_download_payloads(self) -> None:
+        otp_p = build_download_otp_payload(
+            uid='123456789012',
+            captcha='Ab12',
+            captcha_txn_id='txn-1',
+        )
+        self.assertEqual(otp_p['uid'], '123456789012')
+        self.assertIsNone(otp_p['otp'])
+        pdf_p = build_download_pdf_payload(
+            uid='123456789012',
+            captcha='ab12',
+            captcha_txn_id='txn-1',
+            otp='482910',
+            otp_txn_id='otp-txn',
+        )
+        self.assertEqual(pdf_p['otp'], '482910')
+
+    def test_extract_aadhaar_number(self) -> None:
+        self.assertEqual(
+            extract_aadhaar_number({'data': {'uid': '123456789012'}}),
+            '123456789012',
+        )
+
+    def test_parse_download_otp(self) -> None:
+        body = json.dumps({'messageEnglish': 'OTP sent to registered mobile', 'otpTxnId': 'x'})
+        ok, _, extra = parse_download_response(200, body)
+        self.assertTrue(ok)
+        self.assertEqual(extra.get('reason'), 'download_otp_sent')
 
     def test_normalize_name_skip(self) -> None:
         self.assertEqual(normalize_name('skip'), PLACEHOLDER_NAME)

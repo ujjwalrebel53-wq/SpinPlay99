@@ -41,6 +41,12 @@ def humanize_step(raw: str) -> str:
         return 'Loading captcha'
     if 'otp' in low:
         return 'OTP verification'
+    if 'phase 2' in low or 'download' in low and 'pdf' in low:
+        return 'Downloading e-Aadhaar PDF'
+    if 'phase 1' in low or 'eid' in low:
+        return 'EID retrieve (OTP 1)'
+    if 'audio' in low:
+        return 'Audio captcha decode'
     if 'retrieve' in low or 'aadhaar' in low:
         return 'Retrieving Aadhaar'
     if 'network' in low:
@@ -56,8 +62,23 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
     if kind == 'otp' and result.get('otp_ok'):
         return '📱 OTP sent to your mobile. Reply with the 6-digit code here.'
 
+    if kind == 'download_otp' and result.get('otp_ok'):
+        return '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
+
+    if kind == 'download' and result.get('download_ok'):
+        return '✅ e-Aadhaar PDF ready — check the document below.'
+
     if kind == 'retrieve' and result.get('retrieve_ok'):
-        return '📲 Aadhaar number sent via SMS to your registered mobile. Check your phone.'
+        uid = result.get('uid') or ''
+        if uid:
+            return (
+                '✅ Phase 1 complete — EID/UID verified.\n'
+                '📱 OTP 2 will be sent for PDF download.'
+            )
+        return (
+            '📲 Phase 1 OK — check SMS for your Aadhaar/EID.\n'
+            'Send your 12-digit Aadhaar number for Phase 2 (PDF).'
+        )
 
     logs = result.get('logs') or []
     for item in reversed(logs):
