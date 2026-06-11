@@ -26,9 +26,14 @@ def test_log_listener() -> bool:
 
 async def test_captcha_fetch() -> bool:
     print('\n=== 2. Live captcha fetch (UIDAI API) ===')
+    print('  (max ~20s — agar atke to Ctrl+C, .env me AADHAR_PROXY=none check karo)')
     lines: list[str] = []
 
-    sess = AadharSession(on_log=lambda m: lines.append(m))
+    def on_log(m: str) -> None:
+        lines.append(m)
+        print(f'  >> {m[:95]}', flush=True)
+
+    sess = AadharSession(on_log=on_log)
     sess.setup('Mr', '7651892956')
 
     t0 = time.monotonic()

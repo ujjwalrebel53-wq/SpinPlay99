@@ -174,17 +174,33 @@ def _india_direct_env() -> bool:
     )
 
 
+def _proxy_env_raw() -> str:
+    return os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', 'auto')).strip().lower()
+
+
+def direct_only_mode() -> bool:
+    """Indian VPS — sirf direct, proxy rotate mat karo."""
+    return _proxy_env_raw() in ('none', 'no', 'off', 'direct', '0', 'false')
+
+
 def resolve_aadhar_proxy() -> str | None:
     """Indian VPS → direct. Foreign → proxy URL / auto baked."""
-    raw = os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', 'auto')).strip()
-    low = raw.lower()
-    if low in ('none', 'no', 'off', 'direct', '0', 'false'):
+    raw = _proxy_env_raw()
+    if direct_only_mode():
         return None
-    if low in ('', 'auto', 'india'):
+    if raw in ('', 'auto', 'india'):
         if _india_direct_env():
             return None
         return _read_baked_proxy_url()
-    return raw if raw.startswith('http') else None
+    val = os.getenv('AADHAR_PROXY', os.getenv('UIDAI_PROXY', '')).strip()
+    return val if val.startswith('http') else None
+
+
+def request_timeout() -> tuple[int, int]:
+    """(connect, read) seconds — hang avoid."""
+    t = int(os.getenv('AADHAR_TIMEOUT', '20'))
+    c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '8'))
+    return (c, t)
 
 
 class AadharSession:
@@ -253,6 +269,8 @@ class AadharSession:
         return {'http': self.proxy_url, 'https': self.proxy_url}
 
     def _proxy_candidates(self) -> list[str]:
+        if direct_only_mode():
+            return []
         urls: list[str] = []
         if self.proxy_url:
             urls.append(self.proxy_url)
@@ -260,7 +278,7 @@ class AadharSession:
             ranked = json.loads(
                 (Path(__file__).parent / 'proxy_ranked.json').read_text(encoding='utf-8'),
             ).get('proxies') or []
-            for row in ranked[:6]:
+            for row in ranked[:3]:
                 p = str((row or {}).get('proxy') or '').strip()
                 if p.startswith('http') and p not in urls:
                     urls.append(p)
@@ -274,38 +292,47 @@ class AadharSession:
         *,
         headers: dict[str, str],
         payload: dict[str, Any] | None = None,
-        timeout: int = 45,
+        timeout: int | tuple[int, int] | None = None,
     ) -> requests.Response:
-        """Direct first → rotate India proxies (foreign VPS)."""
+        """Direct first → proxy retry (sirf jab AADHAR_PROXY=auto/http)."""
         body = payload if payload is not None else {}
+        tmo = timeout if timeout is not None else request_timeout()
         last_err: Exception | None = None
 
+        self._log(f'[*] POST {url.split("/")[-1]}… (direct, timeout={tmo})')
         try:
             r = self._session.post(
-                url, headers=headers, json=body, timeout=timeout, proxies=None,
+                url, headers=headers, json=body, timeout=tmo, proxies=None,
             )
             if r.status_code < 500:
                 return r
+            self._log(f'[!] Direct HTTP {r.status_code}')
         except requests.RequestException as e:
             last_err = e
             self._log(f'[!] Direct fail: {str(e)[:80]}')
 
-        for proxy in self._proxy_candidates():
+        candidates = self._proxy_candidates()
+        if not candidates:
+            if last_err:
+                raise last_err
+            raise RuntimeError('UIDAI request failed — check network / .env AADHAR_PROXY')
+
+        for proxy in candidates:
             self._via_proxy = True
             self.proxy_url = proxy
             proxies = {'http': proxy, 'https': proxy}
             self._log(f'[*] Retry via {proxy}')
             try:
                 return self._session.post(
-                    url, headers=headers, json=body, timeout=timeout, proxies=proxies,
+                    url, headers=headers, json=body, timeout=tmo, proxies=proxies,
                 )
             except requests.RequestException as e:
                 last_err = e
-                self._log(f'[-] Proxy fail {proxy}: {str(e)[:60]}')
+                self._log(f'[-] Proxy fail: {str(e)[:60]}')
 
         if last_err:
             raise last_err
-        raise RuntimeError('All routes failed — check India proxy / VPS location')
+        raise RuntimeError('All routes failed')
 
     def _fetch_captcha_bundle(
         self, headers: dict[str, str], *, tag: str,
