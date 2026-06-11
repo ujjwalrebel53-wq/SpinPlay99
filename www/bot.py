@@ -23,7 +23,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from browser_session import UidaiBrowserSession
-from uidai_api import BOT_ENGINE_VERSION
+from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
 load_dotenv(Path(__file__).parent / '.env')
 
@@ -52,6 +52,12 @@ DEFAULT_MOBILE = os.getenv('UIDAI_MOBILE', '7651892956').strip()
 CAPTCHA_RE = re.compile(r'^[a-zA-Z0-9]{4,8}$')
 MOBILE_RE = re.compile(r'^[6-9]\d{9}$')
 NAME_RE = re.compile(r'^[A-Za-z][A-Za-z\s\.]{1,59}$')
+
+
+def valid_name_input(text: str) -> bool:
+    if is_skip_name(text):
+        return True
+    return bool(NAME_RE.match(text.strip()))
 
 STEP_NAME = 'name'
 STEP_MOBILE = 'mobile'
@@ -159,8 +165,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f'Rebel Adhar — UIDAI Live Bot (v{BOT_ENGINE_VERSION})\n\n'
         'Commands:\n'
-        '/open — naam + mobile puchega, phir site khulegi\n'
-        '/open KAMAR JAHAN 7651892956 — seedha naam/mobile ke saath\n'
+        '/open — naam + mobile (ya Mr / skip agar naam nahi pata)\n'
+        '/open 7651892956 — sirf mobile (naam = Mr)\n'
+        '/open KAMAR JAHAN 7651892956 — seedha naam + mobile\n'
         '/captcha — captcha image bhejo\n'
         '/refresh — naya captcha\n'
         '/status — session status\n'
@@ -246,6 +253,8 @@ async def open_uidai_session(
     name: str,
     mobile: str,
 ) -> None:
+    name = normalize_name(name)
+    mobile = mobile.strip()
     old = SESSIONS.pop(chat_id, None)
     if old:
         try:
@@ -309,17 +318,24 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
 
     if len(args) >= 2:
-        name = ' '.join(args[:-1])
+        name = normalize_name(' '.join(args[:-1]))
         mobile = args[-1]
         if not MOBILE_RE.match(mobile):
             await update.message.reply_text('Mobile 10 digit hona chahiye (6-9 se start). Example: 7651892956')
             return
-        await open_uidai_session(update, cid, name.upper(), mobile)
+        await open_uidai_session(update, cid, name, mobile)
         return
 
     if len(args) == 1:
+        one = args[0].strip()
+        if MOBILE_RE.match(one):
+            await open_uidai_session(update, cid, PLACEHOLDER_NAME, one)
+            return
         await update.message.reply_text(
-            'Dono chahiye: /open NAAM MOBILE\nExample: /open KAMAR JAHAN 7651892956'
+            'Examples:\n'
+            '/open 7651892956 — sirf mobile (naam Mr)\n'
+            '/open KAMAR JAHAN 7651892956 — naam + mobile\n'
+            '/open Mr 7651892956 — naam skip'
         )
         return
 
@@ -328,8 +344,9 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await old.close(keep_warm=True)
     FLOW[cid] = {'step': STEP_NAME}
     await update.message.reply_text(
-        'Aadhaar par registered naam bhejo.\n'
+        'Naam bhejo (jaise Aadhaar pe likha hai)\n'
         'Example: KAMAR JAHAN\n\n'
+        'Naam nahi pata? Sirf "Mr" ya "skip" bhejo — kaam chal jayega\n\n'
         'Cancel: /close'
     )
 
@@ -348,14 +365,22 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     step = flow_step(cid)
 
     if step == STEP_NAME:
-        if not NAME_RE.match(text):
+        if not valid_name_input(text):
             await update.message.reply_text(
-                'Naam sirf letters/spaces (kam se kam 2 char).\nExample: KAMAR JAHAN'
+                'Naam letters/spaces me hona chahiye.\n'
+                'Example: KAMAR JAHAN\n'
+                'Ya naam nahi pata? "Mr" ya "skip" bhejo'
             )
             return
-        FLOW[cid] = {'step': STEP_MOBILE, 'name': text.upper()}
+        name = normalize_name(text)
+        FLOW[cid] = {'step': STEP_MOBILE, 'name': name}
+        hint = (
+            f'Naam skip — {PLACEHOLDER_NAME} use hoga (jaise DOB skip)\n\n'
+            if is_skip_name(text)
+            else f'Naam: {name}\n\n'
+        )
         await update.message.reply_text(
-            f'Naam: {text.upper()}\n\n'
+            f'{hint}'
             'Ab 10 digit mobile number bhejo (OTP isi pe aayega).\n'
             'Example: 7651892956'
         )

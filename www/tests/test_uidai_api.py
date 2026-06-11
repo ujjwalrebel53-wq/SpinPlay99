@@ -4,7 +4,10 @@ import unittest
 
 from uidai_api import (
     BOT_ENGINE_VERSION,
+    PLACEHOLDER_NAME,
     build_otp_payload,
+    is_skip_name,
+    normalize_name,
     parse_uidai_response,
     summarize_logs,
 )
@@ -12,7 +15,16 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.1.1')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.2.0')
+
+    def test_normalize_name_skip(self) -> None:
+        self.assertEqual(normalize_name('skip'), PLACEHOLDER_NAME)
+        self.assertEqual(normalize_name('Mr'), PLACEHOLDER_NAME)
+        self.assertEqual(normalize_name('mr.'), PLACEHOLDER_NAME)
+        self.assertTrue(is_skip_name('?'))
+
+    def test_normalize_name_real(self) -> None:
+        self.assertEqual(normalize_name('kamar jahan'), 'KAMAR JAHAN')
 
     def test_build_otp_payload(self) -> None:
         p = build_otp_payload(

@@ -32,6 +32,8 @@ from uidai_api import (
     parse_uidai_response,
     summarize_logs,
     uidai_headers,
+    is_skip_name,
+    normalize_name,
 )
 
 log = logging.getLogger('uidai-browser')
@@ -152,6 +154,7 @@ class UidaiBrowserSession:
         self.otp_txn_id = ''
         self.last_captcha = ''
         self.option = 'UID'
+        self.name_skipped = False
         self.last_logs: list[dict[str, Any]] = []
         self.proxy_info: dict[str, Any] = {}
         self.proxy_label = ''
@@ -291,8 +294,9 @@ class UidaiBrowserSession:
         return self.option
 
     async def open_form(self, name: str, mobile: str, on_frame=None) -> bytes:
-        self.name = name.strip()
+        self.name = normalize_name(name)
         self.mobile = mobile.strip()
+        self.name_skipped = is_skip_name(name)
         self.captcha_txn_id = ''
 
         await self._step(3, 8, 'UIDAI site open (fast)…')
@@ -319,7 +323,8 @@ class UidaiBrowserSession:
         await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
         await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — DOB skip API')
 
-        await self._step(6, 8, f'Naam bhara: {self.name}')
+        name_label = f'Naam skip — {self.name} (placeholder)' if self.name_skipped else f'Naam bhara: {self.name}'
+        await self._step(6, 8, name_label)
         await self.page.fill('input[name="name"]', self.name)
         await self._step(7, 8, f'Mobile bhara: {self.mobile}')
         await self.page.fill('input[name="mobile"]', self.mobile)

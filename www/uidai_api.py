@@ -7,10 +7,28 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.1.1'
+BOT_ENGINE_VERSION = '2.2.0'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 OTP_API_URL = 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid'
+
+# Naam optional — DOB ki tarah placeholder (UIDAI mobile OTP pe verify karta hai)
+PLACEHOLDER_NAME = 'Mr'
+SKIP_NAME_TOKENS = frozenset({
+    'mr', 'mister', 'skip', 'unknown', 'unk', 'na', 'n/a', 'no', 'none', '?', '-', 'x', 'naam',
+})
+
+
+def is_skip_name(name: str) -> bool:
+    t = (name or '').strip().lower().rstrip('.')
+    return not t or t in SKIP_NAME_TOKENS
+
+
+def normalize_name(name: str) -> str:
+    """Real naam ya placeholder Mr — API + form dono ke liye."""
+    if is_skip_name(name):
+        return PLACEHOLDER_NAME
+    return ' '.join(str(name).split()).upper()
 
 
 def new_request_id() -> str:
@@ -31,7 +49,7 @@ def build_otp_payload(
         'mobileNumber': mobile.strip(),
         'dob': None,
         'email': None,
-        'name': name.strip(),
+        'name': normalize_name(name),
         'option': option if option in ('UID', 'EID') else 'UID',
         'otp': None,
         'otpTxnId': None,
@@ -55,7 +73,7 @@ def build_retrieve_payload(
         'mobileNumber': mobile.strip(),
         'dob': None,
         'email': None,
-        'name': name.strip(),
+        'name': normalize_name(name),
         'option': option if option in ('UID', 'EID') else 'UID',
         'otp': otp.strip(),
         'otpTxnId': otp_txn_id.strip(),
