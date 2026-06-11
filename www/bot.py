@@ -1089,6 +1089,10 @@ async def benchmark_proxy_job(context) -> None:
     import asyncio
     from pathlib import Path
 
+    if baked_session_ready():
+        log.info('Proxy benchmark skip — baked working proxy use ho raha hai')
+        return
+
     ranked = Path(__file__).parent / 'proxy_ranked.json'
     if ranked.exists() and (time.time() - ranked.stat().st_mtime) < 3600 * 4:
         return
@@ -1105,14 +1109,19 @@ async def benchmark_proxy_job(context) -> None:
 
 
 async def warm_pool_job(context) -> None:
-    """Cookies ready ho to pool warm — warna pehla /open proxy trial karega."""
+    """Bot start — baked working proxy se page pre-load (turant /open)."""
     if pool_is_warm():
         return
     if not cookie_jar_ready() and not baked_session_ready():
-        log.info('Pool warm skip — cookies nahi; pehla /open full proxy trial (~30s/try)')
+        log.info('Pool warm skip — cookies nahi')
         return
+    from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
+
     proxy = None
-    if PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
+    if use_baked_proxy_fast():
+        proxy = get_baked_proxy()
+        log.info('Pool warm — baked proxy %s', proxy)
+    elif PROXY and str(PROXY).lower() not in ('auto', 'india', ''):
         proxy = PROXY
     await ensure_pool_warm(proxy)
 
@@ -1190,8 +1199,9 @@ def main() -> None:
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        app.job_queue.run_once(benchmark_proxy_job, when=5)
-        app.job_queue.run_once(warm_pool_job, when=15)
+        app.job_queue.run_once(warm_pool_job, when=1)
+        if not baked_session_ready():
+            app.job_queue.run_once(benchmark_proxy_job, when=30)
         app.job_queue.run_repeating(standby_captcha_job, interval=300, first=90)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)

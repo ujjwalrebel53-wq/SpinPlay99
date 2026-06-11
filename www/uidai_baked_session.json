@@ -1,6 +1,14 @@
 {
   "proxy": "http://117.236.124.166:3128",
   "proxy_city": "Gandhinagar",
+  "proxy_info": {
+    "status": "success",
+    "country": "India",
+    "countryCode": "IN",
+    "city": "Gandhinagar",
+    "regionName": "Gujarat",
+    "query": "117.236.124.166"
+  },
   "baked": true,
   "bootstrapped": true,
   "forever": true,

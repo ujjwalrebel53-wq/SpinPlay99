@@ -104,28 +104,45 @@ def apply_isolated_baked_cookies(session: requests.Session) -> int:
     return import_playwright_cookies(session, cookies)
 
 
-def needs_baked_proxy() -> bool:
-    """Foreign VPS — cookies ke sath baked proxy bhi chahiye."""
+def use_baked_proxy_fast() -> bool:
+    """Working baked proxy — scan/check skip, turant use."""
     if not baked_session_ready():
         return False
-    try:
-        from proxy_india import check_direct_india
+    if os.getenv('UIDAI_BAKED_PROXY_ONLY', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+        return False
+    return bool(get_baked_proxy())
 
-        return check_direct_india(timeout=4) is None
-    except Exception:
-        return True
+
+def get_baked_proxy_info() -> dict[str, Any]:
+    """Disk check nahi — baked file se turant India info."""
+    baked = load_baked_session()
+    info = baked.get('proxy_info')
+    if isinstance(info, dict) and info.get('countryCode') == 'IN':
+        return dict(info)
+    proxy = get_baked_proxy() or ''
+    host = proxy.split('//')[-1].split(':')[0] if proxy else '?'
+    return {
+        'city': baked.get('proxy_city') or 'Gandhinagar',
+        'query': host,
+        'countryCode': 'IN',
+        'regionName': baked.get('proxy_city') or 'Gandhinagar',
+    }
+
+
+def needs_baked_proxy() -> bool:
+    """Default: hamesha working baked proxy (slow India IP check band)."""
+    return use_baked_proxy_fast()
 
 
 def resolve_baked_route() -> tuple[str | None, str]:
-    """(proxy_url, label) — India direct = cookies only; foreign = cookies + baked proxy."""
+    """(proxy_url, label) — baked proxy turant, bina trial."""
     if not baked_session_ready():
         return None, ''
     baked = load_baked_session()
     n = len(baked.get('cookies') or [])
     city = baked.get('proxy_city') or 'India'
-    if needs_baked_proxy():
-        proxy = get_baked_proxy()
-        return proxy, f'🍪 Baked ({n}) + VPN {city}'
+    if use_baked_proxy_fast():
+        return get_baked_proxy(), f'⚡ Baked ({n}) · {city}'
     return None, f'🍪 Baked cookies ({n}) — direct India'
 
 

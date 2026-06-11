@@ -57,6 +57,11 @@ KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
 CAPTCHA_CACHE_TTL_SEC = int(os.getenv('UIDAI_CAPTCHA_CACHE_MIN', '15')) * 60
 PROXY_CONNECT_TRIES = int(os.getenv('UIDAI_PROXY_TRIES', '3'))
 def _primary_proxy() -> str:
+    from uidai_cookie_session import get_baked_proxy, use_baked_proxy_fast
+    from proxy_india import BAKED_PROXY
+
+    if use_baked_proxy_fast():
+        return get_baked_proxy() or BAKED_PROXY
     return os.getenv('UIDAI_PRIMARY_PROXY', '').strip() or fastest_proxy_url()
 
 MOBILE_UA = (
@@ -584,12 +589,19 @@ class UidaiBrowserSession:
         await self.refresh_captcha()
 
     async def _connect_proxy(self, proxy: str) -> str:
-        """Ek proxy — har try max UIDAI_PROXY_TRIAL_SEC (default 30s)."""
-        from uidai_cookie_session import cookie_jar_ready
+        """Baked/working proxy turant — scan sirf fallback pe."""
+        from uidai_cookie_session import cookie_jar_ready, get_baked_proxy, get_baked_proxy_info, use_baked_proxy_fast
+
+        if use_baked_proxy_fast() and proxy == get_baked_proxy():
+            self.proxy_info = _POOL.get('proxy_info') or get_baked_proxy_info()
+            _POOL['proxy_info'] = self.proxy_info
+            _POOL['proxy'] = proxy
+            self.proxy_label = format_proxy_line(self.proxy_info, proxy)
+            await self._step(1, 8, f'⚡ {self.proxy_label}')
+            return proxy
 
         if (
-            cookie_jar_ready()
-            and _POOL['proxy'] == proxy
+            _POOL['proxy'] == proxy
             and _POOL.get('proxy_info')
             and pool_is_warm()
         ):
@@ -740,30 +752,20 @@ class UidaiBrowserSession:
             return await self._connect_proxy(self.proxy)
 
         if baked_session_ready():
-            from uidai_cookie_session import get_baked_proxy, resolve_baked_route
+            from uidai_cookie_session import get_baked_proxy, get_baked_proxy_info, resolve_baked_route, use_baked_proxy_fast
 
             proxy_url, label = resolve_baked_route()
             self.proxy_label = label
             await self._step(1, 8, label)
-            if proxy_url:
+            if proxy_url and use_baked_proxy_fast():
                 self.proxy = proxy_url
-                baked_proxy = get_baked_proxy()
-                if proxy_url == baked_proxy:
-                    try:
-                        info = await asyncio.to_thread(check_proxy, proxy_url, 8)
-                        self.proxy_info = info
-                        _POOL['proxy_info'] = info
-                        self.proxy_label = format_proxy_line(info, proxy_url)
-                        await self._step(1, 8, self.proxy_label)
-                        return proxy_url
-                    except Exception as e:
-                        log.warning('baked proxy dead — scan fallback: %s', e)
-                        await self._step(1, 8, 'Baked VPN down — scanning…')
-                        proxy, info = await self._pick_proxy_with_trial()
-                        self.proxy = proxy
-                        self.proxy_info = info
-                        self.proxy_label = format_proxy_line(info, proxy)
-                        return proxy
+                self.proxy_info = get_baked_proxy_info()
+                _POOL['proxy'] = proxy_url
+                _POOL['proxy_info'] = self.proxy_info
+                self.proxy_label = format_proxy_line(self.proxy_info, proxy_url)
+                await self._step(1, 8, self.proxy_label)
+                return proxy_url
+            if proxy_url:
                 return await self._connect_proxy(proxy_url)
             return None
 
@@ -948,23 +950,29 @@ class UidaiBrowserSession:
             return self.peek_captcha_png() or b''
 
         self.captcha_txn_id = ''
+        from uidai_cookie_session import use_baked_proxy_fast
+
         await self._step(3, 8, 'UIDAI site open (fast)…')
+        goto_timeout = 35_000 if use_baked_proxy_fast() else 45_000
+        poll_sec = 18.0 if use_baked_proxy_fast() else 22.0
+        max_tries = 2 if use_baked_proxy_fast() else 3
         last_err: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(max_tries):
             try:
                 await self.page.goto(
                     UIDAI_PAGE_URL,
                     wait_until='commit',
-                    timeout=45_000,
+                    timeout=goto_timeout,
                 )
-                if await self._poll_form(22.0):
+                if await self._poll_form(poll_sec):
                     last_err = None
                     break
                 raise RuntimeError('Form fields timeout')
             except Exception as e:
                 last_err = e
-                await self._step(3, 8, f'Retry {attempt + 1}/3…')
-                await asyncio.sleep(1)
+                if attempt < max_tries - 1:
+                    await self._step(3, 8, f'Retry {attempt + 1}/{max_tries}…')
+                    await asyncio.sleep(0.5)
         if last_err:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 

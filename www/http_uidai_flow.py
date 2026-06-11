@@ -122,14 +122,13 @@ class UidaiHttpSession:
         if baked_session_ready() or cookie_jar_ready():
             bootstrap_uidai_session(self._session, None)
             if needs_baked_proxy():
+                from uidai_cookie_session import get_baked_proxy_info
+
                 proxy_url, label = resolve_baked_route()
                 if proxy_url:
                     self.proxy_url = proxy_url
-                    try:
-                        self.proxy_info = check_proxy(proxy_url, timeout=12)
-                    except Exception as e:
-                        log.warning('baked proxy check: %s', e)
-                    log.info('HTTP %s — %s', label, proxy_url)
+                    self.proxy_info = get_baked_proxy_info()
+                    log.info('HTTP %s — %s (no scan)', label, proxy_url)
             else:
                 log.info('HTTP baked cookies — direct India (isolated)')
             return
