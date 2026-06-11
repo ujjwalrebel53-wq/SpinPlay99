@@ -25,6 +25,7 @@ from proxy_india import (
     pick_indian_proxy,
     proxy_list_from_env,
 )
+from uidai_cookie_session import cookie_summary, seed_uidai_cookies
 from uidai_api import (
     AUDIO_CAPTCHA_API_URL,
     CAPTCHA_API_URL,
@@ -91,6 +92,8 @@ class UidaiHttpSession:
         self.download_otp_txn_id = ''
         self.uid = ''
         self.flow = 'download'  # retrieve | download
+        self._cookie_pages: set[str] = set()
+        self.cookie_info: dict[str, Any] = {}
 
     @property
     def proxies(self) -> dict[str, str] | None:
@@ -125,10 +128,31 @@ class UidaiHttpSession:
 
     def proxy_label(self) -> str:
         if self.proxy_url and self.proxy_info:
-            return format_proxy_line(self.proxy_info, self.proxy_url)
-        if self.proxy_info:
-            return format_direct_line(self.proxy_info)
-        return 'HTTP — UIDAI gateway'
+            line = format_proxy_line(self.proxy_info, self.proxy_url)
+        elif self.proxy_info:
+            line = format_direct_line(self.proxy_info)
+        else:
+            line = 'HTTP — UIDAI gateway'
+        cc = self.cookie_info.get('count', 0)
+        if cc:
+            return f'{line} · cookies:{cc}'
+        return line
+
+    def _ensure_cookies(self, page_url: str, logs: list[dict[str, Any]] | None = None) -> None:
+        """Portal visit — India proxy + Set-Cookie (foreign VPS fix)."""
+        key = page_url.split('?')[0].rstrip('/')
+        if key in self._cookie_pages:
+            return
+        self._ensure_proxy()
+        info = seed_uidai_cookies(
+            self._session,
+            self.proxy_url,
+            page_url=page_url,
+        )
+        self.cookie_info = info
+        self._cookie_pages.add(key)
+        if logs is not None:
+            append_log(logs, 'info', 'Cookie seed', info)
 
     def _post_json(
         self,
@@ -140,10 +164,16 @@ class UidaiHttpSession:
         label: str,
     ) -> tuple[int, str]:
         self._ensure_proxy()
+        self._ensure_cookies(referer, logs)
         headers = uidai_headers(new_request_id())
         headers['Referer'] = referer
+        headers['Origin'] = 'https://myaadhaar.uidai.gov.in'
         body = payload if payload is not None else {}
-        append_log(logs, 'info', label, {'url': url, 'payload_keys': list(body.keys())})
+        append_log(logs, 'info', label, {
+            'url': url,
+            'payload_keys': list(body.keys()),
+            'cookies': cookie_summary(self._session),
+        })
         try:
             r = self._session.post(
                 url,
@@ -188,6 +218,8 @@ class UidaiHttpSession:
                 self._ensure_proxy()
             except Exception:
                 pass
+        self._ensure_proxy()
+        self._ensure_cookies(page_url)
         return await fetch_captcha_from_page(
             page_url,
             proxy=self.proxy_url,
@@ -196,6 +228,7 @@ class UidaiHttpSession:
             mobile=self.mobile,
             option=self.option,
             on_step=self._on_step,
+            requests_session=self._session,
         )
 
     async def fetch_captcha(

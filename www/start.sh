@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 echo "=== Rebel Aadhaar Bot — preflight ==="
 
 MISSING=0
-for f in bot.py bot_ui.py bot_access.py browser_session.py uidai_api.py http_uidai_flow.py audio_captcha.py captcha_solver.py react_extract.py proxy_india.py indian_proxy_seeds.txt proxy_ranked.json benchmark_proxies.py; do
+for f in bot.py bot_ui.py bot_access.py browser_session.py uidai_api.py uidai_cookie_session.py http_uidai_flow.py audio_captcha.py captcha_solver.py react_extract.py proxy_india.py indian_proxy_seeds.txt proxy_ranked.json benchmark_proxies.py; do
   if [ ! -f "$f" ]; then
     echo "❌ Missing: $f"
     MISSING=1

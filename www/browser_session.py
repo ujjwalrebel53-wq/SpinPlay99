@@ -179,6 +179,7 @@ async def fetch_captcha_from_page(
     mobile: str = '',
     option: str = 'EID',
     on_step: StepCb | None = None,
+    requests_session: Any | None = None,
 ) -> tuple[bytes, str]:
     """Browser captcha snapshot — UIDAI HTTP captcha API often returns 500."""
     is_retrieve = 'retrieve-eid-uid' in page_url
@@ -232,6 +233,14 @@ async def fetch_captcha_from_page(
                 png = parsed['image_png']
         if not txn:
             raise RuntimeError('captchaTxnId missing — try /pdf again')
+        if requests_session and sess._context:
+            try:
+                from uidai_cookie_session import merge_browser_cookies_into_session
+
+                pw_cookies = await sess._context.cookies()
+                merge_browser_cookies_into_session(requests_session, pw_cookies)
+            except Exception as e:
+                log.debug('browser cookie merge skip: %s', e)
         return png, txn
     finally:
         await sess.close(keep_warm=True)
