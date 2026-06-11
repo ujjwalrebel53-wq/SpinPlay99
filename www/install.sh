@@ -28,9 +28,11 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Playwright optional — not required for /pdf (aadhar.py)
+# Playwright — required for /open and sex.py (optional for /pdf only)
 if python3 -c "import playwright" 2>/dev/null; then
-  playwright install chromium 2>/dev/null || echo "⚠ playwright chromium skip (optional for /open)"
+  if ! bash install_playwright.sh; then
+    echo "⚠ Chromium install failed — /pdf still works; retry: bash install_playwright.sh"
+  fi
 fi
 
 echo ""

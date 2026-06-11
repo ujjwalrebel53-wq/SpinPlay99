@@ -69,6 +69,11 @@ EOF
 echo "[*] Python venv + pip…"
 bash install.sh
 
+echo "[*] Playwright Chromium (for /open)…"
+if ! bash install_playwright.sh; then
+  echo "⚠ Chromium failed — /pdf works; fix later: bash install_playwright.sh"
+fi
+
 # shellcheck disable=SC1091
 source .venv/bin/activate
 

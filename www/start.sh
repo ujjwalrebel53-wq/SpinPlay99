@@ -86,7 +86,10 @@ fi
 
 # playwright optional — /pdf = aadhar.py, /open = browser
 if python3 -c "import playwright" 2>/dev/null; then
-  playwright install chromium 2>/dev/null || true
+  if ! python3 -m playwright install --dry-run chromium >/dev/null 2>&1; then
+    echo "⚠ Chromium not installed — run: bash install_playwright.sh"
+    echo "  (/pdf works without Chromium; /open and sex.py need it)"
+  fi
 fi
 
 if ! python3 -c "import telegram, dotenv, requests" 2>/dev/null; then
