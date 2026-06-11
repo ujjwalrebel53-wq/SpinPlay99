@@ -78,7 +78,8 @@ if PROXY_RAW in ('none', 'no', 'off', 'direct'):
     AUTO_INDIA = False
 elif PROXY_RAW in ('', 'auto', 'india'):
     PROXY = None
-    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '1') == '1'
+    # Default: direct + cookies pehle, proxy sirf fallback (UIDAI_PROXY_FALLBACK=1)
+    AUTO_INDIA = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '0') == '1'
 else:
     PROXY = os.getenv('UIDAI_PROXY', '').strip()
     AUTO_INDIA = False
@@ -1106,9 +1107,7 @@ async def warm_pool_job(context) -> None:
     """Bot start pe Chromium background me launch — 24/7."""
     if pool_is_warm():
         return
-    proxy = PROXY
-    if not proxy or (proxy or '').lower() in ('auto', 'india'):
-        proxy = fastest_proxy_url() or None
+    proxy = PROXY if PROXY and str(PROXY).lower() not in ('auto', 'india', '') else resolve_proxy_fast()
     await ensure_pool_warm(proxy)
 
 

@@ -20,13 +20,20 @@ from audio_captcha import (
 from captcha_solver import captcha_attempt_values, captcha_bypass_enabled
 from proxy_india import (
     check_direct_india,
+    direct_first_enabled,
     fast_mode,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
+    proxy_fallback_enabled,
     resolve_proxy_fast,
 )
-from uidai_cookie_session import cookie_summary, seed_uidai_cookies
+from uidai_cookie_session import (
+    bootstrap_uidai_session,
+    cookie_summary,
+    probe_uidai_access,
+    seed_uidai_cookies,
+)
 from uidai_api import (
     AUDIO_CAPTCHA_API_URL,
     CAPTCHA_API_URL,
@@ -113,8 +120,25 @@ class UidaiHttpSession:
             india = check_direct_india(timeout=3)
             if india:
                 self.proxy_info = india
+            bootstrap_uidai_session(self._session, None)
             return
-        fast = resolve_proxy_fast()
+
+        if direct_first_enabled() and not deep_scan:
+            probe = probe_uidai_access(self._session, None, bootstrap=True)
+            if probe.get('ok'):
+                geo = probe.get('geo') or {}
+                if geo:
+                    self.proxy_info = geo
+                log.info('HTTP direct + cookies — status=%s', probe.get('status'))
+                return
+            if not proxy_fallback_enabled():
+                raise RuntimeError(
+                    'UIDAI direct fail — proxy band.\n'
+                    'UIDAI_PROXY_FALLBACK=1 ya apna proxy lagao.'
+                )
+            log.info('HTTP direct fail — proxy fallback')
+
+        fast = resolve_proxy_fast(for_fallback=True)
         if fast and not deep_scan:
             self.proxy_url = fast
             log.info('HTTP proxy fast — %s', fast)
@@ -129,6 +153,7 @@ class UidaiHttpSession:
             india = check_direct_india(timeout=3)
             if india:
                 self.proxy_info = india
+                bootstrap_uidai_session(self._session, None)
                 log.info('HTTP direct India fallback')
                 return
             raise RuntimeError(f'No working India route: {e}') from e
@@ -151,7 +176,7 @@ class UidaiHttpSession:
         if key in self._cookie_pages:
             return
         self._ensure_proxy()
-        info = seed_uidai_cookies(
+        info = bootstrap_uidai_session(
             self._session,
             self.proxy_url,
             page_url=page_url,

@@ -180,11 +180,42 @@ def fastest_proxy_url() -> str:
     return DEFAULT_INDIAN_PROXIES[0]
 
 
-def resolve_proxy_fast() -> str | None:
-    """Hot path — cache/ranked first. No 50-proxy scan (saves ~30s)."""
+def direct_first_enabled() -> bool:
+    """Pehle direct + cookies, proxy baad me (agar fallback on)."""
+    raw = os.getenv('UIDAI_DIRECT_FIRST', '1').strip().lower()
+    if raw in ('0', 'false', 'no', 'off'):
+        return False
+    if raw in ('1', 'true', 'yes', 'on'):
+        return True
+    proxy_raw = os.getenv('UIDAI_PROXY', 'auto').strip().lower()
+    if proxy_raw in ('none', 'no', 'off', 'direct'):
+        return True
+    auto = os.getenv('UIDAI_INDIAN_PROXY_AUTO', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    return not auto
+
+
+def proxy_fallback_enabled() -> bool:
+    return os.getenv('UIDAI_PROXY_FALLBACK', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def explicit_proxy_url() -> str | None:
+    """User ne khud proxy diya — direct-first skip."""
     raw = os.getenv('UIDAI_PROXY', '').strip()
-    if raw and raw.lower() not in ('auto', 'india', 'none', 'no', ''):
+    if raw and raw.lower() not in ('auto', 'india', 'none', 'no', 'off', 'direct', ''):
         return raw
+    return None
+
+
+def resolve_proxy_fast(*, for_fallback: bool = False) -> str | None:
+    """Hot path — explicit proxy > cache/ranked. Direct-first pe None (unless fallback)."""
+    explicit = explicit_proxy_url()
+    if explicit:
+        return explicit
+    proxy_raw = os.getenv('UIDAI_PROXY', '').strip().lower()
+    if proxy_raw in ('none', 'no', 'off', 'direct'):
+        return None
+    if direct_first_enabled() and not for_fallback:
+        return None
     cached = _load_cache()
     if cached:
         return cached
@@ -192,6 +223,41 @@ def resolve_proxy_fast() -> str | None:
         return fastest_proxy_url()
     except Exception:
         return DEFAULT_INDIAN_PROXIES[0] if DEFAULT_INDIAN_PROXIES else None
+
+
+def resolve_route(
+    *,
+    probe_ok: bool | None = None,
+) -> tuple[str | None, str]:
+    """
+    (proxy_url, route_label) — direct-first logic.
+    probe_ok=True → direct; False → proxy fallback; None → env only.
+    """
+    explicit = explicit_proxy_url()
+    if explicit:
+        return explicit, 'proxy'
+
+    proxy_raw = os.getenv('UIDAI_PROXY', 'auto').strip().lower()
+    if proxy_raw in ('none', 'no', 'off', 'direct'):
+        return None, 'direct'
+
+    if direct_first_enabled() and probe_ok is not False:
+        if probe_ok is True or probe_ok is None:
+            return None, 'direct'
+
+    if not proxy_fallback_enabled():
+        return None, 'direct'
+
+    fast = resolve_proxy_fast(for_fallback=True)
+    if fast:
+        return fast, 'proxy'
+    cached = _load_cache()
+    if cached:
+        return cached, 'proxy'
+    try:
+        return fastest_proxy_url(), 'proxy'
+    except Exception:
+        return (DEFAULT_INDIAN_PROXIES[0] if DEFAULT_INDIAN_PROXIES else None), 'proxy'
 
 
 def fast_mode() -> bool:

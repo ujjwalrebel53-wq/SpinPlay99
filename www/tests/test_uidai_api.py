@@ -19,7 +19,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.7.0')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.8.0')
 
     def test_captcha_bypass_payload(self) -> None:
         p = build_otp_payload(

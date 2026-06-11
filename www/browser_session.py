@@ -17,11 +17,13 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 from proxy_india import (
     check_direct_india,
     check_proxy,
+    direct_first_enabled,
     fast_mode,
     fastest_proxy_url,
     format_direct_line,
     format_proxy_line,
     pick_indian_proxy,
+    proxy_fallback_enabled,
     resolve_proxy_fast,
     test_uidai,
 )
@@ -599,17 +601,71 @@ class UidaiBrowserSession:
             f'VPN fail ({PROXY_CONNECT_TRIES} try): {last_err}'
         ) from last_err
 
+    async def _persist_browser_cookies(self) -> None:
+        """Playwright cookies disk pe — agli baar direct se chale."""
+        if not self._context:
+            return
+        try:
+            import requests
+            from uidai_cookie_session import import_playwright_cookies, save_cookie_jar
+
+            pw = await self._context.cookies()
+            if not pw:
+                return
+            tmp = requests.Session()
+            import_playwright_cookies(tmp, pw)
+            save_cookie_jar(tmp)
+        except Exception as e:
+            log.debug('browser cookie persist skip: %s', e)
+
+    async def _probe_direct_route(self) -> bool:
+        """Direct + saved cookies se UIDAI khulta hai ya nahi."""
+        from uidai_cookie_session import probe_uidai_access
+
+        await self._step(1, 8, 'Direct + cookies check…')
+        probe = await asyncio.to_thread(
+            probe_uidai_access,
+            None,
+            None,
+            bootstrap=True,
+        )
+        if probe.get('ok'):
+            geo = probe.get('geo') or {}
+            if geo:
+                self.proxy_info = geo
+                self.proxy_label = format_direct_line(geo)
+            else:
+                cc = (probe.get('cookies') or {}).get('count', 0)
+                self.proxy_label = f'🌐 Direct + cookies ({cc})'
+            await self._step(1, 8, self.proxy_label)
+            return True
+        log.info('Direct probe fail — status=%s', probe.get('status'))
+        return False
+
     async def _resolve_proxy(self) -> str | None:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
             return await self._connect_proxy(self.proxy)
 
         if not self.auto_india_proxy and not self.proxy:
-            self.proxy_label = '⚠️ Direct'
-            await self._step(1, 8, 'Direct connect')
+            if direct_first_enabled():
+                await self._probe_direct_route()
+            else:
+                self.proxy_label = '⚠️ Direct'
+                await self._step(1, 8, 'Direct connect')
             return None
 
+        if direct_first_enabled():
+            if await self._probe_direct_route():
+                return None
+            if not proxy_fallback_enabled():
+                raise RuntimeError(
+                    'UIDAI direct fail — proxy band hai.\n'
+                    'UIDAI_PROXY_FALLBACK=1 ya UIDAI_PROXY=http://ip:port'
+                )
+            await self._step(1, 8, 'Direct fail — VPN fallback…')
+
         await self._step(1, 8, 'Indian VPN connect…')
-        for candidate in (resolve_proxy_fast(), _primary_proxy()):
+        for candidate in (resolve_proxy_fast(for_fallback=True), _primary_proxy()):
             if not candidate:
                 continue
             try:
@@ -814,6 +870,7 @@ class UidaiBrowserSession:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
         await self._step(3, 8, 'UIDAI page load ho gayi')
+        await self._persist_browser_cookies()
         await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
         await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
         await self._fill_fields_and_captcha(fresh_captcha=False)
