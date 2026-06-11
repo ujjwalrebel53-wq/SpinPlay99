@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from browser_session import UidaiBrowserSession
+from browser_session import KEEPALIVE_INTERVAL_SEC, UidaiBrowserSession
 from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
 
 load_dotenv(Path(__file__).parent / '.env')
@@ -172,7 +172,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/refresh — naya captcha\n'
         '/status — session status\n'
         '/close — browser band\n\n'
-        'Flow: /open → naam → mobile → captcha → SMS OTP → Aadhaar SMS pe aayega'
+        '24h session: pehli baar /open → phir dubara /open MOBILE (reload skip ⚡)\n'
+        '/open fresh MOBILE — pura naya load\n\n'
+        'Flow: naam → mobile → captcha → OTP → Aadhaar SMS'
     )
 
 
@@ -210,6 +212,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'Mobile: {sess.mobile}',
             f'captchaTxn: {sess.captcha_txn_id[:12] + "…" if sess.captcha_txn_id else "—"}',
             f'otpTxn: {sess.otp_txn_id[:12] + "…" if sess.otp_txn_id else "—"}',
+            f'24h session: {sess.ttl_label()} baki' if sess.last_activity_at else '24h session: —',
             f'Flow: {step or "—"}',
         ])
     await update.message.reply_text('\n'.join(lines))
@@ -247,14 +250,78 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await wait.edit_text(f'Refresh fail: {e}')
 
 
+async def _send_captcha_ready(
+    update: Update,
+    sess: UidaiBrowserSession,
+    progress: LiveProgress,
+    *,
+    reused: bool = False,
+) -> None:
+    cap = await sess.captcha_png()
+    ttl = f'\n24h session: {sess.ttl_label()} baki' if sess.last_activity_at else ''
+    fast = '⚡ reload skip — ' if reused else ''
+    await update.message.reply_photo(
+        photo=cap,
+        caption=(
+            f'{fast}Captcha ↑\n'
+            'Text reply karo (4-8 chars)\n'
+            '/refresh = naya captcha'
+            f'{ttl}'
+        ),
+    )
+    await progress.done('✅ Ready — captcha reply karo')
+
+
+async def _fail_open(
+    chat_id: int,
+    sess: UidaiBrowserSession | None,
+    progress: LiveProgress,
+    exc: Exception,
+) -> None:
+    log.exception('open failed')
+    from browser_session import _is_browser_closed_error, _pool_shutdown
+
+    if _is_browser_closed_error(exc):
+        await _pool_shutdown()
+    elif sess:
+        await sess.close(keep_warm=True)
+    SESSIONS.pop(chat_id, None)
+    clear_flow(chat_id)
+    await progress.fail(f'❌ Fail: {exc}\n\nTip: /close phir /open dubara')
+
+
 async def open_uidai_session(
     update: Update,
     chat_id: int,
     name: str,
     mobile: str,
+    *,
+    force_new: bool = False,
 ) -> None:
     name = normalize_name(name)
     mobile = mobile.strip()
+    clear_flow(chat_id)
+    FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
+
+    existing = SESSIONS.get(chat_id)
+    if not force_new and existing and await existing.page_alive():
+        status_msg = await update.message.reply_text('⚡ 24h session — turant captcha…')
+        progress = LiveProgress(status_msg, name, mobile, title='UIDAI Fast Reopen')
+
+        async def on_step(n: int, total: int, text: str) -> None:
+            await progress.update(n, total, text)
+
+        existing._on_step = on_step
+        try:
+            await existing.start()
+            if existing.proxy_label:
+                await progress.set_proxy(existing.proxy_label)
+            await existing.open_form(name, mobile, force_reload=False)
+            await _send_captcha_ready(update, existing, progress, reused=True)
+        except Exception as e:
+            await _fail_open(chat_id, existing, progress, e)
+        return
+
     old = SESSIONS.pop(chat_id, None)
     if old:
         try:
@@ -275,36 +342,15 @@ async def open_uidai_session(
         on_step=on_step,
     )
     SESSIONS[chat_id] = sess
-    clear_flow(chat_id)
-    FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
     try:
         await sess.start()
         if sess.proxy_label:
             await progress.set_proxy(sess.proxy_label)
-
-        await sess.open_form(name, mobile)
-        cap = await sess.captcha_png()
-        await update.message.reply_photo(
-            photo=cap,
-            caption=(
-                'Captcha ↑\n'
-                'Text reply karo (4-8 chars)\n'
-                '/refresh = naya captcha'
-            ),
-        )
-        await progress.done('✅ Ready — captcha reply karo')
+        await sess.open_form(name, mobile, force_reload=force_new)
+        await _send_captcha_ready(update, sess, progress)
     except Exception as e:
-        log.exception('open failed')
-        from browser_session import _is_browser_closed_error, _pool_shutdown
-
-        if _is_browser_closed_error(e):
-            await _pool_shutdown()
-        else:
-            await sess.close(keep_warm=True)
-        SESSIONS.pop(chat_id, None)
-        clear_flow(chat_id)
-        await progress.fail(f'❌ Fail: {e}\n\nTip: /close phir /open dubara')
+        await _fail_open(chat_id, sess, progress, e)
 
 
 async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -315,7 +361,11 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     cid = update.effective_chat.id
-    args = context.args or []
+    args = list(context.args or [])
+    force_new = False
+    if args and args[0].lower() in ('fresh', 'new', 'reload'):
+        force_new = True
+        args = args[1:]
 
     if len(args) >= 2:
         name = normalize_name(' '.join(args[:-1]))
@@ -323,19 +373,19 @@ async def cmd_open(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not MOBILE_RE.match(mobile):
             await update.message.reply_text('Mobile 10 digit hona chahiye (6-9 se start). Example: 7651892956')
             return
-        await open_uidai_session(update, cid, name, mobile)
+        await open_uidai_session(update, cid, name, mobile, force_new=force_new)
         return
 
     if len(args) == 1:
         one = args[0].strip()
         if MOBILE_RE.match(one):
-            await open_uidai_session(update, cid, PLACEHOLDER_NAME, one)
+            await open_uidai_session(update, cid, PLACEHOLDER_NAME, one, force_new=force_new)
             return
         await update.message.reply_text(
             'Examples:\n'
-            '/open 7651892956 — sirf mobile (naam Mr)\n'
-            '/open KAMAR JAHAN 7651892956 — naam + mobile\n'
-            '/open Mr 7651892956 — naam skip'
+            '/open 7651892956 — reuse 24h session ⚡\n'
+            '/open fresh 7651892956 — pura naya load\n'
+            '/open KAMAR JAHAN 7651892956 — naam + mobile'
         )
         return
 
@@ -427,7 +477,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 status = 'Check logs — OTP galat ya fail'
             await otp_progress.done(status)
             await update.message.reply_text(f'Logs (v{version}):\n{summary[:3500]}')
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP if not retrieve_ok else None}
+            if retrieve_ok:
+                sess.touch()
+                await update.message.reply_text(
+                    f'🔒 Session 24h live ({sess.ttl_label()} baki)\n'
+                    'Dubara try: /open MOBILE — turant captcha ⚡\n'
+                    'Pura reload: /open fresh MOBILE'
+                )
+                FLOW[cid] = {
+                    'step': STEP_CAPTCHA,
+                    'name': sess.name,
+                    'mobile': sess.mobile,
+                }
+            else:
+                FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
         except Exception as e:
             log.exception('retrieve failed')
             await otp_progress.fail(f'Retrieve fail: {e}')
@@ -491,6 +554,21 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
 
 
+async def keepalive_job(context) -> None:
+    for cid, sess in list(SESSIONS.items()):
+        try:
+            if await sess.keepalive_ping():
+                continue
+            log.info('24h session expire chat=%s', cid)
+            try:
+                await sess.close(keep_warm=True)
+            except Exception:
+                pass
+            SESSIONS.pop(cid, None)
+        except Exception as e:
+            log.warning('keepalive chat=%s: %s', cid, e)
+
+
 def main() -> None:
     if not TOKEN:
         raise SystemExit('TELEGRAM_BOT_TOKEN .env me set karo — .env.example dekho')
@@ -504,6 +582,10 @@ def main() -> None:
     app.add_handler(CommandHandler('status', cmd_status))
     app.add_handler(CommandHandler('close', cmd_close))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    if app.job_queue:
+        app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
+        log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 
     log.info(
         'Bot start v%s — allowed: %s proxy: %s auto_india: %s',

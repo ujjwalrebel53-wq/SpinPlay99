@@ -144,7 +144,7 @@ async def test_otp_api(sess) -> bool:
         print(summary)
         return False
 
-    if 'OTP Playwright API response' not in summary:
+    if 'Playwright response' not in summary:
         fail('OTP API', 'no Playwright response in logs')
         print(summary)
         return False

@@ -33,13 +33,22 @@ UIDAI_PROXY=auto
 | Command | Kaam |
 |---------|------|
 | `/open` | Naam → mobile → site + captcha |
+| `/open 7651892956` | Sirf mobile — **24h session reuse** (reload skip ⚡) |
 | `/open KAMAR JAHAN 7651892956` | Seedha naam + mobile |
+| `/open fresh 7651892956` | Pura naya page load (force reload) |
 | `/captcha` | Captcha image dubara |
 | `/refresh` | Naya captcha |
-| `/status` | Session + captchaTxnId |
+| `/status` | Session + captchaTxnId + 24h TTL |
 | `/close` | Browser band |
 
 **Flow:** `/open` → naam → mobile → captcha → OTP SMS → **6 digit OTP reply** → Aadhaar/EID registered mobile pe SMS.
+
+### 24h persistent session (v2.3)
+
+Pehli baar `/open` se UIDAI page khulta hai. Uske baad **24 ghante** tak dubara `/open MOBILE` karoge to poora site reload nahi hoga — same browser tab reuse, sirf naam/mobile + naya captcha.
+
+- `/open fresh MOBILE` — pura naya load chahiye ho to
+- Background keepalive har 10 min (env: `UIDAI_KEEPALIVE_MIN`, `UIDAI_SESSION_HOURS`)
 
 ## Architecture (v2)
 
