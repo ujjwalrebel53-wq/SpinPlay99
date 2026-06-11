@@ -79,6 +79,7 @@ class TestCookieSession(unittest.TestCase):
         self.assertTrue(info.get('skipped'))
 
     @patch('uidai_cookie_session.baked_session_ready', return_value=False)
+    @patch('uidai_cookie_session.cookie_jar_ready', return_value=False)
     @patch('uidai_cookie_session.seed_uidai_cookies')
     @patch('uidai_cookie_session.load_cookie_jar', return_value=[{'name': 'x', 'value': '1', 'domain': '', 'path': '/'}])
     @patch('uidai_cookie_session.cookie_persist_enabled', return_value=True)
@@ -87,6 +88,7 @@ class TestCookieSession(unittest.TestCase):
         _persist: MagicMock,
         _load: MagicMock,
         mock_seed: MagicMock,
+        _jar: MagicMock,
         _no_baked: MagicMock,
     ) -> None:
         mock_seed.return_value = {'count': 2, 'loaded_from_disk': 1}
