@@ -1,4 +1,4 @@
-"""Pure HTTP UIDAI flow — 2 OTP (retrieve EID → download PDF), foreign VPS + proxy."""
+"""Pure HTTP UIDAI flow — script-aligned 2 OTP (EID retrieve → download PDF)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from typing import Any, Callable, Awaitable
 import requests
 
 from audio_captcha import (
+    audio_to_wav_bytes,
     decode_audio_captcha,
     normalize_captcha_text,
     parse_captcha_generation,
     whisper_enabled,
 )
-from captcha_solver import captcha_attempt_values, captcha_bypass_enabled
+from captcha_solver import captcha_attempt_values, captcha_bypass_enabled, ocr_captcha_png
 from proxy_india import (
     check_direct_india,
     fast_mode,
@@ -43,11 +44,17 @@ from uidai_api import (
     OTP_API_URL,
     RETRIEVE_PAGE_URL,
     append_log,
+    build_audio_captcha_payload,
     build_download_otp_payload,
     build_download_pdf_payload,
+    build_eid_download_otp_payload,
+    build_eid_download_pdf_payload,
+    build_eid_otp_payload,
+    build_eid_verify_payload,
     build_otp_payload,
     build_retrieve_payload,
     extract_aadhaar_number,
+    extract_eid_number,
     get_header,
     new_request_id,
     parse_download_response,
@@ -66,12 +73,16 @@ def http_mode_preferred() -> bool:
         return True
     if mode in ('0', 'false', 'no', 'playwright', 'browser', 'off'):
         return False
-    # auto: India direct → browser ok; foreign → HTTP
     return check_direct_india(timeout=4) is None
 
 
+def pdf_flow_pure_http() -> bool:
+    """`/pdf` uses script-aligned HTTP session (default on)."""
+    return os.getenv('UIDAI_PDF_HTTP', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 class UidaiHttpSession:
-    """requests.Session wrapper — Indian proxy, audio/image captcha, 2-OTP pipeline."""
+    """Per-user requests.Session — shared baked cookies, isolated jar."""
 
     def __init__(
         self,
@@ -84,22 +95,19 @@ class UidaiHttpSession:
         self.auto_proxy = auto_proxy
         self._on_step = on_step
         self._session = requests.Session()
-        self._session.headers.update({
-            'User-Agent': (
-                'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
-            ),
-        })
         self.proxy_info: dict[str, Any] = {}
         self.name = ''
         self.mobile = ''
+        self.dob: str | None = None
         self.option = 'EID'
         self.captcha_txn_id = ''
         self.captcha_text = ''
         self.otp_txn_id = ''
         self.download_otp_txn_id = ''
         self.uid = ''
-        self.flow = 'download'  # retrieve | download
+        self.eid = ''
+        self._phase_req_id = ''
+        self.flow = 'download'
         self._cookie_pages: set[str] = set()
         self.cookie_info: dict[str, Any] = {}
         if baked_session_ready():
@@ -167,7 +175,6 @@ class UidaiHttpSession:
         return line
 
     def _ensure_cookies(self, page_url: str, logs: list[dict[str, Any]] | None = None) -> None:
-        """Portal visit — India proxy + Set-Cookie (foreign VPS fix)."""
         key = page_url.split('?')[0].rstrip('/')
         if key in self._cookie_pages:
             return
@@ -190,17 +197,18 @@ class UidaiHttpSession:
         referer: str,
         logs: list[dict[str, Any]],
         label: str,
+        req_id: str | None = None,
     ) -> tuple[int, str]:
         self._ensure_proxy()
         self._ensure_cookies(referer, logs)
-        req_id = new_request_id()
-        headers = get_header(req_id)
+        rid = (req_id or '').strip() or new_request_id()
+        headers = get_header(rid)
         headers['Referer'] = referer
         headers['Origin'] = 'https://myaadhaar.uidai.gov.in'
         body = payload if payload is not None else {}
         append_log(logs, 'info', label, {
             'url': url,
-            'transactionID': req_id,
+            'transactionId': rid,
             'payload_keys': list(body.keys()),
             'cookies': cookie_summary(self._session),
         })
@@ -220,88 +228,74 @@ class UidaiHttpSession:
                 self._proxy_deep_tried = True
                 self.proxy_url = None
                 self._ensure_proxy(deep_scan=True)
-                return self._post_json(url, payload, referer=referer, logs=logs, label=label)
+                return self._post_json(
+                    url, payload, referer=referer, logs=logs, label=label, req_id=rid,
+                )
             append_log(logs, 'error', f'{label} network', {'err': str(e)})
             raise RuntimeError(f'{label} network error: {e}') from e
 
-    def _fetch_captcha_raw(
+    def _fetch_audio_captcha_http(
         self,
-        *,
-        audio: bool,
         logs: list[dict[str, Any]],
+        *,
         referer: str,
     ) -> dict[str, Any]:
-        url = AUDIO_CAPTCHA_API_URL if audio else CAPTCHA_API_URL
-        label = 'Audio captcha' if audio else 'Image captcha'
-        status, text = self._post_json(url, {}, referer=referer, logs=logs, label=label)
+        payload = build_audio_captcha_payload()
+        status, text = self._post_json(
+            AUDIO_CAPTCHA_API_URL,
+            payload,
+            referer=referer,
+            logs=logs,
+            label='Audio captcha',
+        )
         try:
             data = __import__('json').loads(text)
         except Exception:
-            raise RuntimeError(f'{label} invalid JSON (HTTP {status})')
+            raise RuntimeError(f'Audio captcha invalid JSON (HTTP {status})')
         parsed = parse_captcha_generation(data if isinstance(data, dict) else {})
-        if not parsed.get('captchaTxnId'):
-            raise RuntimeError(f'{label} — captchaTxnId missing')
+        txn = parsed.get('captchaTxnId') or ''
+        if not txn:
+            raise RuntimeError('Audio captcha — captchaTxnId missing')
         return parsed
 
-    async def _fetch_captcha_via_browser(self, page_url: str) -> tuple[bytes, str]:
-        """UIDAI captcha HTTP API often 500 — live page snapshot works."""
-        from browser_session import fetch_captcha_from_page
-
-        await self._step(2, 6, 'Browser captcha (live page)')
-        if not self.proxy_url and self.auto_proxy:
-            try:
-                self._ensure_proxy()
-            except Exception:
-                pass
-        self._ensure_proxy()
-        self._ensure_cookies(page_url)
-        return await fetch_captcha_from_page(
-            page_url,
-            proxy=self.proxy_url,
-            auto_india_proxy=self.auto_proxy,
-            name=self.name,
-            mobile=self.mobile,
-            option=self.option,
-            on_step=self._on_step,
-            requests_session=self._session,
-        )
-
-    async def fetch_captcha(
+    async def solve_audio_captcha(
         self,
         *,
-        prefer_audio: bool | None = None,
         referer: str | None = None,
-    ) -> dict[str, Any]:
-        """Captcha — browser pool first (fast). HTTP API only fallback."""
+        logs: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Fetch audio captcha + Whisper decode (script flow)."""
+        ref = referer or RETRIEVE_PAGE_URL
+        log_list = logs if logs is not None else []
+        await self._step(2, 6, 'Audio captcha fetch')
+        parsed = await asyncio.to_thread(self._fetch_audio_captcha_http, log_list, referer=ref)
+        self.captcha_txn_id = parsed.get('captchaTxnId') or ''
+        audio_bytes = parsed.get('audio_bytes') or b''
+        mime = parsed.get('audio_mime') or 'audio/wav'
+        if not audio_bytes:
+            raise RuntimeError('Audio captcha — no audio data')
+
+        await self._step(3, 6, 'Whisper decode')
+        wav = audio_to_wav_bytes(audio_bytes, mime)
+        cap = decode_audio_captcha(wav or audio_bytes, mime='audio/wav')
+        if not cap:
+            raise RuntimeError('Whisper could not decode captcha — set UIDAI_WHISPER=1')
+        self.captcha_text = cap
+        return cap
+
+    async def start_phase1_auto(self) -> dict[str, Any]:
+        """Phase 1 — audio captcha + OTP request (fully automated captcha)."""
         logs: list[dict[str, Any]] = []
-        ref = referer or (DOWNLOAD_PAGE_URL if self.flow == 'download' else RETRIEVE_PAGE_URL)
-        is_download_page = 'genricDownloadAadhaar' in ref or 'download' in ref.lower()
-        page_url = DOWNLOAD_PAGE_URL if is_download_page else RETRIEVE_PAGE_URL
-        await self._step(1, 4, self.proxy_label())
+        self._phase_req_id = new_request_id()
+        await self._step(1, 5, self.proxy_label())
+        try:
+            cap = await self.solve_audio_captcha(referer=RETRIEVE_PAGE_URL, logs=logs)
+        except Exception as e:
+            return {'otp_ok': False, 'needs_captcha': True, 'logs': logs, 'msg': str(e)}
 
-        from browser_session import get_standby_captcha_pair
-
-        png, txn = b'', ''
-        pair = get_standby_captcha_pair() if not is_download_page else None
-        if pair:
-            png, txn = pair
-            append_log(logs, 'info', 'Standby captcha', {'txn': txn[:8], 'bytes': len(png)})
-
-        if not txn:
-            png, txn = await self._fetch_captcha_via_browser(page_url)
-            append_log(logs, 'info', 'Browser captcha', {'txn': txn[:8], 'bytes': len(png)})
-
-        self.captcha_txn_id = txn
-        if not self.captcha_txn_id:
-            raise RuntimeError('captchaTxnId missing — try /pdf again')
-
-        return {
-            'captchaTxnId': self.captcha_txn_id,
-            'image_png': png,
-            'captcha_auto': self.captcha_text,
-            'logs': logs,
-            'audio_bytes': b'',
-        }
+        await self._step(4, 5, f'Phase 1 OTP — captcha {cap[:4]}…')
+        result = await self.send_retrieve_otp(cap, logs=logs, script_mode=True)
+        return result
 
     async def send_retrieve_otp(
         self,
@@ -309,73 +303,85 @@ class UidaiHttpSession:
         *,
         captcha_txn_id: str | None = None,
         captcha_bypass: bool = False,
+        logs: list[dict[str, Any]] | None = None,
+        script_mode: bool | None = None,
     ) -> dict[str, Any]:
-        logs: list[dict[str, Any]] = []
+        log_list = logs if logs is not None else []
         txn = (captcha_txn_id or self.captcha_txn_id or '').strip()
         cap = normalize_captcha_text(captcha or self.captcha_text or '')
         if cap:
             self.captcha_text = cap
         if txn:
             self.captcha_txn_id = txn
-        await self._step(3, 6, 'Phase 1 — OTP request (EID)')
-        payload = build_otp_payload(
-            name=self.name,
-            mobile=self.mobile,
-            captcha=cap,
-            captcha_txn_id=txn,
-            option=self.option,
-            captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not cap),
-        )
+
+        use_script = script_mode if script_mode is not None else pdf_flow_pure_http()
+        if use_script and cap and txn:
+            payload = build_eid_otp_payload(
+                name=self.name,
+                mobile=self.mobile,
+                dob=self.dob,
+                captcha=cap,
+                captcha_txn_id=txn,
+                option=self.option,
+            )
+        else:
+            payload = build_otp_payload(
+                name=self.name,
+                mobile=self.mobile,
+                captcha=cap,
+                captcha_txn_id=txn,
+                option=self.option,
+                captcha_bypass=captcha_bypass or (captcha_bypass_enabled() and not cap),
+            )
+
         status, text = self._post_json(
-            OTP_API_URL, payload, referer=RETRIEVE_PAGE_URL, logs=logs, label='Retrieve OTP',
+            OTP_API_URL, payload, referer=RETRIEVE_PAGE_URL, logs=log_list, label='Retrieve OTP',
         )
         ok, msg, extra = parse_uidai_response(status, text)
         if extra.get('otpTxnId'):
             self.otp_txn_id = extra['otpTxnId']
         return {
             'otp_ok': ok and extra.get('reason') == 'otp_sent',
-            'logs': logs,
+            'logs': log_list,
             'msg': msg,
             'extra': extra,
         }
 
-    async def auto_send_retrieve_otp(self, png: bytes) -> dict[str, Any]:
-        """Captcha bypass — null payload, then OCR, no user typing."""
-        txn = self.captcha_txn_id
-        result: dict[str, Any] = {'otp_ok': False}
-        for label, cap, try_txn in captcha_attempt_values(png, txn):
-            use_txn = try_txn or txn
-            await self._step(3, 6, f'Auto captcha — {label}')
-            result = await self.send_retrieve_otp(
-                cap,
-                captcha_txn_id=use_txn,
-                captcha_bypass=label.startswith('null'),
-            )
-            if result.get('otp_ok'):
-                result['auto_captcha'] = label
-                return result
-            reason = (result.get('extra') or {}).get('reason')
-            if reason not in ('invalid_captcha', 'captcha_expired', None):
-                return result
-        return result
-
     async def verify_retrieve_otp(self, otp: str) -> dict[str, Any]:
         logs: list[dict[str, Any]] = []
         await self._step(4, 6, 'Phase 1 — EID verify')
-        payload = build_retrieve_payload(
-            name=self.name,
-            mobile=self.mobile,
-            captcha=self.captcha_text,
-            captcha_txn_id=self.captcha_txn_id,
-            otp=otp,
-            otp_txn_id=self.otp_txn_id,
-            option=self.option,
-        )
+
+        if pdf_flow_pure_http() and self.captcha_text and self.captcha_txn_id:
+            payload = build_eid_verify_payload(
+                name=self.name,
+                mobile=self.mobile,
+                dob=self.dob,
+                captcha=self.captcha_text,
+                captcha_txn_id=self.captcha_txn_id,
+                otp=otp,
+                otp_txn_id=self.otp_txn_id,
+                option=self.option,
+            )
+        else:
+            payload = build_retrieve_payload(
+                name=self.name,
+                mobile=self.mobile,
+                captcha=self.captcha_text,
+                captcha_txn_id=self.captcha_txn_id,
+                otp=otp,
+                otp_txn_id=self.otp_txn_id,
+                option=self.option,
+            )
+
         status, text = self._post_json(
             OTP_API_URL, payload, referer=RETRIEVE_PAGE_URL, logs=logs, label='Retrieve verify',
         )
         ok, msg, extra = parse_uidai_response(status, text)
-        uid = extract_aadhaar_number(extra.get('json') or {})
+        j = extra.get('json') or {}
+        eid = extract_eid_number(j) or extra.get('eidNumber') or ''
+        uid = extract_aadhaar_number(j)
+        if eid:
+            self.eid = eid
         if uid:
             self.uid = uid
         return {
@@ -384,22 +390,25 @@ class UidaiHttpSession:
             'msg': msg,
             'extra': extra,
             'uid': self.uid,
+            'eid': self.eid,
         }
 
     async def send_download_otp(self, uid: str | None = None) -> dict[str, Any]:
+        """Phase 2 — fresh audio captcha + download OTP."""
         logs: list[dict[str, Any]] = []
-        self.uid = (uid or self.uid or '').strip()
-        if not re.fullmatch(r'\d{12}', self.uid):
-            raise RuntimeError('Aadhaar number missing — complete Phase 1 OTP first')
+        if uid:
+            self.uid = uid.strip()
+        if self.eid:
+            return await self._send_download_otp_eid(logs)
+
+        if not re.fullmatch(r'\d{12}', self.uid or ''):
+            raise RuntimeError('EID/Aadhaar missing — complete Phase 1 OTP first')
 
         await self._step(1, 5, 'Phase 2 — fresh captcha')
         cap_data = await self.fetch_captcha(prefer_audio=whisper_enabled(), referer=DOWNLOAD_PAGE_URL)
         png = cap_data.get('image_png') or b''
-        auto = cap_data.get('captcha_auto') or ''
 
         for label, cap, try_txn in captcha_attempt_values(png, self.captcha_txn_id):
-            if auto and label == 'ocr':
-                cap = auto
             await self._step(3, 5, f'Phase 2 auto — {label}')
             payload = build_download_otp_payload(
                 uid=self.uid,
@@ -436,16 +445,23 @@ class UidaiHttpSession:
             'logs': logs + cap_data.get('logs', []),
         }
 
-    async def send_download_otp_with_captcha(self, captcha: str) -> dict[str, Any]:
-        logs: list[dict[str, Any]] = []
-        if not re.fullmatch(r'\d{12}', self.uid):
-            raise RuntimeError('Aadhaar number missing')
-        cap = normalize_captcha_text(captcha)
-        self.captcha_text = cap
-        payload = build_download_otp_payload(
-            uid=self.uid,
+    async def _send_download_otp_eid(self, logs: list[dict[str, Any]]) -> dict[str, Any]:
+        if not self.eid:
+            raise RuntimeError('EID missing — complete Phase 1 first')
+
+        self._phase_req_id = new_request_id()
+        await self._step(1, 5, 'Phase 2 — audio captcha')
+        try:
+            cap = await self.solve_audio_captcha(referer=DOWNLOAD_PAGE_URL, logs=logs)
+        except Exception as e:
+            return {'otp_ok': False, 'needs_captcha': True, 'logs': logs, 'msg': str(e)}
+
+        await self._step(3, 5, f'Phase 2 OTP — captcha {cap[:4]}…')
+        payload = build_eid_download_otp_payload(
+            eid=self.eid,
             captcha=cap,
             captcha_txn_id=self.captcha_txn_id,
+            transaction_id=self._phase_req_id,
         )
         status, text = self._post_json(
             DOWNLOAD_OTP_API_URL,
@@ -453,6 +469,48 @@ class UidaiHttpSession:
             referer=DOWNLOAD_PAGE_URL,
             logs=logs,
             label='Download OTP',
+            req_id=self._phase_req_id,
+        )
+        ok, msg, extra = parse_download_response(status, text)
+        if extra.get('otpTxnId'):
+            self.download_otp_txn_id = extra['otpTxnId']
+        return {
+            'otp_ok': ok and extra.get('reason') in ('otp_sent', 'download_otp_sent'),
+            'logs': logs,
+            'msg': msg,
+            'extra': extra,
+            'auto_captcha': 'whisper',
+        }
+
+    async def send_download_otp_with_captcha(self, captcha: str) -> dict[str, Any]:
+        logs: list[dict[str, Any]] = []
+        cap = normalize_captcha_text(captcha)
+        self.captcha_text = cap
+
+        if self.eid:
+            self._phase_req_id = new_request_id()
+            payload = build_eid_download_otp_payload(
+                eid=self.eid,
+                captcha=cap,
+                captcha_txn_id=self.captcha_txn_id,
+                transaction_id=self._phase_req_id,
+            )
+        else:
+            if not re.fullmatch(r'\d{12}', self.uid):
+                raise RuntimeError('EID/Aadhaar missing')
+            payload = build_download_otp_payload(
+                uid=self.uid,
+                captcha=cap,
+                captcha_txn_id=self.captcha_txn_id,
+            )
+
+        status, text = self._post_json(
+            DOWNLOAD_OTP_API_URL,
+            payload,
+            referer=DOWNLOAD_PAGE_URL,
+            logs=logs,
+            label='Download OTP',
+            req_id=self._phase_req_id or None,
         )
         ok, msg, extra = parse_download_response(status, text)
         if extra.get('otpTxnId'):
@@ -467,13 +525,22 @@ class UidaiHttpSession:
     async def download_pdf(self, otp: str) -> dict[str, Any]:
         logs: list[dict[str, Any]] = []
         await self._step(4, 5, 'Phase 2 — PDF download')
-        payload = build_download_pdf_payload(
-            uid=self.uid,
-            captcha=self.captcha_text,
-            captcha_txn_id=self.captcha_txn_id,
-            otp=otp,
-            otp_txn_id=self.download_otp_txn_id,
-        )
+
+        if self.eid:
+            payload = build_eid_download_pdf_payload(
+                eid=self.eid,
+                otp=otp,
+                otp_txn_id=self.download_otp_txn_id,
+            )
+        else:
+            payload = build_download_pdf_payload(
+                uid=self.uid,
+                captcha=self.captcha_text,
+                captcha_txn_id=self.captcha_txn_id,
+                otp=otp,
+                otp_txn_id=self.download_otp_txn_id,
+            )
+
         status, text = self._post_json(
             DOWNLOAD_PDF_API_URL,
             payload,
@@ -497,6 +564,101 @@ class UidaiHttpSession:
             'extra': extra,
         }
 
+    async def _fetch_captcha_via_browser(self, page_url: str) -> tuple[bytes, str]:
+        from browser_session import fetch_captcha_from_page
+
+        await self._step(2, 6, 'Browser captcha (live page)')
+        if not self.proxy_url and self.auto_proxy:
+            try:
+                self._ensure_proxy()
+            except Exception:
+                pass
+        self._ensure_proxy()
+        self._ensure_cookies(page_url)
+        return await fetch_captcha_from_page(
+            page_url,
+            proxy=self.proxy_url,
+            auto_india_proxy=self.auto_proxy,
+            name=self.name,
+            mobile=self.mobile,
+            option=self.option,
+            on_step=self._on_step,
+            requests_session=self._session,
+        )
+
+    async def fetch_captcha(
+        self,
+        *,
+        prefer_audio: bool | None = None,
+        referer: str | None = None,
+    ) -> dict[str, Any]:
+        logs: list[dict[str, Any]] = []
+        ref = referer or (DOWNLOAD_PAGE_URL if self.flow == 'download' else RETRIEVE_PAGE_URL)
+        is_download_page = 'genricDownloadAadhaar' in ref or 'download' in ref.lower()
+        page_url = DOWNLOAD_PAGE_URL if is_download_page else RETRIEVE_PAGE_URL
+        await self._step(1, 4, self.proxy_label())
+
+        use_audio = prefer_audio if prefer_audio is not None else whisper_enabled()
+        if use_audio and pdf_flow_pure_http():
+            try:
+                cap = await self.solve_audio_captcha(referer=ref, logs=logs)
+                return {
+                    'captchaTxnId': self.captcha_txn_id,
+                    'image_png': b'',
+                    'captcha_auto': cap,
+                    'logs': logs,
+                    'audio_bytes': b'',
+                }
+            except Exception as e:
+                log.warning('HTTP audio captcha fail: %s', e)
+
+        from browser_session import get_standby_captcha_pair
+
+        png, txn = b'', ''
+        pair = get_standby_captcha_pair() if not is_download_page else None
+        if pair:
+            png, txn = pair
+            append_log(logs, 'info', 'Standby captcha', {'txn': txn[:8], 'bytes': len(png)})
+
+        if not txn:
+            png, txn = await self._fetch_captcha_via_browser(page_url)
+            append_log(logs, 'info', 'Browser captcha', {'txn': txn[:8], 'bytes': len(png)})
+
+        self.captcha_txn_id = txn
+        if not self.captcha_txn_id:
+            raise RuntimeError('captchaTxnId missing — try /pdf again')
+
+        auto = ocr_captcha_png(png) if png else ''
+        if auto:
+            self.captcha_text = auto
+
+        return {
+            'captchaTxnId': self.captcha_txn_id,
+            'image_png': png,
+            'captcha_auto': auto,
+            'logs': logs,
+            'audio_bytes': b'',
+        }
+
+    async def auto_send_retrieve_otp(self, png: bytes) -> dict[str, Any]:
+        txn = self.captcha_txn_id
+        result: dict[str, Any] = {'otp_ok': False}
+        for label, cap, try_txn in captcha_attempt_values(png, txn):
+            use_txn = try_txn or txn
+            await self._step(3, 6, f'Auto captcha — {label}')
+            result = await self.send_retrieve_otp(
+                cap,
+                captcha_txn_id=use_txn,
+                captcha_bypass=label.startswith('null'),
+            )
+            if result.get('otp_ok'):
+                result['auto_captcha'] = label
+                return result
+            reason = (result.get('extra') or {}).get('reason')
+            if reason not in ('invalid_captcha', 'captcha_expired', None):
+                return result
+        return result
+
 
 HTTP_SESSIONS: dict[int, UidaiHttpSession] = {}
 
@@ -506,7 +668,6 @@ def get_http_session(chat_id: int) -> UidaiHttpSession | None:
 
 
 async def sync_from_browser(http_sess: UidaiHttpSession, browser: Any) -> None:
-    """Phase 2 — browser cookies + txn state copy to HTTP session."""
     from uidai_cookie_session import merge_browser_cookies_into_session
 
     http_sess.proxy_url = getattr(browser, '_active_proxy', None) or browser.proxy

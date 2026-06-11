@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.10.4'
+BOT_ENGINE_VERSION = '2.11.0'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
@@ -41,6 +41,56 @@ def normalize_name(name: str) -> str:
 
 def new_request_id() -> str:
     return str(uuid.uuid4())
+
+
+DOB_RE = re.compile(r'^(\d{2})/(\d{2})/(\d{4})$')
+
+SCRIPT_USER_AGENT = (
+    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36'
+)
+
+
+def normalize_dob(dob: str | None) -> str | None:
+    """DD/MM/YYYY — script-aligned; None when bypass."""
+    if not dob or not str(dob).strip():
+        return None
+    m = DOB_RE.match(str(dob).strip())
+    if not m:
+        return None
+    return f'{m.group(1)}/{m.group(2)}/{m.group(3)}'
+
+
+def dob_bypass_enabled() -> bool:
+    import os
+
+    return os.getenv('UIDAI_DOB_BYPASS', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def resolve_dob(dob: str | None) -> str | None:
+    if dob_bypass_enabled():
+        return None
+    return normalize_dob(dob)
+
+
+def generate_pdf_password(name: str, dob: str | None) -> str:
+    """First 4 name chars UPPERCASE + birth year (UIDAI PDF default)."""
+    name_clean = re.sub(r'\s+', '', (name or '').strip())
+    first_4 = name_clean[:4].upper()
+    if len(first_4) < 4:
+        first_4 = first_4 + ('A' * (4 - len(first_4)))
+    year = ''
+    if dob and DOB_RE.match(dob.strip()):
+        year = dob.strip().split('/')[-1]
+    return first_4 + year if year else first_4
+
+
+def build_audio_captcha_payload() -> dict[str, Any]:
+    return {
+        'captchaLength': '6',
+        'captchaType': '2',
+        'audioCaptchaRequired': True,
+    }
 
 
 def build_otp_payload(
@@ -116,6 +166,90 @@ def build_download_pdf_payload(
     }
 
 
+def build_eid_otp_payload(
+    *,
+    name: str,
+    mobile: str,
+    dob: str | None,
+    captcha: str,
+    captcha_txn_id: str,
+    option: str = 'EID',
+    resend: bool = False,
+) -> dict[str, Any]:
+    """Phase 1 OTP — script payload (real DOB when provided)."""
+    return {
+        'mobileNumber': mobile.strip(),
+        'dob': resolve_dob(dob),
+        'email': None,
+        'name': normalize_name(name),
+        'option': option if option in ('UID', 'EID') else 'EID',
+        'otp': None,
+        'otpTxnId': None,
+        'captchaTxnId': captcha_txn_id.strip(),
+        'captcha': captcha.strip().lower(),
+        'resendOtp': resend,
+    }
+
+
+def build_eid_verify_payload(
+    *,
+    name: str,
+    mobile: str,
+    dob: str | None,
+    captcha: str,
+    captcha_txn_id: str,
+    otp: str,
+    otp_txn_id: str,
+    option: str = 'EID',
+) -> dict[str, Any]:
+    return {
+        'mobileNumber': mobile.strip(),
+        'email': None,
+        'dob': resolve_dob(dob),
+        'name': normalize_name(name),
+        'option': option if option in ('UID', 'EID') else 'EID',
+        'otp': otp.strip(),
+        'otpTxnId': otp_txn_id.strip(),
+        'captchaTxnId': captcha_txn_id.strip(),
+        'captcha': captcha.strip().lower(),
+        'resendOtp': False,
+    }
+
+
+def build_eid_download_otp_payload(
+    *,
+    eid: str,
+    captcha: str,
+    captcha_txn_id: str,
+    transaction_id: str,
+    resend: bool = False,
+) -> dict[str, Any]:
+    """Phase 2 download OTP — eidNumber + captchaValue."""
+    return {
+        'eidNumber': eid.strip(),
+        'idType': 'eid',
+        'captchaTxnId': captcha_txn_id.strip(),
+        'captchaValue': captcha.strip().lower(),
+        'transactionId': transaction_id.strip(),
+        'resendOTP': resend,
+    }
+
+
+def build_eid_download_pdf_payload(
+    *,
+    eid: str,
+    otp: str,
+    otp_txn_id: str,
+    mask: bool = False,
+) -> dict[str, Any]:
+    return {
+        'eid': eid.strip(),
+        'mask': mask,
+        'otp': otp.strip(),
+        'otpTxnId': otp_txn_id.strip(),
+    }
+
+
 def build_retrieve_payload(
     *,
     name: str,
@@ -149,17 +283,19 @@ def build_retrieve_payload(
 
 
 def get_header(req_id: str) -> dict[str, str]:
-    """UIDAI API headers — har request pe unique transactionID."""
+    """UIDAI API headers — script-aligned transactionId + X-Request-ID."""
     rid = (req_id or '').strip() or new_request_id()
     return {
         'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Connection': 'keep-alive',
         'Content-Type': 'application/json',
-        'appid': 'MYAADHAAR',
-        'accept-language': 'en_IN',
-        'transactionID': rid,
-        'x-request-id': rid,
         'Origin': 'https://myaadhaar.uidai.gov.in',
-        'Referer': UIDAI_PAGE_URL,
+        'Referer': 'https://myaadhaar.uidai.gov.in/',
+        'User-Agent': SCRIPT_USER_AGENT,
+        'X-Request-ID': rid,
+        'transactionId': rid,
+        'appid': 'MYAADHAAR',
     }
 
 
@@ -190,6 +326,25 @@ def extract_otp_txn_id(data: dict[str, Any]) -> str | None:
     for c in candidates:
         if c and str(c).strip():
             return str(c).strip()
+    return None
+
+
+def extract_eid_number(data: dict[str, Any]) -> str | None:
+    """28-digit enrolment ID from responseData.eidNumber."""
+    if not isinstance(data, dict):
+        return None
+    for key in ('eidNumber', 'eid', 'EID', 'enrolmentId', 'enrolmentNumber'):
+        val = data.get(key)
+        if val and str(val).strip():
+            digits = re.sub(r'\D', '', str(val))
+            if len(digits) >= 14:
+                return digits
+    for nested_key in ('data', 'response', 'responseData', 'result'):
+        nested = data.get(nested_key)
+        if isinstance(nested, dict):
+            found = extract_eid_number(nested)
+            if found:
+                return found
     return None
 
 
@@ -271,6 +426,11 @@ def parse_uidai_response(status: int, text: str) -> tuple[bool, str, dict[str, A
         return False, msg_s, {**extra, 'reason': 'captcha_expired'}
     if re.search(r'invalid.*otp|incorrect.*otp|otp.*expired|otp.*mismatch', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_otp'}
+    eid_num = extract_eid_number(j)
+    if eid_num:
+        extra['eidNumber'] = eid_num
+    if str(j.get('status', '')).lower() == 'success' and eid_num:
+        return True, msg_s or 'EID retrieved', {**extra, 'reason': 'retrieve_ok'}
     if re.search(
         r'aadhaar.*sent|uid.*sent|eid.*sent|enrolment.*sent|sent to.*mobile|sent to your',
         msg_s,
@@ -308,24 +468,34 @@ def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str
     extra['json'] = j
     extra['msg'] = msg_s[:200]
 
-    otp_txn = extract_otp_txn_id(j)
+    otp_txn = extract_otp_txn_id(j) or j.get('txnId')
     if otp_txn:
-        extra['otpTxnId'] = otp_txn
+        extra['otpTxnId'] = str(otp_txn).strip()
 
-    for key in (
-        'eAadhaar', 'eaadhaar', 'pdf', 'pdfData', 'aadhaarPdf',
-        'base64', 'file', 'data',
-    ):
-        val = j.get(key)
-        if isinstance(val, str) and len(val) > 200:
-            extra['pdf_b64'] = val
-            break
-        if isinstance(val, dict):
-            for sub in ('eAadhaar', 'pdf', 'base64', 'content'):
-                sub_val = val.get(sub)
-                if isinstance(sub_val, str) and len(sub_val) > 200:
-                    extra['pdf_b64'] = sub_val
-                    break
+    nested_data = j.get('data')
+    if isinstance(nested_data, dict):
+        pdf_val = nested_data.get('aadhaarPdf')
+        if isinstance(pdf_val, str) and len(pdf_val) > 200:
+            extra['pdf_b64'] = pdf_val
+
+    if not extra.get('pdf_b64'):
+        for key in (
+            'eAadhaar', 'eaadhaar', 'pdf', 'pdfData', 'aadhaarPdf',
+            'base64', 'file', 'data',
+        ):
+            val = j.get(key)
+            if isinstance(val, str) and len(val) > 200:
+                extra['pdf_b64'] = val
+                break
+            if isinstance(val, dict):
+                for sub in ('eAadhaar', 'pdf', 'base64', 'content', 'aadhaarPdf'):
+                    sub_val = val.get(sub)
+                    if isinstance(sub_val, str) and len(sub_val) > 200:
+                        extra['pdf_b64'] = sub_val
+                        break
+
+    if str(j.get('status', '')).lower() == 'success' and extra.get('pdf_b64'):
+        return True, msg_s or 'PDF ready', {**extra, 'reason': 'pdf_ok'}
 
     if re.search(r'invalid.*captcha', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_captcha'}

@@ -39,6 +39,7 @@ except ImportError as exc:
         f'\nDetail: {exc}'
     ) from exc
 
+from audio_captcha import whisper_enabled
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
@@ -54,10 +55,20 @@ from http_uidai_flow import (
     HTTP_SESSIONS,
     get_http_session,
     http_mode_preferred,
+    pdf_flow_pure_http,
     sync_from_browser,
 )
 from react_extract import SET_OPTION_JS
-from uidai_api import BOT_ENGINE_VERSION, PLACEHOLDER_NAME, is_skip_name, normalize_name
+from uidai_api import (
+    BOT_ENGINE_VERSION,
+    DOB_RE,
+    PLACEHOLDER_NAME,
+    dob_bypass_enabled,
+    generate_pdf_password,
+    is_skip_name,
+    normalize_dob,
+    normalize_name,
+)
 
 load_dotenv(Path(__file__).parent / '.env')
 
@@ -100,6 +111,7 @@ def valid_name_input(text: str) -> bool:
 
 STEP_NAME = 'name'
 STEP_MOBILE = 'mobile'
+STEP_DOB = 'dob'
 STEP_CAPTCHA = 'captcha'
 STEP_OTP = 'otp'
 STEP_OTP_1 = 'otp1'
@@ -198,14 +210,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         'Commands:',
         '/open — SMS retrieve (captcha → OTP → Aadhaar SMS)',
         '/open 7651892956 — mobile only (instant captcha ⚡)',
-        '/pdf — 2-OTP e-Aadhaar PDF (HTTP, foreign VPS OK)',
-        '/pdf 7651892956 — PDF flow, mobile only',
+        '/pdf — 2-OTP e-Aadhaar PDF (HTTP + Whisper, foreign VPS OK)',
+        '/pdf 01/01/1991 7651892956 — DOB + mobile (name Mr)',
+        '/pdf KAMAR JAHAN 01/01/1991 7651892956 — full',
         '/captcha · /refresh · /status',
         '/close — end session (browser stays 24/7)',
         '/myid — your chat ID',
         '',
         'Retrieve: captcha → OTP → SMS',
-        'Download: OTP1 (EID) → OTP2 → PDF (dob:null bypass)',
+        'Download: HTTP session → OTP1 (EID) → OTP2 → PDF',
         '',
         '👥 Multi-user — each user gets an isolated session.',
     ]
@@ -534,10 +547,25 @@ async def _start_download_flow(
     chat_id: int,
     name: str,
     mobile: str,
+    dob: str | None = None,
 ) -> None:
-    """2-OTP PDF — Phase 1 browser pool (fast), Phase 2 HTTP + cookies."""
+    """2-OTP PDF — pure HTTP (script flow), per-user isolated session + shared cookies."""
     name = normalize_name(name)
     mobile = mobile.strip()
+    dob_norm = normalize_dob(dob) if dob else None
+    if not dob_bypass_enabled() and not dob_norm:
+        FLOW[chat_id] = {
+            'step': STEP_DOB,
+            'mode': FLOW_MODE_DOWNLOAD,
+            'name': name,
+            'mobile': mobile,
+        }
+        await update.message.reply_text(
+            'Send DOB as DD/MM/YYYY (as on Aadhaar).\n'
+            'Example: 01/01/1991'
+        )
+        return
+
     clear_flow(chat_id)
     clear_http_session(chat_id)
 
@@ -548,64 +576,70 @@ async def _start_download_flow(
         except Exception:
             pass
 
-    instant_sent = await _try_instant_captcha(update)
-    wait = await update.message.reply_text('⏳ PDF flow — fast open…')
+    wait = await update.message.reply_text('⏳ PDF flow — HTTP session (isolated)…')
     progress = LoadingScreen(
         wait, name, mobile,
         title='2-OTP PDF',
-        subtitle='Pool + EID retrieve',
+        subtitle='Audio captcha + EID',
     )
 
     async def on_step(n: int, total: int, text: str) -> None:
         await progress.update(n, total, text)
 
-    browser_sess = UidaiBrowserSession(
-        proxy=PROXY,
-        auto_india_proxy=AUTO_INDIA,
-        on_step=on_step,
-    )
-    browser_sess.name = name
-    browser_sess.mobile = mobile
-    browser_sess.option = 'EID'
-    SESSIONS[chat_id] = browser_sess
-
-    http_sess = UidaiHttpSession(proxy=None, auto_proxy=False, on_step=on_step)
+    use_auto_proxy = not baked_session_ready()
+    http_sess = UidaiHttpSession(proxy=None, auto_proxy=use_auto_proxy, on_step=on_step)
     http_sess.name = name
     http_sess.mobile = mobile
+    http_sess.dob = dob_norm
     http_sess.option = 'EID'
     http_sess.flow = 'download'
     HTTP_SESSIONS[chat_id] = http_sess
 
+    pdf_pass = generate_pdf_password(name, dob_norm)
     FLOW[chat_id] = {
-        'step': STEP_CAPTCHA,
+        'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
         'name': name,
         'mobile': mobile,
+        'dob': dob_norm,
+        'pdf_password': pdf_pass,
     }
 
     try:
-        await browser_sess.start()
-        http_sess.proxy_url = browser_sess._active_proxy or PROXY
-        await browser_sess.open_form(name, mobile, force_reload=False)
-        await browser_sess.page.evaluate(SET_OPTION_JS, 'EID')
-        browser_sess.option = 'EID'
-        await sync_from_browser(http_sess, browser_sess)
+        if pdf_flow_pure_http():
+            result = await http_sess.start_phase1_auto()
+            if result.get('otp_ok'):
+                FLOW[chat_id]['step'] = STEP_OTP_1
+                hint = f'\nPDF password will be: {pdf_pass}' if pdf_pass else ''
+                await progress.done(uidai_user_message(result, kind='otp') + hint)
+                return
+            if result.get('needs_captcha'):
+                FLOW[chat_id]['step'] = STEP_CAPTCHA
+                await progress.done(
+                    'Audio captcha failed — reply captcha text (4–8 chars) from SMS/page'
+                )
+                return
+            await progress.fail(uidai_user_message(result, kind='otp'))
+            return
 
-        if not instant_sent:
-            cap = await browser_sess.captcha_png(use_cache=True)
-            ttl = browser_sess.ttl_label() if browser_sess.last_activity_at else ''
+        cap_data = await http_sess.fetch_captcha(prefer_audio=whisper_enabled())
+        png = cap_data.get('image_png') or b''
+        auto = cap_data.get('captcha_auto') or ''
+        FLOW[chat_id]['step'] = STEP_CAPTCHA
+        if png:
             await update.message.reply_photo(
-                photo=cap,
-                caption=(
-                    '🔐 Phase 1 — EID retrieve (DOB bypass)\n'
-                    'Reply captcha (4–8 chars)\n'
-                    '/close — cancel'
-                ) + (f'\nSession: {ttl}' if ttl else ''),
+                photo=png,
+                caption='Phase 1 captcha — reply with text (4–8 chars)',
             )
+        elif auto:
+            result = await http_sess.send_retrieve_otp(auto, script_mode=True)
+            if result.get('otp_ok'):
+                FLOW[chat_id]['step'] = STEP_OTP_1
+                await progress.done(uidai_user_message(result, kind='otp'))
+                return
         await progress.done('Captcha ready — reply with text')
     except Exception as e:
         log.exception('download flow start failed')
-        SESSIONS.pop(chat_id, None)
         clear_flow(chat_id)
         clear_http_session(chat_id)
         await progress.fail(_connection_error_hint(e))
@@ -617,13 +651,17 @@ async def _phase2_after_otp1(
     sess: UidaiHttpSession,
     *,
     uid: str = '',
+    eid: str = '',
 ) -> None:
     """After OTP1 — request download OTP (Phase 2)."""
+    if eid:
+        sess.eid = eid
+        FLOW[chat_id]['eid'] = eid
     if uid:
         sess.uid = uid
         FLOW[chat_id]['uid'] = uid
 
-    if not UID_RE.match(sess.uid or ''):
+    if not sess.eid and not UID_RE.match(sess.uid or ''):
         FLOW[chat_id]['step'] = STEP_UID
         await update.message.reply_text(
             '📲 Phase 1 done.\n'
@@ -677,6 +715,23 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cid = update.effective_chat.id
     args = list(context.args or [])
 
+    if len(args) >= 3 and DOB_RE.match(args[-2].strip()) and MOBILE_RE.match(args[-1].strip()):
+        dob = args[-2].strip()
+        mobile = args[-1].strip()
+        name = normalize_name(' '.join(args[:-2]))
+        await _start_download_flow(update, cid, name, mobile, dob=dob)
+        return
+
+    if (
+        len(args) == 2
+        and DOB_RE.match(args[0].strip())
+        and MOBILE_RE.match(args[1].strip())
+    ):
+        await _start_download_flow(
+            update, cid, PLACEHOLDER_NAME, args[1].strip(), dob=args[0].strip(),
+        )
+        return
+
     if len(args) >= 2:
         name = normalize_name(' '.join(args[:-1]))
         mobile = args[-1]
@@ -695,12 +750,18 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await old.close(keep_warm=True)
     clear_http_session(cid)
     FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD}
+    dob_hint = (
+        'DOB bypass on — skip DOB step.\n\n'
+        if dob_bypass_enabled()
+        else 'You will be asked for DOB (DD/MM/YYYY).\n\n'
+    )
     await update.message.reply_text(
-        '📥 2-OTP e-Aadhaar PDF flow (HTTP — foreign VPS OK)\n\n'
+        '📥 2-OTP e-Aadhaar PDF (HTTP session — isolated per user)\n\n'
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
         'Unknown name? Send "Mr" or "skip"\n\n'
-        'Or quick start: /pdf 7651892956\n'
+        f'{dob_hint}'
+        'Quick: /pdf 01/01/1991 7651892956\n'
         'Cancel: /close'
     )
 
@@ -822,9 +883,30 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
         await update.message.reply_text(f'OK — {name} / {mobile}')
         if mode == FLOW_MODE_DOWNLOAD:
-            await _start_download_flow(update, cid, name, mobile)
+            if dob_bypass_enabled():
+                await _start_download_flow(update, cid, name, mobile)
+            else:
+                FLOW[cid] = {
+                    'step': STEP_DOB,
+                    'mode': FLOW_MODE_DOWNLOAD,
+                    'name': name,
+                    'mobile': mobile,
+                }
+                await update.message.reply_text(
+                    'Send DOB as DD/MM/YYYY (as on Aadhaar).\nExample: 01/01/1991'
+                )
         else:
             await open_uidai_session(update, cid, name, mobile)
+        return
+
+    if step == STEP_DOB and mode == FLOW_MODE_DOWNLOAD:
+        dob = normalize_dob(text)
+        if not dob:
+            await update.message.reply_text('Invalid DOB — use DD/MM/YYYY.\nExample: 01/01/1991')
+            return
+        name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
+        mobile = FLOW.get(cid, {}).get('mobile', '')
+        await _start_download_flow(update, cid, name, mobile, dob=dob)
         return
 
     if step == STEP_UID and mode == FLOW_MODE_DOWNLOAD:
@@ -844,17 +926,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not CAPTCHA_RE.match(text):
             await update.message.reply_text('Captcha 4–8 chars.')
             return
-        browser_sess = get_session(cid)
         http_sess = get_http_session(cid)
-        if not browser_sess or not http_sess:
+        if not http_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
-        progress = LoadingScreen(wait, browser_sess.name, browser_sess.mobile, title='OTP 1', subtitle='EID')
+        progress = LoadingScreen(wait, http_sess.name, http_sess.mobile, title='OTP 1', subtitle='EID')
         try:
-            result = await browser_sess.send_otp(text, on_step=progress.update)
-            await sync_from_browser(http_sess, browser_sess)
+            result = await http_sess.send_retrieve_otp(text, script_mode=True)
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.done(uidai_user_message(result, kind='otp'))
@@ -890,35 +970,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not OTP_RE.match(text):
             await update.message.reply_text('Send 6-digit OTP 1 from SMS.')
             return
-        browser_sess = get_session(cid)
         http_sess = get_http_session(cid)
-        if not browser_sess or not http_sess:
+        if not http_sess:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
         wait = await update.message.reply_text('⏳ Verifying OTP 1…')
         progress = LoadingScreen(
-            wait, browser_sess.name, browser_sess.mobile,
+            wait, http_sess.name, http_sess.mobile,
             title='Phase 1',
             subtitle='EID retrieve',
         )
         try:
-            result = await browser_sess.submit_otp(text, on_step=progress.update)
-            await sync_from_browser(http_sess, browser_sess)
-            uid = ''
+            result = await http_sess.verify_retrieve_otp(text)
+            uid = result.get('uid') or ''
+            eid = result.get('eid') or ''
             if result.get('retrieve_ok'):
-                from uidai_api import extract_aadhaar_number
-                for item in reversed(result.get('logs') or []):
-                    data = item.get('d')
-                    if isinstance(data, dict) and isinstance(data.get('json'), dict):
-                        uid = extract_aadhaar_number(data['json']) or ''
-                        if uid:
-                            break
-                if uid:
-                    http_sess.uid = uid
-            if result.get('retrieve_ok'):
-                await progress.done(uidai_user_message({**result, 'uid': uid}, kind='retrieve'))
-                await _phase2_after_otp1(update, cid, http_sess, uid=uid)
+                await progress.done(uidai_user_message({**result, 'uid': uid, 'eid': eid}, kind='retrieve'))
+                await _phase2_after_otp1(update, cid, http_sess, uid=uid, eid=eid)
             else:
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.fail(uidai_user_message(result, kind='retrieve'))
@@ -947,14 +1016,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             result = await sess.download_pdf(text)
             if result.get('download_ok'):
                 pdf = result.get('pdf_bytes') or b''
+                pdf_pass = FLOW.get(cid, {}).get('pdf_password') or generate_pdf_password(
+                    sess.name, sess.dob,
+                )
                 await progress.done(uidai_user_message(result, kind='download'))
                 await update.message.reply_document(
                     document=pdf,
                     filename='eaadhaar.pdf',
                     caption=(
                         '✅ e-Aadhaar PDF\n'
-                        'Password: first 4 letters of name (CAPS) + birth year\n'
-                        'Example: KAMA1991 (if name KAMAR JAHAN, DOB 1991)'
+                        f'Password: {pdf_pass}\n'
+                        '(first 4 name letters CAPS + birth year)'
                     ),
                 )
                 clear_flow(cid)

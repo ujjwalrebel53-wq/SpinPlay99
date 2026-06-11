@@ -7,10 +7,16 @@ from uidai_api import (
     PLACEHOLDER_NAME,
     build_download_otp_payload,
     build_download_pdf_payload,
+    build_eid_download_otp_payload,
+    build_eid_download_pdf_payload,
+    build_eid_otp_payload,
     build_otp_payload,
     extract_aadhaar_number,
+    extract_eid_number,
+    generate_pdf_password,
     get_header,
     is_skip_name,
+    normalize_dob,
     normalize_name,
     parse_download_response,
     parse_uidai_response,
@@ -20,13 +26,53 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.10.4')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.11.0')
 
     def test_get_header_transaction_id(self) -> None:
         h = get_header('abc-123-txn')
-        self.assertEqual(h['transactionID'], 'abc-123-txn')
-        self.assertEqual(h['x-request-id'], 'abc-123-txn')
+        self.assertEqual(h['transactionId'], 'abc-123-txn')
+        self.assertEqual(h['X-Request-ID'], 'abc-123-txn')
         self.assertEqual(h['appid'], 'MYAADHAAR')
+        self.assertEqual(h['Connection'], 'keep-alive')
+
+    def test_normalize_dob(self) -> None:
+        self.assertEqual(normalize_dob('01/01/1991'), '01/01/1991')
+        self.assertIsNone(normalize_dob('1991-01-01'))
+
+    def test_generate_pdf_password(self) -> None:
+        self.assertEqual(generate_pdf_password('KAMAR JAHAN', '01/01/1991'), 'KAMA1991')
+
+    def test_build_eid_payloads(self) -> None:
+        otp_p = build_eid_otp_payload(
+            name='KAMAR JAHAN',
+            mobile='7651892956',
+            dob='01/01/1991',
+            captcha='Ab12cd',
+            captcha_txn_id='txn123',
+        )
+        self.assertEqual(otp_p['dob'], '01/01/1991')
+        self.assertEqual(otp_p['captchaValue'] if 'captchaValue' in otp_p else otp_p['captcha'], 'ab12cd')
+        dl_p = build_eid_download_otp_payload(
+            eid='12345678901234',
+            captcha='xy12',
+            captcha_txn_id='txn-1',
+            transaction_id='req-1',
+        )
+        self.assertEqual(dl_p['eidNumber'], '12345678901234')
+        self.assertEqual(dl_p['captchaValue'], 'xy12')
+        pdf_p = build_eid_download_pdf_payload(
+            eid='12345678901234',
+            otp='482910',
+            otp_txn_id='otp-txn',
+        )
+        self.assertEqual(pdf_p['eid'], '12345678901234')
+        self.assertFalse(pdf_p['mask'])
+
+    def test_extract_eid_number(self) -> None:
+        self.assertEqual(
+            extract_eid_number({'responseData': {'eidNumber': '12345678901234'}}),
+            '12345678901234',
+        )
 
     def test_captcha_bypass_payload(self) -> None:
         p = build_otp_payload(
@@ -67,6 +113,16 @@ class TestUidaiApi(unittest.TestCase):
         ok, _, extra = parse_download_response(200, body)
         self.assertTrue(ok)
         self.assertEqual(extra.get('reason'), 'download_otp_sent')
+
+    def test_parse_download_pdf_nested(self) -> None:
+        body = json.dumps({
+            'status': 'Success',
+            'data': {'aadhaarPdf': 'A' * 300},
+        })
+        ok, _, extra = parse_download_response(200, body)
+        self.assertTrue(ok)
+        self.assertEqual(extra.get('reason'), 'pdf_ok')
+        self.assertEqual(len(extra.get('pdf_b64', '')), 300)
 
     def test_normalize_name_skip(self) -> None:
         self.assertEqual(normalize_name('skip'), PLACEHOLDER_NAME)

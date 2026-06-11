@@ -69,10 +69,11 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
         return '✅ e-Aadhaar PDF ready — check the document below.'
 
     if kind == 'retrieve' and result.get('retrieve_ok'):
+        eid = result.get('eid') or ''
         uid = result.get('uid') or ''
-        if uid:
+        if eid or uid:
             return (
-                '✅ Phase 1 complete — EID/UID verified.\n'
+                '✅ Phase 1 complete — EID retrieved.\n'
                 '📱 OTP 2 will be sent for PDF download.'
             )
         return (
