@@ -38,10 +38,19 @@ UIDAI_PROXY=auto
 | `/open fresh 7651892956` | Pura naya page load (force reload) |
 | `/captcha` | Captcha image dubara |
 | `/refresh` | Naya captcha |
-| `/status` | Session + captchaTxnId + 24h TTL |
+| `/status` | Session status (clean UI) |
 | `/close` | Browser band |
+| `/myid` | Apna chat ID (approval ke liye) |
+
+**Owner only:** `/free` (sabko access) · `/lock` (sirf approved) · `/approve ID` · `/deny ID` · `/access`
 
 **Flow:** `/open` → naam → mobile → captcha → OTP SMS → **6 digit OTP reply** → Aadhaar/EID registered mobile pe SMS.
+
+### Multi-user + access control (v2.4)
+
+- Har Telegram user ka **alag session** — ek saath multiple log use kar sakte hain
+- **Professional loading screen** — koi technical logs chat me nahi
+- Owner `/free` → sabko access | `/lock` → sirf `TELEGRAM_ALLOWED_CHAT_IDS` + `/approve` wale
 
 ### 24h persistent session (v2.3)
 

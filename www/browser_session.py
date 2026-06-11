@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -37,6 +39,9 @@ from uidai_api import (
 )
 
 log = logging.getLogger('uidai-browser')
+
+SESSION_TTL_SEC = int(os.getenv('UIDAI_SESSION_HOURS', '24')) * 3600
+KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
 
 MOBILE_UA = (
     'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
@@ -155,6 +160,9 @@ class UidaiBrowserSession:
         self.last_captcha = ''
         self.option = 'UID'
         self.name_skipped = False
+        self.form_ready = False
+        self.last_activity_at = 0.0
+        self.page_loaded_at = 0.0
         self.last_logs: list[dict[str, Any]] = []
         self.proxy_info: dict[str, Any] = {}
         self.proxy_label = ''
@@ -173,6 +181,52 @@ class UidaiBrowserSession:
     async def _step(self, n: int, total: int, msg: str) -> None:
         if self._on_step:
             await self._on_step(n, total, msg)
+
+    def touch(self) -> None:
+        self.last_activity_at = time.monotonic()
+
+    def ttl_remaining_sec(self) -> int:
+        if not self.last_activity_at:
+            return 0
+        return max(0, int(SESSION_TTL_SEC - (time.monotonic() - self.last_activity_at)))
+
+    def ttl_label(self) -> str:
+        sec = self.ttl_remaining_sec()
+        if sec <= 0:
+            return 'expire'
+        h, rem = divmod(sec, 3600)
+        m = rem // 60
+        return f'{h}h {m}m'
+
+    async def page_alive(self) -> bool:
+        if not self._page or not self._context:
+            return False
+        if not self.last_activity_at:
+            return False
+        if time.monotonic() - self.last_activity_at > SESSION_TTL_SEC:
+            return False
+        try:
+            if self._page.is_closed():
+                return False
+            return await self.page.locator('input[name="name"]').count() > 0
+        except Exception:
+            return False
+
+    async def keepalive_ping(self) -> bool:
+        if not await self.page_alive():
+            return False
+        try:
+            await self.page.evaluate('() => true')
+            self.touch()
+            return True
+        except Exception:
+            return False
+
+    async def reset_for_next_attempt(self) -> None:
+        """Retrieve ke baad — same page pe naya captcha."""
+        self.otp_txn_id = ''
+        self.last_captcha = ''
+        await self.refresh_captcha()
 
     async def _resolve_proxy(self) -> str | None:
         if self.proxy and self.proxy.lower() not in ('auto', 'india'):
@@ -243,8 +297,12 @@ class UidaiBrowserSession:
         return False
 
     async def start(self) -> None:
-        if self._page:
+        if self._page and await self.page_alive():
+            self.touch()
             return
+        if self._page:
+            self._page = None
+            self._context = None
         proxy = await self._resolve_proxy()
         await self._step(2, 8, 'Chromium start…')
         reused = await self._new_page(proxy)
@@ -252,6 +310,8 @@ class UidaiBrowserSession:
             await self._step(2, 8, 'Browser pre-warm — turant ready ⚡')
         else:
             await self._step(2, 8, 'Browser ready — India timezone (Asia/Kolkata)')
+        self.touch()
+        self.page_loaded_at = time.monotonic()
 
     async def close(self, keep_warm: bool = True) -> None:
         if self._context:
@@ -264,8 +324,38 @@ class UidaiBrowserSession:
         self.captcha_txn_id = ''
         self.otp_txn_id = ''
         self.last_captcha = ''
+        self.form_ready = False
+        self.last_activity_at = 0.0
+        self.page_loaded_at = 0.0
         if not keep_warm:
             await _pool_shutdown()
+
+    async def _fill_fields_and_captcha(self, *, fresh_captcha: bool) -> None:
+        name_label = (
+            f'Naam skip — {self.name} (placeholder)' if self.name_skipped
+            else f'Naam bhara: {self.name}'
+        )
+        await self._step(6, 8, name_label)
+        await self.page.fill('input[name="name"]', self.name)
+        await self._step(7, 8, f'Mobile bhara: {self.mobile}')
+        await self.page.fill('input[name="mobile"]', self.mobile)
+        if fresh_captcha:
+            await self._step(8, 8, 'Naya captcha load…')
+            await self.refresh_captcha()
+        else:
+            await self._step(8, 8, 'Captcha load…')
+            await self._wait_captcha_image(20)
+            txn = await self._wait_captcha_txn(18.0)
+            await self._read_option()
+            await self._step(8, 8, f'Captcha ready (txn={txn[:8]}…)')
+            self.form_ready = True
+            self.touch()
+            return
+        txn = self.captcha_txn_id or await self._wait_captcha_txn(12.0)
+        await self._read_option()
+        await self._step(8, 8, f'Captcha ready (txn={txn[:8]}…)')
+        self.form_ready = True
+        self.touch()
 
     async def _poll_form(self, max_sec: float = 25.0) -> bool:
         for _ in range(int(max_sec / 0.15)):
@@ -293,12 +383,30 @@ class UidaiBrowserSession:
         self.option = opt if opt in ('UID', 'EID') else 'UID'
         return self.option
 
-    async def open_form(self, name: str, mobile: str, on_frame=None) -> bytes:
+    async def open_form(
+        self,
+        name: str,
+        mobile: str,
+        on_frame=None,
+        force_reload: bool = False,
+    ) -> bytes:
+        self.touch()
         self.name = normalize_name(name)
         self.mobile = mobile.strip()
         self.name_skipped = is_skip_name(name)
-        self.captcha_txn_id = ''
+        self.otp_txn_id = ''
+        self.last_captcha = ''
 
+        if not force_reload and await self.page_alive():
+            await self._step(1, 8, f'24h session ON — {self.ttl_label()} baki')
+            await self._step(2, 8, 'Browser + page reuse ⚡')
+            await self._step(3, 8, 'UIDAI already open — reload skip')
+            await self._step(4, 8, 'Form ready — naam/mobile update')
+            await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION}')
+            await self._fill_fields_and_captcha(fresh_captcha=True)
+            return b''
+
+        self.captcha_txn_id = ''
         await self._step(3, 8, 'UIDAI site open (fast)…')
         last_err: Exception | None = None
         for attempt in range(3):
@@ -321,19 +429,9 @@ class UidaiBrowserSession:
 
         await self._step(3, 8, 'UIDAI page load ho gayi')
         await self._step(4, 8, 'Form mil gaya — naam/mobile fields ready')
-        await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — DOB skip API')
-
-        name_label = f'Naam skip — {self.name} (placeholder)' if self.name_skipped else f'Naam bhara: {self.name}'
-        await self._step(6, 8, name_label)
-        await self.page.fill('input[name="name"]', self.name)
-        await self._step(7, 8, f'Mobile bhara: {self.mobile}')
-        await self.page.fill('input[name="mobile"]', self.mobile)
-
-        await self._step(8, 8, 'Captcha load…')
-        await self._wait_captcha_image(20)
-        txn = await self._wait_captcha_txn(18.0)
-        await self._read_option()
-        await self._step(8, 8, f'Captcha ready (txn={txn[:8]}…)')
+        await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
+        await self._fill_fields_and_captcha(fresh_captcha=False)
+        self.page_loaded_at = time.monotonic()
         return b''
 
     async def _wait_captcha_image(self, timeout_s: int = 20) -> None:

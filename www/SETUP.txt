@@ -2,6 +2,8 @@ cd www ke baad ye files honi chahiye:
 
 www/
 ├── bot.py
+├── bot_ui.py             ← professional loading screen
+├── bot_access.py         ← /free /lock multi-user access
 ├── browser_session.py
 ├── uidai_api.py          ← Python OTP engine (extension nahi)
 ├── react_extract.py      ← captchaTxnID read (20 lines JS)
@@ -30,6 +32,8 @@ VPS update:
   cd www
   BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/www"
   wget -O bot.py "$BASE/bot.py"
+  wget -O bot_ui.py "$BASE/bot_ui.py"
+  wget -O bot_access.py "$BASE/bot_access.py"
   wget -O browser_session.py "$BASE/browser_session.py"
   wget -O uidai_api.py "$BASE/uidai_api.py"
   wget -O react_extract.py "$BASE/react_extract.py"
