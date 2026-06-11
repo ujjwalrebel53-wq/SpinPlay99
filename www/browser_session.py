@@ -29,9 +29,11 @@ from react_extract import (
     GET_OPTION_JS,
     SEND_OTP_FETCH_JS,
     SEND_OTP_XHR_JS,
+    SET_OPTION_JS,
 )
 from uidai_api import (
     BOT_ENGINE_VERSION,
+    DOWNLOAD_PAGE_URL,
     OTP_API_URL,
     UIDAI_PAGE_URL,
     append_log,
@@ -153,6 +155,64 @@ def get_standby_captcha_png() -> bytes | None:
     if standby_has_captcha():
         return _POOL['standby']['captcha_png']
     return None
+
+
+def get_standby_captcha_pair() -> tuple[bytes, str] | None:
+    """Standby cache — PNG + captchaTxnId (instant /pdf captcha)."""
+    if not standby_has_captcha():
+        return None
+    sb = _POOL['standby']
+    txn = str(sb.get('captcha_txn_id') or '').strip()
+    png = sb.get('captcha_png') or b''
+    if len(png) < 500 or not txn:
+        return None
+    return png, txn
+
+
+async def fetch_captcha_from_page(
+    page_url: str,
+    *,
+    proxy: str | None = None,
+    auto_india_proxy: bool = True,
+    name: str = '',
+    mobile: str = '',
+    option: str = 'EID',
+    on_step: StepCb | None = None,
+) -> tuple[bytes, str]:
+    """Browser captcha snapshot — UIDAI HTTP captcha API often returns 500."""
+    is_retrieve = 'retrieve-eid-uid' in page_url
+    if is_retrieve and name and mobile:
+        pair = get_standby_captcha_pair()
+        if pair:
+            log.info('fetch_captcha_from_page — standby cache hit')
+            return pair
+
+    sess = UidaiBrowserSession(
+        proxy=proxy,
+        auto_india_proxy=auto_india_proxy,
+        on_step=on_step,
+    )
+    try:
+        await sess.start()
+        await sess._step(1, 4, 'UIDAI page open')
+        await sess.page.goto(page_url, wait_until='commit', timeout=45_000)
+        if is_retrieve:
+            if not await sess._poll_form(22.0):
+                raise RuntimeError('Retrieve form timeout')
+            await sess.page.fill('input[name="name"]', normalize_name(name))
+            await sess.page.fill('input[name="mobile"]', mobile.strip())
+            await sess.page.evaluate(SET_OPTION_JS, option)
+            await sess._wait_captcha_txn(18.0)
+        else:
+            el = sess.page.locator('img[alt*="CAPTCHA" i]').first
+            await el.wait_for(state='visible', timeout=20_000)
+            await sess._wait_captcha_txn(18.0)
+        png, txn = await _capture_page_captcha(sess.page)
+        if not txn:
+            raise RuntimeError('captchaTxnId missing — try /pdf again')
+        return png, txn
+    finally:
+        await sess.close(keep_warm=True)
 
 
 async def _capture_page_captcha(page: Page) -> tuple[bytes, str]:

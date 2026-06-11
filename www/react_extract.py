@@ -39,6 +39,19 @@ GET_OPTION_JS = """() => {
   return uid ? 'UID' : 'EID';
 }"""
 
+SET_OPTION_JS = """(opt) => {
+  const want = String(opt || 'UID').toUpperCase();
+  const val = want === 'EID' ? 'eid' : 'uid';
+  const sel = document.querySelector(
+    'input[name="pvc"][value="' + val + '"], #' + val + ', input[value="' + val + '"]'
+  );
+  if (!sel) return null;
+  sel.click();
+  sel.checked = true;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  return want;
+}"""
+
 CLICK_REFRESH_CAPTCHA_JS = """() => {
   const img = document.querySelector('img[alt*="CAPTCHA" i]');
   if (!img) return { ok: false, err: 'no captcha img' };

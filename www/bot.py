@@ -532,7 +532,7 @@ async def _start_download_flow(
     progress = LoadingScreen(
         wait, name, mobile,
         title='2-OTP Download',
-        subtitle='HTTP gateway (no browser)',
+        subtitle='HTTP OTP + browser captcha',
     )
 
     async def on_step(n: int, total: int, text: str) -> None:

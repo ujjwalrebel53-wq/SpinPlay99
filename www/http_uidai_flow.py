@@ -177,47 +177,85 @@ class UidaiHttpSession:
             raise RuntimeError(f'{label} — captchaTxnId missing')
         return parsed
 
+    async def _fetch_captcha_via_browser(self, page_url: str) -> tuple[bytes, str]:
+        """UIDAI captcha HTTP API often 500 — live page snapshot works."""
+        from browser_session import fetch_captcha_from_page
+
+        await self._step(2, 6, 'Browser captcha (live page)')
+        if not self.proxy_url and self.auto_proxy:
+            try:
+                self._ensure_proxy()
+            except Exception:
+                pass
+        return await fetch_captcha_from_page(
+            page_url,
+            proxy=self.proxy_url,
+            auto_india_proxy=self.auto_proxy,
+            name=self.name,
+            mobile=self.mobile,
+            option=self.option,
+            on_step=self._on_step,
+        )
+
     async def fetch_captcha(
         self,
         *,
         prefer_audio: bool | None = None,
         referer: str | None = None,
     ) -> dict[str, Any]:
-        """Image captcha (+ optional auto audio solve). Returns txn, png, solved text."""
+        """Captcha PNG + txn — browser page (HTTP captcha API unreliable)."""
         logs: list[dict[str, Any]] = []
         ref = referer or (DOWNLOAD_PAGE_URL if self.flow == 'download' else RETRIEVE_PAGE_URL)
+        is_download_page = 'genricDownloadAadhaar' in ref or 'download' in ref.lower()
+        page_url = DOWNLOAD_PAGE_URL if is_download_page else RETRIEVE_PAGE_URL
         await self._step(1, 6, self.proxy_label())
 
-        use_audio = prefer_audio if prefer_audio is not None else whisper_enabled()
-        parsed: dict[str, Any] = {}
         captcha_text = ''
+        png = b''
+        txn = ''
 
-        if use_audio:
-            await self._step(2, 6, 'Audio captcha fetch')
+        use_audio = prefer_audio if prefer_audio is not None else whisper_enabled()
+        if use_audio and not is_download_page:
+            await self._step(2, 6, 'Audio captcha try')
             try:
                 parsed = self._fetch_captcha_raw(audio=True, logs=logs, referer=ref)
                 captcha_text = decode_audio_captcha(
                     parsed.get('audio_bytes') or b'',
                     mime=str(parsed.get('audio_mime') or 'audio/wav'),
                 ) or ''
+                txn = str(parsed.get('captchaTxnId') or '')
+                png = parsed.get('image_png') or b''
             except Exception as e:
-                log.warning('Audio captcha fail: %s', e)
-                parsed = {}
+                log.warning('Audio captcha API skip: %s', e)
 
-        if not parsed.get('captchaTxnId') or not parsed.get('image_png'):
-            await self._step(2, 6, 'Image captcha fetch')
-            parsed = self._fetch_captcha_raw(audio=False, logs=logs, referer=ref)
+        if not txn or len(png) < 500:
+            try:
+                png, txn = await self._fetch_captcha_via_browser(page_url)
+                append_log(logs, 'info', 'Browser captcha OK', {'txn': txn[:8], 'bytes': len(png)})
+            except Exception as browser_err:
+                log.warning('Browser captcha fail: %s — trying HTTP image API', browser_err)
+                try:
+                    parsed = self._fetch_captcha_raw(audio=False, logs=logs, referer=ref)
+                    txn = str(parsed.get('captchaTxnId') or '')
+                    png = parsed.get('image_png') or b''
+                except Exception as http_err:
+                    raise RuntimeError(
+                        f'Captcha fail — browser: {browser_err}; API: {http_err}'
+                    ) from http_err
 
-        self.captcha_txn_id = str(parsed.get('captchaTxnId') or '')
+        self.captcha_txn_id = txn
         if captcha_text:
             self.captcha_text = normalize_captcha_text(captcha_text)
 
+        if not self.captcha_txn_id:
+            raise RuntimeError('captchaTxnId missing — try /pdf again')
+
         return {
             'captchaTxnId': self.captcha_txn_id,
-            'image_png': parsed.get('image_png') or b'',
+            'image_png': png,
             'captcha_auto': self.captcha_text,
             'logs': logs,
-            'audio_bytes': parsed.get('audio_bytes') or b'',
+            'audio_bytes': b'',
         }
 
     async def send_retrieve_otp(self, captcha: str) -> dict[str, Any]:

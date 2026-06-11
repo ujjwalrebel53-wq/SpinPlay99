@@ -19,7 +19,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.6.0')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.6.1')
 
     def test_build_download_payloads(self) -> None:
         otp_p = build_download_otp_payload(
