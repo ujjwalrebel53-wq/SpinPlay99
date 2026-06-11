@@ -33,6 +33,16 @@ VPS update:
   wget -O browser_session.py "$BASE/browser_session.py"
   wget -O uidai_api.py "$BASE/uidai_api.py"
   wget -O react_extract.py "$BASE/react_extract.py"
+  wget -O run_all_tests.py "$BASE/run_all_tests.py"
+  mkdir -p tests
+  wget -O tests/test_uidai_api.py "$BASE/tests/test_uidai_api.py"
+  touch tests/__init__.py
   pkill -9 -f bot.py
   source .venv/bin/activate
   nohup python bot.py > bot.log 2>&1 &
+
+Test chalao (www folder ke ANDAR):
+
+  cd www
+  source .venv/bin/activate
+  python3 run_all_tests.py

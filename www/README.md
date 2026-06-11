@@ -57,10 +57,21 @@ Extension `page-bundle.js` **ab bot ke liye zaroori nahi** — sirf manual brows
 ```bash
 cd www
 BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/www"
-for f in bot.py browser_session.py uidai_api.py react_extract.py; do
+for f in bot.py browser_session.py uidai_api.py react_extract.py run_all_tests.py; do
   wget -O "$f" "$BASE/$f"
 done
+mkdir -p tests
+wget -O tests/test_uidai_api.py "$BASE/tests/test_uidai_api.py"
+touch tests/__init__.py
 pkill -9 -f bot.py
 source .venv/bin/activate
 nohup python bot.py > bot.log 2>&1 &
+```
+
+### Self-test (www ke andar)
+
+```bash
+cd www
+source .venv/bin/activate
+python3 run_all_tests.py
 ```
