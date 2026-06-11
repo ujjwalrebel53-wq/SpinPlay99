@@ -48,10 +48,10 @@ from uidai_api import (
     build_otp_payload,
     build_retrieve_payload,
     extract_aadhaar_number,
+    get_header,
     new_request_id,
     parse_download_response,
     parse_uidai_response,
-    uidai_headers,
 )
 
 log = logging.getLogger('http-uidai')
@@ -193,20 +193,22 @@ class UidaiHttpSession:
     ) -> tuple[int, str]:
         self._ensure_proxy()
         self._ensure_cookies(referer, logs)
-        headers = uidai_headers(new_request_id())
+        req_id = new_request_id()
+        headers = get_header(req_id)
         headers['Referer'] = referer
         headers['Origin'] = 'https://myaadhaar.uidai.gov.in'
         body = payload if payload is not None else {}
         append_log(logs, 'info', label, {
             'url': url,
+            'transactionID': req_id,
             'payload_keys': list(body.keys()),
             'cookies': cookie_summary(self._session),
         })
         try:
             r = self._session.post(
                 url,
-                json=body,
                 headers=headers,
+                json=body,
                 proxies=self.proxies,
                 timeout=int(os.getenv('UIDAI_HTTP_TIMEOUT', '45')),
             )

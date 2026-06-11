@@ -42,10 +42,10 @@ from uidai_api import (
     build_otp_payload,
     build_retrieve_payload,
     extract_otp_txn_id,
+    get_header,
     new_request_id,
     parse_uidai_response,
     summarize_logs,
-    uidai_headers,
     is_skip_name,
     normalize_name,
 )
@@ -1059,7 +1059,7 @@ class UidaiBrowserSession:
     ) -> tuple[bool, int, str, dict[str, Any]]:
         if not self._context:
             raise RuntimeError('Browser not started')
-        headers = uidai_headers(new_request_id())
+        headers = get_header(new_request_id())
         try:
             resp = await self._context.request.post(
                 OTP_API_URL,

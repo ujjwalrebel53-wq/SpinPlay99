@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.10.2'
+BOT_ENGINE_VERSION = '2.10.3'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
@@ -148,17 +148,23 @@ def build_retrieve_payload(
     )
 
 
-def uidai_headers(request_id: str | None = None) -> dict[str, str]:
-    rid = request_id or new_request_id()
+def get_header(req_id: str) -> dict[str, str]:
+    """UIDAI API headers — har request pe unique transactionID."""
+    rid = (req_id or '').strip() or new_request_id()
     return {
         'Accept': 'application/json, text/plain, */*',
         'Content-Type': 'application/json',
         'appid': 'MYAADHAAR',
         'accept-language': 'en_IN',
+        'transactionID': rid,
         'x-request-id': rid,
         'Origin': 'https://myaadhaar.uidai.gov.in',
         'Referer': UIDAI_PAGE_URL,
     }
+
+
+def uidai_headers(request_id: str | None = None) -> dict[str, str]:
+    return get_header(request_id or new_request_id())
 
 
 def _deep_get(obj: Any, *keys: str) -> Any:

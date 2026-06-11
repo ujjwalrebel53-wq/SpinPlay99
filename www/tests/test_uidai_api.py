@@ -9,6 +9,7 @@ from uidai_api import (
     build_download_pdf_payload,
     build_otp_payload,
     extract_aadhaar_number,
+    get_header,
     is_skip_name,
     normalize_name,
     parse_download_response,
@@ -19,7 +20,13 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.10.2')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.10.3')
+
+    def test_get_header_transaction_id(self) -> None:
+        h = get_header('abc-123-txn')
+        self.assertEqual(h['transactionID'], 'abc-123-txn')
+        self.assertEqual(h['x-request-id'], 'abc-123-txn')
+        self.assertEqual(h['appid'], 'MYAADHAAR')
 
     def test_captcha_bypass_payload(self) -> None:
         p = build_otp_payload(
