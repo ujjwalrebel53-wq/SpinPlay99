@@ -33,7 +33,18 @@ if command -v curl >/dev/null 2>&1; then
 fi
 
 python3 -c "import playwright" 2>/dev/null || {
-  echo "❌ Playwright missing — bash install_playwright.sh"
+  echo "❌ Playwright missing — run: bash install_all.sh"
+  exit 1
+}
+
+python3 -c "
+from playwright.sync_api import sync_playwright
+p = sync_playwright().start()
+b = p.chromium.launch(headless=True, args=['--no-sandbox','--disable-dev-shm-usage'])
+b.close()
+p.stop()
+" 2>/dev/null || {
+  echo "❌ Chromium not ready — run: bash install_all.sh"
   exit 1
 }
 
