@@ -177,7 +177,9 @@ async def create_loading_screen(
 class LoadingScreen:
     """Terminal panel — spinner keeps rotating until done/fail."""
 
-    _SPIN_INTERVAL = 0.42
+    # Telegram editMessageText ~1/s per chat — faster edits trigger HTTP 429.
+    _SPIN_INTERVAL = 2.0
+    _MIN_EDIT_GAP = 1.85
 
     def __init__(
         self,
@@ -204,6 +206,9 @@ class LoadingScreen:
         self._spin_frame = 0
         self._animating = False
         self._anim_task: asyncio.Task | None = None
+        self._last_edit_body = ''
+        self._last_edit_mono = 0.0
+        self._edit_lock = asyncio.Lock()
 
     def _spinner_line(self) -> str:
         if self._status == 'done':
@@ -270,7 +275,7 @@ class LoadingScreen:
         self._status = 'done'
         self._lines = list(_terminal_lines(self.mode))
         self._footer = final
-        await self._render()
+        await self._render(force=True)
 
     async def fail(self, err: str = '') -> None:
         await self._stop_spinner()
@@ -279,9 +284,9 @@ class LoadingScreen:
             lines = _terminal_lines(self.mode)
             self._lines = [lines[0]] if lines else ['[!] Error']
         self._footer = err
-        await self._render()
+        await self._render(force=True)
 
-    async def _render(self) -> None:
+    def _panel_text(self) -> str:
         target = self.mobile or '—'
         elapsed = int(time.monotonic() - self._started)
         body = [
@@ -298,7 +303,26 @@ class LoadingScreen:
             body.extend(['', f'[!] {self._footer[:200]}'])
         elif self._footer and self._status == 'done':
             body.extend(['', self._footer[:400]])
-        try:
-            await self._msg.edit_text('\n'.join(body)[:4000])
-        except Exception:
-            pass
+        return '\n'.join(body)[:4000]
+
+    async def _render(self, *, force: bool = False) -> None:
+        text = self._panel_text()
+        if not force and text == self._last_edit_body:
+            return
+        async with self._edit_lock:
+            if not force:
+                wait = self._MIN_EDIT_GAP - (time.monotonic() - self._last_edit_mono)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            try:
+                await self._msg.edit_text(text)
+                self._last_edit_body = text
+                self._last_edit_mono = time.monotonic()
+            except Exception as exc:
+                err = str(exc).lower()
+                if '429' in err or 'too many requests' in err or 'retry after' in err:
+                    self._last_edit_mono = time.monotonic() + 2.0
+                    await asyncio.sleep(3.0)
+                retry_after = getattr(exc, 'retry_after', None)
+                if retry_after:
+                    await asyncio.sleep(float(retry_after) + 0.5)

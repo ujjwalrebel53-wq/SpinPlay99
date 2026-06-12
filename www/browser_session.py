@@ -483,17 +483,83 @@ async def refresh_standby_captcha() -> bool:
     return any(r is True for r in results)
 
 
+async def _txn_from_page_or_net(page: Page, net_txn: dict[str, Any]) -> str:
+    """Read captcha txn from network hook, React fiber, or bundle JS."""
+    cached = str(net_txn.get('txn') or '').strip()
+    if cached:
+        return cached
+    txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    if txn:
+        return txn
+    bundle = await page.evaluate(EXTRACT_CAPTCHA_BUNDLE_JS)
+    if isinstance(bundle, dict):
+        txn = str(bundle.get('txn') or '').strip()
+        if txn:
+            return txn
+    if net_txn.get('json'):
+        from audio_captcha import parse_captcha_generation
+
+        parsed = parse_captcha_generation(net_txn['json'])
+        txn = str(parsed.get('captchaTxnId') or parsed.get('txn') or '').strip()
+        if txn:
+            return txn
+    return ''
+
+
+async def _wait_page_captcha_txn(
+    page: Page,
+    net_txn: dict[str, Any],
+    *,
+    timeout_s: float = 20.0,
+) -> str:
+    poll_sleep = _ui_delay(0.4)
+    for _ in range(int(timeout_s / poll_sleep)):
+        txn = await _txn_from_page_or_net(page, net_txn)
+        if txn:
+            net_txn['txn'] = txn
+            return txn
+        await asyncio.sleep(poll_sleep)
+    return ''
+
+
+def _attach_captcha_net_hook(page: Page, net_txn: dict[str, Any]) -> None:
+    async def _on_captcha_response(response) -> None:
+        url = (response.url or '').lower()
+        if response.status != 200:
+            return
+        if 'captcha' not in url:
+            return
+        if 'generation' not in url and 'captchaservice' not in url:
+            return
+        try:
+            data = await response.json()
+            net_txn['json'] = data
+            from audio_captcha import parse_captcha_generation
+
+            parsed = parse_captcha_generation(data)
+            txn = str(parsed.get('captchaTxnId') or parsed.get('txn') or '').strip()
+            if txn:
+                net_txn['txn'] = txn
+        except Exception:
+            pass
+
+    page.on('response', _on_captcha_response)
+
+
 async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]:
     """Fill EID on download page and capture paired captcha image + txn."""
     if not eid:
         raise RuntimeError('EID required for download captcha')
+    net_txn: dict[str, Any] = {}
+    _attach_captcha_net_hook(page, net_txn)
     await page.evaluate(SELECT_DOWNLOAD_EID_JS)
     await asyncio.sleep(_ui_delay(0.4))
     await page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
     await asyncio.sleep(_ui_delay(0.8))
+    await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+    await asyncio.sleep(_ui_delay(0.9))
     el = page.locator('img[alt*="CAPTCHA" i]').first
-    vis_timeout = 10_000 if uidai_fast() else 18_000
-    poll_sleep = _ui_delay(0.35)
+    vis_timeout = 12_000 if uidai_fast() else 20_000
     for vis_try in range(3):
         try:
             await el.wait_for(state='visible', timeout=vis_timeout)
@@ -501,19 +567,16 @@ async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]
         except Exception:
             if vis_try < 2:
                 await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                await asyncio.sleep(_ui_delay(1.0))
+                await asyncio.sleep(_ui_delay(1.2))
             else:
                 raise
-    txn = ''
-    for _ in range(_poll_attempts(50)):
-        txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
-        if txn:
-            break
-        await asyncio.sleep(poll_sleep)
+    txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=22.0)
     png, cap_txn = await _capture_page_captcha(page)
     txn = txn or cap_txn or ''
-    if not txn or len(png) < 200:
-        raise RuntimeError('Download captcha image or txn missing')
+    if not txn:
+        raise RuntimeError('captchaTxnID missing — reload page or run /open again')
+    if len(png) < 200:
+        raise RuntimeError('Download captcha image missing')
     return png, txn
 
 
