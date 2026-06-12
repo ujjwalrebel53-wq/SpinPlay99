@@ -116,11 +116,24 @@ echo "  ✅ venv active: $(python3 --version)"
 
 echo "[3/5] pip packages ($REQ_FILE)…"
 pip install --upgrade pip setuptools wheel
-pip install -r "$REQ_FILE"
+pip install --no-cache-dir -r "$REQ_FILE"
 python3 -c "
 import telegram, dotenv, requests, PIL
 print('  ✅ telegram, dotenv, requests, Pillow')
 "
+
+# Corrupt playwright driver check (MODULE_NOT_FOUND programWithTestStub)
+if ! find .venv/lib -path '*/playwright/driver/package/lib/cli/programWithTestStub.js' 2>/dev/null | grep -q .; then
+  echo "  ⚠ Playwright driver corrupt — repairing…"
+  pip uninstall -y playwright 2>/dev/null || true
+  rm -rf .venv/lib/python*/site-packages/playwright 2>/dev/null || true
+  pip install --no-cache-dir --force-reinstall "playwright==1.49.1"
+fi
+if ! find .venv/lib -path '*/playwright/driver/package/lib/cli/programWithTestStub.js' 2>/dev/null | grep -q .; then
+  echo "❌ Playwright install broken — run: bash fix_playwright.sh"
+  exit 1
+fi
+echo "  ✅ Playwright driver OK"
 
 echo "[4/5] Chromium OS libs + browser download…"
 install_browser_system_libs

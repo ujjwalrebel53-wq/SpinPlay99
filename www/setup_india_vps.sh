@@ -24,7 +24,7 @@ cd "$INSTALL_DIR"
 
 FILES=(
   sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py
-  start_sex.sh install_all.sh install_playwright.sh requirements_sex.txt .env.open
+  start_sex.sh install_all.sh install_playwright.sh fix_playwright.sh requirements_sex.txt .env.open
 )
 
 echo "[*] Downloading ${#FILES[@]} files (fresh, no cache)…"
