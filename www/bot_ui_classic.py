@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import time
 from typing import Any
 
-from uidai_api import uidai_fast
-
 SPINNERS = ('◐', '◓', '◑', '◒')
 WAVE = ('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂')
+
+_LOADING_MSG_BY_CHAT: dict[int, Any] = {}
 
 
 def humanize_step(raw: str) -> str:
@@ -104,8 +103,37 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
     return '❌ Request failed. Try /open again in a moment.'
 
 
+async def dismiss_loading_screen(chat_id: int) -> None:
+    """Remove the previous loading panel for this chat."""
+    old = _LOADING_MSG_BY_CHAT.pop(chat_id, None)
+    if old is None:
+        return
+    try:
+        await old.delete()
+    except Exception:
+        pass
+
+
+async def create_loading_screen(
+    message,
+    chat_id: int,
+    name: str,
+    mobile: str,
+    *,
+    title: str = 'Rebel Aadhaar',
+    subtitle: str = 'Secure UIDAI Gateway',
+) -> 'LoadingScreen':
+    """New loading panel — deletes the previous one in this chat."""
+    await dismiss_loading_screen(chat_id)
+    sent = await message.reply_text('⏳')
+    _LOADING_MSG_BY_CHAT[chat_id] = sent
+    screen = LoadingScreen(sent, name, mobile, title=title, subtitle=subtitle)
+    await screen.show()
+    return screen
+
+
 class LoadingScreen:
-    """Animated progress panel — spinner + wave bar."""
+    """Animated progress panel — spinner + wave bar (no debug logs)."""
 
     def __init__(
         self,
@@ -126,52 +154,14 @@ class LoadingScreen:
         self._total = 8
         self._status = 'loading'
         self._footer = ''
-        self._detail_logs: list[str] = []
         self._frame = 0
         self._started = time.monotonic()
-        self._debounce_task: asyncio.Task | None = None
-        self._debounce_sec = 0.22 if uidai_fast() else 0.45
 
-    async def _flush_render(self) -> None:
-        if self._debounce_task and not self._debounce_task.done():
-            self._debounce_task.cancel()
-            try:
-                await self._debounce_task
-            except asyncio.CancelledError:
-                pass
-        self._debounce_task = None
+    async def show(self) -> None:
         await self._render()
 
-    async def _debounced_render(self) -> None:
-        try:
-            await asyncio.sleep(self._debounce_sec)
-            await self._render()
-        except asyncio.CancelledError:
-            return
-
     async def log_detail(self, line: str) -> None:
-        t = (line or '').strip()
-        if not t:
-            return
-        self._detail_logs.append(t[:120])
-        if len(self._detail_logs) > 6:
-            self._detail_logs = self._detail_logs[-6:]
-        if self._debounce_task and not self._debounce_task.done():
-            self._debounce_task.cancel()
-        self._debounce_task = asyncio.create_task(self._debounced_render())
-
-    def _spinner(self) -> str:
-        self._frame += 1
-        return SPINNERS[self._frame % len(SPINNERS)]
-
-    def _wave_bar(self, pct: int) -> str:
-        pct = max(0, min(100, pct))
-        pos = int((pct / 100) * (len(WAVE) - 1))
-        idx = (pos + self._frame) % len(WAVE)
-        return ''.join(WAVE[(idx + i) % len(WAVE)] for i in range(10))
-
-    def _elapsed(self) -> str:
-        return f'{int(time.monotonic() - self._started)}s'
+        """No-op — logs are not shown on the loading screen."""
 
     async def update(self, n: int, total: int, text: str) -> None:
         self._total = max(total, 1)
@@ -189,14 +179,14 @@ class LoadingScreen:
             self._steps[idx] = line
         else:
             self._steps.append(line)
-        await self._flush_render()
+        await self._render()
 
     async def done(self, final: str = '') -> None:
         self._status = 'done'
         for i, s in enumerate(self._steps):
             self._steps[i] = f'✓ {s.lstrip("✓✗▸ ")}'
         self._footer = final
-        await self._flush_render()
+        await self._render()
 
     async def fail(self, err: str) -> None:
         self._status = 'fail'
@@ -208,7 +198,20 @@ class LoadingScreen:
             idx = self._current - 1
             self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'
         self._footer = err
-        await self._flush_render()
+        await self._render()
+
+    def _spinner(self) -> str:
+        self._frame += 1
+        return SPINNERS[self._frame % len(SPINNERS)]
+
+    def _wave_bar(self, pct: int) -> str:
+        pct = max(0, min(100, pct))
+        pos = int((pct / 100) * (len(WAVE) - 1))
+        idx = (pos + self._frame) % len(WAVE)
+        return ''.join(WAVE[(idx + i) % len(WAVE)] for i in range(10))
+
+    def _elapsed(self) -> str:
+        return f'{int(time.monotonic() - self._started)}s'
 
     async def _render(self) -> None:
         pct = int((self._current / self._total) * 100) if self._total else 0
@@ -242,8 +245,6 @@ class LoadingScreen:
         for s in self._steps[-5:]:
             if s:
                 lines.append(f'  {s}')
-        for d in self._detail_logs[-3:]:
-            lines.append(f'  · {d[:60]}')
         if self._footer:
             lines.extend(['', f'  {self._footer}'])
         lines.append('╚══════════════════════════╝')

@@ -125,8 +125,8 @@ async def test_loading_screen_logs() -> bool:
         await run_aadhar(sess.phase1_start)
         await asyncio.sleep(0.4)
 
-    ok = 'Logs' in msg.text and len(captured) >= 5 and 'Browser captcha' in ''.join(captured)
-    print(f'  screen:{len(msg.text)}ch logs:{len(captured)}')
+    ok = '╔═' in msg.text and len(captured) >= 5 and 'Browser captcha' in ''.join(captured)
+    print(f'  screen:{len(msg.text)}ch session_logs:{len(captured)}')
     print(f'  {"PASS" if ok else "FAIL"}')
     return ok
 

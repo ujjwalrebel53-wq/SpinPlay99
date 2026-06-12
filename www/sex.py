@@ -32,7 +32,7 @@ from telegram.ext import (
 load_dotenv(Path(__file__).parent / '.env')
 
 from bot_access import AccessControl
-from bot_ui_classic import LoadingScreen, uidai_user_message
+from bot_ui_classic import LoadingScreen, create_loading_screen, uidai_user_message
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
@@ -46,7 +46,6 @@ from browser_session import (
 from aadhar import (
     AADHAR_SESSIONS,
     AadharSession,
-    attach_log_callback,
     clear_aadhar_session,
     dob_bypass_on,
     get_aadhar_session,
@@ -248,9 +247,8 @@ async def open_uidai_session(
 
     existing = SESSIONS.get(chat_id)
     if not force_new and existing and await existing.page_alive():
-        status_msg = await update.message.reply_text('⏳ Fast reopen…')
-        progress = LoadingScreen(
-            status_msg, name, mobile,
+        progress = await create_loading_screen(
+            update.message, chat_id, name, mobile,
             title='Fast Reopen',
             subtitle='Live session',
         )
@@ -278,8 +276,11 @@ async def open_uidai_session(
     if not instant_sent:
         instant_sent = await _try_instant_captcha(update)
 
-    status_msg = await update.message.reply_text('⏳ Initializing…')
-    progress = LoadingScreen(status_msg, name, mobile)
+    progress = await create_loading_screen(
+        update.message, chat_id, name, mobile,
+        title='Rebel Aadhaar',
+        subtitle='Secure UIDAI Gateway',
+    )
 
     async def on_step(n: int, total: int, text: str) -> None:
         await progress.update(n, total, text)
@@ -293,11 +294,6 @@ async def open_uidai_session(
         await _send_captcha_ready(update, sess, progress, instant_sent=instant_sent)
     except Exception as e:
         await _fail_open(chat_id, sess, progress, e)
-
-
-def _wire_aadhar_logs(sess: AadharSession, progress: LoadingScreen) -> None:
-    loop = asyncio.get_running_loop()
-    attach_log_callback(sess, loop, progress)
 
 
 def _pdf_captcha_mode() -> str:
@@ -336,11 +332,7 @@ async def _try_http_captcha_prime(
     phase: str,
 ) -> bool:
     tag = (phase or 'phase1').split('-')[0]
-    await progress.log_detail(f'HTTP captcha ({tag})…')
-    ok = await run_aadhar(sess.prime_http_captcha, tag)
-    if ok:
-        await progress.log_detail(f'✓ HTTP captcha — {len(sess.last_captcha_image)} bytes')
-    return ok
+    return await run_aadhar(sess.prime_http_captcha, tag)
 
 
 def _captcha_prime_ok(sess: AadharSession) -> bool:
@@ -361,13 +353,11 @@ async def _prime_pdf_browser_captcha(
         png, txn = pair
         sess.prime_browser_captcha(png, txn)
         if _captcha_prime_ok(sess):
-            await progress.log_detail('⚡ Standby captcha')
             return True
 
     if phase_key.startswith('phase2'):
         await _await_phase2_prefetch(sess)
         if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
-            await progress.log_detail('⚡ Phase 2 captcha ready')
             return True
 
     if mode in ('auto', 'http'):
@@ -381,7 +371,6 @@ async def _prime_pdf_browser_captcha(
 
     if mode in ('auto', 'browser'):
         try:
-            await progress.log_detail(f'Browser captcha ({phase})…')
             png, txn = await fetch_pdf_browser_captcha(
                 phase,
                 name=sess.name,
@@ -395,7 +384,6 @@ async def _prime_pdf_browser_captcha(
                 return True
         except Exception as e:
             log.warning('pdf browser captcha failed (%s): %s', phase, e)
-            await progress.log_detail(f'Browser: {str(e)[:72]}')
 
     if mode == 'browser':
         return False
@@ -437,7 +425,6 @@ async def _run_pdf_with_browser_captcha(
                 'captcha_fetch_failed': True,
                 'msg': 'Captcha failed to load — try /pdf again',
             }
-    _wire_aadhar_logs(sess, progress)
     result = await run_aadhar_retry(fn, *args, progress=progress, **kwargs)
     if result.get('needs_browser_captcha'):
         refresh = f'{phase}-refresh'
@@ -574,9 +561,8 @@ async def _start_download_flow(
         except Exception:
             pass
 
-    wait = await update.message.reply_text('⏳ PDF flow starting…')
-    progress = LoadingScreen(
-        wait, name, mobile,
+    progress = await create_loading_screen(
+        update.message, chat_id, name, mobile,
         title='2-OTP PDF',
         subtitle='EID retrieve',
     )
@@ -584,7 +570,7 @@ async def _start_download_flow(
     sess = AadharSession()
     AADHAR_SESSIONS[chat_id] = sess
     await run_aadhar(sess.setup, name, mobile, dob_norm or dob)
-    await progress.log_detail('Session ready — Phase 1')
+    await progress.update(1, 4, 'Session ready')
 
     pdf_pass = pdf_password(
         name if not is_skip_name(name) else DEFAULT_NAME,
@@ -643,9 +629,8 @@ async def _phase2_after_otp1(
         await update.message.reply_text('EID missing — /pdf again.')
         return
 
-    wait = await update.message.reply_text('⏳ Phase 2 — download OTP…')
-    progress = LoadingScreen(
-        wait, sess.name, sess.mobile,
+    progress = await create_loading_screen(
+        update.message, chat_id, sess.name, sess.mobile,
         title='OTP 2',
         subtitle='e-Aadhaar PDF',
     )
@@ -1088,8 +1073,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        wait = await update.message.reply_text('⏳ Sending OTP 1…')
-        progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 1', subtitle='EID')
+        progress = await create_loading_screen(
+            update.message, cid, a_sess.name, a_sess.mobile,
+            title='OTP 1', subtitle='EID',
+        )
         try:
             await progress.update(1, 3, 'UIDAI OTP request')
             result = await _run_pdf_with_browser_captcha(
@@ -1123,8 +1110,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        wait = await update.message.reply_text('⏳ Sending OTP 2…')
-        progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 2', subtitle='PDF')
+        progress = await create_loading_screen(
+            update.message, cid, a_sess.name, a_sess.mobile,
+            title='OTP 2', subtitle='PDF',
+        )
         try:
             await progress.update(1, 3, 'Download OTP request')
             result = await _run_pdf_with_browser_captcha(
@@ -1158,14 +1147,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        wait = await update.message.reply_text('⏳ Verifying OTP 1…')
-        progress = LoadingScreen(
-            wait, a_sess.name, a_sess.mobile,
+        progress = await create_loading_screen(
+            update.message, cid, a_sess.name, a_sess.mobile,
             title='Phase 1',
             subtitle='EID retrieve',
         )
         try:
-            _wire_aadhar_logs(a_sess, progress)
             await progress.update(1, 3, 'EID verify request')
             result = await run_aadhar_retry(
                 a_sess.phase1_verify, text, progress=progress,
@@ -1212,14 +1199,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        wait = await update.message.reply_text('⏳ Downloading PDF…')
-        progress = LoadingScreen(
-            wait, a_sess.name, a_sess.mobile,
+        progress = await create_loading_screen(
+            update.message, cid, a_sess.name, a_sess.mobile,
             title='PDF Download',
             subtitle='Phase 2',
         )
         try:
-            _wire_aadhar_logs(a_sess, progress)
             await progress.update(1, 3, 'PDF download request')
             result = await run_aadhar_retry(
                 a_sess.phase2_download, text, progress=progress,
@@ -1265,9 +1250,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text('Session expired — use /open again.')
             return
         FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-        wait_msg = await update.message.reply_text('⏳ Verifying OTP…')
-        otp_progress = LoadingScreen(
-            wait_msg, sess.name, sess.mobile,
+        otp_progress = await create_loading_screen(
+            update.message, cid, sess.name, sess.mobile,
             title='Retrieve Aadhaar',
             subtitle='OTP verification',
         )
@@ -1321,9 +1305,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-    wait_msg = await update.message.reply_text('⏳ Sending OTP…')
-    otp_progress = LoadingScreen(
-        wait_msg, sess.name, sess.mobile,
+    otp_progress = await create_loading_screen(
+        update.message, cid, sess.name, sess.mobile,
         title='Send OTP',
         subtitle='UIDAI verification',
     )
