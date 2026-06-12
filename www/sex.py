@@ -52,6 +52,7 @@ from aadhar import (
     get_aadhar_session,
     pdf_password,
     run_aadhar,
+    run_aadhar_retry,
 )
 from pdf_unlock import build_pdf_password_candidates, unlock_eaadhaar_pdf
 from uidai_api import is_skip_name
@@ -183,6 +184,8 @@ def _connection_error_hint(exc: Exception) -> str:
     low = msg.lower()
     if 'browser' in low or 'closed' in low or 'chromium' in low:
         return '❌ Browser crashed.\nTry /close then /open.'
+    if 'httpsconnectionpool' in low or 'connectionpool' in low:
+        return '🔄 UIDAI network glitch — auto-retried.\nSend captcha/OTP again.'
     if 'uidai open' in low or 'timeout' in low:
         return '❌ UIDAI portal slow or down.\nTry /open fresh in a moment.'
     if msg and len(msg) < 200:
@@ -393,7 +396,7 @@ async def _run_pdf_with_browser_captcha(
                 'msg': 'Captcha failed to load — try /pdf again',
             }
     _wire_aadhar_logs(sess, progress)
-    result = await run_aadhar(fn, *args, **kwargs)
+    result = await run_aadhar_retry(fn, *args, progress=progress, **kwargs)
     if result.get('needs_browser_captcha'):
         refresh = f'{phase}-refresh'
         if await _prime_pdf_browser_captcha(sess, progress, refresh):
@@ -563,6 +566,12 @@ async def _start_download_flow(
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
             await progress.done(uidai_user_message(result, kind='otp') + hint)
             return
+        if result.get('network_error'):
+            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            await progress.fail(
+                result.get('msg') or '🔄 Network error — send captcha again',
+            )
+            return
         if result.get('captcha_fetch_failed'):
             await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
             return
@@ -603,6 +612,12 @@ async def _phase2_after_otp1(
         result = await _run_pdf_with_browser_captcha(
             update, sess, progress, sess.phase2_start, phase='phase2',
         )
+        if result.get('network_error'):
+            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            await progress.fail(
+                result.get('msg') or '🔄 Network error — /pdf again or resend captcha',
+            )
+            return
         if result.get('captcha_fetch_failed'):
             await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
             return
@@ -1031,6 +1046,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 1', subtitle='EID')
         try:
+            await progress.update(1, 3, 'UIDAI OTP request')
             result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase1_otp_manual, text,
                 phase='phase1', prime=False,
@@ -1038,13 +1054,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.done(uidai_user_message(result, kind='otp'))
+            elif result.get('network_error'):
+                FLOW[cid]['step'] = STEP_CAPTCHA
+                await progress.fail(
+                    result.get('msg') or '🔄 Network error — same captcha, send again',
+                )
             elif result.get('invalid_captcha'):
                 FLOW[cid]['step'] = STEP_CAPTCHA
                 await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
-            await progress.fail(f'OTP 1 fail: {e}')
+            FLOW[cid]['step'] = STEP_CAPTCHA
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_CAPTCHA_2 and mode == FLOW_MODE_DOWNLOAD:
@@ -1059,6 +1081,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 2…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 2', subtitle='PDF')
         try:
+            await progress.update(1, 3, 'Download OTP request')
             result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase2_otp_manual, text,
                 phase='phase2', prime=False,
@@ -1066,13 +1089,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.done(uidai_user_message(result, kind='download_otp'))
+            elif result.get('network_error'):
+                FLOW[cid]['step'] = STEP_CAPTCHA_2
+                await progress.fail(
+                    result.get('msg') or '🔄 Network error — same captcha, send again',
+                )
             elif result.get('invalid_captcha'):
                 FLOW[cid]['step'] = STEP_CAPTCHA_2
                 await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:
-            await progress.fail(f'OTP 2 fail: {e}')
+            FLOW[cid]['step'] = STEP_CAPTCHA_2
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_OTP_1 and mode == FLOW_MODE_DOWNLOAD:
@@ -1092,7 +1121,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         try:
             _wire_aadhar_logs(a_sess, progress)
-            result = await run_aadhar(a_sess.phase1_verify, text)
+            await progress.update(1, 3, 'EID verify request')
+            result = await run_aadhar_retry(
+                a_sess.phase1_verify, text, progress=progress,
+            )
             if result.get('retrieve_ok'):
                 resolved_name = result.get('aadhaar_name') or a_sess.aadhaar_name
                 if resolved_name and not is_skip_name(resolved_name):
@@ -1106,13 +1138,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     }
                 await progress.done(uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'))
                 await _phase2_after_otp1(update, cid, a_sess)
+            elif result.get('network_error'):
+                FLOW[cid]['step'] = STEP_OTP_1
+                await progress.fail(
+                    result.get('msg') or '🔄 Network error — send OTP 1 again',
+                )
             else:
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.fail(result.get('msg') or 'OTP 1 verify failed')
         except Exception as e:
             log.exception('otp1 verify failed')
             FLOW[cid]['step'] = STEP_OTP_1
-            await progress.fail(f'OTP 1 fail: {e}')
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_OTP_2 and mode == FLOW_MODE_DOWNLOAD:
@@ -1132,7 +1169,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         try:
             _wire_aadhar_logs(a_sess, progress)
-            result = await run_aadhar(a_sess.phase2_download, text)
+            await progress.update(1, 3, 'PDF download request')
+            result = await run_aadhar_retry(
+                a_sess.phase2_download, text, progress=progress,
+            )
             if result.get('download_ok'):
                 pdf = result.get('pdf_bytes') or b''
                 flow_draft = FLOW.get(cid, {})
@@ -1150,13 +1190,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 browser_sess = SESSIONS.pop(cid, None)
                 if browser_sess:
                     await browser_sess.close(keep_warm=True)
+            elif result.get('network_error'):
+                FLOW[cid]['step'] = STEP_OTP_2
+                await progress.fail(
+                    result.get('msg') or '🔄 Network error — send OTP 2 again',
+                )
             else:
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.fail(uidai_user_message(result, kind='download'))
         except Exception as e:
             log.exception('pdf download failed')
             FLOW[cid]['step'] = STEP_OTP_2
-            await progress.fail(f'Download fail: {e}')
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_OTP:

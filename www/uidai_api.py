@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.12.1'
+BOT_ENGINE_VERSION = '2.12.2'
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL

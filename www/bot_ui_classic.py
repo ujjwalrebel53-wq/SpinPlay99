@@ -176,6 +176,10 @@ class LoadingScreen:
 
     async def fail(self, err: str) -> None:
         self._status = 'fail'
+        if self._current < 1:
+            self._current = 1
+            if not self._steps:
+                self._steps.append('▸ Request')
         if self._steps and self._current >= 1:
             idx = self._current - 1
             self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'

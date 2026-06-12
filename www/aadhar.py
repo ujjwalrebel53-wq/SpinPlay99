@@ -18,11 +18,14 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 try:
     import whisper
@@ -167,9 +170,30 @@ def _short_json(obj: Any, limit: int = 280) -> str:
 
 def request_timeout() -> tuple[int, int]:
     """(connect, read) seconds — hang avoid."""
-    t = int(os.getenv('AADHAR_TIMEOUT', '20'))
-    c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '8'))
+    t = int(os.getenv('AADHAR_TIMEOUT', '30'))
+    c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '15'))
     return (c, t)
+
+
+def post_retry_count() -> int:
+    return max(1, int(os.getenv('AADHAR_POST_RETRIES', '4')))
+
+
+def _retryable_status(code: int) -> bool:
+    return code in (408, 429, 500, 502, 503, 504)
+
+
+def _is_network_error(exc: BaseException) -> bool:
+    if isinstance(exc, requests.RequestException):
+        return True
+    msg = str(exc).lower()
+    return any(
+        k in msg
+        for k in (
+            'connection', 'timeout', 'timed out', 'network', 'refused',
+            'reset', 'broken pipe', 'ssl', 'httpsconnectionpool',
+        )
+    )
 
 
 class AadharSession:
@@ -177,6 +201,18 @@ class AadharSession:
 
     def __init__(self, on_log: LogCb | None = None) -> None:
         self._session = requests.Session()
+        retry = Retry(
+            total=2,
+            connect=2,
+            read=2,
+            backoff_factor=0.8,
+            status_forcelist=[502, 503, 504],
+            allowed_methods=frozenset(['POST']),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=8)
+        self._session.mount('https://', adapter)
+        self._session.mount('http://', adapter)
         proxy = (os.getenv('UIDAI_PROXY') or '').strip()
         if proxy and proxy.lower() not in ('auto', 'none', 'no', 'off', 'direct', ''):
             self._session.proxies = {'http': proxy, 'https': proxy}
@@ -321,17 +357,41 @@ class AadharSession:
         payload: dict[str, Any] | None = None,
         timeout: int | tuple[int, int] | None = None,
     ) -> requests.Response:
-        """Direct POST to UIDAI APIs."""
+        """POST with auto-retry on timeout / connection errors."""
         body = payload if payload is not None else {}
         tmo = timeout if timeout is not None else request_timeout()
-        self._log(f'[*] POST {url.split("/")[-1]}… (timeout={tmo})')
-        try:
-            return self._session.post(
-                url, headers=headers, json=body, timeout=tmo, proxies=None,
-            )
-        except requests.RequestException as e:
-            self._log(f'[!] Request failed: {str(e)[:80]}')
-            raise RuntimeError('UIDAI request failed — check network on Indian VPS') from e
+        tag = url.split('/')[-1][:24]
+        retries = post_retry_count()
+        last_exc: Exception | None = None
+        for attempt in range(1, retries + 1):
+            self._log(f'[*] POST {tag}… try {attempt}/{retries} timeout={tmo}')
+            try:
+                r = self._session.post(url, headers=headers, json=body, timeout=tmo)
+                if _retryable_status(r.status_code) and attempt < retries:
+                    self._log(f'[!] HTTP {r.status_code} — retry {attempt}/{retries}')
+                    time.sleep(min(2 ** attempt, 10))
+                    continue
+                return r
+            except requests.RequestException as e:
+                last_exc = e
+                self._log(f'[!] Request failed ({attempt}/{retries}): {str(e)[:90]}')
+                if attempt < retries:
+                    time.sleep(min(2 ** attempt, 10))
+        raise RuntimeError(
+            f'UIDAI network failed after {retries} tries — check VPS / proxy'
+        ) from last_exc
+
+    def _network_error_result(self, tag: str, err: str = '') -> dict[str, Any]:
+        self._log(f'[-] [{tag}] network error — auto-retry exhausted')
+        msg = (err or 'UIDAI network error').strip()[:120]
+        return {
+            **self._result_base(),
+            'otp_ok': False,
+            'retrieve_ok': False,
+            'download_ok': False,
+            'network_error': True,
+            'msg': f'🔄 {msg} — try again',
+        }
 
     @staticmethod
     def _image_captcha_ok(png: bytes) -> bool:
@@ -587,6 +647,8 @@ class AadharSession:
             rid = str(uuid.uuid4())
             self.phase1_headers = get_headers(rid)
         resp = self._request_eid_otp(cap, self.captcha_txn_id, self.phase1_headers, tag='phase1-manual')
+        if resp is None:
+            return self._network_error_result('phase1-manual')
         if not is_success(resp):
             return self._captcha_rejected_result(resp, self.phase1_headers, 'phase1')
         self.otp_txn_id = (resp.get('responseData') or {}).get('otpTxnId') or ''
@@ -613,7 +675,9 @@ class AadharSession:
             resp = r.json()
             self._log(f'[*] Verify HTTP {r.status_code}: {_short_json(resp)}')
         except Exception as e:
-            return {**self._result_base(), 'retrieve_ok': False, 'msg': str(e)}
+            if _is_network_error(e):
+                return self._network_error_result('phase1-verify', str(e))
+            return {**self._result_base(), 'retrieve_ok': False, 'msg': str(e)[:120]}
 
         if not is_success(resp):
             return {**self._result_base(), 'retrieve_ok': False, 'msg': _short_json(resp)}
@@ -694,6 +758,8 @@ class AadharSession:
             self.phase2_req_id = str(uuid.uuid4())
             self.phase2_headers = get_headers(self.phase2_req_id)
         resp = self._request_download_otp(cap, self.captcha_txn_id, tag='phase2-manual')
+        if resp is None:
+            return self._network_error_result('phase2-manual')
         if not is_success(resp):
             return self._captcha_rejected_result(resp, self.phase2_headers, 'phase2')
         self.download_otp_txn_id = str(resp.get('txnId') or '')
@@ -713,7 +779,9 @@ class AadharSession:
             resp = r.json()
             self._log(f'[*] Download HTTP {r.status_code}: {_short_json(resp)}')
         except Exception as e:
-            return {**self._result_base(), 'download_ok': False, 'msg': str(e)}
+            if _is_network_error(e):
+                return self._network_error_result('phase2-download', str(e))
+            return {**self._result_base(), 'download_ok': False, 'msg': str(e)[:120]}
 
         if not is_success(resp):
             return {**self._result_base(), 'download_ok': False, 'msg': _short_json(resp)}
@@ -805,6 +873,27 @@ async def run_aadhar(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         _AADHAR_EXECUTOR,
         lambda: fn(*args, **kwargs),
     )
+
+
+async def run_aadhar_retry(
+    fn: Callable[..., Any],
+    *args: Any,
+    progress: Any = None,
+    max_attempts: int | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Run UIDAI step — retry whole step on network_error."""
+    attempts = max_attempts or max(2, int(os.getenv('AADHAR_STEP_RETRIES', '3')))
+    last: dict[str, Any] = {}
+    for attempt in range(1, attempts + 1):
+        last = await run_aadhar(fn, *args, **kwargs)
+        if not isinstance(last, dict) or not last.get('network_error'):
+            return last
+        if progress and hasattr(progress, 'log_detail'):
+            await progress.log_detail(f'Network retry {attempt}/{attempts}…')
+        if attempt < attempts:
+            await asyncio.sleep(min(2 ** attempt, 12))
+    return last
 
 
 def main() -> None:
