@@ -8,7 +8,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.14.3'
+BOT_ENGINE_VERSION = '2.14.4'
 
 
 def uidai_fast() -> bool:

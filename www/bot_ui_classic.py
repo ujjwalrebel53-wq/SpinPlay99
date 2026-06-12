@@ -243,19 +243,33 @@ class LoadingScreen:
         try:
             while self._animating:
                 self._spin_frame += 1
-                if self._status == 'loading' and self._lines:
-                    lines = _terminal_lines(self.mode)
-                    pulse = self._spin_frame % max(len(lines), 1)
-                    if pulse < len(lines) and lines[pulse] not in self._lines:
-                        self._lines = list(lines[: max(len(self._lines), pulse + 1)])
                 await self._render()
                 await asyncio.sleep(self._SPIN_INTERVAL)
         except asyncio.CancelledError:
             return
 
+    def _mode_start_line(self) -> str:
+        labels = {
+            'fetch': '[+] Aadhaar SMS fetch started',
+            'pdf': '[+] e-Aadhaar PDF flow started',
+            'captcha': '[+] Captcha session started',
+        }
+        return labels.get(self.mode, '[+] Operation started')
+
+    def _push_step_line(self, n: int, total: int, text: str) -> None:
+        """Append one real progress line — never repeat the same line twice."""
+        label = (text or '').strip()
+        if not label:
+            label = f'Step {n}/{total}'
+        step_line = f'[{n}/{total}] {label}'
+        if self._lines and self._lines[-1] == step_line:
+            return
+        self._lines.append(step_line)
+        if len(self._lines) > 8:
+            self._lines = self._lines[-8:]
+
     async def show(self) -> None:
-        lines = _terminal_lines(self.mode)
-        self._lines = [lines[0]] if lines else []
+        self._lines = [self._mode_start_line()]
         await self._start_spinner()
         await self._render()
 
@@ -265,15 +279,14 @@ class LoadingScreen:
     async def update(self, n: int, total: int, text: str = '') -> None:
         self._total = max(total, 1)
         self._current = n
-        idx = _step_index(self.mode, n, total, text)
-        lines = _terminal_lines(self.mode)
-        self._lines = list(lines[: idx + 1])
+        self._push_step_line(n, total, text)
         await self._render()
 
     async def done(self, final: str = '') -> None:
         await self._stop_spinner()
         self._status = 'done'
-        self._lines = list(_terminal_lines(self.mode))
+        if self._lines and self._lines[-1] != '[+] Done':
+            self._lines.append('[+] Done')
         self._footer = final
         await self._render(force=True)
 
@@ -281,8 +294,9 @@ class LoadingScreen:
         await self._stop_spinner()
         self._status = 'fail'
         if not self._lines:
-            lines = _terminal_lines(self.mode)
-            self._lines = [lines[0]] if lines else ['[!] Error']
+            self._lines = [self._mode_start_line()]
+        if self._lines[-1] != '[!] Stopped':
+            self._lines.append('[!] Stopped')
         self._footer = err
         await self._render(force=True)
 
