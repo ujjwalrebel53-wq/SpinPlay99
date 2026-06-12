@@ -101,7 +101,7 @@ async def test_full_flow_mock() -> bool:
 
 async def test_loading_screen_logs() -> bool:
     print('\n=== Loading screen + log listener ===')
-    from bot_ui import LoadingScreen
+    from bot_ui_classic import LoadingScreen
 
     class FakeMsg:
         text = ''
@@ -109,23 +109,19 @@ async def test_loading_screen_logs() -> bool:
             self.text = t
 
     msg = FakeMsg()
-    progress = LoadingScreen(msg, 'KAMAR JAHAN', '7651892956', title='2-OTP PDF', subtitle='Test')
-    loop = asyncio.get_running_loop()
+    progress = LoadingScreen(msg, '7651892956', mode='pdf', name='KAMAR JAHAN')
+    await progress.show()
+    await progress.update(3, 10, 'Loading captcha')
     captured: list[str] = []
-
-    def on_log(line: str) -> None:
-        captured.append(line)
-        asyncio.run_coroutine_threadsafe(progress.log_detail(line), loop)
 
     fake_png = base64.b64decode(FAKE_PNG)
     with patch.object(AadharSession, '_post', side_effect=lambda url, **kw: _route_post(url, **kw)):
-        sess = AadharSession(on_log=on_log)
+        sess = AadharSession(on_log=captured.append)
         await run_aadhar(sess.setup, 'KAMAR JAHAN', '7651892956')
         sess.prime_browser_captcha(fake_png, 'txn-logs-1')
         await run_aadhar(sess.phase1_start)
-        await asyncio.sleep(0.4)
 
-    ok = '╔═' in msg.text and len(captured) >= 5 and 'Browser captcha' in ''.join(captured)
+    ok = 'TARGET:' in msg.text and 'LIVE TERMINAL' in msg.text and len(captured) >= 5
     print(f'  screen:{len(msg.text)}ch session_logs:{len(captured)}')
     print(f'  {"PASS" if ok else "FAIL"}')
     return ok

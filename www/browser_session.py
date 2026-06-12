@@ -76,17 +76,38 @@ SKIP_FONTS_JS = """(() => {
   (document.head || document.documentElement).appendChild(s);
 })();"""
 
-_POOL: dict[str, Any] = {
-    'lock': asyncio.Lock(),
-    'pw': None,
-    'browser': None,
-    'standby': {
+STANDBY_UID = 'standby_uid'
+STANDBY_EID = 'standby_eid'
+STANDBY_PDF = 'standby_pdf'
+STANDBY_SLOTS = (STANDBY_UID, STANDBY_EID, STANDBY_PDF)
+
+
+def _empty_standby() -> dict[str, Any]:
+    return {
         'context': None,
         'page': None,
         'captcha_png': b'',
         'captcha_txn_id': '',
         'cached_at': 0.0,
-    },
+    }
+
+
+def _pool_key(pool: str = 'eid') -> str:
+    p = (pool or 'eid').strip().lower()
+    if p in ('uid', 'aadhaar', 'aadhar', 'fetch'):
+        return STANDBY_UID
+    if p in ('pdf', 'download'):
+        return STANDBY_PDF
+    return STANDBY_EID
+
+
+_POOL: dict[str, Any] = {
+    'lock': asyncio.Lock(),
+    'pw': None,
+    'browser': None,
+    STANDBY_UID: _empty_standby(),
+    STANDBY_EID: _empty_standby(),
+    STANDBY_PDF: _empty_standby(),
 }
 
 
@@ -116,19 +137,14 @@ async def _pool_drop_browser_locked() -> None:
 
 async def _pool_shutdown() -> None:
     async with _POOL['lock']:
-        standby = _POOL.get('standby') or {}
-        if standby.get('context'):
-            try:
-                await standby['context'].close()
-            except Exception:
-                pass
-        _POOL['standby'] = {
-            'context': None,
-            'page': None,
-            'captcha_png': b'',
-            'captcha_txn_id': '',
-            'cached_at': 0.0,
-        }
+        for slot in STANDBY_SLOTS:
+            sb = _POOL.get(slot) or {}
+            if sb.get('context'):
+                try:
+                    await sb['context'].close()
+                except Exception:
+                    pass
+            _POOL[slot] = _empty_standby()
         await _pool_drop_browser_locked()
         if _POOL['pw']:
             try:
@@ -141,13 +157,16 @@ async def _pool_shutdown() -> None:
 def pool_is_warm() -> bool:
     if not _browser_connected(_POOL.get('browser')):
         return False
-    sb = _POOL.get('standby') or {}
-    page = sb.get('page')
-    return bool(page and not page.is_closed())
+    for slot in STANDBY_SLOTS:
+        sb = _POOL.get(slot) or {}
+        page = sb.get('page')
+        if not page or page.is_closed():
+            return False
+    return True
 
 
-def standby_has_captcha() -> bool:
-    sb = _POOL.get('standby') or {}
+def standby_has_captcha(pool: str = 'eid') -> bool:
+    sb = _POOL.get(_pool_key(pool)) or {}
     png = sb.get('captcha_png') or b''
     if len(png) < 500:
         return False
@@ -156,17 +175,17 @@ def standby_has_captcha() -> bool:
     return time.monotonic() - float(sb['cached_at']) < CAPTCHA_CACHE_TTL_SEC
 
 
-def get_standby_captcha_png() -> bytes | None:
-    if standby_has_captcha():
-        return _POOL['standby']['captcha_png']
+def get_standby_captcha_png(pool: str = 'uid') -> bytes | None:
+    if standby_has_captcha(pool):
+        return _POOL[_pool_key(pool)]['captcha_png']
     return None
 
 
-def get_standby_captcha_pair() -> tuple[bytes, str] | None:
-    """Standby cache — PNG + captchaTxnId (instant /pdf captcha)."""
-    if not standby_has_captcha():
+def get_standby_captcha_pair(pool: str = 'eid') -> tuple[bytes, str] | None:
+    """24/7 pool — PNG + captchaTxnId (uid / eid / pdf)."""
+    if not standby_has_captcha(pool):
         return None
-    sb = _POOL['standby']
+    sb = _POOL[_pool_key(pool)]
     txn = str(sb.get('captcha_txn_id') or '').strip()
     png = sb.get('captcha_png') or b''
     if len(png) < 500 or not txn:
@@ -193,7 +212,7 @@ async def fetch_pdf_browser_captcha(
             eid=eid,
             on_step=on_step,
         )
-    pair = get_standby_captcha_pair()
+    pair = get_standby_captcha_pair('eid')
     if pair and name and mobile:
         log.info('fetch_pdf_browser_captcha — standby cache hit')
         return pair
@@ -379,19 +398,20 @@ def _browser_context_kwargs() -> dict[str, Any]:
     }
 
 
-async def _refresh_standby_captcha_locked(page: Page) -> None:
+async def _refresh_standby_captcha_locked(page: Page, slot: str) -> None:
     png, txn = await _capture_page_captcha(page)
-    _POOL['standby']['captcha_png'] = png
-    _POOL['standby']['captcha_txn_id'] = txn
-    _POOL['standby']['cached_at'] = time.monotonic()
-    log.info('Standby captcha cached — txn=%s bytes=%s', (txn or '')[:8], len(png))
+    sb = _POOL[slot]
+    sb['captcha_png'] = png
+    sb['captcha_txn_id'] = txn
+    sb['cached_at'] = time.monotonic()
+    log.info('Standby %s captcha — txn=%s bytes=%s', slot, (txn or '')[:8], len(png))
 
 
-async def warm_standby_uidai() -> bool:
-    """UIDAI page + captcha prefetch — 24/7 standby tab."""
+async def warm_standby_slot(slot: str) -> bool:
+    """Keep one 24/7 browser tab hot — UID / EID / PDF download."""
     try:
         browser, _ = await _pool_browser()
-        sb = _POOL['standby']
+        sb = _POOL[slot]
         if not sb.get('page') or sb['page'].is_closed():
             if sb.get('context'):
                 try:
@@ -403,16 +423,23 @@ async def warm_standby_uidai() -> bool:
             page = await ctx.new_page()
             sb['context'] = ctx
             sb['page'] = page
+            target_url = DOWNLOAD_PAGE_URL if slot == STANDBY_PDF else UIDAI_PAGE_URL
             for attempt in range(3):
                 try:
-                    await page.goto(UIDAI_PAGE_URL, wait_until='commit', timeout=40_000)
-                    for _ in range(100):
-                        if await page.locator('input[name="name"]').count():
-                            break
-                        await asyncio.sleep(0.1)
+                    await page.goto(target_url, wait_until='commit', timeout=40_000)
+                    if slot == STANDBY_PDF:
+                        await asyncio.sleep(_ui_delay(1.0))
+                    else:
+                        for _ in range(100):
+                            if await page.locator('input[name="name"]').count():
+                                break
+                            await asyncio.sleep(0.1)
+                        opt = 'UID' if slot == STANDBY_UID else 'EID'
+                        await page.evaluate(SET_OPTION_JS, opt)
+                        await asyncio.sleep(_ui_delay(0.4))
                     break
                 except Exception as e:
-                    log.warning('standby goto attempt %s: %s', attempt + 1, e)
+                    log.warning('warm %s attempt %s: %s', slot, attempt + 1, e)
                     if attempt == 2:
                         raise
                     await asyncio.sleep(1)
@@ -421,38 +448,61 @@ async def warm_standby_uidai() -> bool:
         if not page or page.is_closed():
             return False
         async with _POOL['lock']:
-            await _refresh_standby_captcha_locked(page)
+            await _refresh_standby_captcha_locked(page, slot)
         return True
     except Exception as e:
-        log.warning('warm_standby_uidai fail: %s', e)
+        log.warning('warm_standby_slot %s fail: %s', slot, e)
         return False
 
 
-async def refresh_standby_captcha() -> bool:
-    """Re-snapshot standby captcha if page still open."""
-    sb = _POOL.get('standby') or {}
+async def warm_standby_uidai() -> bool:
+    """Legacy — warm EID retrieve tab."""
+    return await warm_standby_slot(STANDBY_EID)
+
+
+async def refresh_standby_slot(slot: str) -> bool:
+    sb = _POOL.get(slot) or {}
     page = sb.get('page')
     if not page or page.is_closed():
         return False
     try:
         async with _POOL['lock']:
-            await _refresh_standby_captcha_locked(page)
+            await _refresh_standby_captcha_locked(page, slot)
         return True
     except Exception as e:
-        log.warning('refresh_standby_captcha fail: %s', e)
+        log.warning('refresh_standby_slot %s: %s', slot, e)
+        return False
+
+
+async def refresh_standby_captcha() -> bool:
+    """Re-snapshot captcha on all 24/7 pool tabs."""
+    results = await asyncio.gather(
+        *[refresh_standby_slot(slot) for slot in STANDBY_SLOTS],
+        return_exceptions=True,
+    )
+    return any(r is True for r in results)
+
+
+async def ensure_triple_pool_warm() -> bool:
+    """Chromium + 3 UIDAI tabs (UID / EID / PDF) — always on."""
+    try:
+        await _pool_browser()
+        results = await asyncio.gather(
+            warm_standby_slot(STANDBY_UID),
+            warm_standby_slot(STANDBY_EID),
+            warm_standby_slot(STANDBY_PDF),
+            return_exceptions=True,
+        )
+        ok = sum(1 for r in results if r is True)
+        log.info('Triple pool warm — %s/3 slots ready', ok)
+        return ok >= 2
+    except Exception as e:
+        log.warning('Triple pool warm fail: %s', e)
         return False
 
 
 async def ensure_pool_warm() -> bool:
-    """Chromium + UIDAI standby page + captcha prefetch."""
-    try:
-        await _pool_browser()
-        ok = await warm_standby_uidai()
-        log.info('Pool warm — direct standby=%s', ok)
-        return ok
-    except Exception as e:
-        log.warning('Pool warm fail: %s', e)
-        return False
+    return await ensure_triple_pool_warm()
 
 
 async def _pool_browser() -> tuple[Browser, bool]:
@@ -489,10 +539,12 @@ class UidaiBrowserSession:
         self,
         bundle_path: Path | None = None,
         on_step: StepCb | None = None,
+        pool: str = 'uid',
     ) -> None:
         # bundle_path kept for backward compat — no longer used
         self.bundle_path = bundle_path
         self._on_step = on_step
+        self._pool_slot = pool
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self.name = ''
@@ -602,7 +654,8 @@ class UidaiBrowserSession:
         return png
 
     async def _try_adopt_standby(self) -> bool:
-        sb = _POOL.get('standby') or {}
+        slot = _pool_key(self._pool_slot)
+        sb = _POOL.get(slot) or {}
         page = sb.get('page')
         ctx = sb.get('context')
         if not page or page.is_closed() or not ctx:
@@ -619,7 +672,7 @@ class UidaiBrowserSession:
         self.form_ready = True
         self.page_loaded_at = time.monotonic()
         self.touch()
-        log.info('Adopted standby UIDAI page — instant captcha ready')
+        log.info('Adopted pool tab %s — instant captcha ready', slot)
         return True
 
     async def reset_for_next_attempt(self) -> None:
@@ -645,7 +698,7 @@ class UidaiBrowserSession:
 
         if await self._try_adopt_standby():
             browser, reused = await _pool_browser()
-            asyncio.create_task(warm_standby_uidai())
+            asyncio.create_task(warm_standby_slot(_pool_key(self._pool_slot)))
             return reused
 
         last_err: Exception | None = None
@@ -782,7 +835,7 @@ class UidaiBrowserSession:
         if not force_reload and await self._form_on_page():
             self.touch()
             self.page_loaded_at = time.monotonic()
-            pair = get_standby_captcha_pair()
+            pair = get_standby_captcha_pair(self._pool_slot)
             if pair and not self.captcha_txn_id:
                 self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
                 self._captcha_cache_at = time.monotonic()
