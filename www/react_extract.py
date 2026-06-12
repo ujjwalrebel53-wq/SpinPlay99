@@ -118,6 +118,19 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
   return null;
 }"""
 
+CLEAR_RETRIEVE_FORM_JS = """() => {
+  for (const name of ['name', 'mobile']) {
+    const el = document.querySelector('input[name="' + name + '"]');
+    if (!el) continue;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (proto?.set) proto.set.call(el, '');
+    else el.value = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  return true;
+}"""
+
 SET_OPTION_JS = """(opt) => {
   const want = String(opt || 'UID').toUpperCase();
   const val = want === 'EID' ? 'eid' : 'uid';

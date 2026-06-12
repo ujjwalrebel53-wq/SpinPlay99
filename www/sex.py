@@ -44,8 +44,8 @@ from browser_session import (
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
     get_standby_captcha_pair,
-    get_standby_captcha_png,
     pool_is_warm,
+    pool_slot_ready,
     refresh_standby_captcha,
 )
 from aadhar import (
@@ -179,23 +179,6 @@ def _captcha_caption(*, fresh: bool = False, instant: bool = False, ttl: str = '
     )
 
 
-async def _try_instant_captcha(
-    update: Update,
-    sess: UidaiBrowserSession | None = None,
-) -> bool:
-    cap = sess.peek_captcha_png() if sess else None
-    if not cap:
-        cap = get_standby_captcha_png('uid')
-    if not cap or len(cap) < 500:
-        return False
-    ttl = sess.ttl_label() if sess and sess.last_activity_at else ''
-    await update.message.reply_photo(
-        photo=cap,
-        caption=_captcha_caption(instant=True, ttl=ttl),
-    )
-    return True
-
-
 def _connection_error_hint(exc: Exception) -> str:
     msg = str(exc).strip()
     low = msg.lower()
@@ -215,16 +198,15 @@ async def _send_captcha_ready(
     sess: UidaiBrowserSession,
     progress: LoadingScreen,
     *,
-    instant_sent: bool = False,
+    instant: bool = False,
 ) -> None:
-    if not instant_sent:
-        await progress.update(3, 8, 'Loading captcha')
-        cap = await sess.captcha_png(use_cache=True)
-        ttl = sess.ttl_label() if sess.last_activity_at else ''
-        await update.message.reply_photo(
-            photo=cap,
-            caption=_captcha_caption(ttl=ttl),
-        )
+    cap = sess.peek_captcha_png() or await sess.captcha_png(use_cache=True)
+    ttl = sess.ttl_label() if sess.last_activity_at else ''
+    await progress.update(3, 3, 'Sending captcha image')
+    await update.message.reply_photo(
+        photo=cap,
+        caption=_captcha_caption(instant=instant, ttl=ttl),
+    )
     await progress.done('Captcha ready — reply with text')
 
 
@@ -259,24 +241,22 @@ async def open_uidai_session(
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
-    instant_sent = False
-    if not force_new:
-        instant_sent = await _try_instant_captcha(update, SESSIONS.get(chat_id))
+    preloaded = not force_new and pool_slot_ready('uid')
+    progress = await create_loading_screen(
+        update.message, chat_id, mobile, mode='fetch', name=name,
+    )
+    if preloaded:
+        await progress.update(1, 3, 'Preloaded page — filling form ⚡')
+
+    async def on_step(n: int, total: int, text: str) -> None:
+        await progress.update(n, total, text)
 
     existing = SESSIONS.get(chat_id)
     if not force_new and existing and await existing.page_alive():
-        progress = await create_loading_screen(
-            update.message, chat_id, mobile, mode='fetch', name=name,
-        )
-
-        async def on_step(n: int, total: int, text: str) -> None:
-            await progress.update(n, total, text)
-
         existing._on_step = on_step
         try:
-            await existing.start()
             await existing.open_form(name, mobile, force_reload=False)
-            await _send_captcha_ready(update, existing, progress, instant_sent=instant_sent)
+            await _send_captcha_ready(update, existing, progress, instant=preloaded)
         except Exception as e:
             await _fail_open(chat_id, existing, progress, e)
         return
@@ -289,23 +269,13 @@ async def open_uidai_session(
             from browser_session import _pool_shutdown
             await _pool_shutdown()
 
-    if not instant_sent:
-        instant_sent = await _try_instant_captcha(update)
-
-    progress = await create_loading_screen(
-        update.message, chat_id, mobile, mode='fetch', name=name,
-    )
-
-    async def on_step(n: int, total: int, text: str) -> None:
-        await progress.update(n, total, text)
-
     sess = UidaiBrowserSession(on_step=on_step, pool='uid')
     SESSIONS[chat_id] = sess
 
     try:
         await sess.start()
         await sess.open_form(name, mobile, force_reload=force_new)
-        await _send_captcha_ready(update, sess, progress, instant_sent=instant_sent)
+        await _send_captcha_ready(update, sess, progress, instant=preloaded)
     except Exception as e:
         await _fail_open(chat_id, sess, progress, e)
 
@@ -853,7 +823,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
         ])
     lines.append('')
-    lines.append('🟢 Browser pool: active 24/7' if pool_is_warm() else '⚪ Browser pool: idle')
+    if pool_slot_ready('uid'):
+        lines.append('⚡ UIDAI preloaded — instant /fetch ready')
+    elif pool_is_warm():
+        lines.append('🟢 Browser pool: active 24/7')
+    else:
+        lines.append('⚪ Browser pool: warming…')
     await update.message.reply_text('\n'.join(lines))
 
 
@@ -1144,7 +1119,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
-        await update.message.reply_text(f'OK — {name} / {mobile}')
         if mode == FLOW_MODE_DOWNLOAD:
             if dob_bypass_on():
                 await _start_download_flow(update, cid, name, mobile)
@@ -1475,12 +1449,24 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception('Bot error: %s', context.error)
 
 
+async def _startup_pool_warm() -> None:
+    default_warm = '1' if uidai_fast() else '0'
+    if os.getenv('UIDAI_POOL_WARM', default_warm).strip().lower() in ('0', 'false', 'no', 'off'):
+        return
+    try:
+        await asyncio.wait_for(ensure_pool_warm(), timeout=120)
+        log.info('UIDAI triple pool preloaded — instant /fetch ready')
+    except Exception as e:
+        log.warning('startup pool warm: %s', e)
+
+
 async def _register_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands([
         BotCommand('start', 'Rebel Aadhaar — command list'),
         BotCommand('fetch', 'Aadhaar SMS — 1 OTP'),
         BotCommand('pdf', 'e-Aadhaar PDF — 2 OTP'),
     ])
+    asyncio.create_task(_startup_pool_warm())
 
 
 def main() -> None:
@@ -1519,10 +1505,10 @@ def main() -> None:
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        warm_delay = 3 if uidai_fast() else 8
-        standby_first = 35 if uidai_fast() else 90
+        warm_delay = 1 if uidai_fast() else 5
+        standby_first = 20 if uidai_fast() else 60
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
-        app.job_queue.run_repeating(standby_captcha_job, interval=300, first=standby_first)
+        app.job_queue.run_repeating(standby_captcha_job, interval=180, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 

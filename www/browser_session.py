@@ -15,6 +15,7 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from react_extract import (
+    CLEAR_RETRIEVE_FORM_JS,
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
@@ -407,6 +408,15 @@ async def _refresh_standby_captcha_locked(page: Page, slot: str) -> None:
     log.info('Standby %s captcha — txn=%s bytes=%s', slot, (txn or '')[:8], len(png))
 
 
+async def _prepare_standby_retrieve_page(page: Page, slot: str) -> None:
+    """Empty form + UID/EID option — ready for instant name/mobile fill."""
+    opt = 'UID' if slot == STANDBY_UID else 'EID'
+    await page.evaluate(SET_OPTION_JS, opt)
+    await asyncio.sleep(_ui_delay(0.15))
+    await page.evaluate(CLEAR_RETRIEVE_FORM_JS)
+    await asyncio.sleep(_ui_delay(0.15))
+
+
 async def warm_standby_slot(slot: str) -> bool:
     """Keep one 24/7 browser tab hot — UID / EID / PDF download."""
     try:
@@ -434,9 +444,7 @@ async def warm_standby_slot(slot: str) -> bool:
                             if await page.locator('input[name="name"]').count():
                                 break
                             await asyncio.sleep(0.1)
-                        opt = 'UID' if slot == STANDBY_UID else 'EID'
-                        await page.evaluate(SET_OPTION_JS, opt)
-                        await asyncio.sleep(_ui_delay(0.4))
+                        await _prepare_standby_retrieve_page(page, slot)
                     break
                 except Exception as e:
                     log.warning('warm %s attempt %s: %s', slot, attempt + 1, e)
@@ -448,11 +456,31 @@ async def warm_standby_slot(slot: str) -> bool:
         if not page or page.is_closed():
             return False
         async with _POOL['lock']:
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            net_txn: dict[str, Any] = {}
+            _attach_captcha_net_hook(page, net_txn)
             await _refresh_standby_captcha_locked(page, slot)
+            if slot != STANDBY_PDF:
+                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=12.0)
+                if txn:
+                    sb['captcha_txn_id'] = txn
         return True
     except Exception as e:
         log.warning('warm_standby_slot %s fail: %s', slot, e)
         return False
+
+
+def pool_slot_ready(pool: str = 'uid') -> bool:
+    """Preloaded tab + captcha snapshot ready for instant /fetch."""
+    slot = _pool_key(pool)
+    sb = _POOL.get(slot) or {}
+    page = sb.get('page')
+    if not page or page.is_closed():
+        return False
+    if not standby_has_captcha(pool):
+        return False
+    return True
 
 
 async def warm_standby_uidai() -> bool:
@@ -817,9 +845,9 @@ class UidaiBrowserSession:
             self._page = None
 
         if await self._try_adopt_standby():
-            browser, reused = await _pool_browser()
-            asyncio.create_task(warm_standby_slot(_pool_key(self._pool_slot)))
-            return reused
+            await _pool_browser()
+            self._replenish_pool()
+            return True
 
         last_err: Exception | None = None
         for attempt in range(3):
@@ -893,6 +921,15 @@ class UidaiBrowserSession:
         self.form_ready = True
         self.touch()
 
+    async def _fill_fields_only_fast(self) -> None:
+        """Fill name + mobile on preloaded page — no page reload."""
+        await self.page.fill('input[name="name"]', self.name)
+        await self.page.fill('input[name="mobile"]', self.mobile)
+        await self._extract_captcha_txn()
+        await self._read_option()
+        self.form_ready = True
+        self.touch()
+
     async def _fill_fields_and_captcha(self, *, fresh_captcha: bool) -> None:
         await self._fill_fields_only()
         if fresh_captcha:
@@ -932,6 +969,29 @@ class UidaiBrowserSession:
         self.option = opt if opt in ('UID', 'EID') else 'UID'
         return self.option
 
+    async def _replenish_pool(self) -> None:
+        asyncio.create_task(warm_standby_slot(_pool_key(self._pool_slot)))
+
+    async def _open_from_preloaded_page(self) -> bytes:
+        """Preloaded pool tab — fill name/mobile and return captcha (no goto)."""
+        self.touch()
+        self.page_loaded_at = time.monotonic()
+        pair = get_standby_captcha_pair(self._pool_slot)
+        if pair and not self.captcha_txn_id:
+            self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
+            self._captcha_cache_at = time.monotonic()
+        await self._step(1, 3, 'Preloaded UIDAI page ⚡')
+        await self._fill_fields_only_fast()
+        png = self.peek_captcha_png()
+        if not png or not self.captcha_txn_id:
+            await self._step(2, 3, 'Capturing captcha…')
+            await self.prefetch_captcha()
+        else:
+            await self._step(2, 3, 'Form filled — captcha ready ⚡')
+        self._replenish_pool()
+        asyncio.create_task(self._prefetch_next_captcha())
+        return self._captcha_png_cache or png or b''
+
     async def open_form(
         self,
         name: str,
@@ -946,24 +1006,19 @@ class UidaiBrowserSession:
         self.otp_txn_id = ''
         self.last_captcha = ''
 
-        if not force_reload and await self.page_alive():
-            await self._step(1, 8, f'Session active — {self.ttl_label()} left')
-            await self._fill_fields_and_captcha(fresh_captcha=False)
-            asyncio.create_task(self._prefetch_next_captcha())
-            return self.peek_captcha_png() or b''
-
-        if not force_reload and await self._form_on_page():
-            self.touch()
-            self.page_loaded_at = time.monotonic()
-            pair = get_standby_captcha_pair(self._pool_slot)
-            if pair and not self.captcha_txn_id:
-                self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
-                self._captcha_cache_at = time.monotonic()
-            await self._step(2, 8, 'Pool ready — fast reopen ⚡')
-            await self._fill_fields_and_captcha(fresh_captcha=False)
-            asyncio.create_task(self._prefetch_next_captcha())
-            asyncio.create_task(warm_standby_uidai())
-            return self.peek_captcha_png() or self._captcha_png_cache or b''
+        if not force_reload:
+            if not self._page:
+                await self.start()
+            if await self.page_alive():
+                await self._step(1, 3, f'Session active — {self.ttl_label()} left')
+                await self._fill_fields_only_fast()
+                png = self.peek_captcha_png()
+                if not png or not self.captcha_txn_id:
+                    await self.prefetch_captcha()
+                asyncio.create_task(self._prefetch_next_captcha())
+                return self._captcha_png_cache or png or b''
+            if await self._form_on_page():
+                return await self._open_from_preloaded_page()
 
         self.captcha_txn_id = ''
         await self._step(3, 8, 'Opening UIDAI site…')
