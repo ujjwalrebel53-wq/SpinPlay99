@@ -30,7 +30,7 @@ else
 fi
 
 touch .env
-grep -q '^UIDAI_PDF_CAPTCHA=' .env || echo 'UIDAI_PDF_CAPTCHA=auto' >> .env
+grep -q '^UIDAI_PDF_CAPTCHA=' .env || echo 'UIDAI_PDF_CAPTCHA=browser' >> .env
 grep -q '^UIDAI_WHISPER_AUTO=' .env || echo 'UIDAI_WHISPER_AUTO=0' >> .env
 grep -q '^UIDAI_NAME=' .env || echo 'UIDAI_NAME="KAMAR JAHAN"' >> .env
 grep -q '^UIDAI_FAST=' .env || echo 'UIDAI_FAST=1' >> .env

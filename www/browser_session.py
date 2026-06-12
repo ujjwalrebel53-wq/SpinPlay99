@@ -857,6 +857,64 @@ class UidaiBrowserSession:
             self.captcha_txn_id = txn
         return png
 
+    async def fetch_download_captcha(self, eid: str) -> tuple[bytes, str]:
+        """Phase-2 download page captcha — same retry pattern as open_form."""
+        if not eid:
+            raise RuntimeError('EID required for download captcha')
+        self.touch()
+        await self.start()
+        goto_timeout = _goto_timeout_ms()
+        poll_sleep = _ui_delay(0.35)
+        vis_timeout = 10_000 if uidai_fast() else 18_000
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                await self.page.goto(
+                    DOWNLOAD_PAGE_URL,
+                    wait_until='commit',
+                    timeout=goto_timeout,
+                )
+                await asyncio.sleep(_ui_delay(1.2))
+                await self.page.evaluate(SELECT_DOWNLOAD_EID_JS)
+                await asyncio.sleep(_ui_delay(0.4))
+                await self.page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
+                await asyncio.sleep(_ui_delay(0.8))
+                el = self.page.locator('img[alt*="CAPTCHA" i]').first
+                for vis_try in range(3):
+                    try:
+                        await el.wait_for(state='visible', timeout=vis_timeout)
+                        break
+                    except Exception:
+                        if vis_try < 2:
+                            await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+                            await asyncio.sleep(_ui_delay(1.0))
+                        else:
+                            raise
+                txn = ''
+                for _ in range(_poll_attempts(50)):
+                    txn = str(await self.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+                    if txn:
+                        break
+                    await asyncio.sleep(poll_sleep)
+                if not txn:
+                    await self._wait_captcha_txn(15.0)
+                    txn = self.captcha_txn_id or ''
+                png, cap_txn = await _capture_page_captcha(self.page)
+                txn = txn or cap_txn or ''
+                if txn and len(png) >= 200:
+                    self.captcha_txn_id = txn
+                    self._captcha_png_cache = png
+                    self._captcha_cache_txn = txn
+                    self._captcha_cache_at = time.monotonic()
+                    return png, txn
+                raise RuntimeError('Download captcha image or txn missing')
+            except Exception as e:
+                last_err = e
+                log.warning('fetch_download_captcha attempt %s: %s', attempt + 1, e)
+                if attempt < 2:
+                    await asyncio.sleep(0.6)
+        raise RuntimeError(f'Download captcha failed: {last_err}')
+
     async def _captcha_changed(self, old_txn: str, old_src: str | None) -> bool:
         img = self.page.locator('img[alt*="CAPTCHA" i]').first
         new_src = await img.get_attribute('src')
