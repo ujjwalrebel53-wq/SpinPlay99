@@ -238,56 +238,75 @@ class AadharSession:
 
     @staticmethod
     def _image_captcha_ok(png: bytes) -> bool:
-        return bool(png) and len(png) >= 200
+        return bool(png) and len(png) >= 80
+
+    def _parse_captcha_api_json(self, data: Any, *, tag: str) -> tuple[bytes, str, bytes]:
+        """Normalize UIDAI captcha JSON — image + txn + audio bytes."""
+        from audio_captcha import parse_captcha_generation
+
+        parsed = parse_captcha_generation(data if isinstance(data, dict) else {})
+        png = parsed.get('image_png') or b''
+        txn = str(parsed.get('captchaTxnId') or '').strip()
+        audio = parsed.get('audio_bytes') or b''
+        if png:
+            self.last_captcha_image = png
+            self._log(f'[+] [{tag}] Image parsed — {len(png)} bytes')
+        if audio:
+            self.last_audio_bytes = audio
+            self._log(f'[+] [{tag}] Audio parsed — {len(audio)} bytes')
+        if txn:
+            self._log(f'[+] [{tag}] Captcha txn: {txn[:16]}…')
+        return png, txn, audio
 
     def _fetch_captcha_bundle(
         self, headers: dict[str, str], *, tag: str,
     ) -> dict[str, Any]:
-        """Image captcha first; audio fetched only for auto-fallback (not shown to user)."""
+        """
+        UIDAI audio captcha API first (returns image + audio + txn).
+        Image-only API as fallback. Audio used for auto-solve only — not sent to user.
+        """
+        from uidai_api import build_audio_captcha_payload
+
         out: dict[str, Any] = {'audio_b64': '', 'txn': '', 'image_png': b'', 'raw': {}}
 
-        self._log(f'[*] [{tag}] Requesting image captcha…')
+        self._log(f'[*] [{tag}] Requesting captcha (audio API — includes image)…')
         try:
-            r = self._post(IMAGE_CAPTCHA_URL, headers=headers, payload={})
-            self._log(f'[*] [{tag}] Image API HTTP {r.status_code}')
+            r = self._post(
+                AUDIO_CAPTCHA_URL,
+                headers=headers,
+                payload=build_audio_captcha_payload(),
+            )
+            self._log(f'[*] [{tag}] Audio API HTTP {r.status_code}')
             if r.status_code == 200:
                 data = r.json()
                 out['raw'] = data
-                img = data.get('captchaImage') or data.get('image') or data.get('captcha')
-                txn = data.get('captchaTxnId') or data.get('transactionId') or data.get('txnId')
-                if img:
-                    out['image_png'] = _b64_bytes(img)
-                    self.last_captcha_image = out['image_png']
-                    self._log(f'[+] [{tag}] Image — {len(out["image_png"])} bytes')
-                if txn:
-                    out['txn'] = str(txn)
-                    self._log(f'[+] [{tag}] Captcha Txn ID: {txn}')
+                png, txn, audio = self._parse_captcha_api_json(data, tag=tag)
+                out['image_png'] = png
+                out['txn'] = txn
+                if audio:
+                    out['audio_b64'] = base64.b64encode(audio).decode()
+            else:
+                self._log(f'[-] [{tag}] Body: {(r.text or "")[:200]}')
         except Exception as e:
-            self._log(f'[-] [{tag}] Image captcha fail: {e}')
+            self._log(f'[-] [{tag}] Audio captcha fail: {e}')
 
-        need_audio = not self._image_captcha_ok(out['image_png']) or not out['txn']
-        if need_audio:
-            self._log(f'[*] [{tag}] Image missing — fetching audio for auto-solve…')
-            payload = {'captchaLength': '6', 'captchaType': '2', 'audioCaptchaRequired': True}
+        if not self._image_captcha_ok(out['image_png']) or not out['txn']:
+            self._log(f'[*] [{tag}] Trying image captcha API fallback…')
             try:
-                r = self._post(AUDIO_CAPTCHA_URL, headers=headers, payload=payload)
-                self._log(f'[*] [{tag}] Audio API HTTP {r.status_code}')
-                if r.status_code == 200:
-                    data = r.json()
-                    audio = data.get('audioBase64') or data.get('audioCaptcha') or data.get('audio')
-                    txn = data.get('transactionId') or data.get('captchaTxnId') or data.get('txnId')
-                    img = data.get('captchaImage') or data.get('image') or data.get('captcha')
-                    if audio:
-                        out['audio_b64'] = str(audio)
-                        self.last_audio_bytes = _b64_bytes(audio)
-                        self._log(f'[+] [{tag}] Audio OK — {len(self.last_audio_bytes)} bytes')
-                    if txn and not out['txn']:
-                        out['txn'] = str(txn)
-                    if img and not self._image_captcha_ok(out['image_png']):
-                        out['image_png'] = _b64_bytes(img)
-                        self.last_captcha_image = out['image_png']
+                r2 = self._post(
+                    IMAGE_CAPTCHA_URL,
+                    headers=headers,
+                    payload={'captchaLength': '6', 'captchaType': '2'},
+                )
+                self._log(f'[*] [{tag}] Image API HTTP {r2.status_code}')
+                if r2.status_code == 200:
+                    png2, txn2, _ = self._parse_captcha_api_json(r2.json(), tag=f'{tag}-img')
+                    if png2 and not self._image_captcha_ok(out['image_png']):
+                        out['image_png'] = png2
+                    if txn2 and not out['txn']:
+                        out['txn'] = txn2
             except Exception as e:
-                self._log(f'[-] [{tag}] Audio captcha fail: {e}')
+                self._log(f'[-] [{tag}] Image API fail: {e}')
         return out
 
     def _decode_audio(self, b64: str, path: str) -> str:
@@ -466,11 +485,18 @@ class AadharSession:
                     'auto_captcha': 'whisper',
                     'msg': 'OTP 1 sent (audio auto-captcha)',
                 }
+            if self._image_captcha_ok(self.last_captcha_image):
+                return {
+                    **self._result_base(),
+                    'otp_ok': False,
+                    'needs_captcha': True,
+                    'msg': 'Enter captcha from image above (4–8 characters)',
+                }
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'msg': _short_json(resp) or 'Auto captcha rejected — enter image captcha',
+                'msg': _short_json(resp) or 'Captcha failed — try /pdf again',
             }
 
         return {
@@ -572,11 +598,18 @@ class AadharSession:
                     'auto_captcha': 'whisper',
                     'msg': 'OTP 2 sent (audio auto-captcha)',
                 }
+            if self._image_captcha_ok(self.last_captcha_image):
+                return {
+                    **self._result_base(),
+                    'otp_ok': False,
+                    'needs_captcha': True,
+                    'msg': 'Enter Phase 2 captcha from image above',
+                }
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'msg': _short_json(resp) or 'Auto captcha rejected — enter image captcha',
+                'msg': _short_json(resp) or 'Phase 2 captcha failed — try /pdf again',
             }
 
         return {
@@ -660,15 +693,33 @@ async def send_captcha_to_bot(update: Any, result: dict[str, Any], *, phase: str
     png = result.get('image_png') or b''
     cap_line = f'🔐 {phase} Captcha\nReply with 4–8 characters from the image'
 
-    if png and len(png) > 200:
+    if png and len(png) >= 80:
+        import io
+
         try:
-            await update.message.reply_photo(photo=png, caption=cap_line)
+            from telegram import InputFile
+
+            photo = InputFile(io.BytesIO(png), filename='captcha.png')
+            await update.message.reply_photo(photo=photo, caption=cap_line)
+            return
         except Exception:
-            pass
-    elif result.get('needs_captcha'):
+            try:
+                await update.message.reply_photo(photo=png, caption=cap_line)
+                return
+            except Exception:
+                try:
+                    await update.message.reply_document(
+                        document=png,
+                        filename='captcha.png',
+                        caption=cap_line,
+                    )
+                    return
+                except Exception:
+                    pass
+    if result.get('needs_captcha'):
         await update.message.reply_text(
             f'⚠ {phase} image captcha failed to load.\n'
-            'Use /pdf again or wait — auto audio solve may retry.',
+            'Try /pdf again.',
         )
 
 

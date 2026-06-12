@@ -305,8 +305,10 @@ async def _run_aadhar_with_ui(
 ) -> dict:
     _wire_aadhar_logs(sess, progress)
     result = await run_aadhar(fn, *args, **kwargs)
-    if send_captcha and result.get('needs_captcha') and not result.get('auto_captcha'):
-        await send_captcha_to_bot(update, result, phase=phase)
+    if send_captcha and not result.get('auto_captcha'):
+        png = result.get('image_png') or b''
+        if result.get('needs_captcha') or len(png) >= 80:
+            await send_captcha_to_bot(update, result, phase=phase)
     cap = result.get('captcha_text') or sess.captcha_text
     if cap:
         await progress.log_detail(f'Captcha: {cap}')
