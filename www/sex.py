@@ -17,12 +17,6 @@ import os
 import re
 from pathlib import Path
 
-# Disable baked cookies before any UIDAI imports
-os.environ.setdefault('UIDAI_BAKED_SESSION', '0')
-os.environ.setdefault('UIDAI_COOKIE_SEED', '0')
-os.environ.setdefault('UIDAI_COOKIE_PERSIST', '0')
-os.environ.setdefault('UIDAI_POOL_WARM', '0')
-
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.error import Conflict

@@ -36,7 +36,7 @@ cd "$INSTALL_DIR"
 
 FILES=(
   sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py
-  start_sex.sh install_playwright.sh requirements_sex.txt
+  start_sex.sh install_playwright.sh requirements_sex.txt .env.open
 )
 
 echo "[*] Downloading ${#FILES[@]} files…"
@@ -55,9 +55,6 @@ UIDAI_NAME=KAMAR JAHAN
 UIDAI_SESSION_HOURS=24
 UIDAI_KEEPALIVE_MIN=10
 UIDAI_POOL_WARM=0
-UIDAI_BAKED_SESSION=0
-UIDAI_COOKIE_SEED=0
-UIDAI_COOKIE_PERSIST=0
 EOF
 
 echo "[*] Python venv + pip…"
