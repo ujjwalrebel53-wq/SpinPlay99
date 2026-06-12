@@ -3,10 +3,11 @@
 set -e
 cd "$(dirname "$0")"
 
-BRANCH="${BRANCH:-cursor/pdf-browser-captcha-95e1}"
+BRANCH="${BRANCH:-main}"
 BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/www"
 
 FILES=(
+  update_bot.sh
   sex.py aadhar.py browser_session.py react_extract.py pdf_unlock.py
   uidai_api.py bot_ui_classic.py bot_access.py captcha_solver.py audio_captcha.py
   start_sex.sh install_all.sh requirements_sex.txt
