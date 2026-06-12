@@ -15,11 +15,8 @@ done
 
 [ -f .env ] || { echo "❌ .env missing — run setup_india_vps.sh"; exit 1; }
 
-# shellcheck disable=SC1091
-set -a
-source .env
-set +a
-
+# Read token safely — do not "source .env" (spaces in UIDAI_NAME break bash)
+TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
 [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "❌ TELEGRAM_BOT_TOKEN in .env"; exit 1; }
 
 if [ -f .venv/bin/activate ]; then
