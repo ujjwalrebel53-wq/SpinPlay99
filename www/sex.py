@@ -296,39 +296,65 @@ def _wire_aadhar_logs(sess: AadharSession, progress: LoadingScreen) -> None:
     attach_log_callback(sess, loop, progress)
 
 
+def _pdf_captcha_mode() -> str:
+    """auto = standby → browser → HTTP | http = API first | browser = page only."""
+    return os.getenv('UIDAI_PDF_CAPTCHA', 'auto').strip().lower()
+
+
+async def _try_http_captcha_prime(
+    sess: AadharSession,
+    progress: LoadingScreen,
+    phase: str,
+) -> bool:
+    tag = (phase or 'phase1').split('-')[0]
+    await progress.log_detail(f'HTTP captcha ({tag})…')
+    ok = await run_aadhar(sess.prime_http_captcha, tag)
+    if ok:
+        await progress.log_detail(f'✓ HTTP captcha — {len(sess.last_captcha_image)} bytes')
+    return ok
+
+
+def _captcha_prime_ok(sess: AadharSession) -> bool:
+    return bool(sess.captcha_txn_id and len(sess.last_captcha_image or b'') >= 80)
+
+
 async def _prime_pdf_browser_captcha(
     sess: AadharSession,
     progress: LoadingScreen,
     phase: str,
 ) -> bool:
-    """Fetch captcha from live UIDAI page — same Playwright path as /open."""
-    instant = False
-    png, txn = b'', ''
+    """Captcha for /pdf — standby → browser (/open) → HTTP API fallback."""
+    mode = _pdf_captcha_mode()
+    phase_key = (phase or 'phase1').lower()
+
     pair = get_standby_captcha_pair()
-    if pair and phase.startswith('phase1') and sess.name and sess.mobile:
+    if pair and phase_key.startswith('phase1') and sess.name and sess.mobile:
         png, txn = pair
-        instant = True
-    else:
+        sess.prime_browser_captcha(png, txn)
+        if _captcha_prime_ok(sess):
+            await progress.log_detail('⚡ Standby captcha')
+            return True
+
+    if mode == 'http':
+        return await _try_http_captcha_prime(sess, progress, phase)
+
+    if mode in ('auto', 'browser'):
         try:
             await progress.log_detail(f'Browser captcha ({phase})…')
             png, txn = await fetch_pdf_browser_captcha(
                 phase,
                 name=sess.name,
                 mobile=sess.mobile,
-                eid=sess.eid if phase.startswith('phase2') else '',
+                eid=sess.eid if phase_key.startswith('phase2') else '',
             )
+            sess.prime_browser_captcha(png, txn)
+            if _captcha_prime_ok(sess):
+                return True
         except Exception as e:
             log.warning('pdf browser captcha failed (%s): %s', phase, e)
-            await progress.log_detail(f'Captcha error: {str(e)[:80]}')
-            if phase.startswith('phase2'):
-                await progress.log_detail('Trying HTTP captcha fallback…')
-                if await run_aadhar(sess.prime_http_captcha, phase):
-                    return True
-            return False
-    sess.prime_browser_captcha(png, txn)
-    if instant:
-        await progress.log_detail('⚡ Standby captcha')
-    return bool(sess.captcha_txn_id and len(sess.last_captcha_image) >= 80)
+            await progress.log_detail(f'Browser: {str(e)[:72]}')
+
+    return await _try_http_captcha_prime(sess, progress, phase)
 
 
 async def _send_pdf_captcha_photo(

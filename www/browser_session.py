@@ -236,7 +236,12 @@ async def fetch_captcha_from_page(
             await sess.page.fill('input[name="name"]', normalize_name(name))
             await sess.page.fill('input[name="mobile"]', mobile.strip())
             await sess.page.evaluate(SET_OPTION_JS, option)
-            await sess._wait_captcha_txn(18.0)
+            await asyncio.sleep(0.6)
+            for _ in range(50):
+                txn_pre = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+                if txn_pre:
+                    break
+                await asyncio.sleep(0.35)
         elif is_download:
             await asyncio.sleep(1.2)
             if eid:

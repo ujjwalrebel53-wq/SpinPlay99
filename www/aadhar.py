@@ -177,6 +177,10 @@ class AadharSession:
 
     def __init__(self, on_log: LogCb | None = None) -> None:
         self._session = requests.Session()
+        proxy = (os.getenv('UIDAI_PROXY') or '').strip()
+        if proxy and proxy.lower() not in ('auto', 'none', 'no', 'off', 'direct', ''):
+            self._session.proxies = {'http': proxy, 'https': proxy}
+            log.info('AadharSession proxy: %s', proxy.split('@')[-1][:40])
         self.on_log = on_log
         self.logs: list[str] = []
         self.name = ''
@@ -551,8 +555,10 @@ class AadharSession:
 
     def phase1_start(self) -> dict[str, Any]:
         self._log('PHASE 1 — EID RETRIEVAL START')
-        rid = str(uuid.uuid4())
-        self.phase1_headers = get_headers(rid)
+        if not self.phase1_headers:
+            rid = str(uuid.uuid4())
+            self.phase1_headers = get_headers(rid)
+        rid = str(self.phase1_headers.get('X-Request-ID') or uuid.uuid4())
         self._log(f'[*] Phase1 req_id: {rid[:8]}…')
 
         acq = self._acquire_captcha(self.phase1_headers, 'phase1')
