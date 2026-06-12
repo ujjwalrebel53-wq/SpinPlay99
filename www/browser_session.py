@@ -16,6 +16,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 
 from react_extract import (
     CLEAR_RETRIEVE_FORM_JS,
+    FILL_RETRIEVE_FORM_JS,
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
@@ -922,13 +923,51 @@ class UidaiBrowserSession:
         self.touch()
 
     async def _fill_fields_only_fast(self) -> None:
-        """Fill name + mobile on preloaded page — no page reload."""
-        await self.page.fill('input[name="name"]', self.name)
-        await self.page.fill('input[name="mobile"]', self.mobile)
-        await self._extract_captcha_txn()
+        """Fill name + mobile on preloaded page — one JS call, no reload."""
+        filled = await self.page.evaluate(FILL_RETRIEVE_FORM_JS, self.name, self.mobile)
+        if not filled:
+            await self.page.fill('input[name="name"]', self.name)
+            await self.page.fill('input[name="mobile"]', self.mobile)
+        txn = await self.page.evaluate(EXTRACT_CAPTCHA_TXN_JS)
+        if txn:
+            self.captcha_txn_id = str(txn)
         await self._read_option()
         self.form_ready = True
         self.touch()
+
+    async def instant_fetch(self, name: str, mobile: str) -> bytes:
+        """Turbo /fetch — adopt preloaded pool, fill form, return cached captcha (~1s)."""
+        self.name = normalize_name(name)
+        self.mobile = mobile.strip()
+        self.name_skipped = is_skip_name(name)
+        self.otp_txn_id = ''
+        self.last_captcha = ''
+        self.touch()
+
+        if not self._page:
+            if not await self._try_adopt_standby():
+                await self.start()
+        elif not await self._form_on_page():
+            if not await self._try_adopt_standby():
+                await self.start()
+
+        pair = get_standby_captcha_pair(self._pool_slot)
+        if pair:
+            self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
+            self._captcha_cache_at = time.monotonic()
+
+        await self._fill_fields_only_fast()
+        png = self.peek_captcha_png()
+        if not png or not self.captcha_txn_id:
+            await self.prefetch_captcha()
+            png = self._captcha_png_cache
+
+        self.page_loaded_at = time.monotonic()
+        self._replenish_pool()
+        asyncio.create_task(self._prefetch_next_captcha())
+        if not png or len(png) < 200:
+            raise RuntimeError('Captcha not ready — try /fetch again')
+        return png
 
     async def _fill_fields_and_captcha(self, *, fresh_captcha: bool) -> None:
         await self._fill_fields_only()

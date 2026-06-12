@@ -193,6 +193,20 @@ def _connection_error_hint(exc: Exception) -> str:
     return '❌ Connection failed.\nTry /close then /fetch.'
 
 
+async def _reply_captcha(
+    update: Update,
+    sess: UidaiBrowserSession,
+    cap: bytes,
+    *,
+    instant: bool = False,
+) -> None:
+    ttl = sess.ttl_label() if sess.last_activity_at else ''
+    await update.message.reply_photo(
+        photo=cap,
+        caption=_captcha_caption(instant=instant, ttl=ttl),
+    )
+
+
 async def _send_captcha_ready(
     update: Update,
     sess: UidaiBrowserSession,
@@ -201,12 +215,8 @@ async def _send_captcha_ready(
     instant: bool = False,
 ) -> None:
     cap = sess.peek_captcha_png() or await sess.captcha_png(use_cache=True)
-    ttl = sess.ttl_label() if sess.last_activity_at else ''
     await progress.update(3, 3, 'Sending captcha image')
-    await update.message.reply_photo(
-        photo=cap,
-        caption=_captcha_caption(instant=instant, ttl=ttl),
-    )
+    await _reply_captcha(update, sess, cap, instant=instant)
     await progress.done('Captcha ready — reply with text')
 
 
@@ -228,6 +238,37 @@ async def _fail_open(
     await progress.fail(_connection_error_hint(exc))
 
 
+async def _turbo_fetch(
+    update: Update,
+    chat_id: int,
+    name: str,
+    mobile: str,
+) -> bool:
+    """Pool hot → skip loading UI, captcha in ~1s. Returns False → use slow path."""
+    if not pool_slot_ready('uid'):
+        return False
+    existing = SESSIONS.get(chat_id)
+    if existing and await existing.page_alive():
+        sess = existing
+    else:
+        old = SESSIONS.pop(chat_id, None)
+        if old:
+            try:
+                await old.close(keep_warm=True)
+            except Exception:
+                pass
+        sess = UidaiBrowserSession(pool='uid')
+        SESSIONS[chat_id] = sess
+    try:
+        cap = await sess.instant_fetch(name, mobile)
+        await _reply_captcha(update, sess, cap, instant=True)
+        return True
+    except Exception as e:
+        log.warning('turbo fetch failed, slow path: %s', e)
+        SESSIONS.pop(chat_id, None)
+        return False
+
+
 async def open_uidai_session(
     update: Update,
     chat_id: int,
@@ -241,12 +282,12 @@ async def open_uidai_session(
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
 
-    preloaded = not force_new and pool_slot_ready('uid')
+    if not force_new and await _turbo_fetch(update, chat_id, name, mobile):
+        return
+
     progress = await create_loading_screen(
         update.message, chat_id, mobile, mode='fetch', name=name,
     )
-    if preloaded:
-        await progress.update(1, 3, 'Preloaded page — filling form ⚡')
 
     async def on_step(n: int, total: int, text: str) -> None:
         await progress.update(n, total, text)
@@ -256,7 +297,7 @@ async def open_uidai_session(
         existing._on_step = on_step
         try:
             await existing.open_form(name, mobile, force_reload=False)
-            await _send_captcha_ready(update, existing, progress, instant=preloaded)
+            await _send_captcha_ready(update, existing, progress)
         except Exception as e:
             await _fail_open(chat_id, existing, progress, e)
         return
@@ -275,7 +316,7 @@ async def open_uidai_session(
     try:
         await sess.start()
         await sess.open_form(name, mobile, force_reload=force_new)
-        await _send_captcha_ready(update, sess, progress, instant=preloaded)
+        await _send_captcha_ready(update, sess, progress)
     except Exception as e:
         await _fail_open(chat_id, sess, progress, e)
 
@@ -1508,7 +1549,7 @@ def main() -> None:
         warm_delay = 1 if uidai_fast() else 5
         standby_first = 20 if uidai_fast() else 60
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
-        app.job_queue.run_repeating(standby_captcha_job, interval=180, first=standby_first)
+        app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 

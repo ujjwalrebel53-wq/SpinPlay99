@@ -118,6 +118,22 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
   return null;
 }"""
 
+FILL_RETRIEVE_FORM_JS = """(name, mobile) => {
+  function setVal(sel, val) {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (proto?.set) proto.set.call(el, val);
+    else el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  const okName = setVal('input[name="name"]', String(name || ''));
+  const okMob = setVal('input[name="mobile"]', String(mobile || '').replace(/\\D/g, ''));
+  return okName && okMob;
+}"""
+
 CLEAR_RETRIEVE_FORM_JS = """() => {
   for (const name of ['name', 'mobile']) {
     const el = document.querySelector('input[name="' + name + '"]');
