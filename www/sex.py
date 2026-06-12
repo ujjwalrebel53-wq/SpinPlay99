@@ -116,6 +116,7 @@ FLOW_MODE_DOWNLOAD = 'download'
 
 SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
+MAX_BROWSER_SESSIONS = max(2, int(os.getenv('MAX_BROWSER_SESSIONS', '10')))
 
 
 def _ids(update: Update) -> tuple[str | None, str | None]:
@@ -166,6 +167,23 @@ def is_owner(update: Update) -> bool:
 
 def get_session(chat_id: int) -> UidaiBrowserSession | None:
     return SESSIONS.get(chat_id)
+
+
+def _browser_sessions_full(*, excluding: int | None = None) -> bool:
+    count = len(SESSIONS)
+    if excluding is not None and excluding in SESSIONS:
+        count -= 1
+    return count >= MAX_BROWSER_SESSIONS
+
+
+async def _reject_if_server_busy(update: Update, *, chat_id: int | None = None) -> bool:
+    if not _browser_sessions_full(excluding=chat_id):
+        return False
+    await update.message.reply_text(
+        '⏳ Server busy — bahut users active hain.\n'
+        '30 sec baad /fetch try karo.',
+    )
+    return True
 
 
 def _captcha_caption(*, fresh: bool = False, instant: bool = False, ttl: str = '') -> str:
@@ -247,6 +265,8 @@ async def _turbo_fetch(
     """Pool hot → skip loading UI, captcha in ~1s. Returns False → use slow path."""
     if not pool_slot_ready('uid'):
         return False
+    if _browser_sessions_full(excluding=chat_id):
+        return False
     existing = SESSIONS.get(chat_id)
     if existing and await existing.page_alive():
         sess = existing
@@ -281,6 +301,10 @@ async def open_uidai_session(
     mobile = mobile.strip()
     clear_flow(chat_id)
     FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
+
+    if await _reject_if_server_busy(update, chat_id=chat_id):
+        clear_flow(chat_id)
+        return
 
     if not force_new and await _turbo_fetch(update, chat_id, name, mobile):
         return
@@ -1494,8 +1518,9 @@ async def _startup_pool_warm() -> None:
     default_warm = '1' if uidai_fast() else '0'
     if os.getenv('UIDAI_POOL_WARM', default_warm).strip().lower() in ('0', 'false', 'no', 'off'):
         return
+    await asyncio.sleep(3)
     try:
-        await asyncio.wait_for(ensure_pool_warm(), timeout=120)
+        await asyncio.wait_for(ensure_pool_warm(), timeout=180)
         log.info('UIDAI triple pool preloaded — instant /fetch ready')
     except Exception as e:
         log.warning('startup pool warm: %s', e)
@@ -1508,6 +1533,15 @@ async def _register_bot_commands(application: Application) -> None:
         BotCommand('pdf', 'e-Aadhaar PDF — 2 OTP'),
     ])
     asyncio.create_task(_startup_pool_warm())
+
+
+async def _on_shutdown(_application: Application) -> None:
+    from browser_session import _pool_shutdown
+
+    try:
+        await _pool_shutdown()
+    except Exception as e:
+        log.warning('pool shutdown: %s', e)
 
 
 def main() -> None:
@@ -1523,7 +1557,9 @@ def main() -> None:
     app = (
         Application.builder()
         .token(TOKEN)
+        .concurrent_updates(True)
         .post_init(_register_bot_commands)
+        .post_shutdown(_on_shutdown)
         .build()
     )
     app.add_handler(CommandHandler('start', cmd_start))
@@ -1546,8 +1582,8 @@ def main() -> None:
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        warm_delay = 1 if uidai_fast() else 5
-        standby_first = 20 if uidai_fast() else 60
+        warm_delay = 15 if uidai_fast() else 30
+        standby_first = 45 if uidai_fast() else 90
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
         app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)

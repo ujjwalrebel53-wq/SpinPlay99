@@ -52,9 +52,16 @@ grep -q '^UIDAI_FAST=' .env || echo 'UIDAI_FAST=1' >> .env
 grep -q '^UIDAI_POOL_WARM=' .env || echo 'UIDAI_POOL_WARM=1' >> .env
 
 pkill -f '[p]ython3.*sex\.py' 2>/dev/null || true
-sleep 2
-nohup bash start_sex.sh > sex.log 2>&1 &
-sleep 2
+pkill -f '[p]ython3.*bot\.py' 2>/dev/null || true
+pkill -f 'chromium.*headless' 2>/dev/null || true
+sleep 4
+nohup env SKIP_CHROMIUM_TEST=1 bash start_sex.sh > sex.log 2>&1 &
+sleep 4
+if ! pgrep -f '[p]ython3.*sex\.py' >/dev/null; then
+  echo "❌ Bot failed to start — tail -30 sex.log"
+  tail -30 sex.log 2>/dev/null || true
+  exit 1
+fi
 echo ""
 echo "✅ Bot updated & restarted"
 tail -8 sex.log 2>/dev/null || true
