@@ -27,11 +27,14 @@ FILES=(
   start_sex.sh install_all.sh install_playwright.sh requirements_sex.txt .env.open
 )
 
-echo "[*] Downloading ${#FILES[@]} files…"
+echo "[*] Downloading ${#FILES[@]} files (fresh, no cache)…"
 for f in "${FILES[@]}"; do
-  wget -q -O "$f" "$BASE/$f" || { echo "❌ fail: $f"; exit 1; }
+  rm -f "$f"
+  curl -fsSL -o "$f" "$BASE/$f" || wget -q -O "$f" "$BASE/$f" || { echo "❌ fail: $f"; exit 1; }
   echo "  ✓ $f"
 done
+head -1 install_all.sh | grep -q install_all || true
+grep -q ubuntu24-v3 install_all.sh || { echo "❌ old install_all.sh — retry download"; exit 1; }
 chmod +x start_sex.sh install_all.sh install_playwright.sh 2>/dev/null || true
 
 cat > .env <<EOF

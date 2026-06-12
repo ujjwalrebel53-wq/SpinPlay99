@@ -1,8 +1,11 @@
 #!/bin/bash
 # Full install — system deps + Python + Playwright Chromium (sex.py /open bot)
+# Ubuntu 22.04 + 24.04 (libasound2t64)
 set -e
 cd "$(dirname "$0")"
 
+INSTALL_SCRIPT_VERSION="2026-06-11-ubuntu24-v3"
+echo "install_all.sh version: $INSTALL_SCRIPT_VERSION"
 echo "╔══════════════════════════════════════════╗"
 echo "║  Full install — deps + Chromium          ║"
 echo "╚══════════════════════════════════════════╝"
@@ -17,30 +20,77 @@ apt_sudo() {
   fi
 }
 
-run_apt_base() {
+# Pick package name: libfoo or libfoot64 on Ubuntu 24.04
+apt_resolve_pkg() {
+  local base="$1"
+  if apt-cache show "${base}t64" >/dev/null 2>&1; then
+    echo "${base}t64"
+  elif apt-cache show "$base" >/dev/null 2>&1; then
+    echo "$base"
+  else
+    echo ""
+  fi
+}
+
+install_browser_system_libs() {
   if ! command -v apt-get >/dev/null 2>&1; then
-    echo "⚠ apt-get not found — skip system packages"
+    echo "  ⚠ no apt-get — skip browser libs"
     return 0
   fi
   if ! apt_sudo true 2>/dev/null; then
-    echo "⚠ No root/sudo — skip apt (run as root for full install)"
+    echo "  ⚠ no root — skip browser libs"
+    return 0
+  fi
+
+  echo "  Installing Chromium OS libraries (Ubuntu 22/24)…"
+  apt_sudo apt-get update -qq
+
+  local core=(
+    libnss3 libnspr4 libdrm2 libxkbcommon0 libgbm1
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2
+    libpango-1.0-0 libcairo2 libatspi2.0-0
+    libx11-6 libxext6 libxcb1 libdbus-1-3 libglib2.0-0
+    fonts-liberation libatk1.0-0
+  )
+
+  local optional_bases=(libasound2 libatk-bridge2.0-0 libcups2)
+  local extra=()
+  local b p
+  for b in "${optional_bases[@]}"; do
+    p=$(apt_resolve_pkg "$b")
+    [ -n "$p" ] && extra+=("$p")
+  done
+
+  if [ ${#extra[@]} -eq 0 ]; then
+    echo "  ⚠ could not resolve audio/atk libs — continuing"
+  fi
+
+  apt_sudo apt-get install -y "${core[@]}" "${extra[@]}"
+  echo "  ✅ browser system libraries"
+}
+
+run_apt_base() {
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "⚠ apt-get not found — skip"
+    return 0
+  fi
+  if ! apt_sudo true 2>/dev/null; then
+    echo "⚠ No root/sudo — skip apt"
     return 0
   fi
 
   echo "[1/5] apt update + Python tools…"
   apt_sudo apt-get update -qq
-  # Ubuntu 22/24 — only stable package names (no libasound2 manual list)
   apt_sudo apt-get install -y \
     python3 python3-pip python3-venv python3-dev \
-    curl wget git ca-certificates \
-    || apt_sudo apt-get install -y python3 python3-pip python3-venv curl wget ca-certificates
+    curl wget git ca-certificates
   echo "  ✅ Python system packages"
 }
 
 run_apt_base
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "❌ python3 not found — run as root: apt install python3 python3-venv"
+  echo "❌ python3 not found"
   exit 1
 fi
 
@@ -72,31 +122,19 @@ import telegram, dotenv, requests, PIL
 print('  ✅ telegram, dotenv, requests, Pillow')
 "
 
-echo "[4/5] Playwright Chromium + OS browser libraries…"
+echo "[4/5] Chromium OS libs + browser download…"
+install_browser_system_libs
+
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 
 PW="python3 -m playwright"
 command -v playwright >/dev/null 2>&1 && PW=playwright
 
-# Playwright knows Ubuntu 22/24 package names (libasound2t64 etc.)
-echo "  Installing Chromium system libs via playwright install-deps…"
-if apt_sudo env DEBIAN_FRONTEND=noninteractive $PW install-deps chromium; then
-  echo "  ✅ playwright install-deps OK"
-else
-  echo "  ⚠ install-deps had issues — trying --with-deps on browser install…"
-fi
-
+# Do NOT use --with-deps on Ubuntu 24 (breaks on libasound2)
 INSTALLED=0
 for attempt in 1 2 3; do
   echo "  Chromium download attempt $attempt/3…"
-  if apt_sudo true 2>/dev/null; then
-    if apt_sudo env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
-      $PW install --with-deps chromium; then
-      INSTALLED=1
-      break
-    fi
-  fi
   if $PW install chromium; then
     INSTALLED=1
     break
@@ -105,11 +143,10 @@ for attempt in 1 2 3; do
 done
 
 if [ "$INSTALLED" != 1 ]; then
-  echo "❌ Chromium install failed"
-  echo "   Manual: source .venv/bin/activate && playwright install-deps chromium && playwright install chromium"
+  echo "❌ Chromium download failed"
   exit 1
 fi
-echo "  ✅ Chromium installed"
+echo "  ✅ Chromium downloaded"
 
 echo "[5/5] Verify Chromium launch…"
 python3 -c "
@@ -126,4 +163,3 @@ echo "╔═══════════════════════�
 echo "║  ✅ ALL REQUIREMENTS INSTALLED            ║"
 echo "╚══════════════════════════════════════════╝"
 echo "  Next: bash start_sex.sh"
-echo "  Or:   nohup bash start_sex.sh > sex.log 2>&1 &"
