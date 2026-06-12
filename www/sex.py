@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -117,6 +118,18 @@ FLOW_MODE_DOWNLOAD = 'download'
 SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
 
+FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '60')))
+_IDLE_STEPS = frozenset({
+    STEP_NAME,
+    STEP_MOBILE,
+    STEP_DOB,
+    STEP_CAPTCHA,
+    STEP_OTP,
+    STEP_CAPTCHA_2,
+    STEP_OTP_1,
+    STEP_OTP_2,
+})
+
 
 def _ids(update: Update) -> tuple[str | None, str | None]:
     user_id = str(update.effective_user.id) if update.effective_user else None
@@ -126,6 +139,20 @@ def _ids(update: Update) -> tuple[str | None, str | None]:
 
 def clear_flow(chat_id: int) -> None:
     FLOW.pop(chat_id, None)
+
+
+def assign_flow(chat_id: int, data: dict) -> None:
+    FLOW[chat_id] = {**data, 'last_activity': time.monotonic()}
+
+
+def bump_flow(chat_id: int, **data) -> None:
+    FLOW[chat_id] = {**FLOW.get(chat_id, {}), **data, 'last_activity': time.monotonic()}
+
+
+def touch_flow(chat_id: int) -> None:
+    """Reset idle timer when user sends any message during a waiting step."""
+    if chat_id in FLOW:
+        FLOW[chat_id]['last_activity'] = time.monotonic()
 
 
 def flow_step(chat_id: int) -> str | None:
@@ -280,7 +307,7 @@ async def open_uidai_session(
     name = normalize_name(name)
     mobile = mobile.strip()
     clear_flow(chat_id)
-    FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
+    assign_flow(chat_id, {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile})
 
     if not force_new and await _turbo_fetch(update, chat_id, name, mobile):
         return
@@ -668,12 +695,12 @@ async def _start_download_flow(
     mobile = mobile.strip()
     dob_norm = normalize_dob(dob) if dob else None
     if not dob_bypass_on() and not dob_norm:
-        FLOW[chat_id] = {
+        assign_flow(chat_id, {
             'step': STEP_DOB,
             'mode': FLOW_MODE_DOWNLOAD,
             'name': name,
             'mobile': mobile,
-        }
+        })
         await update.message.reply_text(
             'Send DOB as DD/MM/YYYY (as on Aadhaar).\nExample: 01/01/1991'
         )
@@ -702,26 +729,26 @@ async def _start_download_flow(
         name if not is_skip_name(name) else DEFAULT_NAME,
         dob_norm or dob,
     )
-    FLOW[chat_id] = {
+    assign_flow(chat_id, {
         'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
         'name': name,
         'mobile': mobile,
         'dob': dob_norm,
         'pdf_password': pdf_pass,
-    }
+    })
 
     try:
         result = await _run_pdf_with_browser_captcha(
             update, sess, progress, sess.phase1_start, phase='phase1',
         )
         if result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_OTP_1
+            bump_flow(chat_id, step=STEP_OTP_1)
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
             await progress.done(uidai_user_message(result, kind='otp') + hint)
             return
         if result.get('network_error'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            bump_flow(chat_id, step=STEP_CAPTCHA)
             await progress.fail(
                 result.get('msg') or '🔄 Network error — send captcha again',
             )
@@ -730,7 +757,7 @@ async def _start_download_flow(
             await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
             return
         if result.get('needs_captcha'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            bump_flow(chat_id, step=STEP_CAPTCHA)
             if not _pdf_captcha_ready(sess, result):
                 await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
             elif result.get('invalid_captcha'):
@@ -764,7 +791,7 @@ async def _phase2_after_otp1(
             update, sess, progress, sess.phase2_start, phase='phase2',
         )
         if result.get('network_error'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             await progress.fail(
                 result.get('msg') or '🔄 Network error — /pdf again or resend captcha',
             )
@@ -773,7 +800,7 @@ async def _phase2_after_otp1(
             await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
             return
         if result.get('needs_captcha'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             if not _pdf_captcha_ready(sess, result):
                 await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
             elif result.get('invalid_captcha'):
@@ -782,10 +809,10 @@ async def _phase2_after_otp1(
                 await progress.done('Captcha ready — reply with text')
             return
         if result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_OTP_2
+            bump_flow(chat_id, step=STEP_OTP_2)
             await progress.done(uidai_user_message(result, kind='download_otp'))
         else:
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
     except Exception as e:
         log.exception('phase2 otp request failed')
@@ -1030,7 +1057,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     old = SESSIONS.pop(cid, None)
     if old:
         await old.close(keep_warm=True)
-    FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_RETRIEVE}
+    assign_flow(cid, {'step': STEP_NAME, 'mode': FLOW_MODE_RETRIEVE})
     await update.message.reply_text(
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
@@ -1077,7 +1104,7 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if old:
         await old.close(keep_warm=True)
     clear_pdf_session(cid)
-    FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD}
+    assign_flow(cid, {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD})
     dob_hint = (
         'DOB bypass on — skip DOB.\n\n'
         if dob_bypass_on()
@@ -1107,6 +1134,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     step = flow_step(cid)
     mode = flow_mode(cid)
+    if step in _IDLE_STEPS:
+        touch_flow(cid)
 
     if step == STEP_NAME and mode == FLOW_MODE_DOWNLOAD:
         if not valid_name_input(text):
@@ -1117,7 +1146,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = normalize_name(text)
-        FLOW[cid] = {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name}
+        assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name})
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1139,7 +1168,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = normalize_name(text)
-        FLOW[cid] = {'step': STEP_MOBILE, 'mode': FLOW_MODE_RETRIEVE, 'name': name}
+        assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_RETRIEVE, 'name': name})
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1164,12 +1193,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if dob_bypass_on():
                 await _start_download_flow(update, cid, name, mobile)
             else:
-                FLOW[cid] = {
+                assign_flow(cid, {
                     'step': STEP_DOB,
                     'mode': FLOW_MODE_DOWNLOAD,
                     'name': name,
                     'mobile': mobile,
-                }
+                })
                 await update.message.reply_text(
                     'Send DOB as DD/MM/YYYY.\nExample: 01/01/1991'
                 )
@@ -1206,20 +1235,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 phase='phase1', prime=False,
             )
             if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP_1
+                bump_flow(cid, step=STEP_OTP_1)
                 await progress.done(uidai_user_message(result, kind='otp'))
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_CAPTCHA
+                bump_flow(cid, step=STEP_CAPTCHA)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
-                FLOW[cid]['step'] = STEP_CAPTCHA
+                bump_flow(cid, step=STEP_CAPTCHA)
                 await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
-            FLOW[cid]['step'] = STEP_CAPTCHA
+            bump_flow(cid, step=STEP_CAPTCHA)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1242,20 +1271,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 phase='phase2', prime=False,
             )
             if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP_2
+                bump_flow(cid, step=STEP_OTP_2)
                 await progress.done(uidai_user_message(result, kind='download_otp'))
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_CAPTCHA_2
+                bump_flow(cid, step=STEP_CAPTCHA_2)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
-                FLOW[cid]['step'] = STEP_CAPTCHA_2
+                bump_flow(cid, step=STEP_CAPTCHA_2)
                 await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:
-            FLOW[cid]['step'] = STEP_CAPTCHA_2
+            bump_flow(cid, step=STEP_CAPTCHA_2)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1279,14 +1308,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if result.get('retrieve_ok'):
                 resolved_name = result.get('aadhaar_name') or a_sess.aadhaar_name
                 if resolved_name and not is_skip_name(resolved_name):
-                    FLOW[cid] = {
-                        **FLOW.get(cid, {}),
-                        'aadhaar_name': resolved_name,
-                        'pdf_password': pdf_password(
+                    bump_flow(
+                        cid,
+                        aadhaar_name=resolved_name,
+                        pdf_password=pdf_password(
                             resolved_name,
                             result.get('aadhaar_dob') or FLOW.get(cid, {}).get('dob'),
                         ),
-                    }
+                    )
                 await progress.done(uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'))
                 old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
                 if old_prefetch and not old_prefetch.done():
@@ -1296,16 +1325,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 await _phase2_after_otp1(update, cid, a_sess)
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_OTP_1
+                bump_flow(cid, step=STEP_OTP_1)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — send OTP 1 again',
                 )
             else:
-                FLOW[cid]['step'] = STEP_OTP_1
+                bump_flow(cid, step=STEP_OTP_1)
                 await progress.fail(result.get('msg') or 'OTP 1 verify failed')
         except Exception as e:
             log.exception('otp1 verify failed')
-            FLOW[cid]['step'] = STEP_OTP_1
+            bump_flow(cid, step=STEP_OTP_1)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1344,16 +1373,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if browser_sess:
                     await browser_sess.close(keep_warm=True)
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_OTP_2
+                bump_flow(cid, step=STEP_OTP_2)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — send OTP 2 again',
                 )
             else:
-                FLOW[cid]['step'] = STEP_OTP_2
+                bump_flow(cid, step=STEP_OTP_2)
                 await progress.fail(uidai_user_message(result, kind='download'))
         except Exception as e:
             log.exception('pdf download failed')
-            FLOW[cid]['step'] = STEP_OTP_2
+            bump_flow(cid, step=STEP_OTP_2)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1366,7 +1395,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — use /fetch again.')
             return
-        FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
+        bump_flow(cid, step=None)
         otp_progress = await create_loading_screen(
             update.message, cid, sess.mobile, mode='fetch', name=sess.name,
         )
@@ -1393,17 +1422,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     await sess.prefetch_captcha()
                 except Exception:
                     pass
-                FLOW[cid] = {
+                assign_flow(cid, {
                     'step': STEP_CAPTCHA,
                     'name': sess.name,
                     'mobile': sess.mobile,
-                }
+                })
             else:
-                FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+                bump_flow(cid, step=STEP_OTP)
         except Exception as e:
             log.exception('retrieve failed')
             await otp_progress.fail(f'Retrieve fail: {e}')
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+            bump_flow(cid, step=STEP_OTP)
         return
 
     if step != STEP_CAPTCHA or mode == FLOW_MODE_DOWNLOAD:
@@ -1419,7 +1448,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text('Session expired — use /open again.')
         return
 
-    FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
+    bump_flow(cid, step=None)
     otp_progress = await create_loading_screen(
         update.message, cid, sess.mobile, mode='fetch', name=sess.name,
     )
@@ -1438,14 +1467,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         if otp_ok:
             await otp_progress.done(user_msg)
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+            bump_flow(cid, step=STEP_OTP)
         else:
             await otp_progress.fail(user_msg)
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+            bump_flow(cid, step=STEP_CAPTCHA)
     except Exception as e:
         log.exception('otp failed')
         await otp_progress.fail(f'OTP fail: {e}')
-        FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+        bump_flow(cid, step=STEP_CAPTCHA)
 
 
 async def warm_pool_job(context) -> None:
@@ -1480,6 +1509,38 @@ async def keepalive_job(context) -> None:
             SESSIONS.pop(cid, None)
         except Exception as e:
             log.warning('keepalive chat=%s: %s', cid, e)
+
+
+async def _expire_idle_chat(bot, chat_id: int) -> None:
+    await dismiss_loading_screen(chat_id)
+    sess = SESSIONS.pop(chat_id, None)
+    if sess:
+        try:
+            await sess.close(keep_warm=True)
+        except Exception:
+            pass
+    clear_pdf_session(chat_id)
+    clear_flow(chat_id)
+    try:
+        await bot.send_message(
+            chat_id,
+            f'⏱ Session expired ({FLOW_IDLE_SEC}s no reply).\n/fetch to start again.',
+        )
+    except Exception:
+        pass
+    log.info('idle session expire chat=%s', chat_id)
+
+
+async def idle_session_job(context) -> None:
+    now = time.monotonic()
+    for cid, flow in list(FLOW.items()):
+        step = flow.get('step')
+        if step not in _IDLE_STEPS:
+            continue
+        last = float(flow.get('last_activity') or 0)
+        if last <= 0 or now - last < FLOW_IDLE_SEC:
+            continue
+        await _expire_idle_chat(context.bot, cid)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1551,7 +1612,8 @@ def main() -> None:
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
         app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
-        log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
+        app.job_queue.run_repeating(idle_session_job, interval=15, first=20)
+        log.info('24h keepalive every %ss | idle timeout %ss', KEEPALIVE_INTERVAL_SEC, FLOW_IDLE_SEC)
 
     log.info(
         'sex.py v%s — /fetch + /pdf — owner=%s access=%s',
