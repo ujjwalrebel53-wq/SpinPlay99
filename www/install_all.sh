@@ -122,6 +122,14 @@ import telegram, dotenv, requests, PIL
 print('  ✅ telegram, dotenv, requests, Pillow')
 "
 
+echo "[3b/5] Whisper (audio captcha fallback)…"
+if bash install_whisper.sh; then
+  echo "  ✅ Whisper OK"
+else
+  echo "  ⚠ Whisper skip — /pdf image captcha manual only"
+  echo "    Fix later: bash install_whisper.sh"
+fi
+
 # Corrupt playwright driver check (MODULE_NOT_FOUND programWithTestStub)
 if ! find .venv/lib -path '*/playwright/driver/package/lib/cli/programWithTestStub.js' 2>/dev/null | grep -q .; then
   echo "  ⚠ Playwright driver corrupt — repairing…"
