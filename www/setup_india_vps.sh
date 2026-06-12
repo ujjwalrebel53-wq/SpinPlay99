@@ -9,7 +9,7 @@
 # =============================================================================
 set -e
 
-BOT_TOKEN="${BOT_TOKEN:-8805739645:AAEbAYAFnfZw8clG2Jqf513FbuhBhhFJUKA}"
+BOT_TOKEN="${BOT_TOKEN:-8805739645:AAGNcL2ehRTPo_vKscNnGt4XbXSzkligtLM}"
 OWNER_ID="${OWNER_ID:-8432393497}"
 BRANCH="${BRANCH:-cursor/cookie-forever-proxy-trial-95e1}"
 BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/www"
