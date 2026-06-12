@@ -37,6 +37,8 @@ from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
     ensure_pool_warm,
+    fetch_pdf_browser_captcha,
+    get_standby_captcha_pair,
     get_standby_captcha_png,
     pool_is_warm,
     refresh_standby_captcha,
@@ -50,7 +52,6 @@ from aadhar import (
     get_aadhar_session,
     pdf_password,
     run_aadhar,
-    send_captcha_to_bot,
 )
 from uidai_api import (
     BOT_ENGINE_VERSION,
@@ -293,25 +294,88 @@ def _wire_aadhar_logs(sess: AadharSession, progress: LoadingScreen) -> None:
     attach_log_callback(sess, loop, progress)
 
 
-async def _run_aadhar_with_ui(
+async def _prime_pdf_browser_captcha(
+    sess: AadharSession,
+    progress: LoadingScreen,
+    phase: str,
+) -> bool:
+    """Fetch captcha from live UIDAI page — same Playwright path as /open."""
+    instant = False
+    pair = get_standby_captcha_pair()
+    if pair and phase.startswith('phase1') and sess.name and sess.mobile:
+        png, txn = pair
+        instant = True
+    else:
+        try:
+            await progress.log_detail(f'Browser captcha ({phase})…')
+            png, txn = await fetch_pdf_browser_captcha(
+                phase,
+                name=sess.name,
+                mobile=sess.mobile,
+            )
+        except Exception as e:
+            log.exception('pdf browser captcha failed')
+            await progress.log_detail(f'Captcha error: {str(e)[:80]}')
+            return False
+    sess.prime_browser_captcha(png, txn)
+    if instant:
+        await progress.log_detail('⚡ Standby captcha')
+    return bool(sess.captcha_txn_id and len(sess.last_captcha_image) >= 80)
+
+
+async def _send_pdf_captcha_photo(
+    update: Update,
+    sess: AadharSession,
+    *,
+    fresh: bool = False,
+    instant: bool = False,
+) -> bool:
+    png = sess.last_captcha_image or b''
+    if len(png) < 80:
+        return False
+    await update.message.reply_photo(
+        photo=png,
+        caption=_captcha_caption(fresh=fresh, instant=instant),
+    )
+    return True
+
+
+async def _run_pdf_with_browser_captcha(
     update: Update,
     sess: AadharSession,
     progress: LoadingScreen,
     fn,
     *args,
-    phase: str = 'Phase',
-    send_captcha: bool = True,
+    phase: str = 'phase1',
+    prime: bool = True,
     **kwargs,
 ) -> dict:
+    """Run /pdf step with browser captcha — manual image entry like /open."""
+    if prime:
+        if not await _prime_pdf_browser_captcha(sess, progress, phase):
+            return {
+                'otp_ok': False,
+                'needs_captcha': True,
+                'msg': 'Browser captcha failed — try /pdf again',
+            }
     _wire_aadhar_logs(sess, progress)
     result = await run_aadhar(fn, *args, **kwargs)
-    if send_captcha and not result.get('auto_captcha'):
-        png = result.get('image_png') or b''
-        if result.get('needs_captcha') or len(png) >= 80:
-            await send_captcha_to_bot(update, result, phase=phase)
-    cap = result.get('captcha_text') or sess.captcha_text
-    if cap and not result.get('invalid_captcha') and result.get('auto_captcha'):
-        await progress.log_detail(f'Captcha: {cap}')
+    if result.get('needs_browser_captcha'):
+        refresh = f'{phase}-refresh'
+        if await _prime_pdf_browser_captcha(sess, progress, refresh):
+            result = {
+                **result,
+                'image_png': sess.last_captcha_image,
+                'captcha_txn_id': sess.captcha_txn_id,
+                'needs_captcha': True,
+            }
+        else:
+            result['msg'] = result.get('msg') or 'Could not refresh captcha'
+    if result.get('needs_captcha') and not result.get('otp_ok'):
+        await _send_pdf_captcha_photo(
+            update, sess,
+            fresh=bool(result.get('invalid_captcha')),
+        )
     return result
 
 
@@ -373,21 +437,20 @@ async def _start_download_flow(
     }
 
     try:
-        result = await _run_aadhar_with_ui(
-            update, sess, progress, sess.phase1_start, phase='Phase 1',
+        result = await _run_pdf_with_browser_captcha(
+            update, sess, progress, sess.phase1_start, phase='phase1',
         )
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_1
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
-            auto = '\n⚡ Audio auto-captcha' if result.get('auto_captcha') else ''
-            await progress.done(uidai_user_message(result, kind='otp') + hint + auto)
+            await progress.done(uidai_user_message(result, kind='otp') + hint)
             return
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA
             if result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
-                await progress.done('📷 Enter captcha from the image above')
+                await progress.done('Captcha ready — reply with text')
             return
         await progress.fail(result.get('msg') or 'Phase 1 failed')
     except Exception as e:
@@ -414,20 +477,19 @@ async def _phase2_after_otp1(
     )
 
     try:
-        result = await _run_aadhar_with_ui(
-            update, sess, progress, sess.phase2_start, phase='Phase 2',
+        result = await _run_pdf_with_browser_captcha(
+            update, sess, progress, sess.phase2_start, phase='phase2',
         )
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
             if result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
-                await progress.done('Phase 2 captcha — reply 4–8 chars')
+                await progress.done('Captcha ready — reply with text')
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
-            auto = '\n⚡ Audio auto-captcha' if result.get('auto_captcha') else ''
-            await progress.done(uidai_user_message(result, kind='download_otp') + auto)
+            await progress.done(uidai_user_message(result, kind='download_otp'))
         else:
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
             await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
@@ -454,7 +516,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/myid — your chat ID',
         '',
         '/open: captcha → OTP → Aadhaar SMS',
-        '/pdf: OTP1 → OTP2 → PDF file',
+        '/pdf: captcha → OTP1 → OTP2 → PDF (browser image, same as /open)',
         '',
         '👥 Multi-user — each user gets an isolated session.',
     ]
@@ -841,9 +903,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 1…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 1', subtitle='EID')
         try:
-            result = await _run_aadhar_with_ui(
+            result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase1_otp_manual, text,
-                phase='Phase 1', send_captcha=True,
+                phase='phase1', prime=False,
             )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
@@ -869,9 +931,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         wait = await update.message.reply_text('⏳ Sending OTP 2…')
         progress = LoadingScreen(wait, a_sess.name, a_sess.mobile, title='OTP 2', subtitle='PDF')
         try:
-            result = await _run_aadhar_with_ui(
+            result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase2_otp_manual, text,
-                phase='Phase 2', send_captcha=True,
+                phase='phase2', prime=False,
             )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_2

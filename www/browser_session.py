@@ -158,6 +158,36 @@ def get_standby_captcha_pair() -> tuple[bytes, str] | None:
     return png, txn
 
 
+async def fetch_pdf_browser_captcha(
+    phase: str,
+    *,
+    name: str = '',
+    mobile: str = '',
+    on_step: StepCb | None = None,
+) -> tuple[bytes, str]:
+    """Browser captcha for /pdf — same live-page logic as /open."""
+    phase_key = (phase or 'phase1').lower()
+    if phase_key.startswith('phase2'):
+        return await fetch_captcha_from_page(
+            DOWNLOAD_PAGE_URL,
+            name='',
+            mobile='',
+            option='EID',
+            on_step=on_step,
+        )
+    pair = get_standby_captcha_pair()
+    if pair and name and mobile:
+        log.info('fetch_pdf_browser_captcha — standby cache hit')
+        return pair
+    return await fetch_captcha_from_page(
+        UIDAI_PAGE_URL,
+        name=name,
+        mobile=mobile,
+        option='EID',
+        on_step=on_step,
+    )
+
+
 async def fetch_captcha_from_page(
     page_url: str,
     *,

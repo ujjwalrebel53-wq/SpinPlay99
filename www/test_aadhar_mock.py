@@ -67,13 +67,14 @@ async def test_full_flow_mock() -> bool:
     with patch.object(AadharSession, '_post', side_effect=lambda url, **kw: _route_post(url, **kw)):
         sess = AadharSession(on_log=logs.append)
         sess.setup('KAMAR JAHAN', '7651892956', '01/01/1991')
+        fake_png = base64.b64decode(FAKE_PNG)
+        sess.prime_browser_captcha(fake_png, 'txn-img-999')
 
         r1 = await run_aadhar(sess.phase1_start)
         assert r1.get('needs_captcha'), r1
-        assert len(r1.get('audio_bytes') or b'') > 50, 'audio missing'
         assert len(r1.get('image_png') or b'') > 50, 'image missing'
         assert r1.get('captcha_txn_id'), 'txn missing'
-        print(f'  Phase1 captcha fetched — logs:{len(logs)} audio:{len(r1["audio_bytes"])}B')
+        print(f'  Phase1 browser captcha primed — logs:{len(logs)}')
 
         r1b = await run_aadhar(sess.phase1_otp_manual, 'ab12cd')
         assert r1b.get('otp_ok'), r1b
@@ -83,6 +84,7 @@ async def test_full_flow_mock() -> bool:
         assert v1.get('retrieve_ok') and v1.get('eid'), v1
         print(f'  EID: {v1["eid"]}')
 
+        sess.prime_browser_captcha(fake_png, 'txn-phase2-88')
         r2 = await run_aadhar(sess.phase2_start)
         assert r2.get('needs_captcha'), r2
         r2b = await run_aadhar(sess.phase2_otp_manual, 'xy34zw')
@@ -115,13 +117,15 @@ async def test_loading_screen_logs() -> bool:
         captured.append(line)
         asyncio.run_coroutine_threadsafe(progress.log_detail(line), loop)
 
+    fake_png = base64.b64decode(FAKE_PNG)
     with patch.object(AadharSession, '_post', side_effect=lambda url, **kw: _route_post(url, **kw)):
         sess = AadharSession(on_log=on_log)
         await run_aadhar(sess.setup, 'KAMAR JAHAN', '7651892956')
+        sess.prime_browser_captcha(fake_png, 'txn-logs-1')
         await run_aadhar(sess.phase1_start)
         await asyncio.sleep(0.4)
 
-    ok = 'Logs' in msg.text and len(captured) >= 8 and 'Audio Captcha' in ''.join(captured)
+    ok = 'Logs' in msg.text and len(captured) >= 5 and 'Browser captcha' in ''.join(captured)
     print(f'  screen:{len(msg.text)}ch logs:{len(captured)}')
     print(f'  {"PASS" if ok else "FAIL"}')
     return ok
@@ -149,7 +153,7 @@ async def test_captcha_send_mock() -> bool:
         'image_png': base64.b64decode(FAKE_PNG),
     }
     await send_captcha_to_bot(FakeUpdate(), result, phase='Phase 1')
-    ok = any('audio' in s for s in sent) and any('photo' in s for s in sent)
+    ok = any('photo' in s for s in sent)
     print(f'  sent: {sent}')
     print(f'  {"PASS" if ok else "FAIL"}')
     return ok

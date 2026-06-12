@@ -198,6 +198,7 @@ class AadharSession:
         self.last_audio_bytes: bytes = b''
         self.last_captcha_image: bytes = b''
         self.last_phase = ''
+        self._browser_captcha_primed = False
 
     def _log(self, msg: str) -> None:
         line = (msg or '').strip()
@@ -224,8 +225,30 @@ class AadharSession:
             self._log(f'[*] DOB: {self.dob}')
         else:
             self._log('[!] DOB missing — null')
-        self._log('[*] Captcha: manual entry only')
+        self._log('[*] Captcha: browser image (same as /open)')
         self._log('[*] Direct connection — Indian VPS')
+
+    def prime_browser_captcha(self, png: bytes, txn: str) -> None:
+        """Load captcha from Playwright — paired PNG + captchaTxnId like /open."""
+        self.last_captcha_image = png or b''
+        self.captcha_txn_id = str(txn or '').strip()
+        self.captcha_text = ''
+        self._browser_captcha_primed = bool(
+            self.captcha_txn_id and self._image_captcha_ok(self.last_captcha_image),
+        )
+        if self._browser_captcha_primed:
+            self._log(
+                f'[+] Browser captcha primed — {len(self.last_captcha_image)} bytes '
+                f'txn:{self.captcha_txn_id[:12]}…',
+            )
+        else:
+            self._log('[-] Browser captcha prime failed — image or txn missing')
+
+    def clear_browser_captcha(self) -> None:
+        self.captcha_text = ''
+        self.captcha_txn_id = ''
+        self.last_captcha_image = b''
+        self._browser_captcha_primed = False
 
     def _post(
         self,
@@ -395,17 +418,10 @@ class AadharSession:
                     pass
 
     def _acquire_captcha(self, headers: dict[str, str], tag: str) -> dict[str, Any]:
-        """
-        Image captcha for user when it loads.
-        If image fails — auto-solve via audio (Whisper), no audio sent to Telegram.
-        """
+        """Browser-primed captcha only — same manual image flow as /open."""
         self.last_phase = tag
-        bundle = self._fetch_captcha_bundle(headers, tag=tag)
-        txn = str(bundle.get('txn') or '').strip()
-        png = bundle.get('image_png') or b''
-        if png:
-            self.last_captcha_image = png
-
+        txn = str(self.captcha_txn_id or '').strip()
+        png = self.last_captcha_image or b''
         out: dict[str, Any] = {
             'txn': txn,
             'image_png': png,
@@ -413,62 +429,25 @@ class AadharSession:
             'captcha_text': '',
             'auto_solved': False,
         }
-        if not txn:
-            self._log(f'[-] [{tag}] captchaTxnId missing')
-            return out
-
-        self.captcha_txn_id = txn
-
-        if self._image_captcha_ok(png) or self._image_captcha_ok(self.last_captcha_image):
+        if txn and self._image_captcha_ok(png):
             out['needs_manual'] = True
-            out['image_png'] = self.last_captcha_image or png
-            self._log(f'[+] [{tag}] Image captcha ready — manual entry')
+            self._log(f'[+] [{tag}] Browser captcha ready — manual entry')
             return out
-
-        if not whisper_auto_enabled():
-            out['needs_manual'] = True
-            self._log(f'[-] [{tag}] No image — enter /pdf again or set UIDAI_WHISPER_AUTO=1')
-            return out
-
-        self._log(f'[!] [{tag}] No image — trying Whisper auto (UIDAI_WHISPER_AUTO=1)…')
-        cap = self._auto_captcha_from_audio(bundle, tag=tag)
-        if cap:
-            out['captcha_text'] = cap
-            out['auto_solved'] = True
-            self.captcha_text = cap
-            self._log(f'[+] [{tag}] Auto captcha guess: {cap}')
-        else:
-            out['needs_manual'] = True
-            self._log(f'[-] [{tag}] Whisper failed — need manual /pdf retry')
+        self._log(f'[-] [{tag}] Browser captcha not primed — fetch from live page')
+        out['needs_browser_captcha'] = True
         return out
-
-    def _refresh_manual_captcha(self, headers: dict[str, str], tag: str) -> dict[str, Any]:
-        """New captcha image after auto/invalid — user types manually."""
-        self.captcha_text = ''
-        bundle = self._fetch_captcha_bundle(headers, tag=f'{tag}-refresh')
-        txn = str(bundle.get('txn') or '').strip()
-        png = bundle.get('image_png') or self.last_captcha_image or b''
-        if txn:
-            self.captcha_txn_id = txn
-        if png:
-            self.last_captcha_image = png
-        return {
-            'txn': txn,
-            'image_png': png,
-            'needs_manual': True,
-            'needs_captcha': True,
-        }
 
     def _captcha_rejected_result(
         self, resp: dict | None, headers: dict[str, str], tag: str,
     ) -> dict[str, Any]:
         if invalid_captcha(resp):
-            self._log(f'[-] [{tag}] Invalid captcha — fresh image for manual entry')
-            self._refresh_manual_captcha(headers, tag)
+            self._log(f'[-] [{tag}] Invalid captcha — need fresh browser image')
+            self.clear_browser_captcha()
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
+                'needs_browser_captcha': True,
                 'invalid_captcha': True,
                 'msg': '❌ Wrong captcha. Enter the new image above.',
             }
@@ -519,29 +498,13 @@ class AadharSession:
 
         acq = self._acquire_captcha(self.phase1_headers, 'phase1')
         txn = acq.get('txn') or ''
-        if not txn:
-            return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': 'Captcha txn missing'}
-
-        if acq.get('auto_solved'):
-            cap = acq.get('captcha_text') or ''
-            self.captcha_text = cap
-            resp = self._request_eid_otp(cap, txn, self.phase1_headers, tag='phase1-auto')
-            if is_success(resp):
-                self.otp_txn_id = (resp.get('responseData') or {}).get('otpTxnId') or ''
-                return {
-                    **self._result_base(),
-                    'otp_ok': True,
-                    'auto_captcha': 'whisper',
-                    'msg': 'OTP 1 sent (audio auto-captcha)',
-                }
-            self._log('[-] Auto captcha rejected — fresh image for manual entry')
-            self._refresh_manual_captcha(self.phase1_headers, 'phase1')
+        if acq.get('needs_browser_captcha') or not txn:
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'invalid_captcha': True,
-                'msg': '❌ Auto captcha was wrong. Enter the new image captcha above.',
+                'needs_browser_captcha': True,
+                'msg': 'Captcha loading failed — retry /pdf',
             }
 
         return {
@@ -628,29 +591,13 @@ class AadharSession:
 
         acq = self._acquire_captcha(self.phase2_headers, 'phase2')
         txn = acq.get('txn') or ''
-        if not txn:
-            return {**self._result_base(), 'otp_ok': False, 'needs_captcha': True, 'msg': 'Phase 2 captcha failed'}
-
-        if acq.get('auto_solved'):
-            cap = acq.get('captcha_text') or ''
-            self.captcha_text = cap
-            resp = self._request_download_otp(cap, txn, tag='phase2-auto')
-            if is_success(resp):
-                self.download_otp_txn_id = str(resp.get('txnId') or '')
-                return {
-                    **self._result_base(),
-                    'otp_ok': True,
-                    'auto_captcha': 'whisper',
-                    'msg': 'OTP 2 sent (audio auto-captcha)',
-                }
-            self._log('[-] Phase2 auto captcha rejected — fresh image')
-            self._refresh_manual_captcha(self.phase2_headers, 'phase2')
+        if acq.get('needs_browser_captcha') or not txn:
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'invalid_captcha': True,
-                'msg': '❌ Auto captcha was wrong. Enter the new image captcha above.',
+                'needs_browser_captcha': True,
+                'msg': 'Phase 2 captcha failed — retry',
             }
 
         return {
