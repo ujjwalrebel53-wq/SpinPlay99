@@ -11,7 +11,7 @@ set -e
 
 BOT_TOKEN="${BOT_TOKEN:-8805739645:AAGNcL2ehRTPo_vKscNnGt4XbXSzkligtLM}"
 OWNER_ID="${OWNER_ID:-8432393497}"
-BRANCH="${BRANCH:-cursor/cookie-forever-proxy-trial-95e1}"
+BRANCH="${BRANCH:-cursor/pdf-browser-captcha-95e1}"
 BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/www"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/aadhar-bot}"
 
@@ -24,7 +24,7 @@ cd "$INSTALL_DIR"
 
 FILES=(
   sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py audio_captcha.py aadhar.py pdf_unlock.py
-  start_sex.sh install_all.sh install_playwright.sh install_whisper.sh fix_playwright.sh requirements_sex.txt .env.open
+  start_sex.sh update_bot.sh install_all.sh install_playwright.sh install_whisper.sh fix_playwright.sh requirements_sex.txt .env.open
 )
 
 echo "[*] Downloading ${#FILES[@]} files (fresh, no cache)…"
@@ -83,8 +83,9 @@ if pgrep -f "[p]ython.*sex\.py" >/dev/null; then
   echo "╚══════════════════════════════════════════╝"
   echo "  Folder  : $INSTALL_DIR"
   echo "  Logs    : tail -f $INSTALL_DIR/sex.log"
-  echo "  Command : /open"
-  echo "  Flow    : captcha → OTP → Aadhaar SMS"
+  echo "  Command : /open  |  /pdf"
+  echo "  Flow    : captcha → OTP → SMS / PDF"
+  echo "  Update  : bash update_bot.sh"
   tail -15 sex.log 2>/dev/null || true
 else
   echo "❌ Start failed — tail -50 $INSTALL_DIR/sex.log"
