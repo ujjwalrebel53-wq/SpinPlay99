@@ -310,7 +310,7 @@ async def _run_aadhar_with_ui(
         if result.get('needs_captcha') or len(png) >= 80:
             await send_captcha_to_bot(update, result, phase=phase)
     cap = result.get('captcha_text') or sess.captcha_text
-    if cap:
+    if cap and not result.get('invalid_captcha') and result.get('auto_captcha'):
         await progress.log_detail(f'Captcha: {cap}')
     return result
 
@@ -384,7 +384,10 @@ async def _start_download_flow(
             return
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA
-            await progress.done(result.get('msg') or 'Enter captcha from image above')
+            if result.get('invalid_captcha'):
+                await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
+            else:
+                await progress.done('📷 Enter captcha from the image above')
             return
         await progress.fail(result.get('msg') or 'Phase 1 failed')
     except Exception as e:
@@ -416,7 +419,10 @@ async def _phase2_after_otp1(
         )
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
-            await progress.done('Phase 2 captcha — reply 4–8 chars')
+            if result.get('invalid_captcha'):
+                await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
+            else:
+                await progress.done('Phase 2 captcha — reply 4–8 chars')
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
@@ -837,11 +843,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             result = await _run_aadhar_with_ui(
                 update, a_sess, progress, a_sess.phase1_otp_manual, text,
-                phase='Phase 1', send_captcha=False,
+                phase='Phase 1', send_captcha=True,
             )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_1
                 await progress.done(uidai_user_message(result, kind='otp'))
+            elif result.get('invalid_captcha'):
+                FLOW[cid]['step'] = STEP_CAPTCHA
+                await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
@@ -862,11 +871,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             result = await _run_aadhar_with_ui(
                 update, a_sess, progress, a_sess.phase2_otp_manual, text,
-                phase='Phase 2', send_captcha=False,
+                phase='Phase 2', send_captcha=True,
             )
             if result.get('otp_ok'):
                 FLOW[cid]['step'] = STEP_OTP_2
                 await progress.done(uidai_user_message(result, kind='download_otp'))
+            elif result.get('invalid_captcha'):
+                FLOW[cid]['step'] = STEP_CAPTCHA_2
+                await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
             else:
                 await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:

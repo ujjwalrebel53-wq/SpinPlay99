@@ -132,7 +132,18 @@ def is_success(resp: dict | None) -> bool:
 
 
 def invalid_captcha(resp: dict | None) -> bool:
-    return 'invalid Captcha' in str(resp or '')
+    if not resp:
+        return False
+    s = str(resp)
+    if 'invalid Captcha' in s or 'REU_VAL_CAP_INF' in s:
+        return True
+    code = str(resp.get('errorCode') or '')
+    return 'CAP' in code.upper()
+
+
+def whisper_auto_enabled() -> bool:
+    """Auto-submit Whisper guess — off by default (often wrong). Image manual is primary."""
+    return os.getenv('UIDAI_WHISPER_AUTO', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def _b64_bytes(val: Any) -> bytes:
@@ -408,22 +419,60 @@ class AadharSession:
 
         self.captcha_txn_id = txn
 
-        if self._image_captcha_ok(png):
+        if self._image_captcha_ok(png) or self._image_captcha_ok(self.last_captcha_image):
             out['needs_manual'] = True
+            out['image_png'] = self.last_captcha_image or png
             self._log(f'[+] [{tag}] Image captcha ready — manual entry')
             return out
 
-        self._log(f'[!] [{tag}] Image not loaded — auto audio captcha…')
+        if not whisper_auto_enabled():
+            out['needs_manual'] = True
+            self._log(f'[-] [{tag}] No image — enter /pdf again or set UIDAI_WHISPER_AUTO=1')
+            return out
+
+        self._log(f'[!] [{tag}] No image — trying Whisper auto (UIDAI_WHISPER_AUTO=1)…')
         cap = self._auto_captcha_from_audio(bundle, tag=tag)
         if cap:
             out['captcha_text'] = cap
             out['auto_solved'] = True
             self.captcha_text = cap
-            self._log(f'[+] [{tag}] Auto captcha: {cap}')
+            self._log(f'[+] [{tag}] Auto captcha guess: {cap}')
         else:
             out['needs_manual'] = True
-            self._log(f'[-] [{tag}] Auto-solve failed — need manual retry')
+            self._log(f'[-] [{tag}] Whisper failed — need manual /pdf retry')
         return out
+
+    def _refresh_manual_captcha(self, headers: dict[str, str], tag: str) -> dict[str, Any]:
+        """New captcha image after auto/invalid — user types manually."""
+        self.captcha_text = ''
+        bundle = self._fetch_captcha_bundle(headers, tag=f'{tag}-refresh')
+        txn = str(bundle.get('txn') or '').strip()
+        png = bundle.get('image_png') or self.last_captcha_image or b''
+        if txn:
+            self.captcha_txn_id = txn
+        if png:
+            self.last_captcha_image = png
+        return {
+            'txn': txn,
+            'image_png': png,
+            'needs_manual': True,
+            'needs_captcha': True,
+        }
+
+    def _captcha_rejected_result(
+        self, resp: dict | None, headers: dict[str, str], tag: str,
+    ) -> dict[str, Any]:
+        if invalid_captcha(resp):
+            self._log(f'[-] [{tag}] Invalid captcha — fresh image for manual entry')
+            self._refresh_manual_captcha(headers, tag)
+            return {
+                **self._result_base(),
+                'otp_ok': False,
+                'needs_captcha': True,
+                'invalid_captcha': True,
+                'msg': '❌ Wrong captcha. Enter the new image above.',
+            }
+        return {**self._result_base(), 'otp_ok': False, 'msg': _short_json(resp) or 'Request failed'}
 
     def _request_eid_otp(self, cap: str, txn: str, headers: dict[str, str], *, tag: str) -> dict | None:
         c, t = self._captcha_pair(cap, txn)
@@ -485,18 +534,14 @@ class AadharSession:
                     'auto_captcha': 'whisper',
                     'msg': 'OTP 1 sent (audio auto-captcha)',
                 }
-            if self._image_captcha_ok(self.last_captcha_image):
-                return {
-                    **self._result_base(),
-                    'otp_ok': False,
-                    'needs_captcha': True,
-                    'msg': 'Enter captcha from image above (4–8 characters)',
-                }
+            self._log('[-] Auto captcha rejected — fresh image for manual entry')
+            self._refresh_manual_captcha(self.phase1_headers, 'phase1')
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'msg': _short_json(resp) or 'Captcha failed — try /pdf again',
+                'invalid_captcha': True,
+                'msg': '❌ Auto captcha was wrong. Enter the new image captcha above.',
             }
 
         return {
@@ -515,7 +560,7 @@ class AadharSession:
             self.phase1_headers = get_headers(rid)
         resp = self._request_eid_otp(cap, self.captcha_txn_id, self.phase1_headers, tag='phase1-manual')
         if not is_success(resp):
-            return {**self._result_base(), 'otp_ok': False, 'msg': _short_json(resp)}
+            return self._captcha_rejected_result(resp, self.phase1_headers, 'phase1')
         self.otp_txn_id = (resp.get('responseData') or {}).get('otpTxnId') or ''
         return {**self._result_base(), 'otp_ok': True, 'msg': 'OTP 1 sent'}
 
@@ -598,18 +643,14 @@ class AadharSession:
                     'auto_captcha': 'whisper',
                     'msg': 'OTP 2 sent (audio auto-captcha)',
                 }
-            if self._image_captcha_ok(self.last_captcha_image):
-                return {
-                    **self._result_base(),
-                    'otp_ok': False,
-                    'needs_captcha': True,
-                    'msg': 'Enter Phase 2 captcha from image above',
-                }
+            self._log('[-] Phase2 auto captcha rejected — fresh image')
+            self._refresh_manual_captcha(self.phase2_headers, 'phase2')
             return {
                 **self._result_base(),
                 'otp_ok': False,
                 'needs_captcha': True,
-                'msg': _short_json(resp) or 'Phase 2 captcha failed — try /pdf again',
+                'invalid_captcha': True,
+                'msg': '❌ Auto captcha was wrong. Enter the new image captcha above.',
             }
 
         return {
@@ -628,7 +669,7 @@ class AadharSession:
             self.phase2_headers = get_headers(self.phase2_req_id)
         resp = self._request_download_otp(cap, self.captcha_txn_id, tag='phase2-manual')
         if not is_success(resp):
-            return {**self._result_base(), 'otp_ok': False, 'msg': _short_json(resp)}
+            return self._captcha_rejected_result(resp, self.phase2_headers, 'phase2')
         self.download_otp_txn_id = str(resp.get('txnId') or '')
         return {**self._result_base(), 'otp_ok': True, 'msg': 'OTP 2 sent'}
 
