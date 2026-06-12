@@ -9,7 +9,7 @@ pkill -f "[p]ython3.*sex\.py" 2>/dev/null || true
 pkill -f "[p]ython3.*bot\.py" 2>/dev/null || true
 sleep 2
 
-for f in sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py; do
+for f in sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py; do
   [ -f "$f" ] || { echo "❌ Missing: $f"; exit 1; }
 done
 

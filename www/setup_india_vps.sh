@@ -23,7 +23,7 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 FILES=(
-  sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py
+  sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py
   start_sex.sh install_all.sh install_playwright.sh fix_playwright.sh requirements_sex.txt .env.open
 )
 
