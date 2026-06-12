@@ -54,7 +54,19 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
     if kind == 'otp' and result.get('otp_ok'):
         return '📱 OTP sent to your mobile. Reply with the 6-digit code here.'
 
+    if kind == 'download_otp' and result.get('otp_ok'):
+        return '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
+
+    if kind == 'download' and result.get('download_ok'):
+        return '✅ e-Aadhaar PDF ready — check the document below.'
+
     if kind == 'retrieve' and result.get('retrieve_ok'):
+        eid = result.get('eid') or ''
+        if eid and kind == 'retrieve':
+            return (
+                '✅ Phase 1 complete — EID retrieved.\n'
+                '📱 OTP 2 will be sent for PDF download.'
+            )
         return '📲 Aadhaar number sent via SMS to your registered mobile. Check your phone.'
 
     logs = result.get('logs') or []
@@ -109,8 +121,18 @@ class LoadingScreen:
         self._total = 8
         self._status = 'loading'
         self._footer = ''
+        self._detail_logs: list[str] = []
         self._frame = 0
         self._started = time.monotonic()
+
+    async def log_detail(self, line: str) -> None:
+        t = (line or '').strip()
+        if not t:
+            return
+        self._detail_logs.append(t[:120])
+        if len(self._detail_logs) > 6:
+            self._detail_logs = self._detail_logs[-6:]
+        await self._render()
 
     def _spinner(self) -> str:
         self._frame += 1
@@ -190,6 +212,8 @@ class LoadingScreen:
         for s in self._steps[-5:]:
             if s:
                 lines.append(f'  {s}')
+        for d in self._detail_logs[-3:]:
+            lines.append(f'  · {d[:60]}')
         if self._footer:
             lines.extend(['', f'  {self._footer}'])
         lines.append('╚══════════════════════════╝')

@@ -23,7 +23,7 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 FILES=(
-  sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py
+  sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py aadhar.py
   start_sex.sh install_all.sh install_playwright.sh fix_playwright.sh requirements_sex.txt .env.open
 )
 
@@ -46,6 +46,9 @@ UIDAI_NAME="KAMAR JAHAN"
 UIDAI_SESSION_HOURS=24
 UIDAI_KEEPALIVE_MIN=10
 UIDAI_POOL_WARM=0
+DOB_BYPASS=1
+CAPTCHA_BYPASS=0
+UIDAI_CAPTCHA_BYPASS=0
 EOF
 
 echo ""
