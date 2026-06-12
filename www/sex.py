@@ -171,6 +171,20 @@ def flow_mode(chat_id: int) -> str:
     return FLOW.get(chat_id, {}).get('mode', FLOW_MODE_RETRIEVE)
 
 
+def _flow_display_name(chat_id: int, sess: AadharSession | None = None) -> str:
+    """UIDAI enrollment name — persists on loading UI and captcha after EID verify."""
+    draft = FLOW.get(chat_id, {})
+    for candidate in (
+        draft.get('aadhaar_name'),
+        sess.aadhaar_name if sess else None,
+        draft.get('name'),
+        sess.name if sess else None,
+    ):
+        if candidate and not is_skip_name(str(candidate)):
+            return normalize_name(str(candidate))
+    return ''
+
+
 def clear_pdf_session(chat_id: int) -> None:
     clear_aadhar_session(chat_id)
 
@@ -203,10 +217,20 @@ def get_session(chat_id: int) -> UidaiBrowserSession | None:
     return SESSIONS.get(chat_id)
 
 
-def _captcha_caption(*, fresh: bool = False, instant: bool = False, ttl: str = '') -> str:
+def _captcha_caption(
+    *,
+    fresh: bool = False,
+    instant: bool = False,
+    ttl: str = '',
+    display_name: str = '',
+) -> str:
     prefix = '⚡ Instant captcha\n' if instant else ('🔄 New captcha\n' if fresh else '')
     ttl_line = f'\nSession: {ttl} remaining' if ttl else ''
+    name_line = ''
+    if display_name and not is_skip_name(display_name):
+        name_line = f'👤 {display_name}\n'
     return (
+        f'{name_line}'
         f'{prefix}'
         'Reply with captcha text (4–8 characters)\n'
         '/refresh — load new captcha'
@@ -562,13 +586,19 @@ async def _send_pdf_captcha_photo(
     *,
     fresh: bool = False,
     instant: bool = False,
+    chat_id: int | None = None,
 ) -> bool:
     png = sess.last_captcha_image or b''
     if len(png) < _CAPTCHA_MIN_BYTES:
         return False
+    cid = chat_id if chat_id is not None else update.effective_chat.id
     await update.message.reply_photo(
         photo=png,
-        caption=_captcha_caption(fresh=fresh, instant=instant),
+        caption=_captcha_caption(
+            fresh=fresh,
+            instant=instant,
+            display_name=_flow_display_name(cid, sess),
+        ),
     )
     return True
 
@@ -590,7 +620,7 @@ async def _run_pdf_with_browser_captcha(
         refresh = f'{phase}-refresh'
         if await _prime_pdf_browser_captcha(sess, progress, refresh, chat_id):
             await progress.update(2, 3, 'Captcha refreshed')
-            await _send_pdf_captcha_photo(update, sess, fresh=True)
+            await _send_pdf_captcha_photo(update, sess, fresh=True, chat_id=chat_id)
             return {
                 'otp_ok': False,
                 'needs_captcha': True,
@@ -629,6 +659,7 @@ async def _run_pdf_with_browser_captcha(
         await _send_pdf_captcha_photo(
             update, sess,
             fresh=bool(result.get('invalid_captcha')),
+            chat_id=chat_id,
         )
     return result
 
@@ -809,7 +840,11 @@ async def _phase2_after_otp1(
         return
 
     progress = await create_loading_screen(
-        update.message, chat_id, sess.mobile, mode='pdf', name=sess.name,
+        update.message,
+        chat_id,
+        sess.mobile,
+        mode='pdf',
+        name=_flow_display_name(chat_id, sess),
     )
 
     try:
@@ -832,11 +867,16 @@ async def _phase2_after_otp1(
             elif result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
-                await progress.done('Captcha ready — reply with text')
+                nm = _flow_display_name(chat_id, sess)
+                ready = 'Captcha ready — reply with text'
+                await progress.done(f'👤 {nm}\n{ready}' if nm else ready)
             return
         if result.get('otp_ok'):
             bump_flow(chat_id, step=STEP_OTP_2)
-            await progress.done(uidai_user_message(result, kind='download_otp'))
+            await progress.done(uidai_user_message(
+                {**result, 'aadhaar_name': _flow_display_name(chat_id, sess)},
+                kind='download_otp',
+            ))
         else:
             bump_flow(chat_id, step=STEP_CAPTCHA_2)
             await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
@@ -906,7 +946,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         '',
         f'Step: {step_labels.get(step, "Ready" if not step else step)}',
     ]
-    if draft.get('name'):
+    display_name = _flow_display_name(cid, get_aadhar_session(cid))
+    if display_name:
+        lines.append(f'Name: {display_name}')
+    elif draft.get('name'):
         lines.append(f'Name: {draft["name"]}')
     if draft.get('mobile'):
         lines.append(f'Mobile: {draft["mobile"]}')
@@ -1288,7 +1331,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text('Session expired — /pdf again.')
             return
         progress = await create_loading_screen(
-            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+            update.message,
+            cid,
+            a_sess.mobile,
+            mode='pdf',
+            name=_flow_display_name(cid, a_sess),
         )
         try:
             await progress.update(1, 3, 'Download OTP request')
@@ -1298,7 +1345,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             if result.get('otp_ok'):
                 bump_flow(cid, step=STEP_OTP_2)
-                await progress.done(uidai_user_message(result, kind='download_otp'))
+                await progress.done(uidai_user_message(
+                    {**result, 'aadhaar_name': _flow_display_name(cid, a_sess)},
+                    kind='download_otp',
+                ))
             elif result.get('network_error'):
                 bump_flow(cid, step=STEP_CAPTCHA_2)
                 await progress.fail(
@@ -1374,7 +1424,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text('Session expired — /pdf again.')
             return
         progress = await create_loading_screen(
-            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+            update.message,
+            cid,
+            a_sess.mobile,
+            mode='pdf',
+            name=_flow_display_name(cid, a_sess),
         )
         try:
             await progress.update(1, 3, 'PDF download request')

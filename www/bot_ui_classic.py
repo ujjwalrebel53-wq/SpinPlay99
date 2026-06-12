@@ -7,6 +7,8 @@ import re
 import time
 from typing import Any, Literal
 
+from uidai_api import is_skip_name
+
 TerminalMode = Literal['fetch', 'pdf', 'captcha']
 
 _LOADING_MSG_BY_CHAT: dict[int, Any] = {}
@@ -76,6 +78,12 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
         return '📱 OTP sent to your mobile. Reply with the 6-digit code here.'
 
     if kind == 'download_otp' and result.get('otp_ok'):
+        a_name = str(result.get('aadhaar_name') or '').strip()
+        if a_name and not is_skip_name(a_name):
+            return (
+                f'👤 Name: {a_name}\n'
+                '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
+            )
         return '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
 
     if kind == 'download' and result.get('download_ok'):
@@ -309,9 +317,14 @@ class LoadingScreen:
             '',
             '━━━━━━━━━━━━━━━━━━━━',
             f'[📡] TARGET:  {target}',
+        ]
+        display_name = (self.name or '').strip()
+        if display_name and not is_skip_name(display_name):
+            body.append(f'[👤] NAME:    {display_name}')
+        body.extend([
             '━━━━━━━━━━━━━━━━━━━━',
             '[⚡️] LIVE TERMINAL:',
-        ]
+        ])
         body.extend(self._lines)
         if self._status == 'fail' and self._footer:
             body.extend(['', f'[!] {self._footer[:200]}'])
