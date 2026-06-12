@@ -8,7 +8,12 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.15.2'
+BOT_ENGINE_VERSION = '2.15.3'
+
+
+def captcha_max_age_sec() -> float:
+    """UIDAI captcha txn TTL — refresh before submit if older."""
+    return max(15.0, float(os.getenv('UIDAI_CAPTCHA_MAX_AGE', '45')))
 
 
 def uidai_fast() -> bool:
@@ -525,6 +530,11 @@ def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str
 
     if re.search(r'invalid.*captcha', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_captcha'}
+    if re.search(r'timed?\s*out|refresh the captcha', msg_s, re.I):
+        return False, msg_s, {**extra, 'reason': 'captcha_expired'}
+    code = str(j.get('errorCode') or '').upper()
+    if 'VCS_INF' in code:
+        return False, msg_s, {**extra, 'reason': 'captcha_expired'}
     if re.search(r'invalid.*otp|incorrect.*otp|otp.*expired', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_otp'}
     if extra.get('pdf_b64'):

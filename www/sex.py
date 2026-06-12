@@ -524,7 +524,12 @@ async def _prime_pdf_browser_captcha(
 
     if phase_key.startswith('phase2'):
         await _await_phase2_prefetch(sess)
-        if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
+        if (
+            not refresh
+            and sess.apply_phase2_captcha_stash()
+            and _captcha_prime_ok(sess)
+            and not sess.captcha_is_stale()
+        ):
             return True
         sess._ensure_phase2_headers()
         if not refresh and await _try_http_captcha_prime(sess, phase):
@@ -572,6 +577,19 @@ async def _run_pdf_with_browser_captcha(
 ) -> dict:
     """Run /pdf step with browser captcha — manual image entry like /open."""
     chat_id = update.effective_chat.id
+    phase_key = (phase or 'phase1').lower()
+    if not prime and phase_key.startswith('phase2') and sess.captcha_is_stale():
+        refresh = f'{phase}-refresh'
+        if await _prime_pdf_browser_captcha(sess, progress, refresh, chat_id):
+            await progress.update(2, 3, 'Captcha refreshed')
+            await _send_pdf_captcha_photo(update, sess, fresh=True)
+            return {
+                'otp_ok': False,
+                'needs_captcha': True,
+                'invalid_captcha': True,
+                'captcha_expired': True,
+                'msg': '⏱ Captcha expire ho gaya — naya image bharo',
+            }
     if prime:
         if not await _prime_pdf_browser_captcha(sess, progress, phase, chat_id):
             return {
