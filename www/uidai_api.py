@@ -8,12 +8,12 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.15.3'
+BOT_ENGINE_VERSION = '2.15.4'
 
 
 def captcha_max_age_sec() -> float:
     """UIDAI captcha txn TTL — refresh before submit if older."""
-    return max(15.0, float(os.getenv('UIDAI_CAPTCHA_MAX_AGE', '45')))
+    return max(15.0, float(os.getenv('UIDAI_CAPTCHA_MAX_AGE', '180')))
 
 
 def uidai_fast() -> bool:

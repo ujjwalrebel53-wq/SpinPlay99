@@ -118,7 +118,15 @@ FLOW_MODE_DOWNLOAD = 'download'
 SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
 
-FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '60')))
+FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '180')))
+
+
+def _idle_timeout_label() -> str:
+    if FLOW_IDLE_SEC >= 60 and FLOW_IDLE_SEC % 60 == 0:
+        return f'{FLOW_IDLE_SEC // 60} min'
+    return f'{FLOW_IDLE_SEC}s'
+
+
 _IDLE_STEPS = frozenset({
     STEP_NAME,
     STEP_MOBILE,
@@ -1542,7 +1550,7 @@ async def _expire_idle_chat(bot, chat_id: int) -> None:
     try:
         await bot.send_message(
             chat_id,
-            f'⏱ Session expired ({FLOW_IDLE_SEC}s no reply).\n/fetch to start again.',
+            f'⏱ Session expired ({_idle_timeout_label()} no reply).\n/fetch to start again.',
         )
     except Exception:
         pass
