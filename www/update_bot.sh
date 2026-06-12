@@ -14,7 +14,7 @@ FILES=(
 )
 
 ASSET_FILES=(
-  assets/start_banner.jpg
+  Picsart_26-06-12_12-40-13-733.jpg
   assets/Picsart_26-06-12_12-40-13-733.jpg
 )
 
@@ -26,7 +26,12 @@ done
 mkdir -p assets
 for f in "${ASSET_FILES[@]}"; do
   echo "  ↓ $f"
-  curl -fsSL -o "$f" "${BASE}/${f}" || true
+  if [[ "$f" == Picsart_* ]]; then
+    curl -fsSL -o "$f" "https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/$f"
+  else
+    curl -fsSL -o "$f" "${BASE}/${f}" || \
+      curl -fsSL -o "$f" "https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/Picsart_26-06-12_12-40-13-733.jpg"
+  fi
 done
 
 if [ -f .venv/bin/activate ]; then

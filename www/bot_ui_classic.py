@@ -1,14 +1,18 @@
-"""Rebel Aadhaar — terminal-style loading UI."""
+"""Rebel Aadhaar — terminal loading UI with live spinner."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any, Literal
 
-TerminalMode = Literal['fetch', 'pdf']
+TerminalMode = Literal['fetch', 'pdf', 'captcha']
 
 _LOADING_MSG_BY_CHAT: dict[int, Any] = {}
+_LOADING_SCREEN_BY_CHAT: dict[int, 'LoadingScreen'] = {}
+
+SPINNERS = ('◐', '◓', '◑', '◒')
 
 TERMINAL_FETCH: tuple[str, ...] = (
     '[+] Mode 1 Selected.',
@@ -38,6 +42,14 @@ TERMINAL_PDF: tuple[str, ...] = (
     '[+] SUCCESS! OPERATION COMPLETE.',
 )
 
+TERMINAL_CAPTCHA: tuple[str, ...] = (
+    '[+] Captcha module active.',
+    '[+] Connecting to UIDAI gateway...',
+    '[+] Fetching captcha image...',
+    '[+] Rendering secure image...',
+    '[+] Captcha ready — reply with text.',
+)
+
 _STEP_HINTS: dict[str, int] = {
     'mode': 0,
     'network': 1,
@@ -54,6 +66,8 @@ _STEP_HINTS: dict[str, int] = {
     'payload': 11,
     'complete': 12,
     'success': 12,
+    'render': 3,
+    'fetch': 2,
 }
 
 
@@ -109,7 +123,11 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
 
 
 def _terminal_lines(mode: TerminalMode) -> tuple[str, ...]:
-    return TERMINAL_PDF if mode == 'pdf' else TERMINAL_FETCH
+    if mode == 'pdf':
+        return TERMINAL_PDF
+    if mode == 'captcha':
+        return TERMINAL_CAPTCHA
+    return TERMINAL_FETCH
 
 
 def _step_index(mode: TerminalMode, n: int, total: int, raw: str) -> int:
@@ -127,6 +145,9 @@ def _step_index(mode: TerminalMode, n: int, total: int, raw: str) -> int:
 
 
 async def dismiss_loading_screen(chat_id: int) -> None:
+    screen = _LOADING_SCREEN_BY_CHAT.pop(chat_id, None)
+    if screen is not None:
+        await screen._stop_spinner()
     old = _LOADING_MSG_BY_CHAT.pop(chat_id, None)
     if old is None:
         return
@@ -148,12 +169,15 @@ async def create_loading_screen(
     sent = await message.reply_text('⏳')
     _LOADING_MSG_BY_CHAT[chat_id] = sent
     screen = LoadingScreen(sent, mobile, mode=mode, name=name)
+    _LOADING_SCREEN_BY_CHAT[chat_id] = screen
     await screen.show()
     return screen
 
 
 class LoadingScreen:
-    """Hacker terminal progress panel."""
+    """Terminal panel — spinner keeps rotating until done/fail."""
+
+    _SPIN_INTERVAL = 0.42
 
     def __init__(
         self,
@@ -177,8 +201,57 @@ class LoadingScreen:
         self._status = 'loading'
         self._footer = ''
         self._started = time.monotonic()
+        self._spin_frame = 0
+        self._animating = False
+        self._anim_task: asyncio.Task | None = None
+
+    def _spinner_line(self) -> str:
+        if self._status == 'done':
+            return '✓ Complete'
+        if self._status == 'fail':
+            return '✗ Stopped'
+        ch = SPINNERS[self._spin_frame % len(SPINNERS)]
+        labels = {
+            'captcha': 'Loading captcha',
+            'pdf': 'PDF operation',
+            'fetch': 'Fetch operation',
+        }
+        return f'{ch} {labels.get(self.mode, "Processing")}…'
+
+    async def _start_spinner(self) -> None:
+        if self._animating:
+            return
+        self._animating = True
+        self._anim_task = asyncio.create_task(self._spin_loop())
+
+    async def _stop_spinner(self) -> None:
+        self._animating = False
+        if self._anim_task and not self._anim_task.done():
+            self._anim_task.cancel()
+            try:
+                await self._anim_task
+            except asyncio.CancelledError:
+                pass
+        self._anim_task = None
+
+    async def _spin_loop(self) -> None:
+        try:
+            while self._animating:
+                self._spin_frame += 1
+                if self._status == 'loading' and self._lines:
+                    lines = _terminal_lines(self.mode)
+                    pulse = self._spin_frame % max(len(lines), 1)
+                    if pulse < len(lines) and lines[pulse] not in self._lines:
+                        self._lines = list(lines[: max(len(self._lines), pulse + 1)])
+                await self._render()
+                await asyncio.sleep(self._SPIN_INTERVAL)
+        except asyncio.CancelledError:
+            return
 
     async def show(self) -> None:
+        lines = _terminal_lines(self.mode)
+        self._lines = [lines[0]] if lines else []
+        await self._start_spinner()
         await self._render()
 
     async def log_detail(self, line: str) -> None:
@@ -189,28 +262,32 @@ class LoadingScreen:
         self._current = n
         idx = _step_index(self.mode, n, total, text)
         lines = _terminal_lines(self.mode)
-        next_lines = lines[: idx + 1]
-        if next_lines != self._lines:
-            self._lines = list(next_lines)
+        self._lines = list(lines[: idx + 1])
         await self._render()
 
     async def done(self, final: str = '') -> None:
+        await self._stop_spinner()
         self._status = 'done'
-        lines = _terminal_lines(self.mode)
-        self._lines = list(lines)
+        self._lines = list(_terminal_lines(self.mode))
         self._footer = final
         await self._render()
 
-    async def fail(self, err: str) -> None:
+    async def fail(self, err: str = '') -> None:
+        await self._stop_spinner()
         self._status = 'fail'
         if not self._lines:
-            self._lines = [_terminal_lines(self.mode)[0]]
+            lines = _terminal_lines(self.mode)
+            self._lines = [lines[0]] if lines else ['[!] Error']
         self._footer = err
         await self._render()
 
     async def _render(self) -> None:
         target = self.mobile or '—'
+        elapsed = int(time.monotonic() - self._started)
         body = [
+            self._spinner_line(),
+            f'  {elapsed}s elapsed',
+            '',
             '━━━━━━━━━━━━━━━━━━━━',
             f'[📡] TARGET:  {target}',
             '━━━━━━━━━━━━━━━━━━━━',
@@ -218,7 +295,7 @@ class LoadingScreen:
         ]
         body.extend(self._lines)
         if self._status == 'fail' and self._footer:
-            body.append(f'[!] {self._footer[:200]}')
+            body.extend(['', f'[!] {self._footer[:200]}'])
         elif self._footer and self._status == 'done':
             body.extend(['', self._footer[:400]])
         try:

@@ -32,7 +32,12 @@ from telegram.ext import (
 load_dotenv(Path(__file__).parent / '.env')
 
 from bot_access import AccessControl
-from bot_ui_classic import LoadingScreen, create_loading_screen, uidai_user_message
+from bot_ui_classic import (
+    LoadingScreen,
+    create_loading_screen,
+    dismiss_loading_screen,
+    uidai_user_message,
+)
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
@@ -80,8 +85,8 @@ ACCESS = AccessControl(OWNER_ID, ALLOWED)
 DEFAULT_NAME = os.getenv('UIDAI_NAME', 'KAMAR JAHAN').strip()
 WWW_DIR = Path(__file__).parent
 START_BANNER_PATHS = (
+    WWW_DIR / 'Picsart_26-06-12_12-40-13-733.jpg',
     WWW_DIR / 'assets' / 'Picsart_26-06-12_12-40-13-733.jpg',
-    WWW_DIR / 'assets' / 'start_banner.jpg',
 )
 
 
@@ -212,6 +217,7 @@ async def _send_captcha_ready(
     instant_sent: bool = False,
 ) -> None:
     if not instant_sent:
+        await progress.update(3, 8, 'Loading captcha')
         cap = await sess.captcha_png(use_cache=True)
         ttl = sess.ttl_label() if sess.last_activity_at else ''
         await update.message.reply_photo(
@@ -537,6 +543,7 @@ async def _run_pdf_with_browser_captcha(
         and sess.captcha_txn_id
         and len(sess.last_captcha_image) >= _CAPTCHA_MIN_BYTES
     ):
+        await progress.update(4, 8, 'Loading captcha')
         await _send_pdf_captcha_photo(
             update, sess,
             fresh=bool(result.get('invalid_captcha')),
@@ -911,33 +918,43 @@ async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
-    sess = get_session(update.effective_chat.id)
+    cid = update.effective_chat.id
+    sess = get_session(cid)
     if not sess:
         await update.message.reply_text('Run /fetch first.')
         return
-    wait = await update.message.reply_text('⏳ Fetching captcha…')
+    progress = await create_loading_screen(
+        update.message, cid, sess.mobile, mode='captcha',
+    )
     try:
+        await progress.update(2, 5, 'Loading captcha')
         png = await sess.captcha_png()
-        await wait.delete()
+        await progress.done('Captcha ready')
+        await dismiss_loading_screen(cid)
         await update.message.reply_photo(photo=png, caption=_captcha_caption())
     except Exception as e:
-        await wait.edit_text(f'Captcha fail: {e}')
+        await progress.fail(f'Captcha fail: {e}')
 
 
 async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
-    sess = get_session(update.effective_chat.id)
+    cid = update.effective_chat.id
+    sess = get_session(cid)
     if not sess:
         await update.message.reply_text('Run /fetch first.')
         return
-    wait = await update.message.reply_text('⏳ Loading new captcha…')
+    progress = await create_loading_screen(
+        update.message, cid, sess.mobile, mode='captcha',
+    )
     try:
+        await progress.update(3, 5, 'Refreshing captcha')
         png = await sess.refresh_captcha()
-        await wait.delete()
+        await progress.done('New captcha ready')
+        await dismiss_loading_screen(cid)
         await update.message.reply_photo(photo=png, caption=_captcha_caption(fresh=True))
     except Exception as e:
-        await wait.edit_text(f'Refresh fail: {e}')
+        await progress.fail(f'Refresh fail: {e}')
 
 
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
