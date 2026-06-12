@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.error import Conflict
 from telegram.ext import (
     Application,
@@ -63,6 +63,7 @@ from uidai_api import (
     is_skip_name,
     normalize_dob,
     normalize_name,
+    uidai_fast,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -300,8 +301,33 @@ def _wire_aadhar_logs(sess: AadharSession, progress: LoadingScreen) -> None:
 
 
 def _pdf_captcha_mode() -> str:
-    """auto = standby → browser → HTTP | http = API first | browser = page only."""
+    """auto = standby → HTTP → browser | http = API only | browser = page only."""
     return os.getenv('UIDAI_PDF_CAPTCHA', 'auto').strip().lower()
+
+
+_PREFETCH_TASKS: dict[int, asyncio.Task] = {}
+
+
+async def _prefetch_phase2_captcha(sess: AadharSession) -> bool:
+    """Background HTTP captcha for phase 2 — runs while user reads OTP1 SMS."""
+    if not sess.eid:
+        return False
+    if sess.apply_phase2_captcha_stash():
+        return True
+    ok = await run_aadhar(sess.prime_http_captcha, 'phase2')
+    if ok:
+        sess.stash_phase2_captcha()
+    return ok
+
+
+async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 2.5) -> None:
+    task = _PREFETCH_TASKS.pop(id(sess), None)
+    if task is None:
+        return
+    try:
+        await asyncio.wait_for(task, timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        pass
 
 
 async def _try_http_captcha_prime(
@@ -326,7 +352,7 @@ async def _prime_pdf_browser_captcha(
     progress: LoadingScreen,
     phase: str,
 ) -> bool:
-    """Captcha for /pdf — standby → browser (/open) → HTTP API fallback."""
+    """Captcha for /pdf — standby → HTTP (fast) → browser fallback."""
     mode = _pdf_captcha_mode()
     phase_key = (phase or 'phase1').lower()
 
@@ -338,8 +364,20 @@ async def _prime_pdf_browser_captcha(
             await progress.log_detail('⚡ Standby captcha')
             return True
 
+    if phase_key.startswith('phase2'):
+        await _await_phase2_prefetch(sess)
+        if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
+            await progress.log_detail('⚡ Phase 2 captcha ready')
+            return True
+
+    if mode in ('auto', 'http'):
+        if await _try_http_captcha_prime(sess, progress, phase):
+            if phase_key.startswith('phase2'):
+                sess.stash_phase2_captcha()
+            return True
+
     if mode == 'http':
-        return await _try_http_captcha_prime(sess, progress, phase)
+        return False
 
     if mode in ('auto', 'browser'):
         try:
@@ -352,11 +390,15 @@ async def _prime_pdf_browser_captcha(
             )
             sess.prime_browser_captcha(png, txn)
             if _captcha_prime_ok(sess):
+                if phase_key.startswith('phase2'):
+                    sess.stash_phase2_captcha()
                 return True
         except Exception as e:
             log.warning('pdf browser captcha failed (%s): %s', phase, e)
             await progress.log_detail(f'Browser: {str(e)[:72]}')
 
+    if mode == 'browser':
+        return False
     return await _try_http_captcha_prime(sess, progress, phase)
 
 
@@ -644,24 +686,27 @@ async def _phase2_after_otp1(
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
+    speed = 'Supersonic mode ON' if uidai_fast() else 'Standard mode'
     lines = [
         f'🔐 Rebel Aadhaar — UIDAI Bot v{BOT_ENGINE_VERSION}',
+        f'⚡ {speed}',
         '',
-        'Commands:',
-        '/open — name + mobile',
-        '/open 7651892956 — mobile only (instant captcha ⚡)',
-        '/open fresh 7651892956 — full reload',
-        '/pdf — 2-OTP e-Aadhaar PDF',
-        '/pdf 01/01/1991 7651892956 — DOB + mobile',
-        '/pdf KAMAR JAHAN 01/01/1991 7651892956',
-        '/captcha · /refresh · /status',
-        '/close — end session',
-        '/myid — your chat ID',
+        'Quick start:',
+        '/open 7651892956 — Aadhaar SMS retrieve',
+        '/pdf 7651892956 — e-Aadhaar PDF (2 OTP)',
         '',
-        '/open: captcha → OTP → Aadhaar SMS',
-        '/pdf: captcha → OTP1 → OTP2 → PDF (browser image, same as /open)',
+        'All commands:',
+        '/open — captcha → OTP → Aadhaar SMS',
+        '/open fresh 7651892956 — full browser reload',
+        '/pdf — e-Aadhaar PDF download',
+        '/pdf 01/01/1991 7651892956 — with DOB',
+        '/pdf NAME 01/01/1991 7651892956 — full details',
+        '/captcha · /refresh · /status · /close · /myid',
         '',
-        '👥 Multi-user — each user gets an isolated session.',
+        '/pdf flow: captcha → OTP 1 → OTP 2 → PDF file',
+        '/open flow: captcha → OTP → Aadhaar number via SMS',
+        '',
+        '👥 Multi-user — isolated session per chat.',
     ]
     if is_owner(update):
         lines.extend([
@@ -1137,6 +1182,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         ),
                     }
                 await progress.done(uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'))
+                old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
+                if old_prefetch and not old_prefetch.done():
+                    old_prefetch.cancel()
+                _PREFETCH_TASKS[id(a_sess)] = asyncio.create_task(
+                    _prefetch_phase2_captcha(a_sess),
+                )
                 await _phase2_after_otp1(update, cid, a_sess)
             elif result.get('network_error'):
                 FLOW[cid]['step'] = STEP_OTP_1
@@ -1302,7 +1353,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def warm_pool_job(context) -> None:
-    if os.getenv('UIDAI_POOL_WARM', '0').strip().lower() in ('0', 'false', 'no', 'off'):
+    default_warm = '1' if uidai_fast() else '0'
+    if os.getenv('UIDAI_POOL_WARM', default_warm).strip().lower() in ('0', 'false', 'no', 'off'):
         return
     if pool_is_warm():
         return
@@ -1342,6 +1394,19 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception('Bot error: %s', context.error)
 
 
+async def _register_bot_commands(application: Application) -> None:
+    await application.bot.set_my_commands([
+        BotCommand('start', 'Help and command list'),
+        BotCommand('open', 'Captcha → OTP → Aadhaar SMS'),
+        BotCommand('pdf', 'e-Aadhaar PDF — captcha → 2 OTP'),
+        BotCommand('captcha', 'Show current captcha image'),
+        BotCommand('refresh', 'Refresh captcha image'),
+        BotCommand('status', 'Session and pool status'),
+        BotCommand('close', 'End your session'),
+        BotCommand('myid', 'Show your Telegram chat ID'),
+    ])
+
+
 def main() -> None:
     if not TOKEN:
         raise SystemExit(
@@ -1352,7 +1417,12 @@ def main() -> None:
     if ':' not in TOKEN or len(TOKEN) < 20:
         raise SystemExit('❌ Invalid TELEGRAM_BOT_TOKEN — copy from @BotFather')
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(_register_bot_commands)
+        .build()
+    )
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
     app.add_handler(CommandHandler('open', cmd_open))
@@ -1372,8 +1442,10 @@ def main() -> None:
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        app.job_queue.run_once(warm_pool_job, when=15)
-        app.job_queue.run_repeating(standby_captcha_job, interval=300, first=90)
+        warm_delay = 8 if uidai_fast() else 15
+        standby_first = 35 if uidai_fast() else 90
+        app.job_queue.run_once(warm_pool_job, when=warm_delay)
+        app.job_queue.run_repeating(standby_captcha_job, interval=300, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
 

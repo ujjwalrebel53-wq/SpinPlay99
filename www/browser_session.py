@@ -35,16 +35,30 @@ from uidai_api import (
     build_retrieve_payload,
     extract_otp_txn_id,
     get_header,
+    is_skip_name,
     new_request_id,
+    normalize_name,
     parse_uidai_response,
     summarize_logs,
-    is_skip_name,
-    normalize_name,
+    uidai_fast,
 )
 
 log = logging.getLogger('uidai-browser')
 
 SESSION_TTL_SEC = int(os.getenv('UIDAI_SESSION_HOURS', '24')) * 3600
+
+
+def _ui_delay(seconds: float) -> float:
+    """Shorter fixed waits when UIDAI_FAST=1."""
+    return max(0.05, seconds * 0.22) if uidai_fast() else seconds
+
+
+def _poll_attempts(default: int) -> int:
+    return max(8, default // 2) if uidai_fast() else default
+
+
+def _goto_timeout_ms() -> int:
+    return 25_000 if uidai_fast() else 45_000
 KEEPALIVE_INTERVAL_SEC = int(os.getenv('UIDAI_KEEPALIVE_MIN', '10')) * 60
 CAPTCHA_CACHE_TTL_SEC = int(os.getenv('UIDAI_CAPTCHA_CACHE_MIN', '15')) * 60
 
@@ -229,43 +243,47 @@ async def fetch_captcha_from_page(
         await sess.start()
         await sess._step(1, 4, 'UIDAI page open')
         sess.page.on('response', _on_captcha_response)
-        await sess.page.goto(page_url, wait_until='commit', timeout=45_000)
+        await sess.page.goto(page_url, wait_until='commit', timeout=_goto_timeout_ms())
         if is_retrieve:
-            if not await sess._poll_form(22.0):
+            form_wait = 10.0 if uidai_fast() else 22.0
+            if not await sess._poll_form(form_wait):
                 raise RuntimeError('Retrieve form timeout')
             await sess.page.fill('input[name="name"]', normalize_name(name))
             await sess.page.fill('input[name="mobile"]', mobile.strip())
             await sess.page.evaluate(SET_OPTION_JS, option)
-            await asyncio.sleep(0.6)
-            for _ in range(50):
+            await asyncio.sleep(_ui_delay(0.6))
+            poll_sleep = _ui_delay(0.35)
+            for _ in range(_poll_attempts(50)):
                 txn_pre = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
                 if txn_pre:
                     break
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(poll_sleep)
         elif is_download:
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(_ui_delay(1.2))
             if eid:
                 await sess.page.evaluate(SELECT_DOWNLOAD_EID_JS)
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(_ui_delay(0.4))
                 await sess.page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(_ui_delay(0.8))
             el = sess.page.locator('img[alt*="CAPTCHA" i]').first
+            vis_timeout = 10_000 if uidai_fast() else 18_000
             for attempt in range(3):
                 try:
-                    await el.wait_for(state='visible', timeout=18_000)
+                    await el.wait_for(state='visible', timeout=vis_timeout)
                     break
                 except Exception:
                     if attempt < 2:
                         await sess.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(_ui_delay(1.0))
                     else:
                         raise
             txn = ''
-            for _ in range(50):
+            poll_sleep = _ui_delay(0.35)
+            for _ in range(_poll_attempts(50)):
                 txn = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
                 if txn:
                     break
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(poll_sleep)
         else:
             el = sess.page.locator('img[alt*="CAPTCHA" i]').first
             await el.wait_for(state='visible', timeout=20_000)

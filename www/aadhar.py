@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import requests
+from uidai_api import uidai_fast
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -170,13 +171,24 @@ def _short_json(obj: Any, limit: int = 280) -> str:
 
 def request_timeout() -> tuple[int, int]:
     """(connect, read) seconds — hang avoid."""
-    t = int(os.getenv('AADHAR_TIMEOUT', '30'))
-    c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '15'))
+    if uidai_fast():
+        t = int(os.getenv('AADHAR_TIMEOUT', '12'))
+        c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '6'))
+    else:
+        t = int(os.getenv('AADHAR_TIMEOUT', '30'))
+        c = int(os.getenv('AADHAR_CONNECT_TIMEOUT', '15'))
     return (c, t)
 
 
 def post_retry_count() -> int:
-    return max(1, int(os.getenv('AADHAR_POST_RETRIES', '4')))
+    default = '3' if uidai_fast() else '4'
+    return max(1, int(os.getenv('AADHAR_POST_RETRIES', default)))
+
+
+def _retry_backoff(attempt: int) -> float:
+    if uidai_fast():
+        return min(0.4 * attempt, 2.0)
+    return min(2 ** attempt, 10)
 
 
 def _retryable_status(code: int) -> bool:
@@ -201,11 +213,12 @@ class AadharSession:
 
     def __init__(self, on_log: LogCb | None = None) -> None:
         self._session = requests.Session()
+        retry_total = 1 if uidai_fast() else 2
         retry = Retry(
-            total=2,
-            connect=2,
-            read=2,
-            backoff_factor=0.8,
+            total=retry_total,
+            connect=retry_total,
+            read=retry_total,
+            backoff_factor=0.4 if uidai_fast() else 0.8,
             status_forcelist=[502, 503, 504],
             allowed_methods=frozenset(['POST']),
             raise_on_status=False,
@@ -237,6 +250,8 @@ class AadharSession:
         self.last_captcha_image: bytes = b''
         self.last_phase = ''
         self._browser_captcha_primed = False
+        self.phase2_captcha_image: bytes = b''
+        self.phase2_captcha_txn_id = ''
 
     def _log(self, msg: str) -> None:
         line = (msg or '').strip()
@@ -326,8 +341,20 @@ class AadharSession:
             self.phase2_headers = get_headers(self.phase2_req_id)
         return self.phase2_headers
 
+    def stash_phase2_captcha(self) -> None:
+        """Cache phase-2 captcha for instant reuse after prefetch."""
+        if self.captcha_txn_id and self._image_captcha_ok(self.last_captcha_image):
+            self.phase2_captcha_image = self.last_captcha_image
+            self.phase2_captcha_txn_id = self.captcha_txn_id
+
+    def apply_phase2_captcha_stash(self) -> bool:
+        if self.phase2_captcha_txn_id and self._image_captcha_ok(self.phase2_captcha_image):
+            self.prime_browser_captcha(self.phase2_captcha_image, self.phase2_captcha_txn_id)
+            return True
+        return False
+
     def prime_http_captcha(self, phase: str = 'phase2') -> bool:
-        """HTTP captcha image+txn — fallback when download page browser capture fails."""
+        """HTTP captcha image+txn — primary fast path for /pdf."""
         tag = (phase or 'phase2').split('-')[0]
         if tag.startswith('phase2'):
             headers = self._ensure_phase2_headers()
@@ -338,8 +365,10 @@ class AadharSession:
             headers = self.phase1_headers
         else:
             headers = get_headers(str(uuid.uuid4()))
-        self._log(f'[*] [{tag}] HTTP captcha fallback…')
-        bundle = self._fetch_captcha_bundle(headers, tag=f'{tag}-http')
+        self._log(f'[*] [{tag}] HTTP captcha…')
+        bundle = self._fetch_captcha_bundle(
+            headers, tag=f'{tag}-http', image_only=uidai_fast(),
+        )
         txn = str(bundle.get('txn') or '').strip()
         png = bundle.get('image_png') or b''
         if txn and self._image_captcha_ok(png):
@@ -364,19 +393,20 @@ class AadharSession:
         retries = post_retry_count()
         last_exc: Exception | None = None
         for attempt in range(1, retries + 1):
-            self._log(f'[*] POST {tag}… try {attempt}/{retries} timeout={tmo}')
+            if not uidai_fast() or attempt == 1 or attempt == retries:
+                self._log(f'[*] POST {tag}… try {attempt}/{retries} timeout={tmo}')
             try:
                 r = self._session.post(url, headers=headers, json=body, timeout=tmo)
                 if _retryable_status(r.status_code) and attempt < retries:
                     self._log(f'[!] HTTP {r.status_code} — retry {attempt}/{retries}')
-                    time.sleep(min(2 ** attempt, 10))
+                    time.sleep(_retry_backoff(attempt))
                     continue
                 return r
             except requests.RequestException as e:
                 last_exc = e
                 self._log(f'[!] Request failed ({attempt}/{retries}): {str(e)[:90]}')
                 if attempt < retries:
-                    time.sleep(min(2 ** attempt, 10))
+                    time.sleep(_retry_backoff(attempt))
         raise RuntimeError(
             f'UIDAI network failed after {retries} tries — check VPS / proxy'
         ) from last_exc
@@ -416,36 +446,37 @@ class AadharSession:
         return png, txn, audio
 
     def _fetch_captcha_bundle(
-        self, headers: dict[str, str], *, tag: str,
+        self, headers: dict[str, str], *, tag: str, image_only: bool = False,
     ) -> dict[str, Any]:
         """
-        UIDAI audio captcha API first (returns image + audio + txn).
-        Image-only API as fallback. Audio used for auto-solve only — not sent to user.
+        UIDAI captcha APIs — image-only is fastest (one POST).
+        Audio API used when image_only=False (legacy / Whisper path).
         """
         from uidai_api import build_audio_captcha_payload
 
         out: dict[str, Any] = {'audio_b64': '', 'txn': '', 'image_png': b'', 'raw': {}}
 
-        self._log(f'[*] [{tag}] Requesting captcha (audio API — includes image)…')
-        try:
-            r = self._post(
-                AUDIO_CAPTCHA_URL,
-                headers=headers,
-                payload=build_audio_captcha_payload(),
-            )
-            self._log(f'[*] [{tag}] Audio API HTTP {r.status_code}')
-            if r.status_code == 200:
-                data = r.json()
-                out['raw'] = data
-                png, txn, audio = self._parse_captcha_api_json(data, tag=tag)
-                out['image_png'] = png
-                out['txn'] = txn
-                if audio:
-                    out['audio_b64'] = base64.b64encode(audio).decode()
-            else:
-                self._log(f'[-] [{tag}] Body: {(r.text or "")[:200]}')
-        except Exception as e:
-            self._log(f'[-] [{tag}] Audio captcha fail: {e}')
+        if not image_only:
+            self._log(f'[*] [{tag}] Requesting captcha (audio API — includes image)…')
+            try:
+                r = self._post(
+                    AUDIO_CAPTCHA_URL,
+                    headers=headers,
+                    payload=build_audio_captcha_payload(),
+                )
+                self._log(f'[*] [{tag}] Audio API HTTP {r.status_code}')
+                if r.status_code == 200:
+                    data = r.json()
+                    out['raw'] = data
+                    png, txn, audio = self._parse_captcha_api_json(data, tag=tag)
+                    out['image_png'] = png
+                    out['txn'] = txn
+                    if audio:
+                        out['audio_b64'] = base64.b64encode(audio).decode()
+                else:
+                    self._log(f'[-] [{tag}] Body: {(r.text or "")[:200]}')
+            except Exception as e:
+                self._log(f'[-] [{tag}] Audio captcha fail: {e}')
 
         if not self._image_captcha_ok(out['image_png']) or not out['txn']:
             self._log(f'[*] [{tag}] Trying image captcha API fallback…')
@@ -774,8 +805,15 @@ class AadharSession:
             'otpTxnId': self.download_otp_txn_id,
         }
         self._log(f'[*] POST {DOWNLOAD_PDF_URL}')
+        connect, read = request_timeout()
+        pdf_timeout = (connect, max(read, 25))
         try:
-            r = self._post(DOWNLOAD_PDF_URL, headers=self.phase2_headers, payload=payload)
+            r = self._post(
+                DOWNLOAD_PDF_URL,
+                headers=self.phase2_headers,
+                payload=payload,
+                timeout=pdf_timeout,
+            )
             resp = r.json()
             self._log(f'[*] Download HTTP {r.status_code}: {_short_json(resp)}')
         except Exception as e:
@@ -883,7 +921,8 @@ async def run_aadhar_retry(
     **kwargs: Any,
 ) -> Any:
     """Run UIDAI step — retry whole step on network_error."""
-    attempts = max_attempts or max(2, int(os.getenv('AADHAR_STEP_RETRIES', '3')))
+    default_steps = '2' if uidai_fast() else '3'
+    attempts = max_attempts or max(2, int(os.getenv('AADHAR_STEP_RETRIES', default_steps)))
     last: dict[str, Any] = {}
     for attempt in range(1, attempts + 1):
         last = await run_aadhar(fn, *args, **kwargs)
@@ -892,7 +931,7 @@ async def run_aadhar_retry(
         if progress and hasattr(progress, 'log_detail'):
             await progress.log_detail(f'Network retry {attempt}/{attempts}…')
         if attempt < attempts:
-            await asyncio.sleep(min(2 ** attempt, 12))
+            await asyncio.sleep(_retry_backoff(attempt))
     return last
 
 

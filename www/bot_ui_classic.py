@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any
+
+from uidai_api import uidai_fast
 
 SPINNERS = ('◐', '◓', '◑', '◒')
 WAVE = ('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂')
@@ -126,6 +129,25 @@ class LoadingScreen:
         self._detail_logs: list[str] = []
         self._frame = 0
         self._started = time.monotonic()
+        self._debounce_task: asyncio.Task | None = None
+        self._debounce_sec = 0.22 if uidai_fast() else 0.45
+
+    async def _flush_render(self) -> None:
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+            try:
+                await self._debounce_task
+            except asyncio.CancelledError:
+                pass
+        self._debounce_task = None
+        await self._render()
+
+    async def _debounced_render(self) -> None:
+        try:
+            await asyncio.sleep(self._debounce_sec)
+            await self._render()
+        except asyncio.CancelledError:
+            return
 
     async def log_detail(self, line: str) -> None:
         t = (line or '').strip()
@@ -134,7 +156,9 @@ class LoadingScreen:
         self._detail_logs.append(t[:120])
         if len(self._detail_logs) > 6:
             self._detail_logs = self._detail_logs[-6:]
-        await self._render()
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+        self._debounce_task = asyncio.create_task(self._debounced_render())
 
     def _spinner(self) -> str:
         self._frame += 1
@@ -165,14 +189,14 @@ class LoadingScreen:
             self._steps[idx] = line
         else:
             self._steps.append(line)
-        await self._render()
+        await self._flush_render()
 
     async def done(self, final: str = '') -> None:
         self._status = 'done'
         for i, s in enumerate(self._steps):
             self._steps[i] = f'✓ {s.lstrip("✓✗▸ ")}'
         self._footer = final
-        await self._render()
+        await self._flush_render()
 
     async def fail(self, err: str) -> None:
         self._status = 'fail'
@@ -184,7 +208,7 @@ class LoadingScreen:
             idx = self._current - 1
             self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'
         self._footer = err
-        await self._render()
+        await self._flush_render()
 
     async def _render(self) -> None:
         pct = int((self._current / self._total) * 100) if self._total else 0

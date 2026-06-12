@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.12.2'
+BOT_ENGINE_VERSION = '2.13.0'
+
+
+def uidai_fast() -> bool:
+    """Fast path — HTTP-first captcha, tight timeouts, debounced UI (default ON)."""
+    return os.getenv('UIDAI_FAST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
