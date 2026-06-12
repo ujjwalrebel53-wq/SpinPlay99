@@ -43,7 +43,12 @@ class TestUidaiApi(unittest.TestCase):
         self.assertEqual(generate_pdf_password('KAMAR JAHAN', '01/01/1991'), 'KAMA1991')
 
     def test_extract_resident_profile(self) -> None:
-        from pdf_unlock import extract_resident_name, build_pdf_password_candidates
+        from pdf_unlock import (
+            build_pdf_password_candidates,
+            build_year_bruteforce_passwords,
+            extract_resident_name,
+            pdf_name_prefix,
+        )
 
         data = {
             'responseData': {
@@ -53,8 +58,11 @@ class TestUidaiApi(unittest.TestCase):
             },
         }
         self.assertEqual(extract_resident_name(data), 'KAMAR JAHAN')
+        self.assertEqual(pdf_name_prefix('KAMAR JAHAN'), 'KAMA')
         pwds = build_pdf_password_candidates(['KAMAR JAHAN'], '01/01/1991')
-        self.assertIn('KAMA1991', pwds)
+        self.assertEqual(pwds[0], 'KAMA1991')
+        brute = build_year_bruteforce_passwords(['KAMAR JAHAN'], year_min=1990, year_max=1992)
+        self.assertEqual(brute, ['KAMA1990', 'KAMA1991', 'KAMA1992'])
 
     def test_build_eid_payloads(self) -> None:
         otp_p = build_eid_otp_payload(

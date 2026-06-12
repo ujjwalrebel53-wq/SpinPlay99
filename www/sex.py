@@ -427,46 +427,59 @@ async def _send_eaadhaar_pdf(
     sess: AadharSession,
     flow: dict,
 ) -> None:
-    """Unlock e-Aadhaar with name+DOB password and send opened PDF."""
+    """Unlock e-Aadhaar — NAME4 + birth year 1920–2020 brute force."""
+    from pdf_unlock import pdf_name_prefix, year_range
+
     ident = sess.resolved_identity(env_name=DEFAULT_NAME)
     name = ident['name'] or sess.name
     dob = ident.get('dob') or flow.get('dob') or sess.dob_raw
-    passwords = build_pdf_password_candidates(
-        [
-            sess.aadhaar_name,
-            name,
-            flow.get('aadhaar_name'),
-            flow.get('name'),
-            DEFAULT_NAME,
-            sess.name,
-        ],
-        dob,
+    name_list = [
+        sess.aadhaar_name,
+        name,
+        flow.get('aadhaar_name'),
+        flow.get('name'),
+        DEFAULT_NAME,
+        sess.name,
+    ]
+    passwords = build_pdf_password_candidates(name_list, dob)
+    wait = await update.message.reply_text(
+        f'⏳ Opening PDF… trying {pdf_name_prefix(name)} + '
+        f'{year_range()[0]}–{year_range()[1]}',
     )
     unlocked, used_pwd = unlock_eaadhaar_pdf(pdf_bytes, passwords)
     eid_hint = f'\nEID: {sess.eid[:8]}…{sess.eid[-4:]}' if sess.eid and len(sess.eid) > 12 else ''
     name_line = f'\nName: {name}' if name and not is_skip_name(name) else ''
+    prefix = pdf_name_prefix(name) if not is_skip_name(name) else pdf_name_prefix(DEFAULT_NAME)
+    year_hint = used_pwd[len(prefix):] if used_pwd and used_pwd.startswith(prefix) else ''
+
+    try:
+        await wait.delete()
+    except Exception:
+        pass
 
     if unlocked:
+        year_line = f'\nBirth year: {year_hint}' if year_hint.isdigit() else ''
         await update.message.reply_document(
             document=unlocked,
             filename='eaadhaar_open.pdf',
             caption=(
                 '✅ e-Aadhaar PDF — opened\n'
-                f'Password used: {used_pwd}'
+                f'Password: {used_pwd}'
                 f'{name_line}'
+                f'{year_line}'
                 f'{eid_hint}'
             ),
         )
         return
 
-    hint = passwords[0] if passwords else sess.resolved_pdf_password(env_name=DEFAULT_NAME)
+    y_min, y_max = year_range()
     await update.message.reply_document(
         document=pdf_bytes,
         filename='eaadhaar_locked.pdf',
         caption=(
-            '✅ e-Aadhaar PDF (password protected)\n'
-            f'Try password: {hint}\n'
-            '(first 4 name letters CAPS + birth year)'
+            '✅ e-Aadhaar PDF (locked)\n'
+            f'Could not open — tried {prefix}{y_min}…{prefix}{y_max}\n'
+            'Set UIDAI_NAME in .env to exact Aadhaar name.'
             f'{name_line}'
             f'{eid_hint}'
         ),

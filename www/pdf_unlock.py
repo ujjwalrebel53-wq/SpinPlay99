@@ -1,12 +1,16 @@
-"""Unlock UIDAI e-Aadhaar PDF — name + DOB year password."""
+"""Unlock UIDAI e-Aadhaar PDF — name prefix + birth year (1920–2020 brute)."""
 
 from __future__ import annotations
 
 import io
+import os
 import re
 from typing import Any
 
 from uidai_api import generate_pdf_password, is_skip_name, normalize_dob, normalize_name
+
+DEFAULT_YEAR_MIN = 1920
+DEFAULT_YEAR_MAX = 2020
 
 _NAME_KEYS = (
     'name', 'fullName', 'FullName', 'residentName', 'aadhaarName',
@@ -115,28 +119,84 @@ def resolve_aadhaar_dob(
     return None
 
 
+def pdf_name_prefix(name: str) -> str:
+    """First 4 name letters CAPS — UIDAI e-Aadhaar PDF password prefix."""
+    name_clean = re.sub(r'\s+', '', normalize_name(name))
+    first_4 = name_clean[:4].upper()
+    if len(first_4) < 4:
+        first_4 = first_4 + ('A' * (4 - len(first_4)))
+    return first_4
+
+
+def year_range() -> tuple[int, int]:
+    try:
+        y_min = int(os.getenv('UIDAI_PDF_YEAR_MIN', str(DEFAULT_YEAR_MIN)))
+        y_max = int(os.getenv('UIDAI_PDF_YEAR_MAX', str(DEFAULT_YEAR_MAX)))
+    except ValueError:
+        return DEFAULT_YEAR_MIN, DEFAULT_YEAR_MAX
+    if y_min > y_max:
+        y_min, y_max = y_max, y_min
+    return max(1900, y_min), min(2030, y_max)
+
+
+def collect_name_prefixes(names: list[str | None]) -> list[str]:
+    prefixes: list[str] = []
+    for raw in names:
+        if not raw or is_skip_name(raw):
+            continue
+        prefix = pdf_name_prefix(raw)
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+    return prefixes
+
+
+def build_year_bruteforce_passwords(
+    names: list[str | None],
+    *,
+    year_min: int | None = None,
+    year_max: int | None = None,
+) -> list[str]:
+    """NAME4 + 1920…2020 — UIDAI default when DOB unknown."""
+    y_min, y_max = year_range()
+    if year_min is not None:
+        y_min = year_min
+    if year_max is not None:
+        y_max = year_max
+    seen: set[str] = set()
+    out: list[str] = []
+    for prefix in collect_name_prefixes(names):
+        for year in range(y_min, y_max + 1):
+            pwd = f'{prefix}{year}'
+            if pwd not in seen:
+                seen.add(pwd)
+                out.append(pwd)
+    return out
+
+
 def build_pdf_password_candidates(
     names: list[str | None],
     dob: str | None,
 ) -> list[str]:
-    """UIDAI PDF passwords to try — first 4 name letters CAPS + birth year."""
+    """
+    Try known DOB year first, then brute NAME4+1920…2020.
+    """
     seen: set[str] = set()
     out: list[str] = []
-    for raw in names:
-        if not raw or is_skip_name(raw):
-            continue
-        pwd = generate_pdf_password(raw, dob)
+
+    def add(pwd: str) -> None:
         if pwd and pwd not in seen:
             seen.add(pwd)
             out.append(pwd)
+
+    for raw in names:
+        if not raw or is_skip_name(raw):
+            continue
         if dob:
-            year = dob.strip().split('/')[-1]
-            short = generate_pdf_password(raw, None)
-            if year and len(short) >= 4:
-                alt = short[:4] + year
-                if alt not in seen:
-                    seen.add(alt)
-                    out.append(alt)
+            add(generate_pdf_password(raw, dob))
+        add(generate_pdf_password(raw, None))
+
+    for pwd in build_year_bruteforce_passwords(names):
+        add(pwd)
     return out
 
 
