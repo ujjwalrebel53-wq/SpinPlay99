@@ -429,6 +429,16 @@ def parse_uidai_response(status: int, text: str) -> tuple[bool, str, dict[str, A
     eid_num = extract_eid_number(j)
     if eid_num:
         extra['eidNumber'] = eid_num
+    try:
+        from pdf_unlock import extract_resident_profile
+
+        profile = extract_resident_profile(j)
+        if profile.get('name'):
+            extra['resident_name'] = profile['name']
+        if profile.get('dob'):
+            extra['resident_dob'] = profile['dob']
+    except Exception:
+        pass
     if str(j.get('status', '')).lower() == 'success' and eid_num:
         return True, msg_s or 'EID retrieved', {**extra, 'reason': 'retrieve_ok'}
     if re.search(
@@ -477,6 +487,16 @@ def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str
         pdf_val = nested_data.get('aadhaarPdf')
         if isinstance(pdf_val, str) and len(pdf_val) > 200:
             extra['pdf_b64'] = pdf_val
+        try:
+            from pdf_unlock import extract_resident_profile
+
+            profile = extract_resident_profile(nested_data)
+            if profile.get('name'):
+                extra['resident_name'] = profile['name']
+            if profile.get('dob'):
+                extra['resident_dob'] = profile['dob']
+        except Exception:
+            pass
 
     if not extra.get('pdf_b64'):
         for key in (

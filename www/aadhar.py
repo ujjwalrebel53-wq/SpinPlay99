@@ -118,13 +118,9 @@ def normalize_captcha(text: str) -> str:
 
 
 def pdf_password(name: str, dob: str | None) -> str:
-    name_clean = re.sub(r'\s+', '', normalize_name(name))
-    first_4 = name_clean[:4].upper()
-    if len(first_4) < 4:
-        first_4 = first_4 + ('A' * (4 - len(first_4)))
-    if dob and '/' in dob:
-        return first_4 + dob.split('/')[-1]
-    return first_4
+    from uidai_api import generate_pdf_password
+
+    return generate_pdf_password(name, dob)
 
 
 def is_success(resp: dict | None) -> bool:
@@ -192,6 +188,8 @@ class AadharSession:
         self.otp_txn_id = ''
         self.download_otp_txn_id = ''
         self.eid = ''
+        self.aadhaar_name = ''
+        self.aadhaar_dob: str | None = None
         self.phase1_headers: dict[str, str] = {}
         self.phase2_headers: dict[str, str] = {}
         self.phase2_req_id = ''
@@ -249,6 +247,38 @@ class AadharSession:
         self.captcha_txn_id = ''
         self.last_captcha_image = b''
         self._browser_captcha_primed = False
+
+    def _apply_resident_profile(self, resp: dict[str, Any] | None, *, tag: str) -> None:
+        from pdf_unlock import extract_resident_profile
+
+        profile = extract_resident_profile(resp if isinstance(resp, dict) else {})
+        name = profile.get('name') or ''
+        dob = profile.get('dob')
+        if name:
+            self.aadhaar_name = name
+            self._log(f'[+] [{tag}] Aadhaar name: {name}')
+        if dob:
+            self.aadhaar_dob = dob
+            self._log(f'[+] [{tag}] Aadhaar DOB: {dob}')
+
+    def resolved_identity(
+        self,
+        *,
+        env_name: str = '',
+    ) -> dict[str, str | None]:
+        from pdf_unlock import resolve_aadhaar_dob, resolve_aadhaar_name
+
+        name = resolve_aadhaar_name(
+            api_name=self.aadhaar_name or None,
+            form_name=self.name,
+            env_name=env_name,
+        )
+        dob = resolve_aadhaar_dob(api_dob=self.aadhaar_dob, form_dob=self.dob_raw)
+        return {'name': name, 'dob': dob}
+
+    def resolved_pdf_password(self, *, env_name: str = '') -> str:
+        ident = self.resolved_identity(env_name=env_name)
+        return pdf_password(ident['name'] or self.name, ident.get('dob'))
 
     def _ensure_phase2_headers(self) -> dict[str, str]:
         if not self.phase2_headers:
@@ -583,8 +613,17 @@ class AadharSession:
             return {**self._result_base(), 'retrieve_ok': False, 'msg': _short_json(resp)}
 
         self.eid = str((resp.get('responseData') or {}).get('eidNumber') or '')
+        self._apply_resident_profile(resp, tag='phase1-verify')
         self._log(f'[+] EID Retrieved: {self.eid[:6]}…{self.eid[-4:] if len(self.eid) > 10 else self.eid}')
-        return {**self._result_base(), 'retrieve_ok': bool(self.eid), 'eid': self.eid, 'msg': 'EID retrieved'}
+        ident = self.resolved_identity()
+        return {
+            **self._result_base(),
+            'retrieve_ok': bool(self.eid),
+            'eid': self.eid,
+            'aadhaar_name': ident['name'],
+            'aadhaar_dob': ident.get('dob'),
+            'msg': 'EID retrieved',
+        }
 
     def _request_download_otp(self, cap: str, txn: str, *, tag: str) -> dict | None:
         c, t = self._captcha_pair(cap, txn)
@@ -682,8 +721,17 @@ class AadharSession:
         except Exception:
             return {**self._result_base(), 'download_ok': False, 'msg': 'PDF decode failed'}
 
+        self._apply_resident_profile(resp, tag='phase2-download')
+        ident = self.resolved_identity()
         self._log(f'[+] PDF OK — {len(pdf_bytes)} bytes')
-        return {**self._result_base(), 'download_ok': True, 'pdf_bytes': pdf_bytes, 'msg': 'PDF ready'}
+        return {
+            **self._result_base(),
+            'download_ok': True,
+            'pdf_bytes': pdf_bytes,
+            'aadhaar_name': ident['name'],
+            'aadhaar_dob': ident.get('dob'),
+            'msg': 'PDF ready',
+        }
 
 
 AADHAR_SESSIONS: dict[int, AadharSession] = {}

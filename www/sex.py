@@ -53,6 +53,8 @@ from aadhar import (
     pdf_password,
     run_aadhar,
 )
+from pdf_unlock import build_pdf_password_candidates, unlock_eaadhaar_pdf
+from uidai_api import is_skip_name
 from uidai_api import (
     BOT_ENGINE_VERSION,
     DOB_RE,
@@ -392,6 +394,59 @@ async def _run_pdf_with_browser_captcha(
     return result
 
 
+async def _send_eaadhaar_pdf(
+    update: Update,
+    *,
+    pdf_bytes: bytes,
+    sess: AadharSession,
+    flow: dict,
+) -> None:
+    """Unlock e-Aadhaar with name+DOB password and send opened PDF."""
+    ident = sess.resolved_identity(env_name=DEFAULT_NAME)
+    name = ident['name'] or sess.name
+    dob = ident.get('dob') or flow.get('dob') or sess.dob_raw
+    passwords = build_pdf_password_candidates(
+        [
+            sess.aadhaar_name,
+            name,
+            flow.get('aadhaar_name'),
+            flow.get('name'),
+            DEFAULT_NAME,
+            sess.name,
+        ],
+        dob,
+    )
+    unlocked, used_pwd = unlock_eaadhaar_pdf(pdf_bytes, passwords)
+    eid_hint = f'\nEID: {sess.eid[:8]}…{sess.eid[-4:]}' if sess.eid and len(sess.eid) > 12 else ''
+    name_line = f'\nName: {name}' if name and not is_skip_name(name) else ''
+
+    if unlocked:
+        await update.message.reply_document(
+            document=unlocked,
+            filename='eaadhaar_open.pdf',
+            caption=(
+                '✅ e-Aadhaar PDF — opened\n'
+                f'Password used: {used_pwd}'
+                f'{name_line}'
+                f'{eid_hint}'
+            ),
+        )
+        return
+
+    hint = passwords[0] if passwords else sess.resolved_pdf_password(env_name=DEFAULT_NAME)
+    await update.message.reply_document(
+        document=pdf_bytes,
+        filename='eaadhaar_locked.pdf',
+        caption=(
+            '✅ e-Aadhaar PDF (password protected)\n'
+            f'Try password: {hint}\n'
+            '(first 4 name letters CAPS + birth year)'
+            f'{name_line}'
+            f'{eid_hint}'
+        ),
+    )
+
+
 def _pdf_captcha_ready(sess: AadharSession, result: dict) -> bool:
     if result.get('captcha_fetch_failed'):
         return False
@@ -447,7 +502,10 @@ async def _start_download_flow(
     await run_aadhar(sess.setup, name, mobile, dob_norm or dob)
     await progress.log_detail('Session ready — Phase 1')
 
-    pdf_pass = pdf_password(name, dob_norm or dob)
+    pdf_pass = pdf_password(
+        name if not is_skip_name(name) else DEFAULT_NAME,
+        dob_norm or dob,
+    )
     FLOW[chat_id] = {
         'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
@@ -997,6 +1055,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             _wire_aadhar_logs(a_sess, progress)
             result = await run_aadhar(a_sess.phase1_verify, text)
             if result.get('retrieve_ok'):
+                resolved_name = result.get('aadhaar_name') or a_sess.aadhaar_name
+                if resolved_name and not is_skip_name(resolved_name):
+                    FLOW[cid] = {
+                        **FLOW.get(cid, {}),
+                        'aadhaar_name': resolved_name,
+                        'pdf_password': pdf_password(
+                            resolved_name,
+                            result.get('aadhaar_dob') or FLOW.get(cid, {}).get('dob'),
+                        ),
+                    }
                 await progress.done(uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'))
                 await _phase2_after_otp1(update, cid, a_sess)
             else:
@@ -1028,18 +1096,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             result = await run_aadhar(a_sess.phase2_download, text)
             if result.get('download_ok'):
                 pdf = result.get('pdf_bytes') or b''
-                pdf_pass = FLOW.get(cid, {}).get('pdf_password') or pdf_password(
-                    a_sess.name, a_sess.dob_raw,
-                )
+                flow_draft = FLOW.get(cid, {})
+                if result.get('aadhaar_name'):
+                    flow_draft['aadhaar_name'] = result['aadhaar_name']
                 await progress.done(uidai_user_message(result, kind='download'))
-                await update.message.reply_document(
-                    document=pdf,
-                    filename='eaadhaar.pdf',
-                    caption=(
-                        '✅ e-Aadhaar PDF\n'
-                        f'Password: {pdf_pass}\n'
-                        '(first 4 name letters CAPS + birth year)'
-                    ),
+                await _send_eaadhaar_pdf(
+                    update,
+                    pdf_bytes=pdf,
+                    sess=a_sess,
+                    flow=flow_draft,
                 )
                 clear_flow(cid)
                 clear_pdf_session(cid)

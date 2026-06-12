@@ -42,6 +42,20 @@ class TestUidaiApi(unittest.TestCase):
     def test_generate_pdf_password(self) -> None:
         self.assertEqual(generate_pdf_password('KAMAR JAHAN', '01/01/1991'), 'KAMA1991')
 
+    def test_extract_resident_profile(self) -> None:
+        from pdf_unlock import extract_resident_name, build_pdf_password_candidates
+
+        data = {
+            'responseData': {
+                'eidNumber': '12345678901234',
+                'name': 'KAMAR JAHAN',
+                'dob': '01/01/1991',
+            },
+        }
+        self.assertEqual(extract_resident_name(data), 'KAMAR JAHAN')
+        pwds = build_pdf_password_candidates(['KAMAR JAHAN'], '01/01/1991')
+        self.assertIn('KAMA1991', pwds)
+
     def test_build_eid_payloads(self) -> None:
         otp_p = build_eid_otp_payload(
             name='KAMAR JAHAN',

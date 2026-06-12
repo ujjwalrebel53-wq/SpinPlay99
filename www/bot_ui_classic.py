@@ -62,11 +62,13 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
 
     if kind == 'retrieve' and result.get('retrieve_ok'):
         eid = result.get('eid') or ''
+        a_name = result.get('aadhaar_name') or ''
         if eid and kind == 'retrieve':
-            return (
-                '✅ Phase 1 complete — EID retrieved.\n'
-                '📱 OTP 2 will be sent for PDF download.'
-            )
+            lines = ['✅ Phase 1 complete — EID retrieved.']
+            if a_name:
+                lines.append(f'👤 Name: {a_name}')
+            lines.append('📱 OTP 2 will be sent for PDF download.')
+            return '\n'.join(lines)
         return '📲 Aadhaar number sent via SMS to your registered mobile. Check your phone.'
 
     logs = result.get('logs') or []
