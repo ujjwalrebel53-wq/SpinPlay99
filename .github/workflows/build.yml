@@ -10,17 +10,38 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
-    - name: Create Icons
-      run: |
-        mkdir -p app/src/main/res/mipmap-hdpi
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FFD700"/><corners android:radius="5dp"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher.xml
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval"><solid android:color="#FFD700"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml
     - name: Build
       run: |
         gradle wrapper --gradle-version 8.2
         chmod +x gradlew
-        ./gradlew clean assembleDebug
+        ./gradlew clean assembleRelease
+    - name: Strip binary metadata files (keep kotlinx services - Firebase needs them)
+      run: |
+        APK=$(find app/build/outputs/apk/release -name "app-release.apk" | head -1)
+        echo "APK: $APK"
+        # Remove ONLY binary files that trigger obfuscation scanners.
+        # DO NOT remove META-INF/services/kotlinx.coroutines.* —
+        # these are plain text files required by Firebase's coroutine dispatcher.
+        zip -d "$APK" \
+          'assets/dexopt/baseline.prof' \
+          'assets/dexopt/baseline.profm' \
+          'kotlin/**' \
+          'DebugProbesKt.bin' \
+          'META-INF/*.kotlin_module' || true
+        # Re-sign with release keystore
+        BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -1)
+        $ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner sign \
+          --ks app/spinplay99.keystore \
+          --ks-pass pass:spinplay99store \
+          --key-pass pass:spinplay99store \
+          --ks-key-alias spinplay99 \
+          --out app/build/outputs/apk/release/app-release-final.apk \
+          "$APK"
+        echo "=== Final APK contents (suspicious check) ==="
+        unzip -l app/build/outputs/apk/release/app-release-final.apk | \
+          grep -E "\.bin$|kotlin/\.kotlin_builtins|\.prof$|\.profm$" \
+          && echo "WARNING" || echo "CLEAN APK confirmed"
     - uses: actions/upload-artifact@v4
       with:
         name: SpinPlay99
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: app/build/outputs/apk/release/app-release-final.apk

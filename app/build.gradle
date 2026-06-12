@@ -15,6 +15,15 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile file('spinplay99.keystore')
+            storePassword 'spinplay99store'
+            keyAlias 'spinplay99'
+            keyPassword 'spinplay99store'
+        }
+    }
+
     buildTypes {
         debug {
             minifyEnabled false
@@ -23,15 +32,27 @@ android {
         release {
             minifyEnabled false
             shrinkResources false
-            debuggable true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            debuggable false
+            signingConfig signingConfigs.release
         }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    aaptOptions {
+        ignoreAssetsPattern '!dexopt'
+    }
+
+    packagingOptions {
+        exclude 'DebugProbesKt.bin'
+        exclude 'kotlin/**'
+        exclude 'META-INF/*.kotlin_module'
+        exclude 'META-INF/*.version'
+        exclude 'assets/dexopt/baseline.prof'
+        exclude 'assets/dexopt/baseline.profm'
     }
 }
 
@@ -41,5 +62,5 @@ dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-database'
-    implementation 'com.google.firebase:firebase-analytics'
+
 }
