@@ -1,9 +1,9 @@
 #!/bin/bash
-# Install OpenAI Whisper for /pdf audio captcha auto-solve (when image fails)
+# Install OpenAI Whisper + CPU PyTorch (audio captcha auto-solve when image fails)
 set -e
 cd "$(dirname "$0")"
 
-echo "=== Whisper install (audio captcha auto-solve) ==="
+echo "=== Whisper + PyTorch (CPU) install ==="
 
 if command -v apt-get >/dev/null 2>&1; then
   if [ "$(id -u)" -eq 0 ]; then
@@ -23,24 +23,42 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-echo "[1/3] pip install openai-whisper…"
-pip install --no-cache-dir --upgrade pip
+echo "[1/4] Remove broken torch/whisper…"
+pip uninstall -y openai-whisper whisper torch torchvision torchaudio 2>/dev/null || true
+pip cache purge 2>/dev/null || true
+
+echo "[2/4] Install PyTorch CPU (Python 3.12 safe)…"
+pip install --no-cache-dir --upgrade pip setuptools wheel
+pip install --no-cache-dir \
+  torch torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cpu
+
+echo "[3/4] Install openai-whisper…"
 pip install --no-cache-dir openai-whisper
 
-echo "[2/3] Verify import…"
-python3 -c "import whisper; print('  ✅ whisper', getattr(whisper, '__version__', 'OK'))"
-
-MODEL="${WHISPER_MODEL:-base}"
-echo "[3/3] Preload model: $MODEL (first run downloads ~150MB)…"
+echo "[4/4] Verify torch + whisper…"
 python3 -c "
+import torch
 import whisper
-import os
-m = os.getenv('WHISPER_MODEL', '$MODEL').strip() or 'base'
-print(f'  Loading {m}…')
+print('  torch', torch.__version__)
+print('  whisper OK')
+# broken torch check
+import torch.utils.data.datapipes.iter.sharding  # noqa: F401
+print('  torch datapipes OK')
+"
+
+MODEL="${WHISPER_MODEL:-tiny}"
+echo ""
+echo "Preloading Whisper model: $MODEL …"
+WHISPER_MODEL="$MODEL" python3 -c "
+import os, whisper
+m = os.getenv('WHISPER_MODEL', 'tiny').strip() or 'tiny'
+print(f'  Downloading {m}…')
 whisper.load_model(m)
 print('  ✅ model ready')
 "
 
 echo ""
-echo "✅ Whisper installed — image fail pe audio auto-captcha chalega"
-echo "  Light VPS: WHISPER_MODEL=tiny bash install_whisper.sh"
+echo "✅ Whisper ready (model=$MODEL)"
+echo "  .env: UIDAI_WHISPER=1"
+echo "  Light VPS: WHISPER_MODEL=tiny (default in this script)"
