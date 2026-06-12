@@ -7,42 +7,42 @@ echo "╔═══════════════════════�
 echo "║  Full install — deps + Chromium          ║"
 echo "╚══════════════════════════════════════════╝"
 
-run_apt() {
+apt_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif sudo -n true 2>/dev/null; then
+    sudo "$@"
+  else
+    return 1
+  fi
+}
+
+run_apt_base() {
   if ! command -v apt-get >/dev/null 2>&1; then
     echo "⚠ apt-get not found — skip system packages"
     return 0
   fi
-  local SUDO=""
-  [ "$(id -u)" -ne 0 ] && SUDO=sudo
-  if [ -n "$SUDO" ] && ! $SUDO -n true 2>/dev/null; then
-    echo "⚠ No sudo — skip apt (run as root for full install)"
+  if ! apt_sudo true 2>/dev/null; then
+    echo "⚠ No root/sudo — skip apt (run as root for full install)"
     return 0
   fi
 
-  echo "[1/5] apt update + system packages…"
-  $SUDO apt-get update -qq
-  $SUDO apt-get install -y -qq \
+  echo "[1/5] apt update + Python tools…"
+  apt_sudo apt-get update -qq
+  # Ubuntu 22/24 — only stable package names (no libasound2 manual list)
+  apt_sudo apt-get install -y \
     python3 python3-pip python3-venv python3-dev \
     curl wget git ca-certificates \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 \
-    libx11-6 libxext6 libxcb1 libdbus-1-3 libglib2.0-0 \
-    fonts-liberation fonts-noto-color-emoji \
-    2>/dev/null || $SUDO apt-get install -y python3 python3-pip python3-venv curl wget \
-      libnss3 libatk-bridge2.0-0 libdrm2 libgbm1 libasound2
-  echo "  ✅ system packages"
+    || apt_sudo apt-get install -y python3 python3-pip python3-venv curl wget ca-certificates
+  echo "  ✅ Python system packages"
 }
 
+run_apt_base
+
 if ! command -v python3 >/dev/null 2>&1; then
-  run_apt
-fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "❌ python3 not found — install: apt install python3"
+  echo "❌ python3 not found — run as root: apt install python3 python3-venv"
   exit 1
 fi
-
-run_apt
 
 echo "[2/5] Python venv…"
 REQ_FILE="requirements_sex.txt"
@@ -72,24 +72,27 @@ import telegram, dotenv, requests, PIL
 print('  ✅ telegram, dotenv, requests, Pillow')
 "
 
-echo "[4/5] Playwright Chromium + browser libs…"
+echo "[4/5] Playwright Chromium + OS browser libraries…"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 
 PW="python3 -m playwright"
 command -v playwright >/dev/null 2>&1 && PW=playwright
 
-if [ "$(id -u)" -eq 0 ]; then
-  $PW install-deps chromium 2>/dev/null || true
-elif sudo -n true 2>/dev/null; then
-  sudo $PW install-deps chromium 2>/dev/null || true
+# Playwright knows Ubuntu 22/24 package names (libasound2t64 etc.)
+echo "  Installing Chromium system libs via playwright install-deps…"
+if apt_sudo env DEBIAN_FRONTEND=noninteractive $PW install-deps chromium; then
+  echo "  ✅ playwright install-deps OK"
+else
+  echo "  ⚠ install-deps had issues — trying --with-deps on browser install…"
 fi
 
 INSTALLED=0
 for attempt in 1 2 3; do
   echo "  Chromium download attempt $attempt/3…"
-  if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
-    if $PW install --with-deps chromium 2>/dev/null; then
+  if apt_sudo true 2>/dev/null; then
+    if apt_sudo env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
+      $PW install --with-deps chromium; then
       INSTALLED=1
       break
     fi
@@ -102,7 +105,8 @@ for attempt in 1 2 3; do
 done
 
 if [ "$INSTALLED" != 1 ]; then
-  echo "❌ Chromium install failed — run: bash install_playwright.sh"
+  echo "❌ Chromium install failed"
+  echo "   Manual: source .venv/bin/activate && playwright install-deps chromium && playwright install chromium"
   exit 1
 fi
 echo "  ✅ Chromium installed"
