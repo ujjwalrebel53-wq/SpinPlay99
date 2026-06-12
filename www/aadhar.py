@@ -250,6 +250,35 @@ class AadharSession:
         self.last_captcha_image = b''
         self._browser_captcha_primed = False
 
+    def _ensure_phase2_headers(self) -> dict[str, str]:
+        if not self.phase2_headers:
+            self.phase2_req_id = str(uuid.uuid4())
+            self.phase2_headers = get_headers(self.phase2_req_id)
+        return self.phase2_headers
+
+    def prime_http_captcha(self, phase: str = 'phase2') -> bool:
+        """HTTP captcha image+txn — fallback when download page browser capture fails."""
+        tag = (phase or 'phase2').split('-')[0]
+        if tag.startswith('phase2'):
+            headers = self._ensure_phase2_headers()
+        elif tag.startswith('phase1'):
+            if not self.phase1_headers:
+                rid = str(uuid.uuid4())
+                self.phase1_headers = get_headers(rid)
+            headers = self.phase1_headers
+        else:
+            headers = get_headers(str(uuid.uuid4()))
+        self._log(f'[*] [{tag}] HTTP captcha fallback…')
+        bundle = self._fetch_captcha_bundle(headers, tag=f'{tag}-http')
+        txn = str(bundle.get('txn') or '').strip()
+        png = bundle.get('image_png') or b''
+        if txn and self._image_captcha_ok(png):
+            self.prime_browser_captcha(png, txn)
+            self._log(f'[+] [{tag}] HTTP captcha ready — {len(png)} bytes')
+            return True
+        self._log(f'[-] [{tag}] HTTP captcha failed')
+        return False
+
     def _post(
         self,
         url: str,
@@ -585,9 +614,14 @@ class AadharSession:
         if not self.eid:
             return {**self._result_base(), 'otp_ok': False, 'msg': 'EID missing'}
 
-        self.phase2_req_id = str(uuid.uuid4())
-        self.phase2_headers = get_headers(self.phase2_req_id)
-        self._log(f'[*] Phase2 req_id: {self.phase2_req_id[:8]}…')
+        if not self.phase2_headers:
+            self.phase2_req_id = str(uuid.uuid4())
+            self.phase2_headers = get_headers(self.phase2_req_id)
+        else:
+            self.phase2_req_id = self.phase2_headers.get('X-Request-ID', self.phase2_req_id) or str(
+                uuid.uuid4(),
+            )
+        self._log(f'[*] Phase2 req_id: {str(self.phase2_req_id)[:8]}…')
 
         acq = self._acquire_captcha(self.phase2_headers, 'phase2')
         txn = acq.get('txn') or ''

@@ -18,7 +18,9 @@ from react_extract import (
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
+    FILL_DOWNLOAD_EID_JS,
     GET_OPTION_JS,
+    SELECT_DOWNLOAD_EID_JS,
     SEND_OTP_FETCH_JS,
     SEND_OTP_XHR_JS,
     SET_OPTION_JS,
@@ -163,6 +165,7 @@ async def fetch_pdf_browser_captcha(
     *,
     name: str = '',
     mobile: str = '',
+    eid: str = '',
     on_step: StepCb | None = None,
 ) -> tuple[bytes, str]:
     """Browser captcha for /pdf — same live-page logic as /open."""
@@ -173,6 +176,7 @@ async def fetch_pdf_browser_captcha(
             name='',
             mobile='',
             option='EID',
+            eid=eid,
             on_step=on_step,
         )
     pair = get_standby_captcha_pair()
@@ -194,11 +198,13 @@ async def fetch_captcha_from_page(
     name: str = '',
     mobile: str = '',
     option: str = 'EID',
+    eid: str = '',
     on_step: StepCb | None = None,
     requests_session: Any | None = None,
 ) -> tuple[bytes, str]:
     """Browser captcha snapshot — UIDAI HTTP captcha API often returns 500."""
     is_retrieve = 'retrieve-eid-uid' in page_url
+    is_download = 'genricdownload' in page_url.lower() or 'downloadaadhaar' in page_url.lower()
     if is_retrieve and name and mobile:
         pair = get_standby_captcha_pair()
         if pair:
@@ -231,6 +237,30 @@ async def fetch_captcha_from_page(
             await sess.page.fill('input[name="mobile"]', mobile.strip())
             await sess.page.evaluate(SET_OPTION_JS, option)
             await sess._wait_captcha_txn(18.0)
+        elif is_download:
+            await asyncio.sleep(1.2)
+            if eid:
+                await sess.page.evaluate(SELECT_DOWNLOAD_EID_JS)
+                await asyncio.sleep(0.4)
+                await sess.page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
+                await asyncio.sleep(0.8)
+            el = sess.page.locator('img[alt*="CAPTCHA" i]').first
+            for attempt in range(3):
+                try:
+                    await el.wait_for(state='visible', timeout=18_000)
+                    break
+                except Exception:
+                    if attempt < 2:
+                        await sess.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+                        await asyncio.sleep(1.0)
+                    else:
+                        raise
+            txn = ''
+            for _ in range(50):
+                txn = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+                if txn:
+                    break
+                await asyncio.sleep(0.35)
         else:
             el = sess.page.locator('img[alt*="CAPTCHA" i]').first
             await el.wait_for(state='visible', timeout=20_000)
@@ -244,7 +274,11 @@ async def fetch_captcha_from_page(
             if len(png) < 500 and parsed.get('image_png'):
                 png = parsed['image_png']
         if not txn:
+            txn = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+        if not txn:
             raise RuntimeError('captchaTxnId missing — try /pdf again')
+        if len(png) < 200:
+            raise RuntimeError('Captcha image failed to load — try /pdf again')
         return png, txn
     finally:
         await sess.close(keep_warm=True)

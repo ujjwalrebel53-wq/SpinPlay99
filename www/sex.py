@@ -301,6 +301,7 @@ async def _prime_pdf_browser_captcha(
 ) -> bool:
     """Fetch captcha from live UIDAI page — same Playwright path as /open."""
     instant = False
+    png, txn = b'', ''
     pair = get_standby_captcha_pair()
     if pair and phase.startswith('phase1') and sess.name and sess.mobile:
         png, txn = pair
@@ -312,10 +313,15 @@ async def _prime_pdf_browser_captcha(
                 phase,
                 name=sess.name,
                 mobile=sess.mobile,
+                eid=sess.eid if phase.startswith('phase2') else '',
             )
         except Exception as e:
-            log.exception('pdf browser captcha failed')
+            log.warning('pdf browser captcha failed (%s): %s', phase, e)
             await progress.log_detail(f'Captcha error: {str(e)[:80]}')
+            if phase.startswith('phase2'):
+                await progress.log_detail('Trying HTTP captcha fallback…')
+                if await run_aadhar(sess.prime_http_captcha, phase):
+                    return True
             return False
     sess.prime_browser_captcha(png, txn)
     if instant:
@@ -355,8 +361,8 @@ async def _run_pdf_with_browser_captcha(
         if not await _prime_pdf_browser_captcha(sess, progress, phase):
             return {
                 'otp_ok': False,
-                'needs_captcha': True,
-                'msg': 'Browser captcha failed — try /pdf again',
+                'captcha_fetch_failed': True,
+                'msg': 'Captcha failed to load — try /pdf again',
             }
     _wire_aadhar_logs(sess, progress)
     result = await run_aadhar(fn, *args, **kwargs)
@@ -370,13 +376,28 @@ async def _run_pdf_with_browser_captcha(
                 'needs_captcha': True,
             }
         else:
+            result['captcha_fetch_failed'] = True
             result['msg'] = result.get('msg') or 'Could not refresh captcha'
-    if result.get('needs_captcha') and not result.get('otp_ok'):
+    if (
+        result.get('needs_captcha')
+        and not result.get('otp_ok')
+        and not result.get('captcha_fetch_failed')
+        and sess.captcha_txn_id
+        and len(sess.last_captcha_image) >= 80
+    ):
         await _send_pdf_captcha_photo(
             update, sess,
             fresh=bool(result.get('invalid_captcha')),
         )
     return result
+
+
+def _pdf_captcha_ready(sess: AadharSession, result: dict) -> bool:
+    if result.get('captcha_fetch_failed'):
+        return False
+    if not result.get('needs_captcha'):
+        return False
+    return bool(sess.captcha_txn_id and len(sess.last_captcha_image) >= 80)
 
 
 async def _start_download_flow(
@@ -445,9 +466,14 @@ async def _start_download_flow(
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
             await progress.done(uidai_user_message(result, kind='otp') + hint)
             return
+        if result.get('captcha_fetch_failed'):
+            await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
+            return
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA
-            if result.get('invalid_captcha'):
+            if not _pdf_captcha_ready(sess, result):
+                await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
+            elif result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
                 await progress.done('Captcha ready — reply with text')
@@ -480,9 +506,14 @@ async def _phase2_after_otp1(
         result = await _run_pdf_with_browser_captcha(
             update, sess, progress, sess.phase2_start, phase='phase2',
         )
+        if result.get('captcha_fetch_failed'):
+            await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
+            return
         if result.get('needs_captcha'):
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
-            if result.get('invalid_captcha'):
+            if not _pdf_captcha_ready(sess, result):
+                await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
+            elif result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
                 await progress.done('Captcha ready — reply with text')

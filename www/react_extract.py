@@ -14,17 +14,18 @@ EXTRACT_CAPTCHA_TXN_JS = """() => {
     }
     return null;
   }
-  const btn = [...document.querySelectorAll('button')].find(
-    (b) => /send\\s*otp/i.test((b.textContent || '').trim())
-  );
-  if (btn) {
-    const fk = fiberKey(btn);
+  const otpBtn = [...document.querySelectorAll('button')].find((b) => {
+    const t = (b.textContent || b.getAttribute('aria-label') || '').trim();
+    return /send\\s*otp|get\\s*otp|generate\\s*otp|download|proceed|submit/i.test(t);
+  });
+  if (otpBtn) {
+    const fk = fiberKey(otpBtn);
     if (fk) {
-      const id = txnFromFiber(btn[fk]);
+      const id = txnFromFiber(otpBtn[fk]);
       if (id) return id;
     }
   }
-  const roots = document.querySelectorAll('#root button, main button');
+  const roots = document.querySelectorAll('#root button, main button, app-root button');
   for (const el of roots) {
     const fk = fiberKey(el);
     if (!fk) continue;
@@ -60,13 +61,14 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
     }
     return null;
   }
-  const btn = [...document.querySelectorAll('button')].find(
-    (b) => /send\\s*otp/i.test((b.textContent || '').trim())
-  );
-  if (btn) {
-    const fk = fiberKey(btn);
+  const otpBtn = [...document.querySelectorAll('button')].find((b) => {
+    const t = (b.textContent || b.getAttribute('aria-label') || '').trim();
+    return /send\\s*otp|get\\s*otp|generate\\s*otp|download|proceed|submit/i.test(t);
+  });
+  if (otpBtn) {
+    const fk = fiberKey(otpBtn);
     if (fk) {
-      const hit = scanFiber(btn[fk]);
+      const hit = scanFiber(otpBtn[fk]);
       if (hit) return hit;
     }
   }
@@ -107,6 +109,56 @@ SET_OPTION_JS = """(opt) => {
   sel.checked = true;
   sel.dispatchEvent(new Event('change', { bubbles: true }));
   return want;
+}"""
+
+SELECT_DOWNLOAD_EID_JS = """() => {
+  const radios = [...document.querySelectorAll('input[type="radio"]')];
+  for (const r of radios) {
+    const v = (r.value || '').toLowerCase();
+    const label = (r.labels?.[0]?.textContent || r.parentElement?.textContent || '').toLowerCase();
+    if (v === 'eid' || /enrol/.test(label)) {
+      r.click();
+      r.checked = true;
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+  }
+  const eid = document.querySelector(
+    '#eid, input[name="pvc"][value="eid"], input[value="eid"], input[value="EID"]'
+  );
+  if (eid) {
+    eid.click();
+    eid.checked = true;
+    eid.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  return false;
+}"""
+
+FILL_DOWNLOAD_EID_JS = """(eid) => {
+  const val = String(eid || '').replace(/\\D/g, '');
+  if (!val) return false;
+  const sels = [
+    'input[name="eid"]',
+    'input[name="eidNumber"]',
+    'input[name="enrolmentId"]',
+    'input[name="enrolmentNumber"]',
+    'input[placeholder*="enrol" i]',
+    'input[placeholder*="eid" i]',
+    'input[maxlength="28"]',
+  ];
+  for (const s of sels) {
+    const el = document.querySelector(s);
+    if (!el || el.type === 'radio' || el.type === 'checkbox') continue;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (proto?.set) proto.set.call(el, val);
+    else el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    return true;
+  }
+  return false;
 }"""
 
 CLICK_REFRESH_CAPTCHA_JS = """() => {
