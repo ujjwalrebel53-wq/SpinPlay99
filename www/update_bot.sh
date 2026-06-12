@@ -13,10 +13,20 @@ FILES=(
   start_sex.sh install_all.sh requirements_sex.txt
 )
 
+ASSET_FILES=(
+  assets/start_banner.jpg
+  assets/Picsart_26-06-12_12-40-13-733.jpg
+)
+
 echo "=== Rebel Aadhaar bot update (${BRANCH}) ==="
 for f in "${FILES[@]}"; do
   echo "  ↓ $f"
   curl -fsSL -o "$f" "${BASE}/${f}"
+done
+mkdir -p assets
+for f in "${ASSET_FILES[@]}"; do
+  echo "  ↓ $f"
+  curl -fsSL -o "$f" "${BASE}/${f}" || true
 done
 
 if [ -f .venv/bin/activate ]; then

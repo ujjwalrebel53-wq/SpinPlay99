@@ -1,55 +1,60 @@
-"""Classic loading screen — v2.5 Rebel Aadhaar UI (spinner + wave bar)."""
+"""Rebel Aadhaar — terminal-style loading UI."""
 
 from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
-SPINNERS = ('◐', '◓', '◑', '◒')
-WAVE = ('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂')
+TerminalMode = Literal['fetch', 'pdf']
 
 _LOADING_MSG_BY_CHAT: dict[int, Any] = {}
 
+TERMINAL_FETCH: tuple[str, ...] = (
+    '[+] Mode 1 Selected.',
+    '[?] Select Network Provider...',
+    '[+] Securing Connection...',
+    '[+] Auth Key Dispatched!',
+    '[+] Validating Key...',
+    '[+] Elevating Security Level...',
+    '[+] Link Established. Authentication Required!',
+    '[+] Evaluating Key...',
+    '[+] Authorization Accepted. Payload Ready.',
+    '[+] SUCCESS! OPERATION COMPLETE.',
+)
 
-def humanize_step(raw: str) -> str:
-    t = (raw or '').strip()
-    low = t.lower()
-    if not t:
-        return 'Processing'
-    if 'session active' in low or 'reuse' in low or 'skip reload' in low:
-        return 'Active session detected'
-    if 'chromium' in low or 'browser' in low:
-        return 'Browser engine ready'
-    if 'uidai' in low and ('open' in low or 'load' in low):
-        return 'UIDAI portal online'
-    if 'retry' in low:
-        return 'Retrying connection'
-    if 'form' in low or 'updating' in low:
-        return 'Preparing secure form'
-    if 'name' in low:
-        return 'Applying name'
-    if 'mobile' in low:
-        return 'Applying mobile number'
-    if 'pre-loaded' in low or 'cached' in low or 'instant' in low:
-        return 'Instant captcha delivery'
-    if 'captcha' in low:
-        if 'refresh' in low:
-            return 'Refreshing captcha'
-        if 'ready' in low:
-            return 'Captcha ready'
-        return 'Loading captcha'
-    if 'otp' in low:
-        return 'OTP verification'
-    if 'retrieve' in low or 'aadhaar' in low:
-        return 'Retrieving Aadhaar'
-    if 'network' in low or 'direct' in low:
-        return 'Network check'
-    if 'engine' in low:
-        return 'System initialized'
-    t = re.sub(r'\(txn=[^)]+\)', '', t)
-    t = re.sub(r'v\d+\.\d+\.\d+', '', t).strip(' —')
-    return t[:42] if t else 'Processing'
+TERMINAL_PDF: tuple[str, ...] = (
+    '[+] Mode 2 Selected.',
+    '[?] Select Network Provider...',
+    '[+] Securing Connection...',
+    '[+] Auth Key Dispatched!',
+    '[+] Validating Key...',
+    '[+] Elevating Security Level...',
+    '[+] Link Established. Authentication Required!',
+    '[+] Evaluating Key...',
+    '[+] Authorization Accepted. Payload Ready.',
+    '[+] Auth Key 2 Requested!',
+    '[+] Downloading Payload...',
+    '[+] SUCCESS! OPERATION COMPLETE.',
+)
+
+_STEP_HINTS: dict[str, int] = {
+    'mode': 0,
+    'network': 1,
+    'connection': 2,
+    'captcha': 3,
+    'otp': 4,
+    'validat': 5,
+    'secur': 6,
+    'link': 7,
+    'evaluat': 8,
+    'author': 9,
+    'auth key 2': 10,
+    'download': 11,
+    'payload': 11,
+    'complete': 12,
+    'success': 12,
+}
 
 
 def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
@@ -100,11 +105,28 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
 
     if kind == 'otp':
         return '❌ Could not send OTP. Verify captcha or use /refresh.'
-    return '❌ Request failed. Try /open again in a moment.'
+    return '❌ Request failed. Try /fetch again in a moment.'
+
+
+def _terminal_lines(mode: TerminalMode) -> tuple[str, ...]:
+    return TERMINAL_PDF if mode == 'pdf' else TERMINAL_FETCH
+
+
+def _step_index(mode: TerminalMode, n: int, total: int, raw: str) -> int:
+    lines = _terminal_lines(mode)
+    if n <= 0:
+        return 0
+    if n >= total and total > 0:
+        return len(lines) - 1
+    low = (raw or '').strip().lower()
+    for hint, idx in _STEP_HINTS.items():
+        if hint in low:
+            return min(idx, len(lines) - 1)
+    ratio = n / max(total, 1)
+    return min(int(ratio * len(lines)), len(lines) - 1)
 
 
 async def dismiss_loading_screen(chat_id: int) -> None:
-    """Remove the previous loading panel for this chat."""
     old = _LOADING_MSG_BY_CHAT.pop(chat_id, None)
     if old is None:
         return
@@ -117,138 +139,89 @@ async def dismiss_loading_screen(chat_id: int) -> None:
 async def create_loading_screen(
     message,
     chat_id: int,
-    name: str,
     mobile: str,
     *,
-    title: str = 'Rebel Aadhaar',
-    subtitle: str = 'Secure UIDAI Gateway',
+    mode: TerminalMode = 'fetch',
+    name: str = '',
 ) -> 'LoadingScreen':
-    """New loading panel — deletes the previous one in this chat."""
     await dismiss_loading_screen(chat_id)
     sent = await message.reply_text('⏳')
     _LOADING_MSG_BY_CHAT[chat_id] = sent
-    screen = LoadingScreen(sent, name, mobile, title=title, subtitle=subtitle)
+    screen = LoadingScreen(sent, mobile, mode=mode, name=name)
     await screen.show()
     return screen
 
 
 class LoadingScreen:
-    """Animated progress panel — spinner + wave bar (no debug logs)."""
+    """Hacker terminal progress panel."""
 
     def __init__(
         self,
         msg,
-        name: str,
         mobile: str,
         *,
-        title: str = 'Rebel Aadhaar',
-        subtitle: str = 'Secure UIDAI Gateway',
+        mode: TerminalMode = 'fetch',
+        name: str = '',
+        title: str = '',
+        subtitle: str = '',
     ) -> None:
         self._msg = msg
+        self.mobile = (mobile or '').strip()
         self.name = name
-        self.mobile = mobile
+        self.mode = mode
         self.title = title
         self.subtitle = subtitle
-        self._steps: list[str] = []
+        self._lines: list[str] = []
         self._current = 0
-        self._total = 8
+        self._total = 10
         self._status = 'loading'
         self._footer = ''
-        self._frame = 0
         self._started = time.monotonic()
 
     async def show(self) -> None:
         await self._render()
 
     async def log_detail(self, line: str) -> None:
-        """No-op — logs are not shown on the loading screen."""
+        return
 
-    async def update(self, n: int, total: int, text: str) -> None:
+    async def update(self, n: int, total: int, text: str = '') -> None:
         self._total = max(total, 1)
         self._current = n
-        label = humanize_step(text)
-        if n > len(self._steps):
-            self._steps.extend([''] * (n - len(self._steps)))
-        if n >= 1:
-            for i in range(n - 1):
-                if i < len(self._steps) and self._steps[i]:
-                    self._steps[i] = f'✓ {self._steps[i].lstrip("✓✗▸ ")}'
-        idx = n - 1
-        line = f'▸ {label}'
-        if idx < len(self._steps):
-            self._steps[idx] = line
-        else:
-            self._steps.append(line)
+        idx = _step_index(self.mode, n, total, text)
+        lines = _terminal_lines(self.mode)
+        next_lines = lines[: idx + 1]
+        if next_lines != self._lines:
+            self._lines = list(next_lines)
         await self._render()
 
     async def done(self, final: str = '') -> None:
         self._status = 'done'
-        for i, s in enumerate(self._steps):
-            self._steps[i] = f'✓ {s.lstrip("✓✗▸ ")}'
+        lines = _terminal_lines(self.mode)
+        self._lines = list(lines)
         self._footer = final
         await self._render()
 
     async def fail(self, err: str) -> None:
         self._status = 'fail'
-        if self._current < 1:
-            self._current = 1
-            if not self._steps:
-                self._steps.append('▸ Request')
-        if self._steps and self._current >= 1:
-            idx = self._current - 1
-            self._steps[idx] = f'✗ {self._steps[idx].lstrip("✓✗▸ ")}'
+        if not self._lines:
+            self._lines = [_terminal_lines(self.mode)[0]]
         self._footer = err
         await self._render()
 
-    def _spinner(self) -> str:
-        self._frame += 1
-        return SPINNERS[self._frame % len(SPINNERS)]
-
-    def _wave_bar(self, pct: int) -> str:
-        pct = max(0, min(100, pct))
-        pos = int((pct / 100) * (len(WAVE) - 1))
-        idx = (pos + self._frame) % len(WAVE)
-        return ''.join(WAVE[(idx + i) % len(WAVE)] for i in range(10))
-
-    def _elapsed(self) -> str:
-        return f'{int(time.monotonic() - self._started)}s'
-
     async def _render(self) -> None:
-        pct = int((self._current / self._total) * 100) if self._total else 0
-        if self._status == 'done':
-            pct = 100
-
-        if self._status == 'loading':
-            head = f'{self._spinner()} {self.title}'
-            state = 'INITIALIZING'
-        elif self._status == 'done':
-            head = f'✓ {self.title}'
-            state = 'COMPLETE'
-        else:
-            head = f'⚠ {self.title}'
-            state = 'ATTENTION'
-
-        lines = [
-            '╔══════════════════════════╗',
-            f'║  {head[:24]:<24}║',
-            f'║  {self.subtitle[:24]:<24}║',
-            '╠══════════════════════════╣',
-            f'  Status │ {state}',
-            f'  Elapsed │ {self._elapsed()}',
-            '',
-            f'  {self._wave_bar(pct)}  {pct}%',
-            '',
-            f'  Name   {self.name}',
-            f'  Mobile {self.mobile}',
-            '',
+        target = self.mobile or '—'
+        body = [
+            '━━━━━━━━━━━━━━━━━━━━',
+            f'[📡] TARGET:  {target}',
+            '━━━━━━━━━━━━━━━━━━━━',
+            '[⚡️] LIVE TERMINAL:',
         ]
-        for s in self._steps[-5:]:
-            if s:
-                lines.append(f'  {s}')
-        if self._footer:
-            lines.extend(['', f'  {self._footer}'])
-        lines.append('╚══════════════════════════╝')
+        body.extend(self._lines)
+        if self._status == 'fail' and self._footer:
+            body.append(f'[!] {self._footer[:200]}')
+        elif self._footer and self._status == 'done':
+            body.extend(['', self._footer[:400]])
         try:
-            await self._msg.edit_text('\n'.join(lines)[:4000])
+            await self._msg.edit_text('\n'.join(body)[:4000])
         except Exception:
             pass
