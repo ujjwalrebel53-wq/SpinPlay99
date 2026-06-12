@@ -305,7 +305,7 @@ async def _run_aadhar_with_ui(
 ) -> dict:
     _wire_aadhar_logs(sess, progress)
     result = await run_aadhar(fn, *args, **kwargs)
-    if send_captcha:
+    if send_captcha and result.get('needs_captcha') and not result.get('auto_captcha'):
         await send_captcha_to_bot(update, result, phase=phase)
     cap = result.get('captcha_text') or sess.captcha_text
     if cap:
@@ -374,14 +374,15 @@ async def _start_download_flow(
         result = await _run_aadhar_with_ui(
             update, sess, progress, sess.phase1_start, phase='Phase 1',
         )
-        if result.get('needs_captcha') or not result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
-            await progress.done(result.get('msg') or 'Enter captcha (audio/image above)')
-            return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_1
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
-            await progress.done(uidai_user_message(result, kind='otp') + hint)
+            auto = '\n⚡ Audio auto-captcha' if result.get('auto_captcha') else ''
+            await progress.done(uidai_user_message(result, kind='otp') + hint + auto)
+            return
+        if result.get('needs_captcha'):
+            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            await progress.done(result.get('msg') or 'Enter captcha from image above')
             return
         await progress.fail(result.get('msg') or 'Phase 1 failed')
     except Exception as e:
@@ -417,7 +418,8 @@ async def _phase2_after_otp1(
             return
         if result.get('otp_ok'):
             FLOW[chat_id]['step'] = STEP_OTP_2
-            await progress.done(uidai_user_message(result, kind='download_otp'))
+            auto = '\n⚡ Audio auto-captcha' if result.get('auto_captcha') else ''
+            await progress.done(uidai_user_message(result, kind='download_otp') + auto)
         else:
             FLOW[chat_id]['step'] = STEP_CAPTCHA_2
             await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
