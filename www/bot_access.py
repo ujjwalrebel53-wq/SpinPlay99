@@ -41,6 +41,7 @@ class AccessControl:
         base = {x.strip() for x in env_approved if x.strip()}
         self._approved: set[str] = set(base)
         self._credits: dict[str, int] = {}
+        self._users: dict[str, dict[str, str]] = {}
         self._mode = 'locked' if base else 'free'
         self._load()
 
@@ -60,6 +61,14 @@ class AccessControl:
                 for uid, bal in raw_credits.items():
                     if uid:
                         self._credits[str(uid).strip()] = max(0, int(bal))
+            raw_users = data.get('users') or {}
+            if isinstance(raw_users, dict):
+                for uid, profile in raw_users.items():
+                    if uid and isinstance(profile, dict):
+                        self._users[str(uid).strip()] = {
+                            'username': str(profile.get('username') or '').strip(),
+                            'full_name': str(profile.get('full_name') or '').strip(),
+                        }
         except Exception as e:
             log.warning('access_state load fail: %s', e)
 
@@ -71,6 +80,7 @@ class AccessControl:
                         'mode': self._mode,
                         'approved': sorted(self._approved),
                         'credits': {k: self._credits[k] for k in sorted(self._credits)},
+                        'users': {k: self._users[k] for k in sorted(self._users)},
                     },
                     indent=2,
                 ),
@@ -182,11 +192,52 @@ class AccessControl:
         self._save()
         return bal
 
+    def is_approved(self, uid: str) -> bool:
+        return str(uid).strip() in self._approved
+
     def deny(self, uid: str) -> None:
         uid = uid.strip()
         self._approved.discard(uid)
         self._credits.pop(uid, None)
         self._save()
+
+    def record_user(
+        self,
+        uid: str,
+        *,
+        username: str | None = None,
+        full_name: str | None = None,
+    ) -> None:
+        """Remember Telegram username + display name for /user panel."""
+        uid = str(uid).strip()
+        if not uid:
+            return
+        row = dict(self._users.get(uid) or {})
+        if username:
+            row['username'] = username.lstrip('@').strip()
+        if full_name:
+            row['full_name'] = full_name.strip()
+        if row != self._users.get(uid):
+            self._users[uid] = row
+            self._save()
+
+    def get_user(self, uid: str) -> dict[str, str]:
+        return dict(self._users.get(str(uid).strip()) or {})
+
+    def list_users(self) -> list[tuple[str, dict[str, str]]]:
+        return sorted(self._users.items(), key=lambda x: x[0])
+
+    def user_label(self, uid: str) -> str:
+        profile = self.get_user(uid)
+        uname = profile.get('username') or ''
+        name = profile.get('full_name') or ''
+        if uname and name:
+            return f'@{uname} ({name})'
+        if uname:
+            return f'@{uname}'
+        if name:
+            return name
+        return '—'
 
     def status_lines(self, active_sessions: int = 0) -> list[str]:
         mode_label = '🌍 OPEN — all users' if self._mode == 'free' else '🔒 LOCKED — approved + credits'

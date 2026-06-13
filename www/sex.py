@@ -152,6 +152,45 @@ def _ids(update: Update) -> tuple[str | None, str | None]:
     return user_id, chat_id
 
 
+def _telegram_profile(update: Update) -> tuple[str, str]:
+    """Return (username_without_at, full_name)."""
+    user = update.effective_user
+    if not user:
+        return '', ''
+    username = (user.username or '').strip()
+    parts = [p for p in (user.first_name, user.last_name) if p]
+    full_name = ' '.join(parts).strip()
+    return username, full_name
+
+
+def _track_user(update: Update) -> str:
+    """Save user profile; return chat/user id used as key."""
+    user_id, chat_id = _ids(update)
+    uid = str(chat_id or user_id or '').strip()
+    if not uid:
+        return ''
+    username, full_name = _telegram_profile(update)
+    ACCESS.record_user(uid, username=username or None, full_name=full_name or None)
+    return uid
+
+
+def _locked_access_message(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    uid = _track_user(update)
+    username, full_name = _telegram_profile(update)
+    lines = [
+        '🔒 This bot is locked — approved users only.',
+        '',
+        f'Your Chat ID: `{chat_id or uid}`',
+    ]
+    if username:
+        lines.append(f'Username: @{username}')
+    if full_name:
+        lines.append(f'Name: {full_name}')
+    lines.extend(['', 'Ask the owner for access (/myid).'])
+    return '\n'.join(lines)
+
+
 def clear_flow(chat_id: int) -> None:
     FLOW.pop(chat_id, None)
 
@@ -204,12 +243,11 @@ def valid_name_input(text: str) -> bool:
 
 async def guard(update: Update) -> bool:
     user_id, chat_id = _ids(update)
+    _track_user(update)
     if ACCESS.allowed(user_id, chat_id):
         return True
     await update.message.reply_text(
-        '🔒 This bot is locked — approved users only.\n\n'
-        f'Your Chat ID: `{chat_id}`\n'
-        'Ask the owner for access (/myid).',
+        _locked_access_message(update),
         parse_mode='Markdown',
     )
     return False
@@ -1064,7 +1102,13 @@ async def _phase2_after_otp1(
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await guard(update):
+    user_id, chat_id = _ids(update)
+    _track_user(update)
+    if not ACCESS.allowed(user_id, chat_id):
+        await update.message.reply_text(
+            _locked_access_message(update),
+            parse_mode='Markdown',
+        )
         return
     caption = (
         f'🔐 Rebel Aadhaar Bot v{BOT_ENGINE_VERSION}\n'
@@ -1154,12 +1198,18 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat:
         return
     user_id, chat_id = _ids(update)
-    await update.message.reply_text(
-        f'🆔 Your Chat ID: `{chat_id}`\n'
-        f'User ID: `{user_id}`\n\n'
-        'Share this ID with the owner for approval.',
-        parse_mode='Markdown',
-    )
+    _track_user(update)
+    username, full_name = _telegram_profile(update)
+    lines = [
+        f'🆔 Your Chat ID: `{chat_id}`',
+        f'User ID: `{user_id}`',
+    ]
+    if username:
+        lines.append(f'Username: @{username}')
+    if full_name:
+        lines.append(f'Name: {full_name}')
+    lines.append('\nShare this ID with the owner for approval.')
+    await update.message.reply_text('\n'.join(lines), parse_mode='Markdown')
 
 
 async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1176,6 +1226,7 @@ async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         '/free — public | /lock — approved only',
         '/approve CHAT_ID [credits] · /deny CHAT_ID',
         '/addcredits CHAT_ID N · /setcredits CHAT_ID N',
+        '/user — all users | /user CHAT_ID — one user',
     ]
     await update.message.reply_text('\n'.join(lines))
 
@@ -1219,8 +1270,11 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text('Credits must be a number.')
             return
     bal = ACCESS.approve(uid, credits=credits)
+    label = ACCESS.user_label(uid)
     await update.message.reply_text(
-        f'✅ Approved: `{uid}`\n💳 Credits: {bal}',
+        f'✅ Approved: `{uid}`\n'
+        f'👤 {label}\n'
+        f'💳 Credits: {bal}',
         parse_mode='Markdown',
     )
 
@@ -1275,6 +1329,68 @@ async def cmd_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         f'💳 Your credits: {bal}\n'
         f'/fetch = {ACCESS.credit_fetch_cost()} · /pdf = {ACCESS.credit_pdf_cost()}'
     )
+
+
+async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner — list users with chat ID, @username, credits."""
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+
+    if context.args:
+        uid = context.args[0].strip()
+        profile = ACCESS.get_user(uid)
+        if not profile and not ACCESS.is_approved(uid) and ACCESS.credits(uid) == 0:
+            await update.message.reply_text(
+                f'No record for `{uid}`.\nUser must /start the bot first.',
+                parse_mode='Markdown',
+            )
+            return
+        approved = '✅ Approved' if ACCESS.is_approved(uid) else '⏳ Not approved'
+        uname = profile.get('username') or ''
+        name = profile.get('full_name') or '—'
+        username_line = f'@{uname}' if uname else '—'
+        await update.message.reply_text(
+            '━━━━━━━━━━━━━━━━━━━━\n'
+            '  👤 User Profile\n'
+            '━━━━━━━━━━━━━━━━━━━━\n\n'
+            f'Chat ID: `{uid}`\n'
+            f'Username: {username_line}\n'
+            f'Name: {name}\n'
+            f'Status: {approved}\n'
+            f'💳 Credits: {ACCESS.credits(uid)}\n\n'
+            'Manage:\n'
+            f'/approve {uid} [credits]\n'
+            f'/addcredits {uid} N\n'
+            f'/setcredits {uid} N\n'
+            f'/deny {uid}',
+            parse_mode='Markdown',
+        )
+        return
+
+    users = ACCESS.list_users()
+    if not users:
+        await update.message.reply_text('No users yet — wait for someone to /start the bot.')
+        return
+
+    lines = [
+        '━━━━━━━━━━━━━━━━━━━━',
+        '  👥 All Users',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '',
+    ]
+    for uid, profile in users[:40]:
+        uname = profile.get('username') or ''
+        name = profile.get('full_name') or '—'
+        tag = f'@{uname}' if uname else '—'
+        mark = '✅' if ACCESS.is_approved(uid) else '⏳'
+        bal = ACCESS.credits(uid)
+        lines.append(f'{mark} `{uid}` · {tag}')
+        lines.append(f'   {name} · 💳 {bal}')
+    if len(users) > 40:
+        lines.append(f'\n… and {len(users) - 40} more')
+    lines.extend(['', '/user CHAT_ID — full profile + manage'])
+    await update.message.reply_text('\n'.join(lines), parse_mode='Markdown')
 
 
 async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1938,6 +2054,8 @@ def main() -> None:
     app.add_handler(CommandHandler('addcredits', cmd_addcredits))
     app.add_handler(CommandHandler('setcredits', cmd_setcredits))
     app.add_handler(CommandHandler('credits', cmd_credits))
+    app.add_handler(CommandHandler('user', cmd_user))
+    app.add_handler(CommandHandler('users', cmd_user))
     app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)

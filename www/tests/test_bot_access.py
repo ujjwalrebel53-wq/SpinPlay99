@@ -50,6 +50,14 @@ class TestBotAccess(unittest.TestCase):
         self.assertFalse(ac.credits_required())
         self.assertTrue(ac.use_credits('999', '999', 50))
 
+    def test_record_user_persists_profile(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        ac.record_user('999', username='Rebel_babyyy', full_name='Rebel Baby')
+        self.assertEqual(ac.get_user('999')['username'], 'Rebel_babyyy')
+        self.assertEqual(ac.get_user('999')['full_name'], 'Rebel Baby')
+        ac2 = bot_access.AccessControl('111', set())
+        self.assertEqual(ac2.user_label('999'), '@Rebel_babyyy (Rebel Baby)')
+
     def test_persist_credits(self) -> None:
         ac = bot_access.AccessControl('111', set())
         ac.approve('555', credits=7)
