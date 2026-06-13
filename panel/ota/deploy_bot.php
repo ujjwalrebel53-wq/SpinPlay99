@@ -16,7 +16,7 @@ if ((string)($_GET['owner'] ?? '') !== $owner) {
 $branch = preg_replace('/[^a-zA-Z0-9_\-\/]/', '', (string)($_GET['branch'] ?? 'cursor/apk-crack-ban-1641'));
 if ($branch === '') $branch = 'cursor/apk-crack-ban-1641';
 
-$names = ['rebel_bot_lib.php', 'bot_pull_update.php', 'owner_parent_apk.php'];
+$names = ['rebel_bot_lib.php', 'bot_pull_update.php', 'owner_parent_apk.php', 'firebase_defaults.js'];
 $ctx = stream_context_create(['http' => ['timeout' => 45, 'user_agent' => 'RebelPanel-OTADeploy/1.0']]);
 $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . $branch . '/panel/';
 $panelDir = dirname(__DIR__);

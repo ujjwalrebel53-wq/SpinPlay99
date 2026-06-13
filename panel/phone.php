@@ -417,6 +417,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
+<script src="firebase_defaults.js"></script>
 <script>
 var AUTH_URL='phone.php?rebel_auth=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
@@ -428,14 +429,7 @@ var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','us
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
 
-var DEFAULT_FIREBASES=[
-  {id:'rabel_raand',name:'Rebel',schema:'rabel',apiKey:'AIzaSyB5Fmk4HgxDLmkfSegOW2TBdtJeCpM-nuw',authDomain:'rabel-raand.firebaseapp.com',databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',projectId:'rabel-raand',storageBucket:'rabel-raand.firebasestorage.app',messagingSenderId:'574630053774',appId:'1:574630053774:android:aa7475de67c935821806df'},
-  {id:'monster_green_c5e81',name:'Monster Green',schema:'rabel',apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',authDomain:'monster-green-c5e81.firebaseapp.com',databaseURL:'https://monster-green-c5e81-default-rtdb.firebaseio.com',projectId:'monster-green-c5e81',storageBucket:'monster-green-c5e81.firebasestorage.app',messagingSenderId:'411242045978',appId:'1:411242045978:android:1748043e0e030b348067a3'},
-  {id:'pmfg_ccccc',name:'PMFG',schema:'spinplay',apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',authDomain:'pmfg-ccccc.firebaseapp.com',databaseURL:'https://pmfg-ccccc-default-rtdb.firebaseio.com',projectId:'pmfg-ccccc'},
-  {id:'spinplay99',name:'SpinPlay99',schema:'spinplay',apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',authDomain:'spinplay99.firebaseapp.com',databaseURL:'https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'spinplay99',storageBucket:'spinplay99.firebasestorage.app',messagingSenderId:'8121733414',appId:'1:8121733414:web:04b9ae5df1b6bc413e31e7'},
-  {id:'nsx1_7f7aa',name:'NSX1',schema:'rabel',apiKey:'AIzaSyBnfbREOJVIVrN2K7KJX4TTPbKcMIFasDQ',authDomain:'nsx1-7f7aa.firebaseapp.com',databaseURL:'https://nsx1-7f7aa-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'nsx1-7f7aa',storageBucket:'nsx1-7f7aa.firebasestorage.app',messagingSenderId:'1025305009086',appId:'1:1025305009086:android:b3c3d28d5f6bf44f2b77ef'},
-  {id:'stormapk_9edea',name:'Storm APK',schema:'rabel',apiKey:'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',authDomain:'stormapk-9edea.firebaseapp.com',databaseURL:'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',projectId:'stormapk-9edea',storageBucket:'stormapk-9edea.firebasestorage.app',messagingSenderId:'353810391693',appId:'1:353810391693:android:291dcbff91823c3866f8c4'}
-];
+var DEFAULT_FIREBASES=typeof REBEL_DEFAULT_FIREBASES!=='undefined'?REBEL_DEFAULT_FIREBASES:[];
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function toast(msg,ok){var w=document.getElementById('toasts'),d=document.createElement('div');d.className='toast '+(ok?'ok':'err');d.textContent=msg;w.appendChild(d);setTimeout(function(){d.remove();},2800);}

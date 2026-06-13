@@ -95,7 +95,7 @@ function rebel_ota_deploy_panel() {
   $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
   $otaDir = __DIR__ . '/ota';
   if (!is_dir($otaDir)) @mkdir($otaDir, 0755, true);
-  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php'];
+  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php', 'firebase_defaults.js'];
   $updated = [];
   $errors = [];
   $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-OTA/1.0']]);
@@ -125,7 +125,7 @@ function rebel_ota_deploy_panel() {
 
 function rebel_bot_pull_update_files() {
   $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . REBEL_BOT_UPDATE_BRANCH . '/panel/';
-  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'sex.php', 'laptop.php', 'rebel_bot.php', 'owner_unban.php', 'owner_parent_apk.php', 'bot_pull_update.php', 'ota_pull_update.php'];
+  $files = ['rebel_bot_lib.php', 'rebel_secure_lib.php', 'rebel_secure_api.php', 'phone.php', 'sex.php', 'laptop.php', 'firebase_defaults.js', 'rebel_bot.php', 'owner_unban.php', 'owner_parent_apk.php', 'bot_pull_update.php', 'ota_pull_update.php'];
   $updated = [];
   $errors = [];
   $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-BotUpdater/1.0']]);

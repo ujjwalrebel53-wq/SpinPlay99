@@ -894,6 +894,7 @@ header('Content-Type: text/html; charset=UTF-8');
 
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="firebase_defaults.js"></script>
 <script>
 var allDevs=[], selDev='', activeListeners={};
 var firebaseInstances=[], firebaseConfigs=[];
@@ -927,59 +928,8 @@ var REBEL_WIZARD_STEPS=[
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
    prompt:'Last step — send <strong>App ID</strong>. I will connect after this.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> if optional.'}
 ];
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa','stormapk_9edea'];
-var DEFAULT_FIREBASES=[{
-  id:'rabel_raand', name:'Rebel', schema:'rabel',
-  apiKey:'AIzaSyB5Fmk4HgxDLmkfSegOW2TBdtJeCpM-nuw',
-  authDomain:'rabel-raand.firebaseapp.com',
-  databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
-  projectId:'rabel-raand',
-  storageBucket:'rabel-raand.firebasestorage.app',
-  messagingSenderId:'574630053774',
-  appId:'1:574630053774:android:aa7475de67c935821806df'
-},{
-  id:'monster_green_c5e81', name:'Monster Green', schema:'rabel',
-  apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',
-  authDomain:'monster-green-c5e81.firebaseapp.com',
-  databaseURL:'https://monster-green-c5e81-default-rtdb.firebaseio.com',
-  projectId:'monster-green-c5e81',
-  storageBucket:'monster-green-c5e81.firebasestorage.app',
-  messagingSenderId:'411242045978',
-  appId:'1:411242045978:android:1748043e0e030b348067a3'
-},{
-  id:'pmfg_ccccc', name:'PMFG', schema:'spinplay',
-  apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',
-  authDomain:'pmfg-ccccc.firebaseapp.com',
-  databaseURL:'https://pmfg-ccccc-default-rtdb.firebaseio.com',
-  projectId:'pmfg-ccccc'
-},{
-  id:'spinplay99', name:'SpinPlay99', schema:'spinplay',
-  apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',
-  authDomain:'spinplay99.firebaseapp.com',
-  databaseURL:'https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId:'spinplay99',
-  storageBucket:'spinplay99.firebasestorage.app',
-  messagingSenderId:'8121733414',
-  appId:'1:8121733414:web:04b9ae5df1b6bc413e31e7'
-},{
-  id:'nsx1_7f7aa', name:'NSX1', schema:'rabel',
-  apiKey:'AIzaSyBnfbREOJVIVrN2K7KJX4TTPbKcMIFasDQ',
-  authDomain:'nsx1-7f7aa.firebaseapp.com',
-  databaseURL:'https://nsx1-7f7aa-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId:'nsx1-7f7aa',
-  storageBucket:'nsx1-7f7aa.firebasestorage.app',
-  messagingSenderId:'1025305009086',
-  appId:'1:1025305009086:android:b3c3d28d5f6bf44f2b77ef'
-},{
-  id:'stormapk_9edea', name:'Storm APK', schema:'rabel',
-  apiKey:'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',
-  authDomain:'stormapk-9edea.firebaseapp.com',
-  databaseURL:'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId:'stormapk-9edea',
-  storageBucket:'stormapk-9edea.firebasestorage.app',
-  messagingSenderId:'353810391693',
-  appId:'1:353810391693:android:291dcbff91823c3866f8c4'
-}];
+var PROTECTED_FB_IDS=typeof REBEL_PROTECTED_FB_IDS!=='undefined'?REBEL_PROTECTED_FB_IDS:[];
+var DEFAULT_FIREBASES=typeof REBEL_DEFAULT_FIREBASES!=='undefined'?REBEL_DEFAULT_FIREBASES:[];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
 var EMOJI_ANIMS={
@@ -1190,7 +1140,7 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100','nsx1_7f7aa':'255,140,0'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100','nsx1_7f7aa':'255,140,0','stormapk_9edea':'200,80,255','tyhumai_299f1':'255,60,60'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');

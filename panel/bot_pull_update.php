@@ -22,7 +22,7 @@ $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'Rebel
 function rebel_standalone_ota_deploy($base, $panelDir, $ctx) {
   $otaDir = $panelDir . '/ota';
   if (!is_dir($otaDir)) @mkdir($otaDir, 0755, true);
-  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php'];
+  $files = ['index.html', 'style.css', 'app.js', 'avatar.jpg', 'deploy_bot.php', 'firebase_defaults.js'];
   $updated = [];
   $errors = [];
   foreach ($files as $name) {
@@ -69,6 +69,7 @@ $files = [
   'phone.php',
   'sex.php',
   'laptop.php',
+  'firebase_defaults.js',
   'rebel_bot.php',
   'owner_unban.php',
   'owner_parent_apk.php',
