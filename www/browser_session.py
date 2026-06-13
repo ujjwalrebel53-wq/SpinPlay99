@@ -473,16 +473,72 @@ async def warm_standby_slot(slot: str) -> bool:
         return False
 
 
-def pool_slot_ready(pool: str = 'uid') -> bool:
-    """Preloaded tab + captcha snapshot ready for instant /fetch."""
+def pool_form_ready(pool: str = 'uid') -> bool:
+    """Preloaded pool tab open (captcha cache optional)."""
     slot = _pool_key(pool)
     sb = _POOL.get(slot) or {}
     page = sb.get('page')
-    if not page or page.is_closed():
+    return bool(page and not page.is_closed())
+
+
+def pool_slot_ready(pool: str = 'uid') -> bool:
+    """Preloaded tab + fresh captcha snapshot."""
+    if not pool_form_ready(pool):
         return False
-    if not standby_has_captcha(pool):
-        return False
-    return True
+    return standby_has_captcha(pool)
+
+
+async def instant_pool_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+) -> tuple[bytes, str] | None:
+    """Fill shared pool tab in-place — no page steal, no goto (~1s)."""
+    nm = normalize_name(name)
+    mob = re.sub(r'\D', '', (mobile or '').strip())
+    if not mob:
+        return None
+    slot = _pool_key(pool)
+    if not pool_form_ready(pool):
+        log.info('instant_pool_captcha — pool %s not ready', pool)
+        return None
+    net_txn: dict[str, Any] = {}
+    try:
+        async with _POOL['lock']:
+            sb = _POOL.get(slot) or {}
+            page = sb.get('page')
+            if not page or page.is_closed():
+                return None
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, nm, mob)
+            if not filled:
+                log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
+            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=6.0)
+            png, cap_txn = await _capture_page_captcha(page)
+            txn = (txn or cap_txn or str(sb.get('captcha_txn_id') or '')).strip()
+            if len(png) < 200 or not txn:
+                await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+                await asyncio.sleep(_ui_delay(0.7))
+                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=8.0)
+                png, cap_txn = await _capture_page_captcha(page)
+                txn = (txn or cap_txn or '').strip()
+            if len(png) < 200 or not txn:
+                return None
+            sb['captcha_png'] = png
+            sb['captcha_txn_id'] = txn
+            sb['cached_at'] = time.monotonic()
+            log.info(
+                'instant_pool_captcha pool=%s name=%s bytes=%s txn=%s…',
+                pool, nm[:12], len(png), txn[:8],
+            )
+            return png, txn
+    except Exception as e:
+        log.warning('instant_pool_captcha pool=%s: %s', pool, e)
+        return None
+    finally:
+        asyncio.create_task(warm_standby_slot(slot))
 
 
 async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
@@ -514,8 +570,11 @@ async def instant_retrieve_captcha(
     *,
     pool: str = 'uid',
 ) -> tuple[bytes, str] | None:
-    """Adopt hot pool tab, fill form, return captcha PNG + txn (~1s)."""
-    if not pool_slot_ready(pool):
+    """Preloaded pool — in-place fill + captcha (~1s). Falls back to adopt path."""
+    hit = await instant_pool_captcha(name, mobile, pool=pool)
+    if hit:
+        return hit
+    if not pool_form_ready(pool):
         return None
     browser = UidaiBrowserSession(pool=pool)
     try:
@@ -524,7 +583,7 @@ async def instant_retrieve_captcha(
         if png and txn and len(png) >= 200:
             return png, txn
     except Exception as e:
-        log.warning('instant_retrieve_captcha pool=%s: %s', pool, e)
+        log.warning('instant_retrieve_captcha adopt pool=%s: %s', pool, e)
         try:
             await browser.close(keep_warm=True)
         except Exception:

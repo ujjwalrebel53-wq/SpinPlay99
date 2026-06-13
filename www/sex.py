@@ -44,8 +44,10 @@ from browser_session import (
     UidaiBrowserSession,
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
+    instant_pool_captcha,
     instant_retrieve_captcha,
     get_standby_captcha_pair,
+    pool_form_ready,
     pool_is_warm,
     pool_slot_ready,
     prefill_standby_name,
@@ -310,6 +312,13 @@ async def _turbo_fetch(
     if not uidai_instant_form():
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+    if not hit and not pool_form_ready('uid'):
+        try:
+            from browser_session import STANDBY_UID, warm_standby_slot
+            await warm_standby_slot(STANDBY_UID)
+            hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+        except Exception as e:
+            log.warning('fetch turbo warm retry: %s', e)
     if not hit:
         return False
     png, txn = hit
@@ -380,7 +389,19 @@ async def _turbo_pdf_phase1(
     if not uidai_instant_form():
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+    if not hit and not pool_form_ready('eid'):
+        try:
+            from browser_session import STANDBY_EID, warm_standby_slot
+            await warm_standby_slot(STANDBY_EID)
+            hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+        except Exception as e:
+            log.warning('pdf turbo warm retry: %s', e)
     if not hit:
+        log.info(
+            'pdf turbo miss — eid_form=%s eid_captcha=%s',
+            pool_form_ready('eid'),
+            pool_slot_ready('eid'),
+        )
         return False
     png, txn = hit
     sess.prime_browser_captcha(png, txn)
@@ -530,13 +551,18 @@ async def _prime_pdf_phase1_open(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 1 captcha — identical path to /open (live browser page)."""
+    """Phase 1 captcha — instant pool fill first, cold browser last."""
+    if not refresh and uidai_instant_form():
+        hit = await instant_retrieve_captcha(sess.name, sess.mobile, pool='eid')
+        if hit:
+            sess.prime_browser_captcha(hit[0], hit[1])
+            return True
     pair = get_standby_captcha_pair('eid')
     if pair and not refresh:
         sess.prime_browser_captcha(pair[0], pair[1])
         if _captcha_prime_ok(sess):
             return True
-    browser = await _pdf_browser_session(chat_id, progress, pool='eid')
+    browser = await _pdf_browser_session(chat_id, None, pool='eid')
     for attempt in range(3):
         try:
             await browser.start()
@@ -544,12 +570,7 @@ async def _prime_pdf_phase1_open(
                 png = await browser.refresh_captcha()
                 txn = browser.captcha_txn_id or browser._captcha_cache_txn
             else:
-                await browser.open_form(
-                    sess.name,
-                    sess.mobile,
-                    force_reload=refresh or attempt > 0,
-                )
-                png = await browser.captcha_png(use_cache=not refresh and attempt == 0)
+                png = await browser.instant_fetch(sess.name, sess.mobile)
                 txn = browser.captcha_txn_id or browser._captcha_cache_txn
             if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
                 sess.prime_browser_captcha(png, txn)
@@ -859,6 +880,23 @@ async def _start_download_flow(
         update.message, chat_id, mobile, mode='pdf', name=name,
     )
 
+    if uidai_instant_form():
+        await progress.update(1, 2, 'Instant pool fill…')
+        hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+        if hit:
+            sess.prime_browser_captcha(hit[0], hit[1])
+            assign_flow(chat_id, {
+                'step': STEP_CAPTCHA,
+                'mode': FLOW_MODE_DOWNLOAD,
+                'name': name,
+                'mobile': mobile,
+                'dob': dob_norm,
+                'pdf_password': pdf_pass,
+            })
+            await _reply_pdf_captcha(update, chat_id, sess, hit[0], instant=True)
+            await progress.done('⚡ Captcha ready — reply with text')
+            return
+
     await progress.update(1, 4, 'Session ready')
 
     assign_flow(chat_id, {
@@ -1035,7 +1073,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
         ])
     lines.append('')
-    if pool_slot_ready('uid'):
+    if pool_form_ready('eid') or pool_form_ready('uid'):
         lines.append('⚡ UIDAI preloaded — instant /fetch & /pdf ready')
     elif pool_is_warm():
         lines.append('🟢 Browser pool: active 24/7')
