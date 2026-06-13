@@ -13,6 +13,7 @@ TerminalMode = Literal['fetch', 'pdf', 'captcha']
 
 _LOADING_MSG_BY_CHAT: dict[int, Any] = {}
 _LOADING_SCREEN_BY_CHAT: dict[int, 'LoadingScreen'] = {}
+_SCRIPT_TICKERS: dict[int, asyncio.Task] = {}
 
 SPINNERS = ('◐', '◓', '◑', '◒')
 
@@ -24,6 +25,7 @@ TERMINAL_FETCH: tuple[str, ...] = (
     '[+] Validating Key...',
     '[+] Elevating Security Level...',
     '[+] Link Established. Authentication Required!',
+    '[+] Captcha ready — reply with text.',
     '[+] Evaluating Key...',
     '[+] Authorization Accepted. Payload Ready.',
     '[+] SUCCESS! OPERATION COMPLETE.',
@@ -37,9 +39,11 @@ TERMINAL_PDF: tuple[str, ...] = (
     '[+] Validating Key...',
     '[+] Elevating Security Level...',
     '[+] Link Established. Authentication Required!',
+    '[+] Captcha ready — reply with text.',
     '[+] Evaluating Key...',
     '[+] Authorization Accepted. Payload Ready.',
     '[+] Auth Key 2 Requested!',
+    '[+] Captcha 2 ready — reply with text.',
     '[+] Downloading Payload...',
     '[+] SUCCESS! OPERATION COMPLETE.',
 )
@@ -153,6 +157,9 @@ def _step_index(mode: TerminalMode, n: int, total: int, raw: str) -> int:
 
 
 async def dismiss_loading_screen(chat_id: int) -> None:
+    ticker = _SCRIPT_TICKERS.pop(chat_id, None)
+    if ticker and not ticker.done():
+        ticker.cancel()
     screen = _LOADING_SCREEN_BY_CHAT.pop(chat_id, None)
     if screen is not None:
         await screen._stop_spinner()
@@ -180,6 +187,29 @@ async def create_loading_screen(
     _LOADING_SCREEN_BY_CHAT[chat_id] = screen
     await screen.show()
     return screen
+
+
+def get_loading_screen(chat_id: int) -> LoadingScreen | None:
+    return _LOADING_SCREEN_BY_CHAT.get(chat_id)
+
+
+async def get_or_create_loading_screen(
+    message,
+    chat_id: int,
+    mobile: str,
+    *,
+    mode: TerminalMode = 'fetch',
+    name: str = '',
+) -> LoadingScreen:
+    """Reuse session terminal — stays open until OTP phase completes."""
+    existing = _LOADING_SCREEN_BY_CHAT.get(chat_id)
+    if existing is not None and _LOADING_MSG_BY_CHAT.get(chat_id) is not None:
+        existing.mobile = (mobile or '').strip() or existing.mobile
+        if name:
+            existing.name = name
+        existing.mode = mode
+        return existing
+    return await create_loading_screen(message, chat_id, mobile, mode=mode, name=name)
 
 
 class LoadingScreen:
@@ -217,6 +247,104 @@ class LoadingScreen:
         self._last_edit_body = ''
         self._last_edit_mono = 0.0
         self._edit_lock = asyncio.Lock()
+        self._phase = 'boot'
+        self._script_idx = 0
+        self._hold_captcha = False
+
+    def _script_lines(self) -> tuple[str, ...]:
+        return _terminal_lines(self.mode)
+
+    def start_script_ticker(self, *, interval: float = 0.22) -> None:
+        """Animate terminal script lines until captcha wait."""
+        chat_id = self._chat_id()
+        if chat_id is None:
+            return
+        old = _SCRIPT_TICKERS.pop(chat_id, None)
+        if old and not old.done():
+            old.cancel()
+
+        async def _loop() -> None:
+            try:
+                script = self._script_lines()
+                while self._animating and not self._hold_captcha:
+                    if self._script_idx >= len(script):
+                        break
+                    line = script[self._script_idx]
+                    if line not in self._lines:
+                        self._lines.append(line)
+                        await self._render()
+                    if 'captcha ready' in line.lower():
+                        self._hold_captcha = True
+                        self._phase = 'captcha_wait'
+                        break
+                    self._script_idx += 1
+                    await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+
+        _SCRIPT_TICKERS[chat_id] = asyncio.create_task(_loop())
+
+    def _chat_id(self) -> int | None:
+        if hasattr(self._msg, 'chat') and self._msg.chat:
+            return self._msg.chat.id
+        for cid, scr in _LOADING_SCREEN_BY_CHAT.items():
+            if scr is self:
+                return cid
+        return None
+
+    async def hold_for_captcha(self, hint: str = '') -> None:
+        """Keep panel open after captcha image — wait for user text."""
+        self._hold_captcha = True
+        self._phase = 'captcha_wait'
+        if '[+] Captcha ready' not in '\n'.join(self._lines):
+            self._lines.append('[+] Captcha ready — reply with text')
+        self._footer = hint or 'Reply with captcha (4–8 chars)'
+        await self._render(force=True)
+
+    async def advance_after_captcha(self, step_text: str = 'OTP request') -> None:
+        """User submitted captcha — continue session terminal."""
+        chat_id = self._chat_id()
+        if chat_id is not None:
+            ticker = _SCRIPT_TICKERS.pop(chat_id, None)
+            if ticker and not ticker.done():
+                ticker.cancel()
+        self._hold_captcha = False
+        self._phase = 'otp'
+        script = self._script_lines()
+        while self._script_idx < len(script) and 'captcha ready' in script[self._script_idx].lower():
+            self._script_idx += 1
+        self._push_step_line(self._current + 1, max(self._total, 3), step_text)
+        self._footer = ''
+        if self._status == 'done':
+            self._status = 'loading'
+        if not self._animating:
+            await self._start_spinner()
+        self.start_script_ticker()
+        await self._render(force=True)
+
+    async def rush_to_captcha_hold(self, *, instant: bool = False) -> None:
+        """Pool hot — show pre-captcha lines instantly, then hold."""
+        chat_id = self._chat_id()
+        if chat_id is not None:
+            ticker = _SCRIPT_TICKERS.pop(chat_id, None)
+            if ticker and not ticker.done():
+                ticker.cancel()
+        script = self._script_lines()
+        for i, line in enumerate(script):
+            if line not in self._lines:
+                self._lines.append(line)
+            if 'captcha ready' in line.lower():
+                self._script_idx = i
+                break
+        if instant:
+            await self.mark_instant()
+        await self.hold_for_captcha()
+
+    async def mark_instant(self) -> None:
+        """Pool hot — form filled without slow browser."""
+        if '[+] Instant form fill ⚡' not in self._lines:
+            self._lines.append('[+] Instant form fill ⚡')
+        await self._render(force=True)
 
     def _spinner_line(self) -> str:
         if self._status == 'done':
@@ -290,15 +418,24 @@ class LoadingScreen:
         self._push_step_line(n, total, text)
         await self._render()
 
-    async def done(self, final: str = '') -> None:
+    async def done(self, final: str = '', *, dismiss: bool = True) -> None:
         await self._stop_spinner()
         self._status = 'done'
         if self._lines and self._lines[-1] != '[+] Done':
             self._lines.append('[+] Done')
         self._footer = final
         await self._render(force=True)
+        if dismiss:
+            chat_id = None
+            for cid, scr in list(_LOADING_SCREEN_BY_CHAT.items()):
+                if scr is self:
+                    chat_id = cid
+                    break
+            if chat_id is not None:
+                await asyncio.sleep(0.5)
+                await dismiss_loading_screen(chat_id)
 
-    async def fail(self, err: str = '') -> None:
+    async def fail(self, err: str = '', *, dismiss: bool = False) -> None:
         await self._stop_spinner()
         self._status = 'fail'
         if not self._lines:
@@ -307,6 +444,14 @@ class LoadingScreen:
             self._lines.append('[!] Stopped')
         self._footer = err
         await self._render(force=True)
+        if dismiss:
+            chat_id = None
+            for cid, scr in list(_LOADING_SCREEN_BY_CHAT.items()):
+                if scr is self:
+                    chat_id = cid
+                    break
+            if chat_id is not None:
+                await dismiss_loading_screen(chat_id)
 
     def _panel_text(self) -> str:
         target = self.mobile or '—'
@@ -328,7 +473,7 @@ class LoadingScreen:
         body.extend(self._lines)
         if self._status == 'fail' and self._footer:
             body.extend(['', f'[!] {self._footer[:200]}'])
-        elif self._footer and self._status == 'done':
+        elif self._footer:
             body.extend(['', self._footer[:400]])
         return '\n'.join(body)[:4000]
 

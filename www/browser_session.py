@@ -515,13 +515,13 @@ async def instant_pool_captcha(
             filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, nm, mob)
             if not filled:
                 log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
-            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=6.0)
+            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=4.0 if uidai_fast() else 6.0)
             png, cap_txn = await _capture_page_captcha(page)
             txn = (txn or cap_txn or str(sb.get('captcha_txn_id') or '')).strip()
             if len(png) < 200 or not txn:
                 await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                await asyncio.sleep(_ui_delay(0.7))
-                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=8.0)
+                await asyncio.sleep(_ui_delay(0.45))
+                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
                 png, cap_txn = await _capture_page_captcha(page)
                 txn = (txn or cap_txn or '').strip()
             if len(png) < 200 or not txn:
