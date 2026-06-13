@@ -26,7 +26,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.16.2')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.17.0')
 
     def test_get_header_transaction_id(self) -> None:
         h = get_header('abc-123-txn')

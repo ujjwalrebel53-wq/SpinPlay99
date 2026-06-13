@@ -105,13 +105,35 @@ def _pool_key(pool: str = 'eid') -> str:
 
 
 _POOL: dict[str, Any] = {
-    'lock': asyncio.Lock(),
+    'browser_lock': asyncio.Lock(),
+    'slot_locks': {
+        STANDBY_UID: asyncio.Lock(),
+        STANDBY_EID: asyncio.Lock(),
+        STANDBY_PDF: asyncio.Lock(),
+    },
     'pw': None,
     'browser': None,
     STANDBY_UID: _empty_standby(),
     STANDBY_EID: _empty_standby(),
     STANDBY_PDF: _empty_standby(),
 }
+
+
+def _slot_lock(slot: str) -> asyncio.Lock:
+    return _POOL['slot_locks'][slot]
+
+
+async def _acquire_all_slot_locks() -> list[asyncio.Lock]:
+    locks = [_slot_lock(s) for s in STANDBY_SLOTS]
+    for lk in locks:
+        await lk.acquire()
+    return locks
+
+
+def _release_locks(locks: list[asyncio.Lock]) -> None:
+    for lk in reversed(locks):
+        if lk.locked():
+            lk.release()
 
 
 def _browser_connected(browser: Browser | None) -> bool:
@@ -139,22 +161,26 @@ async def _pool_drop_browser_locked() -> None:
 
 
 async def _pool_shutdown() -> None:
-    async with _POOL['lock']:
-        for slot in STANDBY_SLOTS:
-            sb = _POOL.get(slot) or {}
-            if sb.get('context'):
+    slot_locks = await _acquire_all_slot_locks()
+    try:
+        async with _POOL['browser_lock']:
+            for slot in STANDBY_SLOTS:
+                sb = _POOL.get(slot) or {}
+                if sb.get('context'):
+                    try:
+                        await sb['context'].close()
+                    except Exception:
+                        pass
+                _POOL[slot] = _empty_standby()
+            await _pool_drop_browser_locked()
+            if _POOL['pw']:
                 try:
-                    await sb['context'].close()
+                    await _POOL['pw'].stop()
                 except Exception:
                     pass
-            _POOL[slot] = _empty_standby()
-        await _pool_drop_browser_locked()
-        if _POOL['pw']:
-            try:
-                await _POOL['pw'].stop()
-            except Exception:
-                pass
-        _POOL['pw'] = None
+            _POOL['pw'] = None
+    finally:
+        _release_locks(slot_locks)
 
 
 def pool_is_warm() -> bool:
@@ -457,7 +483,9 @@ async def warm_standby_slot(slot: str) -> bool:
         page = sb['page']
         if not page or page.is_closed():
             return False
-        async with _POOL['lock']:
+        lock = _slot_lock(slot)
+        await lock.acquire()
+        try:
             if slot != STANDBY_PDF:
                 await _prepare_standby_retrieve_page(page, slot)
             net_txn: dict[str, Any] = {}
@@ -467,6 +495,8 @@ async def warm_standby_slot(slot: str) -> bool:
                 txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=12.0)
                 if txn:
                     sb['captcha_txn_id'] = txn
+        finally:
+            lock.release()
         return True
     except Exception as e:
         log.warning('warm_standby_slot %s fail: %s', slot, e)
@@ -504,40 +534,43 @@ async def instant_pool_captcha(
         log.info('instant_pool_captcha — pool %s not ready', pool)
         return None
     net_txn: dict[str, Any] = {}
+    lock = _slot_lock(slot)
+    await lock.acquire()
     try:
-        async with _POOL['lock']:
-            sb = _POOL.get(slot) or {}
-            page = sb.get('page')
-            if not page or page.is_closed():
-                return None
-            if slot != STANDBY_PDF:
-                await _prepare_standby_retrieve_page(page, slot)
-            filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, nm, mob)
-            if not filled:
-                log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
-            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=4.0 if uidai_fast() else 6.0)
+        sb = _POOL.get(slot) or {}
+        page = sb.get('page')
+        if not page or page.is_closed():
+            return None
+        if slot != STANDBY_PDF:
+            await _prepare_standby_retrieve_page(page, slot)
+        filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, nm, mob)
+        if not filled:
+            log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
+        txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=4.0 if uidai_fast() else 6.0)
+        png, cap_txn = await _capture_page_captcha(page)
+        txn = (txn or cap_txn or str(sb.get('captcha_txn_id') or '')).strip()
+        if len(png) < 200 or not txn:
+            await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+            await asyncio.sleep(_ui_delay(0.45))
+            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
             png, cap_txn = await _capture_page_captcha(page)
-            txn = (txn or cap_txn or str(sb.get('captcha_txn_id') or '')).strip()
-            if len(png) < 200 or not txn:
-                await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                await asyncio.sleep(_ui_delay(0.45))
-                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
-                png, cap_txn = await _capture_page_captcha(page)
-                txn = (txn or cap_txn or '').strip()
-            if len(png) < 200 or not txn:
-                return None
-            sb['captcha_png'] = png
-            sb['captcha_txn_id'] = txn
-            sb['cached_at'] = time.monotonic()
-            log.info(
-                'instant_pool_captcha pool=%s name=%s bytes=%s txn=%s…',
-                pool, nm[:12], len(png), txn[:8],
-            )
-            return png, txn
+            txn = (txn or cap_txn or '').strip()
+        if len(png) < 200 or not txn:
+            return None
+        sb['captcha_png'] = png
+        sb['captcha_txn_id'] = txn
+        sb['cached_at'] = time.monotonic()
+        log.info(
+            'instant_pool_captcha pool=%s name=%s bytes=%s txn=%s…',
+            pool, nm[:12], len(png), txn[:8],
+        )
+        return png, txn
     except Exception as e:
         log.warning('instant_pool_captcha pool=%s: %s', pool, e)
         return None
     finally:
+        if lock.locked():
+            lock.release()
         asyncio.create_task(warm_standby_slot(slot))
 
 
@@ -552,7 +585,8 @@ async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
     if not page or page.is_closed():
         return False
     try:
-        async with _POOL['lock']:
+        lock = _slot_lock(slot)
+        async with lock:
             if slot != STANDBY_PDF:
                 await _prepare_standby_retrieve_page(page, slot)
             ok = await page.evaluate(FILL_RETRIEVE_NAME_JS, nm)
@@ -602,7 +636,8 @@ async def refresh_standby_slot(slot: str) -> bool:
     if not page or page.is_closed():
         return False
     try:
-        async with _POOL['lock']:
+        lock = _slot_lock(slot)
+        async with lock:
             await _refresh_standby_captcha_locked(page, slot)
         return True
     except Exception as e:
@@ -722,7 +757,9 @@ async def capture_phase2_captcha_on_pool(eid: str) -> tuple[bytes, str]:
         raise RuntimeError('EID required for phase-2 captcha')
     if not await warm_standby_slot(STANDBY_PDF):
         raise RuntimeError('PDF pool not warm')
-    async with _POOL['lock']:
+    lock = _slot_lock(STANDBY_PDF)
+    await lock.acquire()
+    try:
         sb = _POOL.get(STANDBY_PDF) or {}
         page = sb.get('page')
         if not page or page.is_closed():
@@ -737,6 +774,9 @@ async def capture_phase2_captcha_on_pool(eid: str) -> tuple[bytes, str]:
         sb['cached_at'] = time.monotonic()
         log.info('Phase2 pool captcha — eid=%s… txn=%s bytes=%s', eid[:6], txn[:8], len(png))
         return png, txn
+    finally:
+        if lock.locked():
+            lock.release()
 
 
 async def ensure_triple_pool_warm() -> bool:
@@ -763,7 +803,7 @@ async def ensure_pool_warm() -> bool:
 
 async def _pool_browser() -> tuple[Browser, bool]:
     """Return (browser, reused). Dead pool entry auto-relaunch."""
-    async with _POOL['lock']:
+    async with _POOL['browser_lock']:
         if _POOL['browser']:
             if _browser_connected(_POOL['browser']):
                 log.info('Pre-warm: browser reuse (direct)')
@@ -969,7 +1009,7 @@ class UidaiBrowserSession:
                 last_err = e
                 log.warning('new_context fail attempt %s: %s', attempt + 1, e)
                 if attempt < 2 and _is_browser_closed_error(e):
-                    async with _POOL['lock']:
+                    async with _POOL['browser_lock']:
                         await _pool_drop_browser_locked()
                     await asyncio.sleep(1)
                     continue

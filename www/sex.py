@@ -215,6 +215,41 @@ async def guard(update: Update) -> bool:
     return False
 
 
+async def guard_credits(update: Update, cost: int, *, action: str) -> bool:
+    """Locked mode: approved users need credits before /fetch or /pdf."""
+    if not await guard(update):
+        return False
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required():
+        return True
+    if ACCESS.is_owner(user_id, chat_id):
+        return True
+    if ACCESS.has_credits(user_id, chat_id, cost):
+        return True
+    bal = ACCESS.credits(str(chat_id or user_id))
+    await update.message.reply_text(
+        f'💳 Credits khatam — {action} ke liye {cost} credit chahiye.\n'
+        f'Balance: {bal}\n\n'
+        'Owner se contact karo ya /credits check karo.',
+    )
+    return False
+
+
+def _credit_footer(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return ''
+    bal = ACCESS.credits(str(chat_id or user_id))
+    return f'\n\n💳 Credits: {bal}'
+
+
+def _credit_remain_line(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return ''
+    return f'\n💳 Remaining: {ACCESS.credits(str(chat_id or user_id))}'
+
+
 def is_owner(update: Update) -> bool:
     user_id, chat_id = _ids(update)
     return ACCESS.is_owner(user_id, chat_id)
@@ -459,6 +494,8 @@ async def open_uidai_session(
 ) -> None:
     name = normalize_name(name)
     mobile = mobile.strip()
+    if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        return
     clear_flow(chat_id)
     assign_flow(chat_id, {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile})
 
@@ -867,6 +904,8 @@ async def _start_download_flow(
 
     name = aadhar_name(name)
     mobile = mobile.strip()
+    if not await guard_credits(update, ACCESS.credit_pdf_cost(), action='/pdf'):
+        return
     dob_norm = normalize_dob(dob) if dob else None
     if not dob_bypass_on() and not dob_norm:
         assign_flow(chat_id, {
@@ -1032,10 +1071,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '━━━━━━━━━━━━━━━━━━━━\n\n'
         'Commands:\n'
         '/fetch MOBILE — Aadhaar SMS (1 OTP)\n'
-        '/pdf MOBILE — e-Aadhaar PDF (2 OTP)\n\n'
-        'Example:\n'
-        '/fetch 7651892956\n'
-        '/pdf 7651892956'
+        '/pdf MOBILE — e-Aadhaar PDF (2 OTP)\n'
+        '/credits — balance check'
+        f'{_credit_footer(update)}'
     )
     banner = _start_banner()
     if banner:
@@ -1100,6 +1138,9 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
         ])
     lines.append('')
+    user_id, chat_id = _ids(update)
+    if ACCESS.credits_required() and not ACCESS.is_owner(user_id, chat_id):
+        lines.append(f'💳 Credits: {ACCESS.credits(str(chat_id or user_id))}')
     if pool_form_ready('eid') or pool_form_ready('uid'):
         lines.append('⚡ UIDAI preloaded — instant /fetch & /pdf ready')
     elif pool_is_warm():
@@ -1133,7 +1174,8 @@ async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         *ACCESS.status_lines(len(SESSIONS)),
         '',
         '/free — public | /lock — approved only',
-        '/approve CHAT_ID · /deny CHAT_ID',
+        '/approve CHAT_ID [credits] · /deny CHAT_ID',
+        '/addcredits CHAT_ID N · /setcredits CHAT_ID N',
     ]
     await update.message.reply_text('\n'.join(lines))
 
@@ -1166,11 +1208,73 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text('Owner only command.')
         return
     if not context.args:
-        await update.message.reply_text('Usage: /approve CHAT_ID')
+        await update.message.reply_text('Usage: /approve CHAT_ID [credits]')
         return
     uid = context.args[0].strip()
-    ACCESS.approve(uid)
-    await update.message.reply_text(f'✅ Approved: `{uid}`', parse_mode='Markdown')
+    credits = None
+    if len(context.args) >= 2:
+        try:
+            credits = max(0, int(context.args[1]))
+        except ValueError:
+            await update.message.reply_text('Credits must be a number.')
+            return
+    bal = ACCESS.approve(uid, credits=credits)
+    await update.message.reply_text(
+        f'✅ Approved: `{uid}`\n💳 Credits: {bal}',
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /addcredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    bal = ACCESS.add_credits(uid, amount)
+    await update.message.reply_text(f'💳 `{uid}` balance: {bal}', parse_mode='Markdown')
+
+
+async def cmd_setcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /setcredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = max(0, int(context.args[1]))
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    bal = ACCESS.set_credits(uid, amount)
+    await update.message.reply_text(f'💳 `{uid}` set to: {bal}', parse_mode='Markdown')
+
+
+async def cmd_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    user_id, chat_id = _ids(update)
+    cid = str(chat_id or user_id)
+    if ACCESS.is_owner(user_id, chat_id):
+        await update.message.reply_text('👑 Owner — unlimited credits.')
+        return
+    bal = ACCESS.credits(cid)
+    if not ACCESS.credits_required():
+        await update.message.reply_text('🌍 Bot is public — credits not required right now.')
+        return
+    await update.message.reply_text(
+        f'💳 Your credits: {bal}\n'
+        f'/fetch = {ACCESS.credit_fetch_cost()} · /pdf = {ACCESS.credit_pdf_cost()}'
+    )
 
 
 async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1230,6 +1334,8 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
+    if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        return
     if not TOKEN:
         await update.message.reply_text('Set TELEGRAM_BOT_TOKEN in .env')
         return
@@ -1278,6 +1384,8 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
+        return
+    if not await guard_credits(update, ACCESS.credit_pdf_cost(), action='/pdf'):
         return
     if not TOKEN:
         await update.message.reply_text('Set TELEGRAM_BOT_TOKEN in .env')
@@ -1583,7 +1691,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 flow_draft = FLOW.get(cid, {})
                 if result.get('aadhaar_name'):
                     flow_draft['aadhaar_name'] = result['aadhaar_name']
-                await progress.done(uidai_user_message(result, kind='download'))
+                user_id, chat_id = _ids(update)
+                ACCESS.use_credits(user_id, chat_id, ACCESS.credit_pdf_cost())
+                await progress.done(
+                    uidai_user_message(result, kind='download') + _credit_remain_line(update),
+                )
                 await _send_eaadhaar_pdf(
                     update,
                     pdf_bytes=pdf,
@@ -1629,7 +1741,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             retrieve_ok = result.get('retrieve_ok', False)
             user_msg = uidai_user_message(result, kind='retrieve')
             if retrieve_ok:
-                await otp_progress.done(user_msg)
+                user_id, chat_id = _ids(update)
+                ACCESS.use_credits(user_id, chat_id, ACCESS.credit_fetch_cost())
+                await otp_progress.done(user_msg + _credit_remain_line(update))
             else:
                 await otp_progress.fail(user_msg)
             if retrieve_ok:
@@ -1821,6 +1935,9 @@ def main() -> None:
     app.add_handler(CommandHandler('lock', cmd_lock))
     app.add_handler(CommandHandler('approve', cmd_approve))
     app.add_handler(CommandHandler('deny', cmd_deny))
+    app.add_handler(CommandHandler('addcredits', cmd_addcredits))
+    app.add_handler(CommandHandler('setcredits', cmd_setcredits))
+    app.add_handler(CommandHandler('credits', cmd_credits))
     app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
