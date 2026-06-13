@@ -14,9 +14,16 @@ STATE_FILE = Path(__file__).parent / 'access_state.json'
 
 def _default_approve_credits() -> int:
     try:
-        return max(0, int(os.getenv('DEFAULT_APPROVE_CREDITS', '10')))
+        return max(0, int(os.getenv('DEFAULT_APPROVE_CREDITS', '3')))
     except ValueError:
-        return 10
+        return 3
+
+
+def _new_user_credits() -> int:
+    try:
+        return max(0, int(os.getenv('NEW_USER_CREDITS', '3')))
+    except ValueError:
+        return 3
 
 
 def _credit_fetch_cost() -> int:
@@ -28,13 +35,13 @@ def _credit_fetch_cost() -> int:
 
 def _credit_pdf_cost() -> int:
     try:
-        return max(1, int(os.getenv('CREDIT_PDF_COST', '2')))
+        return max(1, int(os.getenv('CREDIT_PDF_COST', '1')))
     except ValueError:
-        return 2
+        return 1
 
 
 class AccessControl:
-    """free = sabko access | locked = sirf approved + owner + credits."""
+    """free = sabko access | locked = approved + users with credits + owner."""
 
     def __init__(self, owner_id: str, env_approved: set[str]) -> None:
         self.owner_id = (owner_id or '').strip()
@@ -42,6 +49,7 @@ class AccessControl:
         self._approved: set[str] = set(base)
         self._credits: dict[str, int] = {}
         self._users: dict[str, dict[str, str]] = {}
+        self._starter_granted: set[str] = set()
         self._mode = 'locked' if base else 'free'
         self._load()
 
@@ -69,6 +77,9 @@ class AccessControl:
                             'username': str(profile.get('username') or '').strip(),
                             'full_name': str(profile.get('full_name') or '').strip(),
                         }
+            for uid in data.get('starter_granted') or []:
+                if uid:
+                    self._starter_granted.add(str(uid).strip())
         except Exception as e:
             log.warning('access_state load fail: %s', e)
 
@@ -81,6 +92,7 @@ class AccessControl:
                         'approved': sorted(self._approved),
                         'credits': {k: self._credits[k] for k in sorted(self._credits)},
                         'users': {k: self._users[k] for k in sorted(self._users)},
+                        'starter_granted': sorted(self._starter_granted),
                     },
                     indent=2,
                 ),
@@ -102,13 +114,15 @@ class AccessControl:
             return True
         if self._mode == 'free':
             return True
-        for cid in (chat_id, user_id):
-            if cid and str(cid) in self._approved:
-                return True
+        uid = str(chat_id or user_id or '').strip()
+        if uid in self._approved:
+            return True
+        if uid in self._users and self.credits(uid) > 0:
+            return True
         return False
 
     def credits_required(self) -> bool:
-        """Credits apply in locked mode for approved (non-owner) users."""
+        """Credits apply in locked mode for non-owner users."""
         return self._mode == 'locked'
 
     def credit_fetch_cost(self) -> int:
@@ -116,6 +130,9 @@ class AccessControl:
 
     def credit_pdf_cost(self) -> int:
         return _credit_pdf_cost()
+
+    def new_user_credits(self) -> int:
+        return _new_user_credits()
 
     def credits(self, uid: str | None) -> int:
         if not uid:
@@ -129,8 +146,6 @@ class AccessControl:
             return True
         if self.is_owner(user_id, chat_id):
             return True
-        if not self.allowed(user_id, chat_id):
-            return False
         uid = str(chat_id or user_id or '').strip()
         return self.credits(uid) >= max(1, cost)
 
@@ -148,14 +163,38 @@ class AccessControl:
         self._save()
         return bal
 
+    def gift_all_credits(self, amount: int) -> list[tuple[str, int]]:
+        """Add credits to every known user (except owner)."""
+        gift = max(0, int(amount))
+        if gift <= 0:
+            return []
+        out: list[tuple[str, int]] = []
+        for uid in sorted(self._users.keys()):
+            if uid == self.owner_id:
+                continue
+            bal = self.add_credits(uid, gift)
+            out.append((uid, bal))
+        return out
+
+    def grant_starter_credits(self, uid: str) -> int:
+        """One-time free credits for new users."""
+        uid = str(uid).strip()
+        if not uid or uid == self.owner_id or uid in self._starter_granted:
+            return 0
+        gift = _new_user_credits()
+        self._starter_granted.add(uid)
+        if gift > 0:
+            self.add_credits(uid, gift)
+        else:
+            self._save()
+        return gift
+
     def use_credits(self, user_id: str | None, chat_id: str | None, cost: int) -> bool:
         if not self.credits_required():
             return True
         if self.is_owner(user_id, chat_id):
             return True
         uid = str(chat_id or user_id or '').strip()
-        if uid not in self._approved:
-            return False
         need = max(1, int(cost))
         bal = self._credits.get(uid, 0)
         if bal < need:
@@ -207,11 +246,12 @@ class AccessControl:
         *,
         username: str | None = None,
         full_name: str | None = None,
-    ) -> None:
-        """Remember Telegram username + display name for /user panel."""
+    ) -> int:
+        """Remember Telegram profile; grant starter credits once for new users."""
         uid = str(uid).strip()
         if not uid:
-            return
+            return 0
+        is_new = uid not in self._users
         row = dict(self._users.get(uid) or {})
         if username:
             row['username'] = username.lstrip('@').strip()
@@ -220,6 +260,9 @@ class AccessControl:
         if row != self._users.get(uid):
             self._users[uid] = row
             self._save()
+        if is_new:
+            return self.grant_starter_credits(uid)
+        return 0
 
     def get_user(self, uid: str) -> dict[str, str]:
         return dict(self._users.get(str(uid).strip()) or {})
@@ -244,8 +287,10 @@ class AccessControl:
         lines = [
             mode_label,
             f'Approved users: {self.approved_count}',
+            f'Known users: {len(self._users)}',
             f'Active sessions: {active_sessions}',
-            f'Fetch cost: {self.credit_fetch_cost()} credit | PDF: {self.credit_pdf_cost()} credits',
+            f'New user bonus: {self.new_user_credits()} credits',
+            f'/fetch = {self.credit_fetch_cost()} credit | /pdf = {self.credit_pdf_cost()} credit',
         ]
         if self.owner_id:
             lines.append(f'Owner ID: {self.owner_id}')

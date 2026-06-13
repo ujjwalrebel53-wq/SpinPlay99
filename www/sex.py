@@ -163,20 +163,44 @@ def _telegram_profile(update: Update) -> tuple[str, str]:
     return username, full_name
 
 
-def _track_user(update: Update) -> str:
-    """Save user profile; return chat/user id used as key."""
+def _track_user(update: Update) -> tuple[str, int]:
+    """Save user profile; return (uid, starter_credits_granted)."""
     user_id, chat_id = _ids(update)
     uid = str(chat_id or user_id or '').strip()
     if not uid:
-        return ''
+        return '', 0
     username, full_name = _telegram_profile(update)
-    ACCESS.record_user(uid, username=username or None, full_name=full_name or None)
-    return uid
+    starter = ACCESS.record_user(uid, username=username or None, full_name=full_name or None)
+    return uid, starter
+
+
+async def _notify_owner_awarded(
+    context: ContextTypes.DEFAULT_TYPE,
+    uid: str,
+    amount: int,
+    balance: int,
+) -> bool:
+    """Tell user the owner awarded credits."""
+    if amount <= 0:
+        return False
+    try:
+        await context.bot.send_message(
+            chat_id=int(uid),
+            text=(
+                '🎁 The owner awarded you credits!\n\n'
+                f'+{amount} credit(s)\n'
+                f'💳 New balance: {balance}'
+            ),
+        )
+        return True
+    except Exception as e:
+        log.warning('credit notify fail %s: %s', uid, e)
+        return False
 
 
 def _locked_access_message(update: Update) -> str:
     user_id, chat_id = _ids(update)
-    uid = _track_user(update)
+    uid, _starter = _track_user(update)
     username, full_name = _telegram_profile(update)
     lines = [
         '🔒 This bot is locked — approved users only.',
@@ -1103,13 +1127,19 @@ async def _phase2_after_otp1(
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id, chat_id = _ids(update)
-    _track_user(update)
+    uid, starter = _track_user(update)
     if not ACCESS.allowed(user_id, chat_id):
         await update.message.reply_text(
             _locked_access_message(update),
             parse_mode='Markdown',
         )
         return
+    starter_line = ''
+    if starter > 0:
+        starter_line = (
+            f'\n\n🎁 Welcome! You received {starter} free starter credits.\n'
+            f'💳 Balance: {ACCESS.credits(uid)}'
+        )
     caption = (
         f'🔐 Rebel Aadhaar Bot v{BOT_ENGINE_VERSION}\n'
         '━━━━━━━━━━━━━━━━━━━━\n\n'
@@ -1117,6 +1147,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '/fetch MOBILE — Aadhaar SMS (1 OTP)\n'
         '/pdf MOBILE — e-Aadhaar PDF (2 OTP)\n'
         '/credits — balance check'
+        f'{starter_line}'
         f'{_credit_footer(update)}'
     )
     banner = _start_banner()
@@ -1226,6 +1257,7 @@ async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         '/free — public | /lock — approved only',
         '/approve CHAT_ID [credits] · /deny CHAT_ID',
         '/addcredits CHAT_ID N · /setcredits CHAT_ID N',
+        '/giftall N — free credits to all users',
         '/user — all users | /user CHAT_ID — one user',
     ]
     await update.message.reply_text('\n'.join(lines))
@@ -1263,6 +1295,7 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     uid = context.args[0].strip()
     credits = None
+    before = ACCESS.credits(uid)
     if len(context.args) >= 2:
         try:
             credits = max(0, int(context.args[1]))
@@ -1271,6 +1304,9 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
     bal = ACCESS.approve(uid, credits=credits)
     label = ACCESS.user_label(uid)
+    added = max(0, bal - before)
+    if added > 0:
+        await _notify_owner_awarded(context, uid, added, bal)
     await update.message.reply_text(
         f'✅ Approved: `{uid}`\n'
         f'👤 {label}\n'
@@ -1292,8 +1328,15 @@ async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError:
         await update.message.reply_text('Amount must be a number.')
         return
+    if amount <= 0:
+        await update.message.reply_text('Amount must be positive.')
+        return
     bal = ACCESS.add_credits(uid, amount)
-    await update.message.reply_text(f'💳 `{uid}` balance: {bal}', parse_mode='Markdown')
+    await _notify_owner_awarded(context, uid, amount, bal)
+    await update.message.reply_text(
+        f'💳 `{uid}` balance: {bal}\n📨 User notified.',
+        parse_mode='Markdown',
+    )
 
 
 async def cmd_setcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1309,8 +1352,46 @@ async def cmd_setcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError:
         await update.message.reply_text('Amount must be a number.')
         return
+    before = ACCESS.credits(uid)
     bal = ACCESS.set_credits(uid, amount)
-    await update.message.reply_text(f'💳 `{uid}` set to: {bal}', parse_mode='Markdown')
+    added = max(0, bal - before)
+    if added > 0:
+        await _notify_owner_awarded(context, uid, added, bal)
+    await update.message.reply_text(
+        f'💳 `{uid}` set to: {bal}'
+        + ('\n📨 User notified.' if added > 0 else ''),
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_giftall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner — free credits to all known users."""
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
+        await update.message.reply_text('Usage: /giftall AMOUNT\nExample: /giftall 5')
+        return
+    try:
+        amount = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    if amount <= 0:
+        await update.message.reply_text('Amount must be positive.')
+        return
+    results = ACCESS.gift_all_credits(amount)
+    if not results:
+        await update.message.reply_text('No users yet — wait for someone to /start first.')
+        return
+    notified = 0
+    for uid, bal in results:
+        if await _notify_owner_awarded(context, uid, amount, bal):
+            notified += 1
+    await update.message.reply_text(
+        f'🎁 Gifted {amount} credit(s) to {len(results)} user(s).\n'
+        f'📨 Notified: {notified}/{len(results)}'
+    )
 
 
 async def cmd_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2053,6 +2134,8 @@ def main() -> None:
     app.add_handler(CommandHandler('deny', cmd_deny))
     app.add_handler(CommandHandler('addcredits', cmd_addcredits))
     app.add_handler(CommandHandler('setcredits', cmd_setcredits))
+    app.add_handler(CommandHandler('giftall', cmd_giftall))
+    app.add_handler(CommandHandler('freecredits', cmd_giftall))
     app.add_handler(CommandHandler('credits', cmd_credits))
     app.add_handler(CommandHandler('user', cmd_user))
     app.add_handler(CommandHandler('users', cmd_user))

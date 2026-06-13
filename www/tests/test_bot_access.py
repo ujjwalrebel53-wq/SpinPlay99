@@ -23,7 +23,7 @@ class TestBotAccess(unittest.TestCase):
         ac = bot_access.AccessControl('111', set())
         ac.set_locked()
         bal = ac.approve('222')
-        self.assertEqual(bal, 10)
+        self.assertEqual(bal, 3)
         self.assertTrue(ac.has_credits('222', '222', 1))
 
     def test_approve_with_custom_credits(self) -> None:
@@ -35,8 +35,8 @@ class TestBotAccess(unittest.TestCase):
         ac = bot_access.AccessControl('111', set())
         ac.set_locked()
         ac.approve('444', credits=5)
-        self.assertTrue(ac.use_credits('444', '444', 2))
-        self.assertEqual(ac.credits('444'), 3)
+        self.assertTrue(ac.use_credits('444', '444', 1))
+        self.assertEqual(ac.credits('444'), 4)
 
     def test_owner_unlimited(self) -> None:
         ac = bot_access.AccessControl('111', set())
@@ -57,6 +57,30 @@ class TestBotAccess(unittest.TestCase):
         self.assertEqual(ac.get_user('999')['full_name'], 'Rebel Baby')
         ac2 = bot_access.AccessControl('111', set())
         self.assertEqual(ac2.user_label('999'), '@Rebel_babyyy (Rebel Baby)')
+
+    def test_new_user_gets_starter_credits(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        starter = ac.record_user('777', username='newbie')
+        self.assertEqual(starter, 3)
+        self.assertEqual(ac.credits('777'), 3)
+        self.assertTrue(ac.allowed('777', '777'))
+        again = ac.record_user('777', username='newbie')
+        self.assertEqual(again, 0)
+        self.assertEqual(ac.credits('777'), 3)
+
+    def test_gift_all_credits(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        ac.record_user('222')
+        ac.record_user('333')
+        results = ac.gift_all_credits(5)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(ac.credits('222'), 8)
+        self.assertEqual(ac.credits('333'), 8)
+
+    def test_pdf_cost_default_one(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        self.assertEqual(ac.credit_fetch_cost(), 1)
+        self.assertEqual(ac.credit_pdf_cost(), 1)
 
     def test_persist_credits(self) -> None:
         ac = bot_access.AccessControl('111', set())
