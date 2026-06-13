@@ -43,6 +43,7 @@ from uidai_api import (
     normalize_name,
     parse_uidai_response,
     summarize_logs,
+    captcha_max_age_sec,
     uidai_fast,
 )
 
@@ -906,6 +907,7 @@ class UidaiBrowserSession:
         self._captcha_cache_at: float = 0.0
         self._captcha_notified = False
         self._captcha_photo_sent = False
+        self._captcha_consumed = False
 
     @property
     def page(self) -> Page:
@@ -929,6 +931,47 @@ class UidaiBrowserSession:
         self._captcha_png_cache = b''
         self._captcha_cache_txn = ''
         self._captcha_cache_at = 0.0
+
+    def _captcha_cache_fresh(self) -> bool:
+        if self._captcha_consumed or len(self._captcha_png_cache) < 200:
+            return False
+        if not self._captcha_cache_at or not self.captcha_txn_id:
+            return False
+        age = time.monotonic() - self._captcha_cache_at
+        return age <= min(CAPTCHA_CACHE_TTL_SEC, captcha_max_age_sec())
+
+    async def ensure_fresh_captcha_png(self) -> bytes:
+        """Always serve a captcha that was not already submitted in this session."""
+        if not self._page:
+            raise RuntimeError('Browser not started — run /fetch again')
+        if not self._captcha_cache_fresh():
+            await self.refresh_captcha()
+            self._captcha_consumed = False
+            self.reset_captcha_notify()
+        elif not self.peek_captcha_png():
+            await self.prefetch_captcha()
+        png = self.peek_captcha_png() or self._captcha_png_cache
+        if len(png or b'') < 200 or not self.captcha_txn_id:
+            await self.refresh_captcha()
+            png = self._captcha_png_cache
+        if len(png or b'') < 200:
+            raise RuntimeError('Captcha not ready — try /fetch again')
+        return png
+
+    def note_captcha_submitted(self, captcha_text: str) -> None:
+        """Captcha text sent — page txn is spent; refresh after OTP."""
+        self.last_captcha = (captcha_text or '').strip().lower()
+        self._captcha_consumed = True
+
+    async def refresh_for_next_fetch(self) -> None:
+        """Background — new captcha on pool tab after OTP / retrieve."""
+        try:
+            if self._page and not self._page.is_closed():
+                await self.refresh_captcha()
+                self._captcha_consumed = False
+                self.reset_captcha_notify()
+        except Exception as exc:
+            log.warning('refresh_for_next_fetch: %s', exc)
 
     async def _notify_captcha_ready(self, png: bytes, txn: str = '') -> None:
         if len(png) < 200:
@@ -1040,7 +1083,6 @@ class UidaiBrowserSession:
             self._captcha_cache_txn = sb.get('captcha_txn_id', '')
             self.captcha_txn_id = self._captcha_cache_txn
             self._captcha_cache_at = float(sb.get('cached_at') or time.monotonic())
-            await self._notify_captcha_ready(self._captcha_png_cache, self.captcha_txn_id)
         self.form_ready = True
         self.page_loaded_at = time.monotonic()
         self.touch()
@@ -1182,11 +1224,14 @@ class UidaiBrowserSession:
             self._captcha_cache_at = time.monotonic()
 
         await self._fill_fields_only_fast()
-        png = self.peek_captcha_png()
-        if not png or not self.captcha_txn_id:
-            await self.prefetch_captcha()
-            png = self._captcha_png_cache
-        elif png:
+        if not self._captcha_cache_fresh():
+            await self.refresh_captcha()
+        else:
+            png = self.peek_captcha_png()
+            if not png or not self.captcha_txn_id:
+                await self.refresh_captcha()
+        png = self._captcha_png_cache
+        if png and self.captcha_txn_id:
             await self._notify_captcha_ready(png, self.captcha_txn_id)
 
         self.page_loaded_at = time.monotonic()
@@ -1245,25 +1290,19 @@ class UidaiBrowserSession:
         )
 
     async def _open_from_preloaded_page(self) -> bytes:
-        """Preloaded pool tab — fill name/mobile and return captcha (no goto)."""
+        """Preloaded pool tab — fill name/mobile and return fresh captcha."""
         self.touch()
         self.page_loaded_at = time.monotonic()
-        pair = get_standby_captcha_pair(self._pool_slot)
-        if pair and not self.captcha_txn_id:
-            self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
-            self._captcha_cache_at = time.monotonic()
-            await self._notify_captcha_ready(pair[0], pair[1])
         await self._step(1, 3, 'Preloaded UIDAI page ⚡')
         await self._fill_fields_only_fast()
-        png = self.peek_captcha_png()
-        if not png or not self.captcha_txn_id:
-            await self._step(2, 3, 'Capturing captcha…')
-            await self.prefetch_captcha()
-        else:
-            await self._step(2, 3, 'Form filled — captcha ready ⚡')
+        await self._step(2, 3, 'Refreshing captcha…')
+        await self.refresh_captcha()
+        png = self._captcha_png_cache
+        if png and self.captcha_txn_id:
+            await self._notify_captcha_ready(png, self.captcha_txn_id)
         self._replenish_pool()
         _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
-        return self._captcha_png_cache or png or b''
+        return png or b''
 
     async def open_form(
         self,
@@ -1288,7 +1327,7 @@ class UidaiBrowserSession:
             if await self.page_alive():
                 await self._step(1, 3, f'Session active — {self.ttl_label()} left')
                 await self._fill_fields_only_fast()
-                await self.prefetch_captcha()
+                await self.refresh_captcha()
                 png = self._captcha_png_cache
                 if png and self.captcha_txn_id:
                     await self._notify_captcha_ready(png, self.captcha_txn_id)
@@ -1326,7 +1365,7 @@ class UidaiBrowserSession:
         await self._step(3, 8, 'UIDAI page loaded')
         await self._step(4, 8, 'Form ready')
         await self._fill_fields_only_fast()
-        await self.prefetch_captcha()
+        await self.refresh_captcha()
         png = self._captcha_png_cache
         if png and self.captcha_txn_id:
             await self._notify_captcha_ready(png, self.captcha_txn_id)

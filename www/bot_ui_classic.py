@@ -320,23 +320,17 @@ class LoadingScreen:
             await self._start_spinner()
         await self._render(force=True)
 
-    async def dismiss_captcha_panel(self) -> None:
-        """Remove loading terminal after user submits captcha text."""
-        self._hold_captcha = False
-        self._captcha_dispatched = False
-        chat_id = self._chat_id()
-        if chat_id is not None:
-            await dismiss_loading_screen(chat_id)
-        else:
-            await self._stop_spinner()
-            try:
-                await self._msg.delete()
-            except Exception:
-                pass
-
     async def advance_after_captcha(self, step_text: str = 'OTP request') -> None:
-        """User submitted captcha — dismiss panel; backend continues in chat."""
-        await self.dismiss_captcha_panel()
+        """User submitted captcha — loading panel stays; only captcha image is removed."""
+        self._hold_captcha = False
+        self._phase = 'otp'
+        self._push_step_line(self._current + 1, max(self._total, 3), step_text)
+        self._footer = ''
+        if self._status == 'done':
+            self._status = 'loading'
+        if not self._animating:
+            await self._start_spinner()
+        await self._render(force=True)
 
 
     async def mark_instant(self) -> None:

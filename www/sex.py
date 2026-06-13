@@ -129,6 +129,8 @@ SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
 _PDF_CAPTCHA_DISPATCHED: dict[int, set[str]] = {}
 
+_CAPTCHA_PHOTOS: dict[int, list[int]] = {}
+
 FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '180')))
 
 
@@ -222,6 +224,7 @@ def _locked_access_message(update: Update) -> str:
 def clear_flow(chat_id: int) -> None:
     FLOW.pop(chat_id, None)
     _PDF_CAPTCHA_DISPATCHED.pop(chat_id, None)
+    _CAPTCHA_PHOTOS.pop(chat_id, None)
 
 
 def assign_flow(chat_id: int, data: dict) -> None:
@@ -380,18 +383,43 @@ def _connection_error_hint(exc: Exception) -> str:
     return '❌ Connection failed.\nTry /close then /fetch.'
 
 
+async def _erase_captcha_photos(bot, chat_id: int) -> None:
+    """Remove captcha image messages from chat after user submits captcha text."""
+    for mid in _CAPTCHA_PHOTOS.pop(chat_id, []):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=mid)
+        except Exception:
+            pass
+
+
 async def _reply_captcha(
     update: Update,
     sess: UidaiBrowserSession,
     cap: bytes,
     *,
     instant: bool = False,
+    fresh: bool = False,
 ) -> None:
     ttl = sess.ttl_label() if sess.last_activity_at else ''
-    await update.message.reply_photo(
+    msg = await update.message.reply_photo(
         photo=cap,
-        caption=_captcha_caption(instant=instant, ttl=ttl),
+        caption=_captcha_caption(instant=instant, fresh=fresh, ttl=ttl),
     )
+    cid = update.effective_chat.id
+    _CAPTCHA_PHOTOS.setdefault(cid, []).append(msg.message_id)
+
+
+async def _on_captcha_text_submitted(
+    update: Update,
+    chat_id: int,
+    progress: LoadingScreen | None,
+    *,
+    step_text: str = 'Processing captcha…',
+) -> None:
+    """Captcha filled — hide image only; loading terminal stays open."""
+    await _erase_captcha_photos(update.get_bot(), chat_id)
+    if progress is not None:
+        await progress.advance_after_captcha(step_text)
 
 
 async def _begin_session_terminal(
@@ -448,11 +476,7 @@ async def _send_captcha_ready(
     *,
     instant: bool = False,
 ) -> None:
-    cap = sess.peek_captcha_png()
-    if not cap or len(cap) < 200:
-        cap = await sess.captcha_png(use_cache=True)
-    if not cap or len(cap) < 200:
-        raise RuntimeError('Captcha image not ready — try /fetch again')
+    cap = await sess.ensure_fresh_captcha_png()
     if not sess._captcha_photo_sent:
         await _reply_captcha(update, sess, cap, instant=instant)
         sess._captcha_photo_sent = True
@@ -905,7 +929,7 @@ async def _send_pdf_captcha_photo(
     if len(png) < _CAPTCHA_MIN_BYTES:
         return False
     cid = chat_id if chat_id is not None else update.effective_chat.id
-    await update.message.reply_photo(
+    msg = await update.message.reply_photo(
         photo=png,
         caption=_captcha_caption(
             fresh=fresh,
@@ -913,6 +937,7 @@ async def _send_pdf_captcha_photo(
             display_name=_flow_display_name(cid, sess),
         ),
     )
+    _CAPTCHA_PHOTOS.setdefault(cid, []).append(msg.message_id)
     return True
 
 
@@ -933,6 +958,8 @@ async def _maybe_dispatch_pdf_captcha(
         return False
     if fresh and phase_tag in sent:
         sent.discard(phase_tag)
+    if sess.captcha_is_stale():
+        return False
     if not _captcha_prime_ok(sess):
         return False
     await _send_pdf_captcha_photo(
@@ -1979,19 +2006,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = get_loading_screen(cid)
-        if progress:
-            await progress.dismiss_captcha_panel()
-        else:
-            await dismiss_loading_screen(cid)
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
+            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+        )
+        await _on_captcha_text_submitted(
+            update, cid, progress, step_text='UIDAI OTP request',
+        )
+        a_sess.captcha_text = text
         try:
             result = await _run_pdf_with_browser_captcha(
-                update, a_sess, None, a_sess.phase1_otp_manual, text,
+                update, a_sess, progress, a_sess.phase1_otp_manual, text,
                 phase='phase1', prime=False,
             )
             if result.get('otp_ok'):
                 bump_flow(cid, step=STEP_OTP_1)
-                await update.message.reply_text(uidai_user_message(result, kind='otp'))
+                await progress.append_milestone(
+                    uidai_user_message(result, kind='otp'),
+                    footer='Reply with OTP 1 from SMS',
+                )
                 old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
                 if old_prefetch and not old_prefetch.done():
                     old_prefetch.cancel()
@@ -2000,19 +2032,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             elif result.get('network_error'):
                 bump_flow(cid, step=STEP_CAPTCHA)
-                await update.message.reply_text(
+                await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
                 bump_flow(cid, step=STEP_CAPTCHA)
-                await update.message.reply_text(
-                    result.get('msg') or 'Wrong captcha — try the new image',
-                )
+                a_sess.clear_browser_captcha()
+                _PDF_CAPTCHA_DISPATCHED.get(cid, set()).discard('phase1')
+                if await _prime_pdf_browser_captcha(a_sess, progress, 'phase1-refresh', cid):
+                    await _send_pdf_captcha_photo(update, a_sess, fresh=True, chat_id=cid)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                else:
+                    await progress.fail(result.get('msg') or 'Wrong captcha — /pdf again')
             else:
-                await update.message.reply_text(result.get('msg') or 'OTP 1 failed')
+                await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
             bump_flow(cid, step=STEP_CAPTCHA)
-            await update.message.reply_text(_connection_error_hint(e))
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_CAPTCHA_2 and mode == FLOW_MODE_DOWNLOAD:
@@ -2024,37 +2060,50 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = get_loading_screen(cid)
-        if progress:
-            await progress.dismiss_captcha_panel()
-        else:
-            await dismiss_loading_screen(cid)
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
+            update.message,
+            cid,
+            a_sess.mobile,
+            mode='pdf',
+            name=_flow_display_name(cid, a_sess),
+        )
+        await _on_captcha_text_submitted(
+            update, cid, progress, step_text='Download OTP request',
+        )
+        a_sess.captcha_text = text
         try:
             result = await _run_pdf_with_browser_captcha(
-                update, a_sess, None, a_sess.phase2_otp_manual, text,
+                update, a_sess, progress, a_sess.phase2_otp_manual, text,
                 phase='phase2', prime=False,
             )
             if result.get('otp_ok'):
                 bump_flow(cid, step=STEP_OTP_2)
-                await update.message.reply_text(uidai_user_message(
-                    {**result, 'aadhaar_name': _flow_display_name(cid, a_sess)},
-                    kind='download_otp',
-                ))
+                await progress.append_milestone(
+                    uidai_user_message(
+                        {**result, 'aadhaar_name': _flow_display_name(cid, a_sess)},
+                        kind='download_otp',
+                    ),
+                    footer='Reply with OTP 2 from SMS',
+                )
             elif result.get('network_error'):
                 bump_flow(cid, step=STEP_CAPTCHA_2)
-                await update.message.reply_text(
+                await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
                 bump_flow(cid, step=STEP_CAPTCHA_2)
-                await update.message.reply_text(
-                    result.get('msg') or 'Wrong captcha — try the new image',
-                )
+                a_sess.clear_browser_captcha()
+                _PDF_CAPTCHA_DISPATCHED.get(cid, set()).discard('phase2')
+                if await _prime_pdf_browser_captcha(a_sess, progress, 'phase2-refresh', cid):
+                    await _send_pdf_captcha_photo(update, a_sess, fresh=True, chat_id=cid)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                else:
+                    await progress.fail(result.get('msg') or 'Wrong captcha — /pdf again')
             else:
-                await update.message.reply_text(result.get('msg') or 'OTP 2 failed')
+                await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:
             bump_flow(cid, step=STEP_CAPTCHA_2)
-            await update.message.reply_text(_connection_error_hint(e))
+            await progress.fail(_connection_error_hint(e))
         return
 
     if step == STEP_OTP_1 and mode == FLOW_MODE_DOWNLOAD:
@@ -2226,14 +2275,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     bump_flow(cid, step=None)
-    progress = get_loading_screen(cid)
-    if progress:
-        await progress.dismiss_captcha_panel()
-    else:
-        await dismiss_loading_screen(cid)
+    progress = get_loading_screen(cid) or await get_or_create_loading_screen(
+        update.message, cid, sess.mobile, mode='fetch', name=sess.name,
+    )
+    await _on_captcha_text_submitted(
+        update, cid, progress, step_text='UIDAI OTP request',
+    )
+    sess.note_captcha_submitted(text)
+
+    async def on_step(n: int, total: int, msg: str) -> None:
+        await progress.update(n, total, msg)
 
     try:
-        result = await sess.send_otp(text)
+        result = await sess.send_otp(text, on_step=on_step)
         otp_ok = result.get('otp_ok')
         if otp_ok is None:
             otp_ok = any(
@@ -2242,14 +2296,32 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_msg = uidai_user_message(result, kind='otp')
 
         if otp_ok:
-            await update.message.reply_text(user_msg)
+            await progress.append_milestone(
+                user_msg,
+                footer='Reply with 6-digit OTP from SMS',
+            )
             bump_flow(cid, step=STEP_OTP)
+            _schedule_background(sess.refresh_for_next_fetch(), label='refresh-captcha')
         else:
-            await update.message.reply_text(user_msg)
+            invalid = any(
+                x.get('d', {}).get('reason') == 'invalid_captcha'
+                for x in result.get('logs', [])
+                if isinstance(x.get('d'), dict)
+            ) or 'captcha' in user_msg.lower()
+            if invalid:
+                sess._captcha_photo_sent = False
+                try:
+                    cap = await sess.refresh_captcha()
+                    await _reply_captcha(update, sess, cap, fresh=True)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                except Exception as exc:
+                    await progress.fail(f'Captcha refresh fail: {exc}')
+            else:
+                await progress.fail(user_msg)
             bump_flow(cid, step=STEP_CAPTCHA)
     except Exception as e:
         log.exception('otp failed')
-        await update.message.reply_text(f'OTP fail: {e}')
+        await progress.fail(f'OTP fail: {e}')
         bump_flow(cid, step=STEP_CAPTCHA)
 
 
