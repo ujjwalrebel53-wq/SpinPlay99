@@ -828,6 +828,25 @@ async def ensure_pool_warm() -> bool:
     return await ensure_triple_pool_warm()
 
 
+def _browser_launch_opts() -> dict[str, Any]:
+    """headless=0 + UIDAI_BROWSER_CHANNEL=chrome for laptop debugging."""
+    headless = os.getenv('UIDAI_HEADLESS', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+    opts: dict[str, Any] = {
+        'headless': headless,
+        'args': [
+            '--disable-remote-fonts',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+        ],
+    }
+    if headless:
+        opts['args'].append('--disable-gpu')
+    channel = os.getenv('UIDAI_BROWSER_CHANNEL', '').strip()
+    if channel:
+        opts['channel'] = channel
+    return opts
+
+
 async def _pool_browser() -> tuple[Browser, bool]:
     """Return (browser, reused). Dead pool entry auto-relaunch."""
     async with _POOL['browser_lock']:
@@ -841,16 +860,8 @@ async def _pool_browser() -> tuple[Browser, bool]:
         if not _POOL['pw']:
             _POOL['pw'] = await async_playwright().start()
 
-        log.info('Pre-warm: launching browser (direct)')
-        opts: dict[str, Any] = {
-            'headless': True,
-            'args': [
-                '--disable-remote-fonts',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
-        }
+        log.info('Pre-warm: launching browser (direct) headless=%s', _browser_launch_opts().get('headless'))
+        opts = _browser_launch_opts()
         _POOL['browser'] = await _POOL['pw'].chromium.launch(**opts)
         return _POOL['browser'], False
 

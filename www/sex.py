@@ -271,6 +271,13 @@ def valid_name_input(text: str) -> bool:
 async def guard(update: Update) -> bool:
     user_id, chat_id = _ids(update)
     _track_user(update)
+    uid = str(chat_id or user_id or '').strip()
+    if ACCESS.is_banned(uid) and not ACCESS.is_owner(user_id, chat_id):
+        await update.message.reply_text(
+            '🚫 You are **banned** from this bot.\nContact the owner if this is a mistake.',
+            parse_mode='Markdown',
+        )
+        return False
     if ACCESS.allowed(user_id, chat_id):
         return True
     await update.message.reply_text(
@@ -278,6 +285,18 @@ async def guard(update: Update) -> bool:
         parse_mode='Markdown',
     )
     return False
+
+
+def _deduct_credits_start(update: Update, cost: int, *, action: str) -> bool:
+    """Deduct credits when /fetch or /pdf session actually starts."""
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return True
+    uid = str(chat_id or user_id or '').strip()
+    if not ACCESS.use_credits(user_id, chat_id, cost):
+        return False
+    log.info('credit deduct uid=%s action=%s cost=%s bal=%s', uid, action, cost, ACCESS.credits(uid))
+    return True
 
 
 async def guard_credits(update: Update, cost: int, *, action: str) -> bool:
@@ -560,6 +579,9 @@ async def open_uidai_session(
     name = normalize_name(name)
     mobile = mobile.strip()
     if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        return
+    if not _deduct_credits_start(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        await update.message.reply_text('💳 Credit deduct failed — use /credits to check balance.')
         return
     clear_flow(chat_id)
     assign_flow(chat_id, {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile})
@@ -984,6 +1006,10 @@ async def _start_download_flow(
         )
         return
 
+    if not _deduct_credits_start(update, ACCESS.credit_pdf_cost(), action='/pdf'):
+        await update.message.reply_text('💳 Credit deduct failed — use /credits to check balance.')
+        return
+
     clear_flow(chat_id)
     clear_pdf_session(chat_id)
 
@@ -1261,6 +1287,7 @@ async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         '/approve CHAT_ID [credits] · /deny CHAT_ID',
         '/addcredits CHAT_ID N · /setcredits CHAT_ID N',
         '/giftall N — free credits to all users',
+        '/ban CHAT_ID · /unban CHAT_ID · /removecredits CHAT_ID N',
         '/user — all users | /user CHAT_ID — one user',
     ]
     await update.message.reply_text('\n'.join(lines))
@@ -1431,6 +1458,8 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         approved = '✅ Approved' if ACCESS.is_approved(uid) else '⏳ Not approved'
+        if ACCESS.is_banned(uid):
+            approved = '🚫 Banned'
         uname = profile.get('username') or ''
         name = profile.get('full_name') or '—'
         username_line = f'@{uname}' if uname else '—'
@@ -1467,7 +1496,7 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         uname = profile.get('username') or ''
         name = profile.get('full_name') or '—'
         tag = f'@{uname}' if uname else '—'
-        mark = '✅' if ACCESS.is_approved(uid) else '⏳'
+        mark = '🚫' if ACCESS.is_banned(uid) else ('✅' if ACCESS.is_approved(uid) else '⏳')
         bal = ACCESS.credits(uid)
         lines.append(f'{mark} `{uid}` · {tag}')
         lines.append(f'   {name} · 💳 {bal}')
@@ -1478,15 +1507,85 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await cmd_ban(update, context)
+
+
+async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update):
         await update.message.reply_text('Owner only command.')
         return
     if not context.args:
-        await update.message.reply_text('Usage: /deny CHAT_ID')
+        await update.message.reply_text('Usage: /ban CHAT_ID')
         return
     uid = context.args[0].strip()
-    ACCESS.deny(uid)
-    await update.message.reply_text(f'🚫 Removed: `{uid}`', parse_mode='Markdown')
+    if ACCESS.is_owner(uid, uid):
+        await update.message.reply_text('Cannot ban owner.')
+        return
+    label = ACCESS.user_label(uid)
+    ACCESS.ban(uid)
+    try:
+        await context.bot.send_message(
+            int(uid),
+            '🚫 You have been **banned** from this bot.\nContact the owner.',
+            parse_mode='Markdown',
+        )
+    except Exception:
+        pass
+    await update.message.reply_text(
+        f'🚫 Banned: `{uid}`\n👤 {label}\n💳 Credits cleared.',
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
+        await update.message.reply_text('Usage: /unban CHAT_ID')
+        return
+    uid = context.args[0].strip()
+    ACCESS.unban(uid)
+    try:
+        await context.bot.send_message(
+            int(uid),
+            '✅ You have been **unbanned**. Send /start to use the bot again.',
+            parse_mode='Markdown',
+        )
+    except Exception:
+        pass
+    await update.message.reply_text(f'✅ Unbanned: `{uid}`', parse_mode='Markdown')
+
+
+async def cmd_removecredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /removecredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = max(0, int(context.args[1]))
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    before = ACCESS.credits(uid)
+    bal = ACCESS.remove_credits(uid, amount)
+    removed = max(0, before - bal)
+    if removed > 0:
+        try:
+            await context.bot.send_message(
+                int(uid),
+                f'💳 The owner removed **{removed}** credit(s).\n\nBalance: **{bal}**',
+                parse_mode='Markdown',
+            )
+        except Exception:
+            pass
+    await update.message.reply_text(
+        f'💳 `{uid}` −{removed} → balance **{bal}**',
+        parse_mode='Markdown',
+    )
 
 
 async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1892,7 +1991,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if result.get('aadhaar_name'):
                     flow_draft['aadhaar_name'] = result['aadhaar_name']
                 user_id, chat_id = _ids(update)
-                ACCESS.use_credits(user_id, chat_id, ACCESS.credit_pdf_cost())
                 await progress.done(
                     uidai_user_message(result, kind='download') + _credit_remain_line(update),
                 )
@@ -1941,8 +2039,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             retrieve_ok = result.get('retrieve_ok', False)
             user_msg = uidai_user_message(result, kind='retrieve')
             if retrieve_ok:
-                user_id, chat_id = _ids(update)
-                ACCESS.use_credits(user_id, chat_id, ACCESS.credit_fetch_cost())
                 await otp_progress.done(user_msg + _credit_remain_line(update))
             else:
                 await otp_progress.fail(user_msg)
@@ -2153,6 +2249,9 @@ def main() -> None:
     app.add_handler(CommandHandler('lock', cmd_lock))
     app.add_handler(CommandHandler('approve', cmd_approve))
     app.add_handler(CommandHandler('deny', cmd_deny))
+    app.add_handler(CommandHandler('ban', cmd_ban))
+    app.add_handler(CommandHandler('unban', cmd_unban))
+    app.add_handler(CommandHandler('removecredits', cmd_removecredits))
     app.add_handler(CommandHandler('addcredits', cmd_addcredits))
     app.add_handler(CommandHandler('setcredits', cmd_setcredits))
     app.add_handler(CommandHandler('giftall', cmd_giftall))

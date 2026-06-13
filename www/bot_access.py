@@ -50,6 +50,7 @@ class AccessControl:
         self._credits: dict[str, int] = {}
         self._users: dict[str, dict[str, str]] = {}
         self._starter_granted: set[str] = set()
+        self._banned: set[str] = set()
         self._mode = 'locked' if base else 'free'
         self._load()
 
@@ -80,6 +81,9 @@ class AccessControl:
             for uid in data.get('starter_granted') or []:
                 if uid:
                     self._starter_granted.add(str(uid).strip())
+            for uid in data.get('banned') or []:
+                if uid:
+                    self._banned.add(str(uid).strip())
         except Exception as e:
             log.warning('access_state load fail: %s', e)
 
@@ -93,6 +97,7 @@ class AccessControl:
                         'credits': {k: self._credits[k] for k in sorted(self._credits)},
                         'users': {k: self._users[k] for k in sorted(self._users)},
                         'starter_granted': sorted(self._starter_granted),
+                        'banned': sorted(self._banned),
                     },
                     indent=2,
                 ),
@@ -109,12 +114,21 @@ class AccessControl:
                 return True
         return False
 
+    def is_banned(self, uid: str | None) -> bool:
+        if not uid:
+            return False
+        if str(uid).strip() == self.owner_id:
+            return False
+        return str(uid).strip() in self._banned
+
     def allowed(self, user_id: str | None, chat_id: str | None) -> bool:
         if self.is_owner(user_id, chat_id):
             return True
+        uid = str(chat_id or user_id or '').strip()
+        if self.is_banned(uid):
+            return False
         if self._mode == 'free':
             return True
-        uid = str(chat_id or user_id or '').strip()
         if uid in self._approved:
             return True
         if uid in self._users and self.credits(uid) > 0:
@@ -163,6 +177,13 @@ class AccessControl:
         self._save()
         return bal
 
+    def remove_credits(self, uid: str, amount: int) -> int:
+        uid = uid.strip()
+        bal = max(0, self._credits.get(uid, 0) - max(0, int(amount)))
+        self._credits[uid] = bal
+        self._save()
+        return bal
+
     def gift_all_credits(self, amount: int) -> list[tuple[str, int]]:
         """Add credits to every known user (except owner)."""
         gift = max(0, int(amount))
@@ -180,6 +201,8 @@ class AccessControl:
         """One-time free credits for new users."""
         uid = str(uid).strip()
         if not uid or uid == self.owner_id or uid in self._starter_granted:
+            return 0
+        if self.is_banned(uid):
             return 0
         gift = _new_user_credits()
         self._starter_granted.add(uid)
@@ -235,9 +258,19 @@ class AccessControl:
         return str(uid).strip() in self._approved
 
     def deny(self, uid: str) -> None:
+        self.ban(uid)
+
+    def ban(self, uid: str) -> None:
+        """Block user — no access, credits cleared."""
         uid = uid.strip()
+        self._banned.add(uid)
         self._approved.discard(uid)
-        self._credits.pop(uid, None)
+        self._credits[uid] = 0
+        self._save()
+
+    def unban(self, uid: str) -> None:
+        uid = uid.strip()
+        self._banned.discard(uid)
         self._save()
 
     def record_user(
@@ -264,6 +297,10 @@ class AccessControl:
             return self.grant_starter_credits(uid)
         return 0
 
+    @property
+    def banned_count(self) -> int:
+        return len(self._banned)
+
     def get_user(self, uid: str) -> dict[str, str]:
         return dict(self._users.get(str(uid).strip()) or {})
 
@@ -288,6 +325,7 @@ class AccessControl:
             mode_label,
             f'Approved users: {self.approved_count}',
             f'Known users: {len(self._users)}',
+            f'Banned users: {self.banned_count}',
             f'Active sessions: {active_sessions}',
             f'New user bonus: {self.new_user_credits()} credits',
             f'/fetch = {self.credit_fetch_cost()} credit | /pdf = {self.credit_pdf_cost()} credit',

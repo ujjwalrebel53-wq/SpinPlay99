@@ -82,6 +82,32 @@ class TestBotAccess(unittest.TestCase):
         self.assertEqual(ac.credit_fetch_cost(), 1)
         self.assertEqual(ac.credit_pdf_cost(), 1)
 
+    def test_ban_blocks_access(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        ac.set_locked()
+        ac.record_user('222', username='baduser')
+        ac.ban('222')
+        self.assertTrue(ac.is_banned('222'))
+        self.assertFalse(ac.allowed('222', '222'))
+        self.assertEqual(ac.credits('222'), 0)
+
+    def test_unban_restores_access_with_credits(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        ac.set_locked()
+        ac.record_user('333')
+        ac.add_credits('333', 5)
+        ac.ban('333')
+        ac.unban('333')
+        ac.add_credits('333', 2)
+        self.assertFalse(ac.is_banned('333'))
+        self.assertTrue(ac.allowed('333', '333'))
+
+    def test_remove_credits(self) -> None:
+        ac = bot_access.AccessControl('111', set())
+        ac.add_credits('444', 10)
+        bal = ac.remove_credits('444', 3)
+        self.assertEqual(bal, 7)
+
     def test_persist_credits(self) -> None:
         ac = bot_access.AccessControl('111', set())
         ac.approve('555', credits=7)
