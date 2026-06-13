@@ -119,19 +119,66 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
 }"""
 
 FILL_RETRIEVE_FORM_JS = """(name, mobile) => {
-  function setVal(sel, val) {
-    const el = document.querySelector(sel);
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  function propsKey(el) {
+    return Object.keys(el || {}).find((k) => k.startsWith('__reactProps'));
+  }
+  function setReactInput(el, val) {
     if (!el) return false;
-    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    if (proto?.set) proto.set.call(el, val);
-    else el.value = val;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
+    const v = String(val || '');
+    try {
+      if (el._valueTracker) el._valueTracker.setValue('');
+      if (nativeSet) nativeSet.call(el, v);
+      else el.value = v;
+    } catch (e) {}
+    try {
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true, cancelable: true, inputType: 'insertText', data: v,
+      }));
+    } catch (e1) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    const props = el[propsKey(el)];
+    if (props?.onChange) {
+      try { props.onChange({ target: el, currentTarget: el }); } catch (e2) {}
+    }
     return true;
   }
-  const okName = setVal('input[name="name"]', String(name || ''));
-  const okMob = setVal('input[name="mobile"]', String(mobile || '').replace(/\\D/g, ''));
-  return okName && okMob;
+  const okName = setReactInput(document.querySelector('input[name="name"]'), name);
+  const mob = String(mobile || '').replace(/\\D/g, '');
+  const okMob = mob ? setReactInput(document.querySelector('input[name="mobile"]'), mob) : true;
+  return okName && (mob ? okMob : true);
+}"""
+
+FILL_RETRIEVE_NAME_JS = """(name) => {
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  function propsKey(el) {
+    return Object.keys(el || {}).find((k) => k.startsWith('__reactProps'));
+  }
+  function setReactInput(el, val) {
+    if (!el) return false;
+    const v = String(val || '');
+    try {
+      if (el._valueTracker) el._valueTracker.setValue('');
+      if (nativeSet) nativeSet.call(el, v);
+      else el.value = v;
+    } catch (e) {}
+    try {
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true, cancelable: true, inputType: 'insertText', data: v,
+      }));
+    } catch (e1) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    const props = el[propsKey(el)];
+    if (props?.onChange) {
+      try { props.onChange({ target: el, currentTarget: el }); } catch (e2) {}
+    }
+    return true;
+  }
+  return setReactInput(document.querySelector('input[name="name"]'), name);
 }"""
 
 CLEAR_RETRIEVE_FORM_JS = """() => {

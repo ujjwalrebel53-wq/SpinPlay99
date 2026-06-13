@@ -17,6 +17,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 from react_extract import (
     CLEAR_RETRIEVE_FORM_JS,
     FILL_RETRIEVE_FORM_JS,
+    FILL_RETRIEVE_NAME_JS,
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
@@ -482,6 +483,53 @@ def pool_slot_ready(pool: str = 'uid') -> bool:
     if not standby_has_captcha(pool):
         return False
     return True
+
+
+async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
+    """Pre-fill name on 24/7 pool tab while user types mobile in Telegram."""
+    nm = normalize_name(name)
+    if not nm or is_skip_name(nm):
+        return False
+    slot = _pool_key(pool)
+    sb = _POOL.get(slot) or {}
+    page = sb.get('page')
+    if not page or page.is_closed():
+        return False
+    try:
+        async with _POOL['lock']:
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            ok = await page.evaluate(FILL_RETRIEVE_NAME_JS, nm)
+            if ok:
+                log.info('Pool %s — name prefilled: %s', pool, nm[:20])
+            return bool(ok)
+    except Exception as e:
+        log.warning('prefill_standby_name %s: %s', pool, e)
+        return False
+
+
+async def instant_retrieve_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+) -> tuple[bytes, str] | None:
+    """Adopt hot pool tab, fill form, return captcha PNG + txn (~1s)."""
+    if not pool_slot_ready(pool):
+        return None
+    browser = UidaiBrowserSession(pool=pool)
+    try:
+        png = await browser.instant_fetch(name, mobile)
+        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
+        if png and txn and len(png) >= 200:
+            return png, txn
+    except Exception as e:
+        log.warning('instant_retrieve_captcha pool=%s: %s', pool, e)
+        try:
+            await browser.close(keep_warm=True)
+        except Exception:
+            pass
+    return None
 
 
 async def warm_standby_uidai() -> bool:

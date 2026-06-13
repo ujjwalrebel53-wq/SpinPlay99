@@ -44,9 +44,11 @@ from browser_session import (
     UidaiBrowserSession,
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
+    instant_retrieve_captcha,
     get_standby_captcha_pair,
     pool_is_warm,
     pool_slot_ready,
+    prefill_standby_name,
     refresh_standby_captcha,
 )
 from aadhar import (
@@ -69,6 +71,7 @@ from uidai_api import (
     normalize_dob,
     normalize_name,
     uidai_fast,
+    uidai_instant_form,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -304,8 +307,12 @@ async def _turbo_fetch(
     mobile: str,
 ) -> bool:
     """Pool hot → skip loading UI, captcha in ~1s. Returns False → use slow path."""
-    if not pool_slot_ready('uid'):
+    if not uidai_instant_form():
         return False
+    hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+    if not hit:
+        return False
+    png, txn = hit
     existing = SESSIONS.get(chat_id)
     if existing and await existing.page_alive():
         sess = existing
@@ -319,13 +326,74 @@ async def _turbo_fetch(
         sess = UidaiBrowserSession(pool='uid')
         SESSIONS[chat_id] = sess
     try:
-        cap = await sess.instant_fetch(name, mobile)
-        await _reply_captcha(update, sess, cap, instant=True)
+        sess.name = normalize_name(name)
+        sess.mobile = mobile.strip()
+        sess.captcha_txn_id = txn
+        sess._captcha_png_cache = png
+        sess._captcha_cache_txn = txn
+        sess._captcha_cache_at = time.monotonic()
+        sess.form_ready = True
+        sess.touch()
+        await _reply_captcha(update, sess, png, instant=True)
         return True
     except Exception as e:
         log.warning('turbo fetch failed, slow path: %s', e)
         SESSIONS.pop(chat_id, None)
         return False
+
+
+def _schedule_pool_prefill_name(name: str, pool: str) -> None:
+    """Background — pool tab pe naam pehle se bhar do jab user mobile type kare."""
+    if not uidai_instant_form() or is_skip_name(name):
+        return
+    asyncio.create_task(prefill_standby_name(name, pool))
+
+
+async def _reply_pdf_captcha(
+    update: Update,
+    chat_id: int,
+    sess: AadharSession,
+    png: bytes,
+    *,
+    instant: bool = False,
+) -> None:
+    await update.message.reply_photo(
+        photo=png,
+        caption=_captcha_caption(
+            instant=instant,
+            display_name=_flow_display_name(chat_id, sess),
+        ),
+    )
+
+
+async def _turbo_pdf_phase1(
+    update: Update,
+    chat_id: int,
+    sess: AadharSession,
+    name: str,
+    mobile: str,
+    *,
+    dob_norm: str | None,
+    pdf_pass: str,
+) -> bool:
+    """Preloaded EID pool → instant form fill + captcha for /pdf phase 1."""
+    if not uidai_instant_form():
+        return False
+    hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+    if not hit:
+        return False
+    png, txn = hit
+    sess.prime_browser_captcha(png, txn)
+    assign_flow(chat_id, {
+        'step': STEP_CAPTCHA,
+        'mode': FLOW_MODE_DOWNLOAD,
+        'name': name,
+        'mobile': mobile,
+        'dob': dob_norm,
+        'pdf_password': pdf_pass,
+    })
+    await _reply_pdf_captcha(update, chat_id, sess, png, instant=True)
+    return True
 
 
 async def open_uidai_session(
@@ -773,19 +841,26 @@ async def _start_download_flow(
         except Exception:
             pass
 
-    progress = await create_loading_screen(
-        update.message, chat_id, mobile, mode='pdf', name=name,
-    )
-
     sess = AadharSession()
     AADHAR_SESSIONS[chat_id] = sess
     await run_aadhar(sess.setup, name, mobile, dob_norm or dob)
-    await progress.update(1, 4, 'Session ready')
 
     pdf_pass = pdf_password(
         name if not is_skip_name(name) else DEFAULT_NAME,
         dob_norm or dob,
     )
+
+    if await _turbo_pdf_phase1(
+        update, chat_id, sess, name, mobile, dob_norm=dob_norm, pdf_pass=pdf_pass,
+    ):
+        return
+
+    progress = await create_loading_screen(
+        update.message, chat_id, mobile, mode='pdf', name=name,
+    )
+
+    await progress.update(1, 4, 'Session ready')
+
     assign_flow(chat_id, {
         'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
@@ -961,7 +1036,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         ])
     lines.append('')
     if pool_slot_ready('uid'):
-        lines.append('⚡ UIDAI preloaded — instant /fetch ready')
+        lines.append('⚡ UIDAI preloaded — instant /fetch & /pdf ready')
     elif pool_is_warm():
         lines.append('🟢 Browser pool: active 24/7')
     else:
@@ -1107,6 +1182,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not MOBILE_RE.match(mobile):
             await update.message.reply_text('Mobile must be 10 digits starting with 6–9. Example: 7651892956')
             return
+        _schedule_pool_prefill_name(name, 'uid')
         await open_uidai_session(update, cid, name, mobile, force_new=force_new)
         return
 
@@ -1216,6 +1292,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         name = normalize_name(text)
         assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name})
+        _schedule_pool_prefill_name(name, 'eid')
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1238,6 +1315,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         name = normalize_name(text)
         assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_RETRIEVE, 'name': name})
+        _schedule_pool_prefill_name(name, 'uid')
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
