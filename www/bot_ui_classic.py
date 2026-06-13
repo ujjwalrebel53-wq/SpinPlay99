@@ -263,6 +263,7 @@ class LoadingScreen:
         self._phase = 'boot'
         self._script_idx = 0
         self._hold_captcha = False
+        self._captcha_dispatched = False
 
     def _script_lines(self) -> tuple[str, ...]:
         return _terminal_lines(self.mode)
@@ -279,7 +280,7 @@ class LoadingScreen:
         async def _loop() -> None:
             try:
                 script = self._script_lines()
-                while self._animating and not self._hold_captcha:
+                while self._animating:
                     if self._script_idx >= len(script):
                         break
                     line = script[self._script_idx]
@@ -287,9 +288,7 @@ class LoadingScreen:
                         self._lines.append(line)
                         await self._render()
                     if 'captcha ready' in line.lower():
-                        self._hold_captcha = True
                         self._phase = 'captcha_wait'
-                        break
                     self._script_idx += 1
                     await asyncio.sleep(interval)
             except asyncio.CancelledError:
@@ -305,13 +304,40 @@ class LoadingScreen:
                 return cid
         return None
 
+    async def on_captcha_dispatched(self) -> None:
+        """Captcha image sent — terminal keeps accumulating backend steps."""
+        self._captcha_dispatched = True
+        self._phase = 'captcha_wait'
+        line = '[+] Captcha sent — reply with text'
+        if line not in self._lines:
+            self._lines.append(line)
+        self._footer = 'Reply with captcha (4–8 chars)'
+        await self._render(force=True)
+
     async def hold_for_captcha(self, hint: str = '') -> None:
         """Keep panel open after captcha image — wait for user text."""
         self._hold_captcha = True
         self._phase = 'captcha_wait'
-        if '[+] Captcha ready' not in '\n'.join(self._lines):
+        if '[+] Captcha ready' not in '\n'.join(self._lines) and not self._captcha_dispatched:
             self._lines.append('[+] Captcha ready — reply with text')
         self._footer = hint or 'Reply with captcha (4–8 chars)'
+        await self._render(force=True)
+
+    async def append_milestone(self, text: str = '', *, footer: str = '') -> None:
+        """Add a milestone line without closing the terminal."""
+        label = (text or '').strip()
+        if label:
+            step_line = label if label.startswith('[') else f'[+] {label}'
+            if not self._lines or self._lines[-1] != step_line:
+                self._lines.append(step_line)
+        if footer:
+            self._footer = footer
+        if self._status == 'done':
+            self._status = 'loading'
+        if not self._animating:
+            await self._start_spinner()
+        if not _SCRIPT_TICKERS.get(self._chat_id() or -1):
+            self.start_script_ticker()
         await self._render(force=True)
 
     async def advance_after_captcha(self, step_text: str = 'OTP request') -> None:
@@ -335,23 +361,6 @@ class LoadingScreen:
         self.start_script_ticker()
         await self._render(force=True)
 
-    async def rush_to_captcha_hold(self, *, instant: bool = False) -> None:
-        """Pool hot — show pre-captcha lines instantly, then hold."""
-        chat_id = self._chat_id()
-        if chat_id is not None:
-            ticker = _SCRIPT_TICKERS.pop(chat_id, None)
-            if ticker and not ticker.done():
-                ticker.cancel()
-        script = self._script_lines()
-        for i, line in enumerate(script):
-            if line not in self._lines:
-                self._lines.append(line)
-            if 'captcha ready' in line.lower():
-                self._script_idx = i
-                break
-        if instant:
-            await self.mark_instant()
-        await self.hold_for_captcha()
 
     async def mark_instant(self) -> None:
         """Pool hot — form filled without slow browser."""
@@ -414,8 +423,6 @@ class LoadingScreen:
         if self._lines and self._lines[-1] == step_line:
             return
         self._lines.append(step_line)
-        if len(self._lines) > 8:
-            self._lines = self._lines[-8:]
 
     async def show(self) -> None:
         self._lines = [self._mode_start_line()]

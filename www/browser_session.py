@@ -70,6 +70,7 @@ MOBILE_UA = (
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 )
 StepCb = Callable[[int, int, str], Awaitable[None]]
+CaptchaReadyCb = Callable[[bytes, str], Awaitable[None]]
 
 SKIP_FONTS_JS = """(() => {
   if (document.getElementById('rebel-skip-fonts')) return;
@@ -873,11 +874,13 @@ class UidaiBrowserSession:
         self,
         bundle_path: Path | None = None,
         on_step: StepCb | None = None,
+        on_captcha_ready: CaptchaReadyCb | None = None,
         pool: str = 'uid',
     ) -> None:
         # bundle_path kept for backward compat — no longer used
         self.bundle_path = bundle_path
         self._on_step = on_step
+        self._on_captcha_ready = on_captcha_ready
         self._pool_slot = pool
         self._context: BrowserContext | None = None
         self._page: Page | None = None
@@ -896,6 +899,7 @@ class UidaiBrowserSession:
         self._captcha_png_cache: bytes = b''
         self._captcha_cache_txn: str = ''
         self._captcha_cache_at: float = 0.0
+        self._captcha_notified = False
 
     @property
     def page(self) -> Page:
@@ -910,6 +914,26 @@ class UidaiBrowserSession:
     async def _step(self, n: int, total: int, msg: str) -> None:
         if self._on_step:
             await self._on_step(n, total, msg)
+
+    def reset_captcha_notify(self) -> None:
+        self._captcha_notified = False
+
+    async def _notify_captcha_ready(self, png: bytes, txn: str = '') -> None:
+        if self._captcha_notified or len(png) < 200:
+            return
+        self._captcha_png_cache = png
+        self._captcha_cache_txn = txn or self._captcha_cache_txn
+        self._captcha_cache_at = time.monotonic()
+        if txn:
+            self.captcha_txn_id = txn
+        cb = self._on_captcha_ready
+        if not cb:
+            return
+        self._captcha_notified = True
+        try:
+            await cb(png, txn or self.captcha_txn_id)
+        except Exception as exc:
+            log.warning('captcha ready callback: %s', exc)
 
     def touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -985,6 +1009,7 @@ class UidaiBrowserSession:
             self.captcha_txn_id = txn
         await self._read_option()
         self.form_ready = True
+        await self._notify_captcha_ready(png, txn)
         return png
 
     async def _try_adopt_standby(self) -> bool:
@@ -1003,6 +1028,7 @@ class UidaiBrowserSession:
             self._captcha_cache_txn = sb.get('captcha_txn_id', '')
             self.captcha_txn_id = self._captcha_cache_txn
             self._captcha_cache_at = float(sb.get('cached_at') or time.monotonic())
+            await self._notify_captcha_ready(self._captcha_png_cache, self.captcha_txn_id)
         self.form_ready = True
         self.page_loaded_at = time.monotonic()
         self.touch()
@@ -1146,6 +1172,8 @@ class UidaiBrowserSession:
         if not png or not self.captcha_txn_id:
             await self.prefetch_captcha()
             png = self._captcha_png_cache
+        elif png:
+            await self._notify_captcha_ready(png, self.captcha_txn_id)
 
         self.page_loaded_at = time.monotonic()
         self._replenish_pool()
@@ -1207,6 +1235,7 @@ class UidaiBrowserSession:
         if pair and not self.captcha_txn_id:
             self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
             self._captcha_cache_at = time.monotonic()
+            await self._notify_captcha_ready(pair[0], pair[1])
         await self._step(1, 3, 'Preloaded UIDAI page ⚡')
         await self._fill_fields_only_fast()
         png = self.peek_captcha_png()
@@ -1232,6 +1261,7 @@ class UidaiBrowserSession:
         self.name_skipped = is_skip_name(name)
         self.otp_txn_id = ''
         self.last_captcha = ''
+        self.reset_captcha_notify()
 
         if not force_reload:
             if not self._page:
@@ -1240,6 +1270,8 @@ class UidaiBrowserSession:
                 await self._step(1, 3, f'Session active — {self.ttl_label()} left')
                 await self._fill_fields_only_fast()
                 png = self.peek_captcha_png()
+                if png and self.captcha_txn_id:
+                    await self._notify_captcha_ready(png, self.captcha_txn_id)
                 if not png or not self.captcha_txn_id:
                     await self.prefetch_captcha()
                 _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
