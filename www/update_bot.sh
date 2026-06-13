@@ -51,8 +51,13 @@ grep -q '^UIDAI_NAME=' .env || echo 'UIDAI_NAME="KAMAR JAHAN"' >> .env
 grep -q '^UIDAI_FAST=' .env || echo 'UIDAI_FAST=1' >> .env
 grep -q '^UIDAI_POOL_WARM=' .env || echo 'UIDAI_POOL_WARM=1' >> .env
 
-pkill -f '[p]ython3.*sex\.py' 2>/dev/null || true
-sleep 2
+pkill -TERM -f '[p]ython3.*sex\.py' 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pgrep -f '[p]ython3.*sex\.py' >/dev/null || break
+  sleep 1
+done
+pkill -KILL -f '[p]ython3.*sex\.py' 2>/dev/null || true
+sleep 1
 nohup bash start_sex.sh > sex.log 2>&1 &
 sleep 2
 echo ""

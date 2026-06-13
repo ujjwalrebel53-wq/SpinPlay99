@@ -39,6 +39,7 @@ from bot_ui_classic import (
     dismiss_loading_screen,
     get_loading_screen,
     get_or_create_loading_screen,
+    shutdown_all_loading,
     uidai_user_message,
 )
 from browser_session import (
@@ -54,6 +55,8 @@ from browser_session import (
     pool_slot_ready,
     prefill_standby_name,
     refresh_standby_captcha,
+    shutdown_browser_pool,
+    _schedule_background,
 )
 from aadhar import (
     AADHAR_SESSIONS,
@@ -482,7 +485,7 @@ def _schedule_pool_prefill_name(name: str, pool: str) -> None:
     """Background — pool tab pe naam pehle se bhar do jab user mobile type kare."""
     if not uidai_instant_form() or is_skip_name(name):
         return
-    asyncio.create_task(prefill_standby_name(name, pool))
+    _schedule_background(prefill_standby_name(name, pool), label='prefill-name')
 
 
 async def _reply_pdf_captcha(
@@ -2092,13 +2095,30 @@ async def _startup_pool_warm() -> None:
         log.warning('startup pool warm: %s', e)
 
 
+async def _on_shutdown(application: Application) -> None:
+    """Graceful cleanup — avoids 'Event loop is closed' on restart."""
+    log.info('Bot shutting down — cleaning up sessions…')
+    for task in list(_PREFETCH_TASKS.values()):
+        if task and not task.done():
+            task.cancel()
+    _PREFETCH_TASKS.clear()
+    try:
+        await shutdown_all_loading()
+    except Exception as e:
+        log.warning('loading shutdown: %s', e)
+    try:
+        await shutdown_browser_pool()
+    except Exception as e:
+        log.warning('pool shutdown: %s', e)
+
+
 async def _register_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands([
         BotCommand('start', 'Rebel Aadhaar — command list'),
         BotCommand('fetch', 'Aadhaar SMS — 1 OTP'),
         BotCommand('pdf', 'e-Aadhaar PDF — 2 OTP'),
     ])
-    asyncio.create_task(_startup_pool_warm())
+    application.create_task(_startup_pool_warm(), name='startup_pool_warm')
 
 
 def main() -> None:
@@ -2115,6 +2135,7 @@ def main() -> None:
         Application.builder()
         .token(TOKEN)
         .post_init(_register_bot_commands)
+        .post_shutdown(_on_shutdown)
         .build()
     )
     app.add_handler(CommandHandler('start', cmd_start))

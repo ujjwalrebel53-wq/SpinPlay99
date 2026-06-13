@@ -172,6 +172,19 @@ async def dismiss_loading_screen(chat_id: int) -> None:
         pass
 
 
+async def shutdown_all_loading() -> None:
+    """Cancel every live terminal panel — call on bot shutdown."""
+    for cid in list(_LOADING_SCREEN_BY_CHAT.keys()):
+        try:
+            await dismiss_loading_screen(cid)
+        except Exception:
+            pass
+    for ticker in list(_SCRIPT_TICKERS.values()):
+        if ticker and not ticker.done():
+            ticker.cancel()
+    _SCRIPT_TICKERS.clear()
+
+
 async def create_loading_screen(
     message,
     chat_id: int,

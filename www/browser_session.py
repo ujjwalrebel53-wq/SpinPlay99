@@ -183,6 +183,33 @@ async def _pool_shutdown() -> None:
         _release_locks(slot_locks)
 
 
+async def shutdown_browser_pool() -> None:
+    """Graceful Chromium + pool tab shutdown (call on bot exit)."""
+    try:
+        await _pool_shutdown()
+    except Exception as e:
+        log.warning('shutdown_browser_pool: %s', e)
+
+
+def _schedule_background(coro: Awaitable[Any], *, label: str = 'bg') -> None:
+    """Fire-and-forget task that survives errors and ignores closed loop."""
+    async def _wrapper() -> None:
+        try:
+            await coro
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            log.debug('background %s: %s', label, e)
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_closed():
+            return
+        loop.create_task(_wrapper())
+    except RuntimeError:
+        pass
+
+
 def pool_is_warm() -> bool:
     if not _browser_connected(_POOL.get('browser')):
         return False
@@ -571,7 +598,7 @@ async def instant_pool_captcha(
     finally:
         if lock.locked():
             lock.release()
-        asyncio.create_task(warm_standby_slot(slot))
+        _schedule_background(warm_standby_slot(slot), label=f'rewarm-{slot}')
 
 
 async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
@@ -1111,7 +1138,7 @@ class UidaiBrowserSession:
 
         self.page_loaded_at = time.monotonic()
         self._replenish_pool()
-        asyncio.create_task(self._prefetch_next_captcha())
+        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         if not png or len(png) < 200:
             raise RuntimeError('Captcha not ready — try /fetch again')
         return png
@@ -1155,8 +1182,11 @@ class UidaiBrowserSession:
         self.option = opt if opt in ('UID', 'EID') else 'UID'
         return self.option
 
-    async def _replenish_pool(self) -> None:
-        asyncio.create_task(warm_standby_slot(_pool_key(self._pool_slot)))
+    async     def _replenish_pool(self) -> None:
+        _schedule_background(
+            warm_standby_slot(_pool_key(self._pool_slot)),
+            label='replenish-pool',
+        )
 
     async def _open_from_preloaded_page(self) -> bytes:
         """Preloaded pool tab — fill name/mobile and return captcha (no goto)."""
@@ -1175,7 +1205,7 @@ class UidaiBrowserSession:
         else:
             await self._step(2, 3, 'Form filled — captcha ready ⚡')
         self._replenish_pool()
-        asyncio.create_task(self._prefetch_next_captcha())
+        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         return self._captcha_png_cache or png or b''
 
     async def open_form(
@@ -1201,7 +1231,7 @@ class UidaiBrowserSession:
                 png = self.peek_captcha_png()
                 if not png or not self.captcha_txn_id:
                     await self.prefetch_captcha()
-                asyncio.create_task(self._prefetch_next_captcha())
+                _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
                 return self._captcha_png_cache or png or b''
             if await self._form_on_page():
                 return await self._open_from_preloaded_page()
@@ -1237,7 +1267,7 @@ class UidaiBrowserSession:
         await self._fill_fields_and_captcha(fresh_captcha=False)
         self.page_loaded_at = time.monotonic()
         await self.prefetch_captcha()
-        asyncio.create_task(self._prefetch_next_captcha())
+        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         return self._captcha_png_cache
 
     async def _prefetch_next_captcha(self) -> None:
