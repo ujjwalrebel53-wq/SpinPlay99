@@ -402,18 +402,10 @@ async def _begin_session_terminal(
     mode: str,
     name: str = '',
 ) -> LoadingScreen:
-    """Session terminal — stays open until flow completes."""
-    progress = await create_loading_screen(
+    """Session terminal — real backend steps only."""
+    return await create_loading_screen(
         message, chat_id, mobile, mode=mode, name=name,
     )
-
-    async def _deferred_ticker() -> None:
-        await asyncio.sleep(0.35 if uidai_fast() else 0.8)
-        if not progress._captcha_dispatched:
-            progress.start_script_ticker()
-
-    _schedule_background(_deferred_ticker(), label='terminal-ticker')
-    return progress
 
 
 async def _hold_captcha_terminal(
@@ -426,13 +418,23 @@ async def _hold_captcha_terminal(
     await progress.hold_for_captcha()
 
 
+async def _wire_fetch_progress(sess: UidaiBrowserSession, progress: LoadingScreen) -> None:
+    async def on_step(n: int, total: int, text: str) -> None:
+        await progress.update(n, total, text)
+
+    sess._on_step = on_step
+
+
 def _wire_fetch_captcha_dispatch(
     update: Update,
     sess: UidaiBrowserSession,
     progress: LoadingScreen,
 ) -> None:
     async def _on_ready(png: bytes, txn: str) -> None:
-        await _reply_captcha(update, sess, png, instant=False)
+        if sess._captcha_photo_sent or len(png) < 200:
+            return
+        await _reply_captcha(update, sess, png, instant=True)
+        sess._captcha_photo_sent = True
         await progress.on_captcha_dispatched()
 
     sess.reset_captcha_notify()
@@ -446,11 +448,14 @@ async def _send_captcha_ready(
     *,
     instant: bool = False,
 ) -> None:
-    if getattr(sess, '_captcha_notified', False):
-        await _hold_captcha_terminal(progress, instant=instant)
-        return
-    cap = sess.peek_captcha_png() or await sess.captcha_png(use_cache=True)
-    await _reply_captcha(update, sess, cap, instant=instant)
+    cap = sess.peek_captcha_png()
+    if not cap or len(cap) < 200:
+        cap = await sess.captcha_png(use_cache=True)
+    if not cap or len(cap) < 200:
+        raise RuntimeError('Captcha image not ready — try /fetch again')
+    if not sess._captcha_photo_sent:
+        await _reply_captcha(update, sess, cap, instant=instant)
+        sess._captcha_photo_sent = True
     await progress.on_captcha_dispatched()
     await _hold_captcha_terminal(progress, instant=instant)
 
@@ -485,9 +490,12 @@ async def _turbo_fetch(
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='uid')
     if not hit and not pool_form_ready('uid'):
-        from browser_session import STANDBY_UID, warm_standby_slot
-        _schedule_background(warm_standby_slot(STANDBY_UID), label='warm-uid')
-        return False
+        try:
+            from browser_session import STANDBY_UID, warm_standby_slot
+            await asyncio.wait_for(warm_standby_slot(STANDBY_UID), timeout=10.0)
+            hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+        except Exception as e:
+            log.warning('fetch turbo warm retry: %s', e)
     if not hit:
         return False
     png, txn = hit
@@ -513,6 +521,7 @@ async def _turbo_fetch(
         sess.form_ready = True
         sess.touch()
         await _reply_captcha(update, sess, png, instant=True)
+        sess._captcha_photo_sent = True
         await progress.on_captcha_dispatched()
         await _hold_captcha_terminal(progress, instant=True)
         return True
@@ -562,9 +571,12 @@ async def _turbo_pdf_phase1(
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='eid')
     if not hit and not pool_form_ready('eid'):
-        from browser_session import STANDBY_EID, warm_standby_slot
-        _schedule_background(warm_standby_slot(STANDBY_EID), label='warm-eid')
-        return False
+        try:
+            from browser_session import STANDBY_EID, warm_standby_slot
+            await asyncio.wait_for(warm_standby_slot(STANDBY_EID), timeout=10.0)
+            hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+        except Exception as e:
+            log.warning('pdf turbo warm retry: %s', e)
     if not hit:
         log.info(
             'pdf turbo miss — eid_form=%s eid_captcha=%s',
@@ -617,6 +629,7 @@ async def open_uidai_session(
     existing = SESSIONS.get(chat_id)
     if not force_new and existing and await existing.page_alive():
         try:
+            await _wire_fetch_progress(existing, progress)
             _wire_fetch_captcha_dispatch(update, existing, progress)
             await existing.open_form(name, mobile, force_reload=False)
             await _send_captcha_ready(update, existing, progress)
@@ -634,6 +647,7 @@ async def open_uidai_session(
 
     sess = UidaiBrowserSession(pool='uid')
     SESSIONS[chat_id] = sess
+    await _wire_fetch_progress(sess, progress)
     _wire_fetch_captcha_dispatch(update, sess, progress)
 
     try:
@@ -761,10 +775,7 @@ async def _prime_pdf_phase1_open(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 1 captcha — HTTP → pool → cold browser."""
-    if not refresh and uidai_fast():
-        if await _try_http_captcha_prime(sess, 'phase1'):
-            return _captcha_prime_ok(sess)
+    """Phase 1 captcha — pool → cold browser."""
     if not refresh and uidai_instant_form():
         hit = await instant_retrieve_captcha(sess.name, sess.mobile, pool='eid')
         if hit:
@@ -842,9 +853,6 @@ async def _prime_pdf_browser_captcha(
     refresh = 'refresh' in phase_key
 
     if phase_key.startswith('phase1'):
-        if uidai_fast() and not refresh:
-            if await _try_http_captcha_prime(sess, phase):
-                return _captcha_prime_ok(sess)
         if mode in ('auto', 'browser', ''):
             if await _prime_pdf_phase1_open(sess, progress, chat_id, refresh=refresh):
                 return True
@@ -1236,8 +1244,6 @@ async def _phase2_after_otp1(
         mode='pdf',
         name=_flow_display_name(chat_id, sess),
     )
-    if not progress._hold_captcha:
-        progress.start_script_ticker()
 
     try:
         result = await _run_pdf_with_browser_captcha(

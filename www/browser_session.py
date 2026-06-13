@@ -905,6 +905,7 @@ class UidaiBrowserSession:
         self._captcha_cache_txn: str = ''
         self._captcha_cache_at: float = 0.0
         self._captcha_notified = False
+        self._captcha_photo_sent = False
 
     @property
     def page(self) -> Page:
@@ -922,9 +923,15 @@ class UidaiBrowserSession:
 
     def reset_captcha_notify(self) -> None:
         self._captcha_notified = False
+        self._captcha_photo_sent = False
+
+    def _clear_captcha_cache(self) -> None:
+        self._captcha_png_cache = b''
+        self._captcha_cache_txn = ''
+        self._captcha_cache_at = 0.0
 
     async def _notify_captcha_ready(self, png: bytes, txn: str = '') -> None:
-        if self._captcha_notified or len(png) < 200:
+        if len(png) < 200:
             return
         self._captcha_png_cache = png
         self._captcha_cache_txn = txn or self._captcha_cache_txn
@@ -932,11 +939,11 @@ class UidaiBrowserSession:
         if txn:
             self.captcha_txn_id = txn
         cb = self._on_captcha_ready
-        if not cb:
+        if not cb or self._captcha_photo_sent:
             return
-        self._captcha_notified = True
         try:
             await cb(png, txn or self.captcha_txn_id)
+            self._captcha_photo_sent = True
         except Exception as exc:
             log.warning('captcha ready callback: %s', exc)
 
@@ -1271,6 +1278,8 @@ class UidaiBrowserSession:
         self.name_skipped = is_skip_name(name)
         self.otp_txn_id = ''
         self.last_captcha = ''
+        self.captcha_txn_id = ''
+        self._clear_captcha_cache()
         self.reset_captcha_notify()
 
         if not force_reload:
@@ -1279,17 +1288,17 @@ class UidaiBrowserSession:
             if await self.page_alive():
                 await self._step(1, 3, f'Session active — {self.ttl_label()} left')
                 await self._fill_fields_only_fast()
-                png = self.peek_captcha_png()
+                await self.prefetch_captcha()
+                png = self._captcha_png_cache
                 if png and self.captcha_txn_id:
                     await self._notify_captcha_ready(png, self.captcha_txn_id)
-                if not png or not self.captcha_txn_id:
-                    await self.prefetch_captcha()
                 _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
-                return self._captcha_png_cache or png or b''
+                return png or b''
             if await self._form_on_page():
                 return await self._open_from_preloaded_page()
 
         self.captcha_txn_id = ''
+        self._clear_captcha_cache()
         await self._step(3, 8, 'Opening UIDAI site…')
         goto_timeout = _goto_timeout_ms()
         poll_sec = 12.0 if uidai_fast() else 22.0
@@ -1317,10 +1326,9 @@ class UidaiBrowserSession:
         await self._step(3, 8, 'UIDAI page loaded')
         await self._step(4, 8, 'Form ready')
         await self._fill_fields_only_fast()
-        png = self.peek_captcha_png()
-        if not png or not self.captcha_txn_id:
-            await self.prefetch_captcha()
-        else:
+        await self.prefetch_captcha()
+        png = self._captcha_png_cache
+        if png and self.captcha_txn_id:
             await self._notify_captcha_ready(png, self.captcha_txn_id)
         self.page_loaded_at = time.monotonic()
         _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')

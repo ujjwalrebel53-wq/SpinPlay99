@@ -264,10 +264,6 @@ class LoadingScreen:
         self._script_idx = 0
         self._hold_captcha = False
         self._captcha_dispatched = False
-        self._ui_frozen = False
-
-    def _script_lines(self) -> tuple[str, ...]:
-        return _terminal_lines(self.mode)
 
     def _stop_script_ticker(self) -> None:
         chat_id = self._chat_id()
@@ -278,34 +274,8 @@ class LoadingScreen:
             ticker.cancel()
 
     def start_script_ticker(self, *, interval: float | None = None) -> None:
-        """Animate terminal script lines — cancelled once captcha is dispatched."""
-        if self._captcha_dispatched or self._ui_frozen:
-            return
-        if interval is None:
-            interval = 0.55 if uidai_fast() else 0.22
-        chat_id = self._chat_id()
-        if chat_id is None:
-            return
-        self._stop_script_ticker()
-
-        async def _loop() -> None:
-            try:
-                script = self._script_lines()
-                while self._animating and not self._captcha_dispatched:
-                    if self._script_idx >= len(script):
-                        break
-                    line = script[self._script_idx]
-                    if line not in self._lines:
-                        self._lines.append(line)
-                        await self._render(force=True)
-                    if 'captcha ready' in line.lower():
-                        self._phase = 'captcha_wait'
-                    self._script_idx += 1
-                    await asyncio.sleep(interval)
-            except asyncio.CancelledError:
-                return
-
-        _SCRIPT_TICKERS[chat_id] = asyncio.create_task(_loop())
+        """No-op — fake terminal script removed."""
+        return
 
     def _chat_id(self) -> int | None:
         if hasattr(self._msg, 'chat') and self._msg.chat:
@@ -316,12 +286,10 @@ class LoadingScreen:
         return None
 
     async def on_captcha_dispatched(self) -> None:
-        """Captcha image sent — stop fake ticker/spinner; backend steps still append."""
+        """Captcha image sent — keep panel open for real backend steps."""
         self._captcha_dispatched = True
-        self._ui_frozen = True
         self._phase = 'captcha_wait'
         self._stop_script_ticker()
-        await self._stop_spinner()
         line = '[+] Captcha sent — reply with text'
         if line not in self._lines:
             self._lines.append(line)
@@ -350,26 +318,18 @@ class LoadingScreen:
             self._status = 'loading'
         if not self._animating:
             await self._start_spinner()
-        if not _SCRIPT_TICKERS.get(self._chat_id() or -1):
-            self.start_script_ticker()
         await self._render(force=True)
 
     async def advance_after_captcha(self, step_text: str = 'OTP request') -> None:
         """User submitted captcha — continue session terminal."""
-        self._stop_script_ticker()
         self._hold_captcha = False
-        self._ui_frozen = False
         self._phase = 'otp'
-        script = self._script_lines()
-        while self._script_idx < len(script) and 'captcha ready' in script[self._script_idx].lower():
-            self._script_idx += 1
         self._push_step_line(self._current + 1, max(self._total, 3), step_text)
         self._footer = ''
         if self._status == 'done':
             self._status = 'loading'
         if not self._animating:
             await self._start_spinner()
-        self.start_script_ticker()
         await self._render(force=True)
 
 
@@ -411,9 +371,6 @@ class LoadingScreen:
     async def _spin_loop(self) -> None:
         try:
             while self._animating:
-                if self._ui_frozen:
-                    await asyncio.sleep(self._SPIN_INTERVAL)
-                    continue
                 self._spin_frame += 1
                 await self._render()
                 await asyncio.sleep(self._SPIN_INTERVAL)
@@ -441,7 +398,7 @@ class LoadingScreen:
     async def show(self) -> None:
         self._lines = [self._mode_start_line()]
         await self._start_spinner()
-        await self._render()
+        await self._render(force=True)
 
     async def log_detail(self, line: str) -> None:
         return
@@ -512,8 +469,6 @@ class LoadingScreen:
         return '\n'.join(body)[:4000]
 
     async def _render(self, *, force: bool = False) -> None:
-        if self._ui_frozen and not force:
-            return
         text = self._panel_text()
         if not force and text == self._last_edit_body:
             return
