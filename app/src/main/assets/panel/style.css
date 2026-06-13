@@ -275,6 +275,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);positi
 .bank-stat-val{font-size:14px;font-weight:700;font-family:'Space Mono',monospace}
 .bank-stat-val.current{color:var(--success)}
 .bank-meta{font-size:9px;color:var(--muted);margin-top:10px;font-family:'Space Mono',monospace;text-align:center}
+.bank-auto-note{font-size:10px;color:var(--muted);margin:-6px 0 12px;font-family:'Space Mono',monospace}
+.sim-picker{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.sim-chip{flex:1;min-width:120px;padding:12px 10px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;text-align:left;transition:border-color .15s,background .15s}
+.sim-chip.active{border-color:var(--accent);background:rgba(255,60,60,.12);box-shadow:0 0 0 1px rgba(255,60,60,.2)}
+.sim-chip-title{font-size:12px;font-weight:800;margin-bottom:4px}
+.sim-chip-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;line-height:1.35}
+.sim-picker-loading{font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;padding:8px 0}
 .bottom-nav .nav-item{font-size:8px}
 .bottom-nav .nav-item .ico{font-size:18px}
 

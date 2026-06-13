@@ -151,6 +151,7 @@
           <div class="panel-title" style="margin:0">Bank Account Summary</div>
           <span class="bank-badge" id="bankCountBadge">0 Banks</span>
         </div>
+        <div class="bank-auto-note" id="bankAutoNote">Balances are parsed automatically from bank SMS</div>
         <div id="bankEmpty" class="empty-state"><div class="ico">🏦</div>Select a device to load bank balances from SMS</div>
         <div id="bankList" class="bank-list"></div>
       </div>
@@ -161,6 +162,10 @@
         <div class="panel-title">Send SMS</div>
         <div id="sendEmpty" class="empty-state"><div class="ico">📤</div>Select a device to send SMS</div>
         <div class="form-card hidden" id="sendForm">
+          <label class="form-label">Send from SIM</label>
+          <div class="sim-picker" id="sendSimPicker">
+            <div class="sim-picker-loading">Loading SIM slots...</div>
+          </div>
           <label class="form-label">To Number</label>
           <input class="form-input" id="sendTo" type="tel" placeholder="9876543210"/>
           <label class="form-label">Message</label>
