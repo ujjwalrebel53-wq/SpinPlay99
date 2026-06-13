@@ -1,4 +1,4 @@
-var PANEL_BUILD=14;
+var PANEL_BUILD=15;
 var AUTH_URL='';
 var SMS_TOKEN_URL='';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
@@ -135,12 +135,25 @@ function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys
 
 function loadFirebaseConfigs(){
   var storageKey=firebaseListStorageKey();
-  if(!storageKey)return [];
+  var seed=(typeof REBEL_DEFAULT_FIREBASES!=='undefined'&&REBEL_DEFAULT_FIREBASES.length)?REBEL_DEFAULT_FIREBASES:[];
+  if(!storageKey)return seed.slice();
   try{
     var s=localStorage.getItem(storageKey);
-    if(s){var p=JSON.parse(s);if(Array.isArray(p))return p;}
+    if(s){
+      var p=JSON.parse(s);
+      if(Array.isArray(p)&&p.length){
+        seed.forEach(function(def){
+          if(!p.some(function(c){return c.id===def.id||normalizeFirebaseUrl(c.databaseURL)===normalizeFirebaseUrl(def.databaseURL);}))p.push(def);
+        });
+        p.forEach(function(c){
+          if(!c.schema)c.schema=(c.databaseURL||'').indexOf('rabel-raand')>=0?'rabel':'spinplay';
+          if(c.id==='rabel_raand'||(c.databaseURL||'').indexOf('rabel-raand')>=0)c.name='Rebel';
+        });
+        return p;
+      }
+    }
   }catch(e){}
-  return [];
+  return seed.slice();
 }
 function saveFirebaseConfigs(){
   var storageKey=firebaseListStorageKey();

