@@ -13,8 +13,8 @@ if ((string)($_GET['owner'] ?? '') !== $owner) {
   exit;
 }
 
-$branch = preg_replace('/[^a-zA-Z0-9_\-\/]/', '', (string)($_GET['branch'] ?? 'cursor/apk-crack-ban-1641'));
-if ($branch === '') $branch = 'cursor/apk-crack-ban-1641';
+$branch = preg_replace('/[^a-zA-Z0-9_\-\/]/', '', (string)($_GET['branch'] ?? 'cursor/final-encrypted-apk-1641'));
+if ($branch === '') $branch = 'cursor/final-encrypted-apk-1641';
 $base = 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/' . $branch . '/panel/';
 $action = strtolower(trim((string)($_GET['action'] ?? 'all')));
 $ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'RebelPanel-Updater/1.0']]);

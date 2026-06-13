@@ -22,6 +22,7 @@ public class MainActivity extends SecureActivity {
 
     private WebView webView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean panelLoaded;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -68,29 +69,40 @@ public class MainActivity extends SecureActivity {
         webView.addJavascriptInterface(new RebelBridge(), "RebelAndroid");
 
         RebelPanelPaths.clearStaleOtaIfNeeded(this);
-        loadPanel();
-        mainHandler.postDelayed(this::runOtaCheck, 1500);
+        runOtaCheck(false);
     }
 
-    private void loadPanel() {
-        webView.loadUrl(RebelPanelPaths.panelIndexUrl(this));
+    private void loadPanelFresh() {
+        webView.clearCache(true);
+        int ver = RebelPanelPaths.activePanelVersion(this);
+        webView.loadUrl(RebelPanelPaths.panelIndexUrl(this) + "?pv=" + ver + "&_=" + System.currentTimeMillis());
+        panelLoaded = true;
     }
 
-    private void runOtaCheck() {
-        RebelOtaManager.checkAndUpdate(this, new RebelOtaManager.Callback() {
+    private void runOtaCheck(boolean force) {
+        RebelOtaManager.checkAndUpdate(this, force, new RebelOtaManager.Callback() {
             @Override
             public void onUpdated(int newVersion, String message) {
                 Toast.makeText(MainActivity.this, message + " (v" + newVersion + ")", Toast.LENGTH_SHORT).show();
-                loadPanel();
+                loadPanelFresh();
             }
 
             @Override
-            public void onNoUpdate() {}
+            public void onNoUpdate() {
+                if (!panelLoaded) loadPanelFresh();
+                else if (force) {
+                    int ver = RebelPanelPaths.activePanelVersion(MainActivity.this);
+                    Toast.makeText(MainActivity.this, "Panel already latest (v" + ver + ")", Toast.LENGTH_SHORT).show();
+                }
+            }
 
             @Override
             public void onError(String msg) {
+                if (!panelLoaded) loadPanelFresh();
                 if (msg != null && msg.startsWith("New APK required")) {
                     Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                } else if (force && msg != null) {
+                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -172,7 +184,7 @@ public class MainActivity extends SecureActivity {
 
         @JavascriptInterface
         public void checkForUpdate() {
-            runOtaCheck();
+            mainHandler.post(() -> runOtaCheck(true));
         }
 
         @JavascriptInterface

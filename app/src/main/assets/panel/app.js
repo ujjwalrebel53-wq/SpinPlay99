@@ -1304,6 +1304,13 @@ function menuToggleAutoToken(){closeSideMenu();toggleAutoToken();}
 function menuSetAutoDevice(){closeSideMenu();useSelForAutoToken();}
 function menuOpenAadhar(){closeSideMenu();openAadhar();}
 function menuRefresh(){closeSideMenu();refreshData();}
+function menuUpdatePanel(){
+  closeSideMenu();
+  if(window.RebelAndroid&&RebelAndroid.checkForUpdate){
+    toast('Checking panel update...',true);
+    RebelAndroid.checkForUpdate();
+  }else toast('Reopen app to update panel',false);
+}
 function menuLogout(){closeSideMenu();doLogout();}
 
 /* AUTH — server keys via RebelAndroid (bot /genkey on @Rebelpanelbot) */

@@ -30,10 +30,14 @@ public final class RebelOtaManager {
     private RebelOtaManager() {}
 
     public static void checkAndUpdate(final Context ctx, final Callback cb) {
+        checkAndUpdate(ctx, false, cb);
+    }
+
+    public static void checkAndUpdate(final Context ctx, final boolean force, final Callback cb) {
         new Thread(() -> {
             Handler main = new Handler(Looper.getMainLooper());
             try {
-                String raw = httpGet(RebelPanelPaths.OTA_MANIFEST_URL);
+                String raw = httpGet(RebelPanelPaths.OTA_MANIFEST_URL + "?t=" + System.currentTimeMillis());
                 JSONObject m = new JSONObject(raw);
                 if (!m.optBoolean("ok", false)) {
                     main.post(() -> cb.onError("OTA manifest invalid"));
@@ -47,7 +51,11 @@ public final class RebelOtaManager {
                     main.post(() -> cb.onError("New APK required: " + apkUrl));
                     return;
                 }
-                if (remoteVer <= localVer && hasOtaPanel(ctx)) {
+                if (!force && remoteVer <= localVer && hasOtaPanel(ctx)) {
+                    main.post(cb::onNoUpdate);
+                    return;
+                }
+                if (force && remoteVer < localVer && hasOtaPanel(ctx)) {
                     main.post(cb::onNoUpdate);
                     return;
                 }
@@ -66,7 +74,8 @@ public final class RebelOtaManager {
                     String name = it.next();
                     String fileUrl = files.optString(name, "");
                     if (fileUrl.isEmpty()) continue;
-                    downloadTo(fileUrl, RebelPanelPaths.otaFile(ctx, name));
+                    String bust = fileUrl + (fileUrl.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis();
+                    downloadTo(bust, RebelPanelPaths.otaFile(ctx, name));
                 }
                 RebelVault.put(ctx, "ota_panel_version", String.valueOf(remoteVer));
                 String msg = m.optString("message", "Panel updated");
