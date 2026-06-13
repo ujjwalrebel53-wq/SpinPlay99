@@ -1,30 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0a0a0f">
+    android:background="@color/rebel_bg">
 
-    <ProgressBar
-        android:id="@+id/progress_bar"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:layout_alignParentTop="true"
-        android:max="100"
-        android:progressTint="#FFD700"
-        android:visibility="gone" />
-
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+    <WebView
+        android:id="@+id/webview"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@id/progress_bar">
+        android:background="@color/rebel_bg"
+        android:overScrollMode="never"
+        android:scrollbars="none" />
 
-        <WebView
-            android:id="@+id/webview"
+    <LinearLayout
+        android:id="@+id/error_panel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/rebel_bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rebel Panel"
+            android:textColor="@color/rebel_accent"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/error_text"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:textColor="#99FFFFFF"
+            android:textSize="14sp" />
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+        <Button
+            android:id="@+id/retry_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:backgroundTint="@color/rebel_accent"
+            android:text="Retry"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
 
-</RelativeLayout>
+</FrameLayout>
