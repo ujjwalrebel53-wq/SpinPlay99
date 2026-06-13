@@ -574,7 +574,7 @@ async def instant_pool_captcha(
             return None
         if slot != STANDBY_PDF:
             await _prepare_standby_retrieve_page(page, slot)
-        filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, nm, mob)
+        filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, {'name': nm, 'mobile': mob})
         if not filled:
             log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
         txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=4.0 if uidai_fast() else 6.0)
@@ -1140,7 +1140,9 @@ class UidaiBrowserSession:
 
     async def _fill_fields_only_fast(self) -> None:
         """Fill name + mobile on preloaded page — one JS call, no reload."""
-        filled = await self.page.evaluate(FILL_RETRIEVE_FORM_JS, self.name, self.mobile)
+        filled = await self.page.evaluate(
+            FILL_RETRIEVE_FORM_JS, {'name': self.name, 'mobile': self.mobile},
+        )
         if not filled:
             await self.page.fill('input[name="name"]', self.name)
             await self.page.fill('input[name="mobile"]', self.mobile)

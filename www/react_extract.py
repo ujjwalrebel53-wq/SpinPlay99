@@ -118,7 +118,9 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
   return null;
 }"""
 
-FILL_RETRIEVE_FORM_JS = """(name, mobile) => {
+FILL_RETRIEVE_FORM_JS = """(payload) => {
+  const name = payload?.name ?? '';
+  const mobile = payload?.mobile ?? '';
   const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
   function propsKey(el) {
     return Object.keys(el || {}).find((k) => k.startsWith('__reactProps'));
