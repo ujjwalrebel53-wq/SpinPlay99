@@ -1,0 +1,10 @@
+{
+  "version": "5.1.0",
+  "version_code": 29,
+  "note": "Owner-only Parent APK — never put in panel_ota.json or promo bot",
+  "url": "",
+  "local_paths": [
+    "panel/private/RebelPanel-Parent.apk",
+    "panel/data/RebelPanel-Parent.apk"
+  ]
+}

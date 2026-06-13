@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SpinPlay99" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#FFFFD700</item>
-        <item name="colorPrimaryDark">#FF1A1A2E</item>
-        <item name="android:statusBarColor">#FF0A0A0F</item>
-        <item name="android:windowBackground">#FF0A0A0F</item>
+    <style name="Theme.RebelPanel" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/rebel_accent</item>
+        <item name="colorPrimaryDark">@color/rebel_bg</item>
+        <item name="android:statusBarColor">@color/rebel_bg</item>
+        <item name="android:navigationBarColor">@color/rebel_bg</item>
+        <item name="android:windowBackground">@color/rebel_bg</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>

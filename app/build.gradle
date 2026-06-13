@@ -1,45 +1,83 @@
 plugins {
     id 'com.android.application'
-    id 'com.google.gms.google-services'
 }
 
 android {
-    namespace 'com.spinplay99.adminpanel'
+    namespace 'com.rebel.panel'
     compileSdk 34
+    ndkVersion "26.1.10909125"
 
     defaultConfig {
-        applicationId "com.spinplay99.adminpanel"
-        minSdk 21
+        applicationId "com.rebel.panel"
+        minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 26
+        versionName "4.1.4"
+        buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
+        buildConfigField "String", "REBEL_APK_SHA256", "\"570290715E067531A5DF06DD139604192A70993C863E97F51A09609F8A702CECA\""
+        buildConfigField "String", "SSL_PIN_PRIMARY", "\"sha256/SM2goQ/B0xk7U8iezGH0VeeoZwZWiEC9obc8uSCte8=\""
+        buildConfigField "String", "SSL_PIN_BACKUP", "\"sha256/C5+lp5BmfbMGadTPwzoIB6l9a6Fi4EioGsliyc1tirc=\""
+        buildConfigField "boolean", "SSL_PIN_ENFORCE", "true"
+        buildConfigField "int", "MIN_SERVER_APK", "19"
+        externalNativeBuild {
+            cmake {
+                cppFlags "-O2 -fvisibility=hidden -ffunction-sections -fdata-sections"
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
     }
 
     buildTypes {
         debug {
             minifyEnabled false
             debuggable true
+            buildConfigField "boolean", "SSL_PIN_ENFORCE", "false"
+            buildConfigField "boolean", "RASP_KILL", "false"
         }
         release {
-            minifyEnabled false
-            shrinkResources false
-            debuggable true
+            minifyEnabled true
+            shrinkResources true
+            debuggable false
+            jniDebuggable false
+            zipAlignEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
+            buildConfigField "boolean", "RASP_KILL", "true"
+            buildConfigField "boolean", "SSL_PIN_ENFORCE", "false"
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
-    implementation 'com.google.firebase:firebase-database'
-    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.scottyab:rootbeer-lib:0.1.0'
+    implementation 'net.zetetic:android-database-sqlcipher:4.5.4'
+    implementation 'androidx.sqlite:sqlite:2.4.0'
 }
