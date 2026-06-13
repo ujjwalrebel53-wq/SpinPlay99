@@ -1,5 +1,12 @@
-name: Build APK
-on: [push, workflow_dispatch]
+name: Build Rebel Panel APK
+on:
+  push:
+    branches: [cursor/rebel-panel-apk-1641, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -10,17 +17,23 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
-    - name: Create Icons
+    - name: Build APK
       run: |
-        mkdir -p app/src/main/res/mipmap-hdpi
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FFD700"/><corners android:radius="5dp"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher.xml
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval"><solid android:color="#FFD700"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml
-    - name: Build
-      run: |
-        gradle wrapper --gradle-version 8.2
         chmod +x gradlew
-        ./gradlew clean assembleDebug
+        ./gradlew clean assembleDebug --stacktrace
+        cp app/build/outputs/apk/debug/app-debug.apk RebelPanel.apk
+        ls -lh RebelPanel.apk
     - uses: actions/upload-artifact@v4
       with:
-        name: SpinPlay99
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: RebelPanel-INSTALL
+        path: RebelPanel.apk
+    - uses: softprops/action-gh-release@v2
+      continue-on-error: true
+      with:
+        tag_name: rebel-panel-${{ github.run_number }}
+        name: Rebel Panel APK v2.1 (OTA)
+        body: |
+          **Rebel Panel** — bundled offline + OTA updates from server.
+          Demo key: `RBL-DEMO01-TEST01`
+          OTA manifest: upload `panel/panel_ota.json` to `https://rebelbhaiya.alwaysdata.net/panel_ota.json`
+        files: RebelPanel.apk

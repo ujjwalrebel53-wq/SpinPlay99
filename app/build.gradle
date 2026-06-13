@@ -1,18 +1,19 @@
 plugins {
     id 'com.android.application'
-    id 'com.google.gms.google-services'
 }
 
 android {
-    namespace 'com.spinplay99.adminpanel'
+    namespace 'com.rebel.panel'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.spinplay99.adminpanel"
-        minSdk 21
+        applicationId "com.rebel.panel"
+        minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 10
+        versionName "2.2.0"
+        buildConfigField "String", "REBEL_APP_SECRET", "\"rbl_app_xK9m2pQ7nL4wR8vT3hJ6fY1bN5cD0eA\""
+        buildConfigField "String", "REBEL_APK_SHA256", "\"CHANGE_ME\""
     }
 
     buildTypes {
@@ -23,10 +24,13 @@ android {
         release {
             minifyEnabled false
             shrinkResources false
-            debuggable true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            debuggable false
             signingConfig signingConfigs.debug
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
@@ -38,8 +42,4 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
-    implementation 'com.google.firebase:firebase-database'
-    implementation 'com.google.firebase:firebase-analytics'
 }
