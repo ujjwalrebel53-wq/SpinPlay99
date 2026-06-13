@@ -10,17 +10,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
-    - name: Create Icons
+    - name: Build Native Rebel Panel APK
       run: |
-        mkdir -p app/src/main/res/mipmap-hdpi
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FFD700"/><corners android:radius="5dp"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher.xml
-        echo '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval"><solid android:color="#FFD700"/><size android:width="48dp" android:height="48dp"/></shape>' > app/src/main/res/mipmap-hdpi/ic_launcher_round.xml
-    - name: Build
-      run: |
-        gradle wrapper --gradle-version 8.2
         chmod +x gradlew
-        ./gradlew clean assembleDebug
+        ./gradlew clean assembleRelease
     - uses: actions/upload-artifact@v4
       with:
-        name: SpinPlay99
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: Rebel-Panel-Native-APK
+        path: app/build/outputs/apk/release/app-release.apk

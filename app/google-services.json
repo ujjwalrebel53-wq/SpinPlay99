@@ -8,9 +8,15 @@
     "client_info": {
       "mobilesdk_app_id": "1:8121733414:android:04b9ae5df1b6bc413e31e7",
       "android_client_info": {
-        "package_name": "com.spinplay99.adminpanel"
+        "package_name": "com.rebel.panel"
       }
     },
-    "api_key": [{"current_key": "AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I"}]
-  }]
+    "api_key": [{"current_key": "AIzaSyCsTa5oZOZ3XS7ZujbAl8JX1qPuUEP6P3I"}],
+    "services": {
+      "appinvite_service": {
+        "other_platform_oauth_client": []
+      }
+    }
+  }],
+  "configuration_version": "1"
 }
