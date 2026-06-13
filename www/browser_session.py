@@ -409,15 +409,18 @@ async def _capture_page_captcha(page: Page) -> tuple[bytes, str]:
             return png, txn
         raise
 
-    for attempt in range(50):
+    max_attempts = 12 if uidai_fast() else 50
+    poll_sleep = 0.12 if uidai_fast() else 0.25
+    refresh_at = 5 if uidai_fast() else 20
+    for attempt in range(max_attempts):
         loaded = await el.evaluate(
             '(img) => img.complete && img.naturalWidth > 10 && img.naturalHeight > 5'
         )
         if loaded:
             break
-        if attempt == 20:
+        if attempt == refresh_at:
             await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(poll_sleep)
 
     if len(png) < 500:
         try:
@@ -752,11 +755,11 @@ async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]
     net_txn: dict[str, Any] = {}
     _attach_captcha_net_hook(page, net_txn)
     await page.evaluate(SELECT_DOWNLOAD_EID_JS)
-    await asyncio.sleep(_ui_delay(0.4))
+    await asyncio.sleep(_ui_delay(0.15))
     await page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
-    await asyncio.sleep(_ui_delay(0.8))
+    await asyncio.sleep(_ui_delay(0.25))
     await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-    await asyncio.sleep(_ui_delay(0.9))
+    await asyncio.sleep(_ui_delay(0.35))
     el = page.locator('img[alt*="CAPTCHA" i]').first
     vis_timeout = 12_000 if uidai_fast() else 20_000
     for vis_try in range(3):
@@ -769,7 +772,9 @@ async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]
                 await asyncio.sleep(_ui_delay(1.2))
             else:
                 raise
-    txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=22.0)
+    txn = await _wait_page_captcha_txn(
+        page, net_txn, timeout_s=8.0 if uidai_fast() else 22.0,
+    )
     png, cap_txn = await _capture_page_captcha(page)
     txn = txn or cap_txn or ''
     if not txn:
@@ -1196,10 +1201,13 @@ class UidaiBrowserSession:
                 await self._step(8, 8, 'Captcha ready')
 
     async def _poll_form(self, max_sec: float = 25.0) -> bool:
-        for _ in range(int(max_sec / 0.15)):
+        step = 0.08 if uidai_fast() else 0.15
+        if uidai_fast() and max_sec > 12.0:
+            max_sec = 12.0
+        for _ in range(int(max_sec / step)):
             if await self.page.locator('input[name="name"]').count():
                 return True
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(step)
         return False
 
     async def _extract_captcha_txn(self) -> str | None:
@@ -1281,8 +1289,8 @@ class UidaiBrowserSession:
 
         self.captcha_txn_id = ''
         await self._step(3, 8, 'Opening UIDAI site…')
-        goto_timeout = 45_000
-        poll_sec = 22.0
+        goto_timeout = _goto_timeout_ms()
+        poll_sec = 12.0 if uidai_fast() else 22.0
         max_tries = 3
         last_err: Exception | None = None
         for attempt in range(max_tries):
@@ -1300,18 +1308,21 @@ class UidaiBrowserSession:
                 last_err = e
                 if attempt < max_tries - 1:
                     await self._step(3, 8, f'Retry {attempt + 1}/{max_tries}…')
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.3 if uidai_fast() else 0.5)
         if last_err:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
         await self._step(3, 8, 'UIDAI page loaded')
         await self._step(4, 8, 'Form ready')
-        await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
-        await self._fill_fields_and_captcha(fresh_captcha=False)
+        await self._fill_fields_only_fast()
+        png = self.peek_captcha_png()
+        if not png or not self.captcha_txn_id:
+            await self.prefetch_captcha()
+        else:
+            await self._notify_captcha_ready(png, self.captcha_txn_id)
         self.page_loaded_at = time.monotonic()
-        await self.prefetch_captcha()
         _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
-        return self._captcha_png_cache
+        return self._captcha_png_cache or png or b''
 
     async def _prefetch_next_captcha(self) -> None:
         """Background — refresh captcha cache for next /open."""
@@ -1359,7 +1370,7 @@ class UidaiBrowserSession:
                     wait_until='commit',
                     timeout=goto_timeout,
                 )
-                await asyncio.sleep(_ui_delay(1.2))
+                await asyncio.sleep(_ui_delay(0.35))
                 png, txn = await _fill_download_page_captcha(self.page, eid)
                 self.captcha_txn_id = txn
                 self._captcha_png_cache = png
@@ -1388,12 +1399,14 @@ class UidaiBrowserSession:
         old_src = await self.page.locator('img[alt*="CAPTCHA" i]').first.get_attribute('src')
         click_res = await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
         log.info('Captcha refresh click: %s', click_res)
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(_ui_delay(0.5))
         await self._wait_captcha_image()
-        for _ in range(30):
+        poll_sleep = 0.2 if uidai_fast() else 0.35
+        poll_rounds = 18 if uidai_fast() else 30
+        for _ in range(poll_rounds):
             if await self._captcha_changed(old_txn, old_src):
                 break
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(poll_sleep)
 
         if not await self._captcha_changed(old_txn, old_src):
             log.info('Captcha refresh fallback — page reload')

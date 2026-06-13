@@ -406,7 +406,13 @@ async def _begin_session_terminal(
     progress = await create_loading_screen(
         message, chat_id, mobile, mode=mode, name=name,
     )
-    progress.start_script_ticker()
+
+    async def _deferred_ticker() -> None:
+        await asyncio.sleep(0.35 if uidai_fast() else 0.8)
+        if not progress._captcha_dispatched:
+            progress.start_script_ticker()
+
+    _schedule_background(_deferred_ticker(), label='terminal-ticker')
     return progress
 
 
@@ -479,12 +485,9 @@ async def _turbo_fetch(
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='uid')
     if not hit and not pool_form_ready('uid'):
-        try:
-            from browser_session import STANDBY_UID, warm_standby_slot
-            await warm_standby_slot(STANDBY_UID)
-            hit = await instant_retrieve_captcha(name, mobile, pool='uid')
-        except Exception as e:
-            log.warning('fetch turbo warm retry: %s', e)
+        from browser_session import STANDBY_UID, warm_standby_slot
+        _schedule_background(warm_standby_slot(STANDBY_UID), label='warm-uid')
+        return False
     if not hit:
         return False
     png, txn = hit
@@ -559,12 +562,9 @@ async def _turbo_pdf_phase1(
         return False
     hit = await instant_retrieve_captcha(name, mobile, pool='eid')
     if not hit and not pool_form_ready('eid'):
-        try:
-            from browser_session import STANDBY_EID, warm_standby_slot
-            await warm_standby_slot(STANDBY_EID)
-            hit = await instant_retrieve_captcha(name, mobile, pool='eid')
-        except Exception as e:
-            log.warning('pdf turbo warm retry: %s', e)
+        from browser_session import STANDBY_EID, warm_standby_slot
+        _schedule_background(warm_standby_slot(STANDBY_EID), label='warm-eid')
+        return False
     if not hit:
         log.info(
             'pdf turbo miss — eid_form=%s eid_captcha=%s',
@@ -645,8 +645,11 @@ async def open_uidai_session(
 
 
 def _pdf_captcha_mode() -> str:
-    """auto/browser = same live browser as /open | http = API fallback only."""
-    return os.getenv('UIDAI_PDF_CAPTCHA', 'browser').strip().lower()
+    """auto = HTTP first when fast, then browser | browser | http."""
+    mode = os.getenv('UIDAI_PDF_CAPTCHA', '').strip().lower()
+    if not mode:
+        return 'auto' if uidai_fast() else 'browser'
+    return mode
 
 
 _PREFETCH_TASKS: dict[int, asyncio.Task] = {}
@@ -678,19 +681,21 @@ async def _try_http_captcha_prime(sess: AadharSession, phase: str) -> bool:
     return await run_aadhar(sess.prime_http_captcha, tag)
 
 
-async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
-    """Background phase-2 captcha while user reads OTP1 SMS — HTTP then EID pool."""
-    if not sess.eid:
-        return False
-    if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
-        return True
+async def _prefetch_phase2_http_early(sess: AadharSession) -> bool:
+    """HTTP phase-2 captcha while user reads OTP1 SMS — no EID needed."""
     sess._ensure_phase2_headers()
     try:
         if await _try_http_captcha_prime(sess, 'phase2'):
             sess.stash_phase2_captcha()
             return _captcha_prime_ok(sess)
     except Exception as e:
-        log.warning('phase2 prefetch HTTP captcha: %s', e)
+        log.warning('phase2 early HTTP prefetch: %s', e)
+    return False
+
+
+async def _prefetch_phase2_pool(sess: AadharSession, chat_id: int) -> bool:
+    if not sess.eid:
+        return False
     try:
         png, txn = await capture_phase2_captcha_on_pool(sess.eid)
         sess.prime_browser_captcha(png, txn)
@@ -698,6 +703,12 @@ async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
         return _captcha_prime_ok(sess)
     except Exception as e:
         log.warning('phase2 prefetch pool captcha: %s', e)
+        return False
+
+
+async def _prefetch_phase2_browser(sess: AadharSession, chat_id: int) -> bool:
+    if not sess.eid:
+        return False
     try:
         browser = await _pdf_browser_session(chat_id, pool='pdf')
         png, txn = await browser.fetch_download_captcha(sess.eid)
@@ -707,6 +718,30 @@ async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
     except Exception as e:
         log.warning('phase2 prefetch browser captcha: %s', e)
         return False
+
+
+async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
+    """Background phase-2 captcha — HTTP + pool in parallel, browser last."""
+    if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
+        return True
+    if not sess.eid:
+        return await _prefetch_phase2_http_early(sess)
+
+    http_task = asyncio.create_task(_prefetch_phase2_http_early(sess))
+    pool_task = asyncio.create_task(_prefetch_phase2_pool(sess, chat_id))
+    done, pending = await asyncio.wait(
+        {http_task, pool_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    for task in done:
+        try:
+            if task.result():
+                return True
+        except Exception:
+            pass
+    return await _prefetch_phase2_browser(sess, chat_id)
 
 
 async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 12.0) -> None:
@@ -726,7 +761,10 @@ async def _prime_pdf_phase1_open(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 1 captcha — instant pool fill first, cold browser last."""
+    """Phase 1 captcha — HTTP → pool → cold browser."""
+    if not refresh and uidai_fast():
+        if await _try_http_captcha_prime(sess, 'phase1'):
+            return _captcha_prime_ok(sess)
     if not refresh and uidai_instant_form():
         hit = await instant_retrieve_captcha(sess.name, sess.mobile, pool='eid')
         if hit:
@@ -804,6 +842,9 @@ async def _prime_pdf_browser_captcha(
     refresh = 'refresh' in phase_key
 
     if phase_key.startswith('phase1'):
+        if uidai_fast() and not refresh:
+            if await _try_http_captcha_prime(sess, phase):
+                return _captcha_prime_ok(sess)
         if mode in ('auto', 'browser', ''):
             if await _prime_pdf_phase1_open(sess, progress, chat_id, refresh=refresh):
                 return True
@@ -1131,24 +1172,6 @@ async def _start_download_flow(
         dob_norm=dob_norm, pdf_pass=pdf_pass,
     ):
         return
-
-    if uidai_instant_form():
-        hit = await instant_retrieve_captcha(name, mobile, pool='eid')
-        if hit:
-            sess.prime_browser_captcha(hit[0], hit[1])
-            assign_flow(chat_id, {
-                'step': STEP_CAPTCHA,
-                'mode': FLOW_MODE_DOWNLOAD,
-                'name': name,
-                'mobile': mobile,
-                'dob': dob_norm,
-                'pdf_password': pdf_pass,
-            })
-            await _reply_pdf_captcha(update, chat_id, sess, hit[0], instant=True)
-            await progress.on_captcha_dispatched()
-            _PDF_CAPTCHA_DISPATCHED.setdefault(chat_id, set()).add('phase1')
-            await _hold_captcha_terminal(progress, instant=True)
-            return
 
     assign_flow(chat_id, {
         'step': STEP_OTP_1,
@@ -1960,6 +1983,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     uidai_user_message(result, kind='otp'),
                     footer='Reply with OTP 1 from SMS',
                 )
+                old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
+                if old_prefetch and not old_prefetch.done():
+                    old_prefetch.cancel()
+                _PREFETCH_TASKS[id(a_sess)] = asyncio.create_task(
+                    _prefetch_phase2_http_early(a_sess),
+                )
             elif result.get('network_error'):
                 bump_flow(cid, step=STEP_CAPTCHA)
                 await progress.fail(
@@ -2377,8 +2406,8 @@ def main() -> None:
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        warm_delay = 1 if uidai_fast() else 5
-        standby_first = 20 if uidai_fast() else 60
+        warm_delay = 0 if uidai_fast() else 5
+        standby_first = 10 if uidai_fast() else 60
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
         app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)

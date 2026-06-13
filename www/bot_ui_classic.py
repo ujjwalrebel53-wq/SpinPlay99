@@ -7,7 +7,7 @@ import re
 import time
 from typing import Any, Literal
 
-from uidai_api import is_skip_name
+from uidai_api import is_skip_name, uidai_fast
 
 TerminalMode = Literal['fetch', 'pdf', 'captcha']
 
@@ -228,9 +228,9 @@ async def get_or_create_loading_screen(
 class LoadingScreen:
     """Terminal panel — spinner keeps rotating until done/fail."""
 
-    # Telegram editMessageText ~1/s per chat — faster edits trigger HTTP 429.
-    _SPIN_INTERVAL = 2.0
-    _MIN_EDIT_GAP = 1.85
+    # Telegram editMessageText ~1/s per chat — fake ticker must not block real steps.
+    _SPIN_INTERVAL = 5.0 if uidai_fast() else 2.0
+    _MIN_EDIT_GAP = 1.05 if uidai_fast() else 1.85
 
     def __init__(
         self,
@@ -264,29 +264,40 @@ class LoadingScreen:
         self._script_idx = 0
         self._hold_captcha = False
         self._captcha_dispatched = False
+        self._ui_frozen = False
 
     def _script_lines(self) -> tuple[str, ...]:
         return _terminal_lines(self.mode)
 
-    def start_script_ticker(self, *, interval: float = 0.22) -> None:
-        """Animate terminal script lines until captcha wait."""
+    def _stop_script_ticker(self) -> None:
         chat_id = self._chat_id()
         if chat_id is None:
             return
-        old = _SCRIPT_TICKERS.pop(chat_id, None)
-        if old and not old.done():
-            old.cancel()
+        ticker = _SCRIPT_TICKERS.pop(chat_id, None)
+        if ticker and not ticker.done():
+            ticker.cancel()
+
+    def start_script_ticker(self, *, interval: float | None = None) -> None:
+        """Animate terminal script lines — cancelled once captcha is dispatched."""
+        if self._captcha_dispatched or self._ui_frozen:
+            return
+        if interval is None:
+            interval = 0.55 if uidai_fast() else 0.22
+        chat_id = self._chat_id()
+        if chat_id is None:
+            return
+        self._stop_script_ticker()
 
         async def _loop() -> None:
             try:
                 script = self._script_lines()
-                while self._animating:
+                while self._animating and not self._captcha_dispatched:
                     if self._script_idx >= len(script):
                         break
                     line = script[self._script_idx]
                     if line not in self._lines:
                         self._lines.append(line)
-                        await self._render()
+                        await self._render(force=True)
                     if 'captcha ready' in line.lower():
                         self._phase = 'captcha_wait'
                     self._script_idx += 1
@@ -305,9 +316,12 @@ class LoadingScreen:
         return None
 
     async def on_captcha_dispatched(self) -> None:
-        """Captcha image sent — terminal keeps accumulating backend steps."""
+        """Captcha image sent — stop fake ticker/spinner; backend steps still append."""
         self._captcha_dispatched = True
+        self._ui_frozen = True
         self._phase = 'captcha_wait'
+        self._stop_script_ticker()
+        await self._stop_spinner()
         line = '[+] Captcha sent — reply with text'
         if line not in self._lines:
             self._lines.append(line)
@@ -342,12 +356,9 @@ class LoadingScreen:
 
     async def advance_after_captcha(self, step_text: str = 'OTP request') -> None:
         """User submitted captcha — continue session terminal."""
-        chat_id = self._chat_id()
-        if chat_id is not None:
-            ticker = _SCRIPT_TICKERS.pop(chat_id, None)
-            if ticker and not ticker.done():
-                ticker.cancel()
+        self._stop_script_ticker()
         self._hold_captcha = False
+        self._ui_frozen = False
         self._phase = 'otp'
         script = self._script_lines()
         while self._script_idx < len(script) and 'captcha ready' in script[self._script_idx].lower():
@@ -400,6 +411,9 @@ class LoadingScreen:
     async def _spin_loop(self) -> None:
         try:
             while self._animating:
+                if self._ui_frozen:
+                    await asyncio.sleep(self._SPIN_INTERVAL)
+                    continue
                 self._spin_frame += 1
                 await self._render()
                 await asyncio.sleep(self._SPIN_INTERVAL)
@@ -436,7 +450,7 @@ class LoadingScreen:
         self._total = max(total, 1)
         self._current = n
         self._push_step_line(n, total, text)
-        await self._render()
+        await self._render(force=True)
 
     async def done(self, final: str = '', *, dismiss: bool = True) -> None:
         await self._stop_spinner()
@@ -498,6 +512,8 @@ class LoadingScreen:
         return '\n'.join(body)[:4000]
 
     async def _render(self, *, force: bool = False) -> None:
+        if self._ui_frozen and not force:
+            return
         text = self._panel_text()
         if not force and text == self._last_edit_body:
             return
@@ -513,8 +529,8 @@ class LoadingScreen:
             except Exception as exc:
                 err = str(exc).lower()
                 if '429' in err or 'too many requests' in err or 'retry after' in err:
-                    self._last_edit_mono = time.monotonic() + 2.0
-                    await asyncio.sleep(3.0)
+                    self._last_edit_mono = time.monotonic() + 1.5
+                    await asyncio.sleep(1.5 if uidai_fast() else 3.0)
                 retry_after = getattr(exc, 'retry_after', None)
                 if retry_after:
-                    await asyncio.sleep(float(retry_after) + 0.5)
+                    await asyncio.sleep(float(retry_after) + 0.3)
