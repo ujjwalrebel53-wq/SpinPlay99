@@ -8,7 +8,7 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.19.0'
+BOT_ENGINE_VERSION = '2.20.0'
 
 
 def captcha_max_age_sec() -> float:

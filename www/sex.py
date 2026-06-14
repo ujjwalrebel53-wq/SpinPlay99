@@ -129,6 +129,7 @@ FLOW: dict[int, dict] = {}
 _PDF_CAPTCHA_DISPATCHED: dict[int, set[str]] = {}
 
 _CAPTCHA_PHOTOS: dict[int, list[int]] = {}
+_CAPTCHA_SEND_LOCKS: dict[int, asyncio.Lock] = {}
 
 FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '180')))
 
@@ -224,6 +225,7 @@ def clear_flow(chat_id: int) -> None:
     FLOW.pop(chat_id, None)
     _PDF_CAPTCHA_DISPATCHED.pop(chat_id, None)
     _CAPTCHA_PHOTOS.pop(chat_id, None)
+    _CAPTCHA_SEND_LOCKS.pop(chat_id, None)
 
 
 def assign_flow(chat_id: int, data: dict) -> None:
@@ -408,6 +410,27 @@ async def _reply_captcha(
     _CAPTCHA_PHOTOS.setdefault(cid, []).append(msg.message_id)
 
 
+async def _reply_captcha_once(
+    update: Update,
+    sess: UidaiBrowserSession,
+    cap: bytes,
+    *,
+    instant: bool = False,
+    fresh: bool = False,
+) -> bool:
+    """Send exactly one captcha photo per session open (no duplicate images)."""
+    cid = update.effective_chat.id
+    lock = _CAPTCHA_SEND_LOCKS.setdefault(cid, asyncio.Lock())
+    async with lock:
+        if sess._captcha_photo_sent:
+            return False
+        if len(cap or b'') < 200:
+            return False
+        await _reply_captcha(update, sess, cap, instant=instant, fresh=fresh)
+        sess._captcha_photo_sent = True
+        return True
+
+
 async def _on_captcha_text_submitted(
     update: Update,
     chat_id: int,
@@ -452,22 +475,6 @@ async def _wire_fetch_progress(sess: UidaiBrowserSession, progress: LoadingScree
     sess._on_step = on_step
 
 
-def _wire_fetch_captcha_dispatch(
-    update: Update,
-    sess: UidaiBrowserSession,
-    progress: LoadingScreen,
-) -> None:
-    async def _on_ready(png: bytes, txn: str) -> None:
-        if sess._captcha_photo_sent or len(png) < 200:
-            return
-        await _reply_captcha(update, sess, png, instant=True)
-        sess._captcha_photo_sent = True
-        await progress.on_captcha_dispatched()
-
-    sess.reset_captcha_notify()
-    sess._on_captcha_ready = _on_ready
-
-
 async def _send_captcha_ready(
     update: Update,
     sess: UidaiBrowserSession,
@@ -475,11 +482,12 @@ async def _send_captcha_ready(
     *,
     instant: bool = False,
 ) -> None:
-    if not sess._captcha_photo_sent:
+    cap = sess._captcha_png_cache
+    if len(cap or b'') < 200 or not sess.captcha_txn_id:
         cap = await sess.ensure_fresh_captcha_png()
-        await _reply_captcha(update, sess, cap, instant=instant)
-        sess._captcha_photo_sent = True
-    await progress.on_captcha_dispatched()
+    sent = await _reply_captcha_once(update, sess, cap, instant=instant)
+    if sent:
+        await progress.on_captcha_dispatched()
     await _hold_captcha_terminal(progress, instant=instant)
 
 
@@ -524,9 +532,8 @@ async def _turbo_fetch(
     await _wire_fetch_progress(browser, progress)
     try:
         png = browser._captcha_png_cache
-        await _reply_captcha(update, browser, png, instant=True)
-        browser._captcha_photo_sent = True
-        await progress.on_captcha_dispatched()
+        if await _reply_captcha_once(update, browser, png, instant=True):
+            await progress.on_captcha_dispatched()
         await _hold_captcha_terminal(progress, instant=True)
         return True
     except Exception as e:
@@ -639,7 +646,7 @@ async def open_uidai_session(
     if not force_new and existing and await existing.page_alive():
         try:
             await _wire_fetch_progress(existing, progress)
-            _wire_fetch_captcha_dispatch(update, existing, progress)
+            existing.reset_captcha_notify()
             await existing.open_form(name, mobile, force_reload=False)
             await _send_captcha_ready(update, existing, progress)
         except Exception as e:
@@ -657,7 +664,7 @@ async def open_uidai_session(
     sess = UidaiBrowserSession(pool='uid')
     SESSIONS[chat_id] = sess
     await _wire_fetch_progress(sess, progress)
-    _wire_fetch_captcha_dispatch(update, sess, progress)
+    sess.reset_captcha_notify()
 
     try:
         await sess.start()
@@ -2262,9 +2269,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if invalid:
                 sess._captcha_photo_sent = False
                 try:
-                    cap = await sess.refresh_captcha()
-                    await _reply_captcha(update, sess, cap, fresh=True)
-                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                    cap = await sess.fast_refresh_captcha()
+                    if await _reply_captcha_once(update, sess, cap, fresh=True):
+                        await progress.hold_for_captcha('Wrong captcha — new image above')
                 except Exception as exc:
                     await progress.fail(f'Captcha refresh fail: {exc}')
             else:

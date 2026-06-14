@@ -635,7 +635,7 @@ async def open_instant_fetch_session(
     slot = _pool_key(pool)
     if not pool_form_ready(pool):
         try:
-            await asyncio.wait_for(warm_standby_slot(slot), timeout=10.0)
+            await asyncio.wait_for(warm_standby_slot(slot), timeout=5.0 if uidai_fast() else 10.0)
         except Exception as e:
             log.warning('open_instant_fetch_session warm %s: %s', pool, e)
         if not pool_form_ready(pool):
@@ -809,6 +809,8 @@ async def _wait_page_captcha_visible(page: Page, timeout_s: int = 20) -> None:
 async def _force_refresh_page_captcha(
     page: Page,
     net_txn: dict[str, Any] | None = None,
+    *,
+    fast: bool = False,
 ) -> tuple[bytes, str]:
     """Click refresh and wait until captcha image or txn actually changes."""
     hook_txn = net_txn if net_txn is not None else {}
@@ -817,20 +819,21 @@ async def _force_refresh_page_captcha(
     old_txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
     old_src = await img.get_attribute('src')
     await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-    await asyncio.sleep(_ui_delay(0.5))
+    await asyncio.sleep(_ui_delay(0.35 if fast else 0.5))
+    vis_timeout = 6 if fast else (12 if uidai_fast() else 20)
     try:
-        await _wait_page_captcha_visible(page, 12 if uidai_fast() else 20)
+        await _wait_page_captcha_visible(page, vis_timeout)
     except Exception:
         pass
-    poll_sleep = 0.2 if uidai_fast() else 0.35
-    poll_rounds = 20 if uidai_fast() else 30
+    poll_sleep = 0.12 if fast else (0.2 if uidai_fast() else 0.35)
+    poll_rounds = 8 if fast else (20 if uidai_fast() else 30)
     changed = False
     for _ in range(poll_rounds):
         if await _page_captcha_changed(page, old_txn, old_src):
             changed = True
             break
         await asyncio.sleep(poll_sleep)
-    if not changed:
+    if not changed and not fast:
         await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
         await asyncio.sleep(_ui_delay(0.8))
         for _ in range(poll_rounds):
@@ -839,7 +842,7 @@ async def _force_refresh_page_captcha(
                 break
             await asyncio.sleep(poll_sleep)
     txn = await _wait_page_captcha_txn(
-        page, hook_txn, timeout_s=6.0 if uidai_fast() else 10.0,
+        page, hook_txn, timeout_s=3.0 if fast else (6.0 if uidai_fast() else 10.0),
     )
     png, cap_txn = await _capture_page_captcha(page)
     txn = (txn or cap_txn or '').strip()
@@ -1025,12 +1028,28 @@ class UidaiBrowserSession:
         age = time.monotonic() - self._captcha_cache_at
         return age <= min(CAPTCHA_CACHE_TTL_SEC, captcha_max_age_sec())
 
-    async def ensure_fresh_captcha_png(self) -> bytes:
-        """Click refresh and return a brand-new captcha for this request."""
+    async def fast_refresh_captcha(self) -> bytes:
+        """~2–4s refresh — no page reload (hot /fetch path)."""
         if not self._page:
             raise RuntimeError('Browser not started — run /fetch again')
-        await self.refresh_captcha()
+        net_txn: dict[str, Any] = {}
+        png, txn = await _force_refresh_page_captcha(self.page, net_txn, fast=True)
+        self._captcha_png_cache = png
+        self._captcha_cache_txn = txn
+        self.captcha_txn_id = txn
+        self._captcha_cache_at = time.monotonic()
         self._captcha_consumed = False
+        return png
+
+    async def ensure_fresh_captcha_png(self) -> bytes:
+        """Fresh captcha for this request — fast path first."""
+        if not self._page:
+            raise RuntimeError('Browser not started — run /fetch again')
+        try:
+            await self.fast_refresh_captcha()
+        except Exception as exc:
+            log.warning('fast_refresh failed, full refresh: %s', exc)
+            await self.refresh_captcha(allow_reload=True)
         self.reset_captcha_notify()
         png = self._captcha_png_cache
         if len(png or b'') < 200 or not self.captcha_txn_id:
@@ -1298,14 +1317,11 @@ class UidaiBrowserSession:
                 await self.start()
 
         await self._fill_fields_only_fast()
-        await self.refresh_captcha()
+        await self.fast_refresh_captcha()
         png = self._captcha_png_cache
-        if png and self.captcha_txn_id:
-            await self._notify_captcha_ready(png, self.captcha_txn_id)
 
         self.page_loaded_at = time.monotonic()
         self._replenish_pool()
-        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         if not png or len(png) < 200:
             raise RuntimeError('Captcha not ready — try /fetch again')
         return png
@@ -1365,12 +1381,9 @@ class UidaiBrowserSession:
         await self._step(1, 3, 'Preloaded UIDAI page ⚡')
         await self._fill_fields_only_fast()
         await self._step(2, 3, 'Refreshing captcha…')
-        await self.refresh_captcha()
+        await self.fast_refresh_captcha()
         png = self._captcha_png_cache
-        if png and self.captcha_txn_id:
-            await self._notify_captcha_ready(png, self.captcha_txn_id)
         self._replenish_pool()
-        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         return png or b''
 
     async def open_form(
@@ -1397,11 +1410,8 @@ class UidaiBrowserSession:
             if await self.page_alive():
                 await self._step(1, 3, f'Session active — {self.ttl_label()} left')
                 await self._fill_fields_only_fast()
-                await self.refresh_captcha()
+                await self.fast_refresh_captcha()
                 png = self._captcha_png_cache
-                if png and self.captcha_txn_id:
-                    await self._notify_captcha_ready(png, self.captcha_txn_id)
-                _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
                 return png or b''
             if await self._form_on_page():
                 return await self._open_from_preloaded_page()
@@ -1435,10 +1445,8 @@ class UidaiBrowserSession:
         await self._step(3, 8, 'UIDAI page loaded')
         await self._step(4, 8, 'Form ready')
         await self._fill_fields_only_fast()
-        await self.refresh_captcha()
+        await self.fast_refresh_captcha()
         png = self._captcha_png_cache
-        if png and self.captcha_txn_id:
-            await self._notify_captcha_ready(png, self.captcha_txn_id)
         self.page_loaded_at = time.monotonic()
         _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
         return self._captcha_png_cache or png or b''
@@ -1508,7 +1516,7 @@ class UidaiBrowserSession:
     async def _captcha_changed(self, old_txn: str, old_src: str | None) -> bool:
         return await _page_captcha_changed(self.page, old_txn, old_src)
 
-    async def refresh_captcha(self) -> bytes:
+    async def refresh_captcha(self, *, allow_reload: bool = True) -> bytes:
         old_txn = self.captcha_txn_id
         old_src = await self.page.locator('img[alt*="CAPTCHA" i]').first.get_attribute('src')
         click_res = await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
@@ -1522,7 +1530,7 @@ class UidaiBrowserSession:
                 break
             await asyncio.sleep(poll_sleep)
 
-        if not await self._captcha_changed(old_txn, old_src):
+        if allow_reload and not await self._captcha_changed(old_txn, old_src):
             log.info('Captcha refresh fallback — page reload')
             await self.page.reload(wait_until='commit', timeout=45_000)
             if not await self._poll_form(20.0):
