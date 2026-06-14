@@ -965,10 +965,11 @@ var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
 var FIREBASE_CFG_KEY='rbl_firebase_list';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
 var SMS_FAST_MS=100;
-var ONLINE_FRESH_MS=20000;
-var ONLINE_STALE_MS=40000;
-var ONLINE_PULSE_MS=2000;
-var ONLINE_TICK_MS=1000;
+var ONLINE_FRESH_MS=90000;
+var ONLINE_STALE_MS=180000;
+var ONLINE_FLAG_TRUST_MS=300000;
+var ONLINE_PULSE_MS=3000;
+var ONLINE_TICK_MS=3000;
 var _onlineTickTimer=0;
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
@@ -1271,7 +1272,7 @@ function getPhoneFromRecord(s){
 }
 function extractHeartbeatMs(raw){
   if(!raw||typeof raw!=='object') return 0;
-  var keys=['ts','_lastOnlineMs','last_seen','lastSeen','last_ping','lastPing','last_ping_at','lastPingAt',
+  var keys=['_lastOnlineMs','last_seen','lastSeen','last_ping','lastPing','last_ping_at','lastPingAt',
     'updated_at','updatedAt','timestamp','timestamp_millis','heartbeat','last_heartbeat','ping_at','ping_time','seen_at'];
   var best=0,i,ms;
   for(i=0;i<keys.length;i++){
@@ -1288,6 +1289,14 @@ function extractHeartbeatMs(raw){
   }
   return best;
 }
+function hasExplicitOnlineFlag(s){
+  if(!s) return false;
+  return s.online_status===true||s.online===true||s.status===true||s.status==='online';
+}
+function hasExplicitOfflineFlag(s){
+  if(!s) return false;
+  return s.online_status===false||s.status===false||s.status==='offline';
+}
 function resolveOnlineStatus(s,fbId){
   if(!s) return false;
   var now=Date.now();
@@ -1295,14 +1304,18 @@ function resolveOnlineStatus(s,fbId){
   var schema=inst?inst.schema:'spinplay';
   var hb=extractHeartbeatMs(s);
   var hbAge=hb?now-hb:Infinity;
-  var flagOn=s.online_status===true||s.online===true||s.status===true||s.status==='online';
-  var flagOff=s.online_status===false||s.status===false||s.status==='offline';
+  var flagOn=hasExplicitOnlineFlag(s);
   if(schema==='rabel'&&(s.status===true||s.online===true)) flagOn=true;
-  if(hb&&hbAge<=ONLINE_FRESH_MS) return true;
-  if(flagOn&&hbAge<=ONLINE_STALE_MS) return true;
-  if(flagOn&&!hb&&schema==='rabel') return true;
-  if(hb&&hbAge<=ONLINE_STALE_MS&&!flagOff) return true;
-  if(flagOff&&hbAge>ONLINE_FRESH_MS) return false;
+  if(flagOn){
+    if(!hb) return true;
+    if(hbAge<=ONLINE_FLAG_TRUST_MS) return true;
+    return false;
+  }
+  if(hasExplicitOfflineFlag(s)){
+    if(hb&&hbAge<=ONLINE_FRESH_MS) return true;
+    return false;
+  }
+  if(hb&&hbAge<=ONLINE_STALE_MS) return true;
   return false;
 }
 function getOnlinePulseMs(inst){
@@ -1595,6 +1608,8 @@ function fetchDevicesFast(inst,nodeName){
         var prev=clientsRawMap[key]||{};
         clientsRawMap[key]=Object.assign({},prev,{_node:nodeName,_fbId:inst.id,
           online:st===true,online_status:st===true||st===false?st:undefined});
+        if(st===true) clientsRawMap[key]._lastOnlineMs=Date.now();
+        clientsRawMap[key]._computedOnline=resolveOnlineStatus(clientsRawMap[key],inst.id);
       });
     })).then(function(){
       applyFbData(inst);
@@ -1727,7 +1742,10 @@ function startOnlineAccuracyTicker(){
       var was=!!s._computedOnline;
       var on=resolveOnlineStatus(s,s._fbId||parseDevKey(key).fbId);
       s._computedOnline=on;
-      if(on) s._lastOnlineMs=extractHeartbeatMs(s)||now;
+      if(on){
+        var hb=extractHeartbeatMs(s);
+        if(hb) s._lastOnlineMs=hb;
+      }
       if(was!==on) changed=true;
     });
     if(changed) processClientsData(getFbDataMap(),false);
