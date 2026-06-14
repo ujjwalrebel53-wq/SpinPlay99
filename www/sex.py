@@ -721,16 +721,13 @@ async def _try_http_captcha_prime(sess: AadharSession, phase: str) -> bool:
     return await run_aadhar(sess.prime_http_captcha, tag)
 
 
-async def _prefetch_phase2_http_early(sess: AadharSession) -> bool:
-    """HTTP phase-2 captcha while user reads OTP1 SMS — no EID needed."""
-    sess._ensure_phase2_headers()
+async def _warm_pdf_pool_background() -> None:
+    """While user reads OTP1 — keep download page hot (no stale HTTP captcha stash)."""
     try:
-        if await _try_http_captcha_prime(sess, 'phase2'):
-            sess.stash_phase2_captcha()
-            return _captcha_prime_ok(sess)
+        from browser_session import STANDBY_PDF, warm_standby_slot
+        await warm_standby_slot(STANDBY_PDF)
     except Exception as e:
-        log.warning('phase2 early HTTP prefetch: %s', e)
-    return False
+        log.debug('pdf pool warm background: %s', e)
 
 
 async def _prefetch_phase2_pool(sess: AadharSession, chat_id: int) -> bool:
@@ -746,52 +743,73 @@ async def _prefetch_phase2_pool(sess: AadharSession, chat_id: int) -> bool:
         return False
 
 
-async def _prefetch_phase2_browser(sess: AadharSession, chat_id: int) -> bool:
-    if not sess.eid:
-        return False
-    try:
-        browser = await _pdf_browser_session(chat_id, pool='pdf')
-        png, txn = await browser.fetch_download_captcha(sess.eid)
-        sess.prime_browser_captcha(png, txn)
-        sess.stash_phase2_captcha()
-        return _captcha_prime_ok(sess)
-    except Exception as e:
-        log.warning('phase2 prefetch browser captcha: %s', e)
-        return False
-
-
 async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
-    """Background phase-2 captcha — HTTP + pool in parallel, browser last."""
+    """Background — EID-filled pool captcha after OTP1 verify."""
     if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
         return True
     if not sess.eid:
-        return await _prefetch_phase2_http_early(sess)
-
-    http_task = asyncio.create_task(_prefetch_phase2_http_early(sess))
-    pool_task = asyncio.create_task(_prefetch_phase2_pool(sess, chat_id))
-    done, pending = await asyncio.wait(
-        {http_task, pool_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for task in pending:
-        task.cancel()
-    for task in done:
-        try:
-            if task.result():
-                return True
-        except Exception:
-            pass
-    return await _prefetch_phase2_browser(sess, chat_id)
+        return False
+    return await _prefetch_phase2_pool(sess, chat_id)
 
 
-async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 12.0) -> None:
+async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 2.0) -> bool:
+    """Brief wait for in-flight prefetch — never block phase 2 for 12s."""
     task = _PREFETCH_TASKS.pop(id(sess), None)
     if task is None:
-        return
+        return False
     try:
-        await asyncio.wait_for(task, timeout=timeout)
+        return bool(await asyncio.wait_for(task, timeout=timeout))
     except (asyncio.TimeoutError, asyncio.CancelledError):
-        pass
+        return False
+    except Exception:
+        return False
+
+
+async def _prime_pdf_phase2_fast(
+    sess: AadharSession,
+    chat_id: int,
+    *,
+    refresh: bool = False,
+) -> bool:
+    """Phase 2 captcha — pool first (~2s), HTTP/browser only as fallback."""
+    if not sess.eid:
+        return False
+    if refresh:
+        sess.clear_browser_captcha()
+        sess.clear_phase2_stash()
+    elif (
+        sess.apply_phase2_captcha_stash()
+        and _captcha_prime_ok(sess)
+        and not sess.captcha_is_stale()
+    ):
+        return True
+    if not refresh and pool_form_ready('pdf'):
+        try:
+            png, txn = await capture_phase2_captcha_on_pool(sess.eid)
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
+                sess.prime_browser_captcha(png, txn)
+                sess.stash_phase2_captcha()
+                return True
+        except Exception as e:
+            log.warning('pdf phase2 pool fast: %s', e)
+    sess._ensure_phase2_headers()
+    if not refresh and uidai_fast() and await _try_http_captcha_prime(sess, 'phase2'):
+        sess.stash_phase2_captcha()
+        if _captcha_prime_ok(sess):
+            return True
+    browser = await _pdf_browser_session(chat_id, None, pool='pdf')
+    for attempt in range(2):
+        try:
+            png, txn = await browser.fetch_download_captcha(sess.eid)
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
+                sess.prime_browser_captcha(png, txn)
+                sess.stash_phase2_captcha()
+                return True
+        except Exception as e:
+            log.warning('pdf phase2 browser fallback attempt %s: %s', attempt + 1, e)
+            if attempt < 1:
+                await asyncio.sleep(0.4)
+    return False
 
 
 async def _prime_pdf_phase1_open(
@@ -835,32 +853,8 @@ async def _prime_pdf_phase2_browser(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 2 browser captcha — EID-filled pool tab, then cold browser fallback."""
-    if not sess.eid:
-        return False
-    if not refresh:
-        try:
-            png, txn = await capture_phase2_captcha_on_pool(sess.eid)
-            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
-                sess.prime_browser_captcha(png, txn)
-                sess.stash_phase2_captcha()
-                return True
-        except Exception as e:
-            log.warning('pdf phase2 pool-captcha: %s', e)
-    browser = await _pdf_browser_session(chat_id, progress, pool='pdf')
-    for attempt in range(3):
-        try:
-            await browser.start()
-            png, txn = await browser.fetch_download_captcha(sess.eid)
-            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
-                sess.prime_browser_captcha(png, txn)
-                sess.stash_phase2_captcha()
-                return True
-        except Exception as e:
-            log.warning('pdf phase2 browser-captcha attempt %s: %s', attempt + 1, e)
-            if attempt < 2:
-                await asyncio.sleep(0.6)
-    return False
+    """Phase 2 captcha — delegated to fast pool-first path."""
+    return await _prime_pdf_phase2_fast(sess, chat_id, refresh=refresh)
 
 
 async def _prime_pdf_browser_captcha(
@@ -885,28 +879,8 @@ async def _prime_pdf_browser_captcha(
         return False
 
     if phase_key.startswith('phase2'):
-        await _await_phase2_prefetch(sess)
-        if (
-            not refresh
-            and sess.apply_phase2_captcha_stash()
-            and _captcha_prime_ok(sess)
-            and not sess.captcha_is_stale()
-        ):
-            return True
-        sess.clear_browser_captcha()
-        sess._ensure_phase2_headers()
-        if not refresh and await _try_http_captcha_prime(sess, phase):
-            sess.stash_phase2_captcha()
-            if _captcha_prime_ok(sess):
-                return True
-        if mode in ('auto', 'browser', 'http', ''):
-            if await _prime_pdf_phase2_browser(sess, progress, chat_id, refresh=refresh):
-                return True
-        if mode in ('auto', 'http') and refresh:
-            if await _try_http_captcha_prime(sess, phase):
-                sess.stash_phase2_captcha()
-                return _captcha_prime_ok(sess)
-        return False
+        await _await_phase2_prefetch(sess, timeout=2.0)
+        return await _prime_pdf_phase2_fast(sess, chat_id, refresh=refresh)
 
     return False
 
@@ -2022,7 +1996,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if old_prefetch and not old_prefetch.done():
                     old_prefetch.cancel()
                 _PREFETCH_TASKS[id(a_sess)] = asyncio.create_task(
-                    _prefetch_phase2_http_early(a_sess),
+                    _warm_pdf_pool_background(),
                 )
             elif result.get('network_error'):
                 bump_flow(cid, step=STEP_CAPTCHA)

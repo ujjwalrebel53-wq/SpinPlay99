@@ -277,6 +277,7 @@ class AadharSession:
         self.phase2_captcha_image: bytes = b''
         self.phase2_captcha_txn_id = ''
         self.phase2_captcha_at: float = 0.0
+        self.phase2_stash_eid = ''
         self.captcha_primed_at: float = 0.0
 
     def _log(self, msg: str) -> None:
@@ -385,14 +386,27 @@ class AadharSession:
             self.phase2_captcha_image = self.last_captcha_image
             self.phase2_captcha_txn_id = self.captcha_txn_id
             self.phase2_captcha_at = self.captcha_primed_at
+            self.phase2_stash_eid = (self.eid or '').strip()
+
+    def clear_phase2_stash(self) -> None:
+        self.phase2_captcha_image = b''
+        self.phase2_captcha_txn_id = ''
+        self.phase2_captcha_at = 0.0
+        self.phase2_stash_eid = ''
 
     def apply_phase2_captcha_stash(self) -> bool:
-        if self.phase2_captcha_txn_id and self._image_captcha_ok(self.phase2_captcha_image):
-            self.prime_browser_captcha(self.phase2_captcha_image, self.phase2_captcha_txn_id)
-            if self.phase2_captcha_at:
-                self.captcha_primed_at = self.phase2_captcha_at
-            return True
-        return False
+        if not self.eid or self.phase2_stash_eid != self.eid:
+            return False
+        if not self.phase2_captcha_txn_id or not self._image_captcha_ok(self.phase2_captcha_image):
+            return False
+        if self.phase2_captcha_at:
+            from uidai_api import captcha_max_age_sec
+            if (time.monotonic() - self.phase2_captcha_at) > captcha_max_age_sec():
+                return False
+        self.prime_browser_captcha(self.phase2_captcha_image, self.phase2_captcha_txn_id)
+        if self.phase2_captcha_at:
+            self.captcha_primed_at = self.phase2_captcha_at
+        return True
 
     def prime_http_captcha(self, phase: str = 'phase2') -> bool:
         """HTTP captcha image+txn — primary fast path for /pdf."""

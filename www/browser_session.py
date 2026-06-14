@@ -839,23 +839,28 @@ async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]
 
 
 async def capture_phase2_captcha_on_pool(eid: str) -> tuple[bytes, str]:
-    """Warm PDF pool tab — fill user EID and snapshot captcha (no generic cache)."""
+    """Warm PDF pool tab — fill user EID and return fresh captcha."""
     if not eid:
         raise RuntimeError('EID required for phase-2 captcha')
-    if not await warm_standby_slot(STANDBY_PDF):
-        raise RuntimeError('PDF pool not warm')
-    lock = _slot_lock(STANDBY_PDF)
+    slot = STANDBY_PDF
+    if not pool_form_ready('pdf'):
+        if not await warm_standby_slot(slot):
+            raise RuntimeError('PDF pool not warm')
+    lock = _slot_lock(slot)
     await lock.acquire()
     try:
-        sb = _POOL.get(STANDBY_PDF) or {}
+        sb = _POOL.get(slot) or {}
         page = sb.get('page')
         if not page or page.is_closed():
             raise RuntimeError('PDF pool page closed')
         url = (page.url or '').lower()
         if 'genricdownload' not in url and 'downloadaadhaar' not in url:
             await page.goto(DOWNLOAD_PAGE_URL, wait_until='commit', timeout=_goto_timeout_ms())
-            await asyncio.sleep(_ui_delay(1.0))
+            await asyncio.sleep(_ui_delay(0.35))
+        prior_png = sb.get('captcha_png') or b''
         png, txn = await _fill_download_page_captcha(page, eid)
+        if prior_png and png == prior_png:
+            png, txn = await _fill_download_page_captcha(page, eid)
         sb['captcha_png'] = png
         sb['captcha_txn_id'] = txn
         sb['cached_at'] = time.monotonic()
@@ -1443,7 +1448,7 @@ class UidaiBrowserSession:
         return png
 
     async def fetch_download_captcha(self, eid: str) -> tuple[bytes, str]:
-        """Phase-2 download page captcha — same retry pattern as open_form."""
+        """Phase-2 download page captcha — reuse pool tab when already open."""
         if not eid:
             raise RuntimeError('EID required for download captcha')
         self.touch()
@@ -1452,12 +1457,14 @@ class UidaiBrowserSession:
         last_err: Exception | None = None
         for attempt in range(3):
             try:
-                await self.page.goto(
-                    DOWNLOAD_PAGE_URL,
-                    wait_until='commit',
-                    timeout=goto_timeout,
-                )
-                await asyncio.sleep(_ui_delay(0.35))
+                url = (self.page.url or '').lower()
+                if 'genricdownload' not in url and 'downloadaadhaar' not in url:
+                    await self.page.goto(
+                        DOWNLOAD_PAGE_URL,
+                        wait_until='commit',
+                        timeout=goto_timeout,
+                    )
+                    await asyncio.sleep(_ui_delay(0.35))
                 png, txn = await _fill_download_page_captcha(self.page, eid)
                 self.captcha_txn_id = txn
                 self._captcha_png_cache = png
