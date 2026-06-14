@@ -167,14 +167,62 @@ function rebel_keys_load() {
   return $data;
 }
 
+function rebel_keys_merge($disk, $incoming) {
+  if (!is_array($disk)) $disk = ['keys' => [], 'sessions' => []];
+  if (!is_array($incoming)) $incoming = ['keys' => [], 'sessions' => []];
+  $merged = [
+    'keys' => is_array($disk['keys'] ?? null) ? $disk['keys'] : [],
+    'sessions' => is_array($disk['sessions'] ?? null) ? $disk['sessions'] : []
+  ];
+  foreach ($incoming['keys'] ?? [] as $k => $row) {
+    $merged['keys'][$k] = $row;
+  }
+  foreach ($incoming['sessions'] ?? [] as $hash => $sess) {
+    $cur = $merged['sessions'][$hash] ?? null;
+    if (!$cur || (int)($sess['expires'] ?? 0) >= (int)($cur['expires'] ?? 0)) {
+      $merged['sessions'][$hash] = $sess;
+    }
+  }
+  foreach ($incoming['_prune_sessions'] ?? [] as $hash) {
+    unset($merged['sessions'][$hash]);
+  }
+  return $merged;
+}
+
+/** Atomic read-modify-write for rebel_keys.json (avoids stale session loss). */
+function rebel_keys_mutate(callable $fn) {
+  $dir = dirname(REBEL_KEYS_FILE);
+  if (!is_dir($dir)) @mkdir($dir, 0755, true);
+  $fp = fopen(REBEL_KEYS_FILE, 'c+');
+  if (!$fp) return null;
+  flock($fp, LOCK_EX);
+  $raw = stream_get_contents($fp);
+  $data = json_decode($raw ?: '{}', true);
+  if (!is_array($data)) $data = ['keys' => [], 'sessions' => []];
+  if (!isset($data['keys']) || !is_array($data['keys'])) $data['keys'] = [];
+  if (!isset($data['sessions']) || !is_array($data['sessions'])) $data['sessions'] = [];
+  $result = $fn($data);
+  ftruncate($fp, 0);
+  rewind($fp);
+  fwrite($fp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+  fflush($fp);
+  flock($fp, LOCK_UN);
+  fclose($fp);
+  return $result;
+}
+
 function rebel_keys_save($data) {
   $dir = dirname(REBEL_KEYS_FILE);
   if (!is_dir($dir)) @mkdir($dir, 0755, true);
   $fp = fopen(REBEL_KEYS_FILE, 'c+');
   if (!$fp) return false;
   flock($fp, LOCK_EX);
+  $raw = stream_get_contents($fp);
+  $disk = json_decode($raw ?: '{}', true);
+  $merged = rebel_keys_merge($disk, $data);
   ftruncate($fp, 0);
-  fwrite($fp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+  rewind($fp);
+  fwrite($fp, json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
   fflush($fp);
   flock($fp, LOCK_UN);
   fclose($fp);
@@ -273,8 +321,15 @@ function rebel_consume_key(&$data, $key) {
 }
 
 function rebel_purge_sessions_for_key(&$data, $key) {
+  $prune = [];
   foreach ($data['sessions'] as $hash => $sess) {
-    if (($sess['key_ref'] ?? '') === $key) unset($data['sessions'][$hash]);
+    if (($sess['key_ref'] ?? '') === $key) {
+      $prune[] = $hash;
+      unset($data['sessions'][$hash]);
+    }
+  }
+  if ($prune) {
+    $data['_prune_sessions'] = array_values(array_unique(array_merge($data['_prune_sessions'] ?? [], $prune)));
   }
 }
 
@@ -298,11 +353,14 @@ function rebel_revoke_all_keys(&$data) {
     $revoked++;
   }
   $sessions = count($data['sessions'] ?? []);
+  if ($sessions) {
+    $data['_prune_sessions'] = array_keys($data['sessions']);
+  }
   $data['sessions'] = [];
   return ['keys_revoked' => $revoked, 'sessions_cleared' => $sessions];
 }
 
-function rebel_session_valid(&$data, $token) {
+function rebel_session_valid(&$data, $token, $renew = false) {
   $token = trim((string)$token);
   if ($token === '') return false;
   $hash = hash('sha256', $token);
@@ -311,17 +369,21 @@ function rebel_session_valid(&$data, $token) {
     if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
     return false;
   }
-  $keyRef = $sess['key_ref'] ?? '';
-  if ($keyRef === '' || !isset($data['keys'][$keyRef])) {
-    unset($data['sessions'][$hash]);
-    return false;
+  $keyRef = (string)($sess['key_ref'] ?? '');
+  if ($keyRef !== '' && isset($data['keys'][$keyRef])) {
+    if (!empty($data['keys'][$keyRef]['revoked'])) {
+      unset($data['sessions'][$hash]);
+      return false;
+    }
   }
-  if (!empty($data['keys'][$keyRef]['revoked'])) {
-    unset($data['sessions'][$hash]);
-    return false;
+  $ttl = (int)($sess['ttl'] ?? (30 * 86400));
+  if ($ttl < 3600) $ttl = 30 * 86400;
+  if ($renew) {
+    $data['sessions'][$hash]['expires'] = time() + $ttl;
+    $data['sessions'][$hash]['last_seen'] = time();
   }
   return [
-    'expires' => (int)$sess['expires'],
+    'expires' => (int)$data['sessions'][$hash]['expires'],
     'created' => (int)($sess['created'] ?? 0),
     'key_ref' => $keyRef
   ];
@@ -330,11 +392,13 @@ function rebel_session_valid(&$data, $token) {
 function rebel_create_session(&$data, $key, $remember) {
   $token = bin2hex(random_bytes(24));
   $hash = hash('sha256', $token);
-  $ttl = $remember ? (30 * 86400) : (24 * 3600);
+  $ttl = 30 * 86400;
   $data['sessions'][$hash] = [
     'created' => time(),
     'expires' => time() + $ttl,
-    'key_ref' => $key
+    'ttl' => $ttl,
+    'key_ref' => $key,
+    'remember' => !empty($remember)
   ];
   return ['token' => $token, 'expires' => time() + $ttl];
 }
