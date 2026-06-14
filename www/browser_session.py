@@ -564,14 +564,20 @@ async def instant_pool_captcha(
             return None
         if slot != STANDBY_PDF:
             await _prepare_standby_retrieve_page(page, slot)
+        prior_png = sb.get('captcha_png') or b''
         filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, {'name': nm, 'mobile': mob})
         if not filled:
             log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
-        await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-        await asyncio.sleep(_ui_delay(0.45))
-        txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
-        png, cap_txn = await _capture_page_captcha(page)
-        txn = (txn or cap_txn or '').strip()
+        try:
+            png, txn = await _force_refresh_page_captcha(page, net_txn)
+        except Exception as exc:
+            log.warning('instant_pool_captcha refresh pool=%s: %s', pool, exc)
+            return None
+        if prior_png and png == prior_png:
+            try:
+                png, txn = await _force_refresh_page_captcha(page, net_txn)
+            except Exception:
+                return None
         if len(png) < 200 or not txn:
             return None
         sb['captcha_png'] = png
@@ -615,6 +621,34 @@ async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
         return False
 
 
+async def fresh_retrieve_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'eid',
+) -> tuple[bytes, str] | None:
+    """Fill + refresh with change detection — for /pdf where stale cache breaks OTP."""
+    if not pool_form_ready(pool):
+        try:
+            await warm_standby_slot(_pool_key(pool))
+        except Exception:
+            pass
+    browser = UidaiBrowserSession(pool=pool)
+    try:
+        png = await browser.instant_fetch(name, mobile)
+        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
+        if png and txn and len(png) >= 200:
+            log.info('fresh_retrieve_captcha pool=%s txn=%s… bytes=%s', pool, txn[:8], len(png))
+            return png, txn
+    except Exception as e:
+        log.warning('fresh_retrieve_captcha pool=%s: %s', pool, e)
+        try:
+            await browser.close(keep_warm=True)
+        except Exception:
+            pass
+    return None
+
+
 async def instant_retrieve_captcha(
     name: str,
     mobile: str,
@@ -622,24 +656,14 @@ async def instant_retrieve_captcha(
     pool: str = 'uid',
 ) -> tuple[bytes, str] | None:
     """Preloaded pool — in-place fill + captcha (~1s). Falls back to adopt path."""
+    if pool == 'eid':
+        return await fresh_retrieve_captcha(name, mobile, pool=pool)
     hit = await instant_pool_captcha(name, mobile, pool=pool)
     if hit:
         return hit
     if not pool_form_ready(pool):
         return None
-    browser = UidaiBrowserSession(pool=pool)
-    try:
-        png = await browser.instant_fetch(name, mobile)
-        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
-        if png and txn and len(png) >= 200:
-            return png, txn
-    except Exception as e:
-        log.warning('instant_retrieve_captcha adopt pool=%s: %s', pool, e)
-        try:
-            await browser.close(keep_warm=True)
-        except Exception:
-            pass
-    return None
+    return await fresh_retrieve_captcha(name, mobile, pool=pool)
 
 
 async def warm_standby_uidai() -> bool:
@@ -734,35 +758,79 @@ def _attach_captcha_net_hook(page: Page, net_txn: dict[str, Any]) -> None:
     page.on('response', _on_captcha_response)
 
 
+async def _page_captcha_changed(page: Page, old_txn: str, old_src: str | None) -> bool:
+    img = page.locator('img[alt*="CAPTCHA" i]').first
+    new_src = await img.get_attribute('src')
+    txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    if txn and old_txn and txn != old_txn:
+        return True
+    if old_src and new_src and new_src != old_src:
+        return True
+    return False
+
+
+async def _wait_page_captcha_visible(page: Page, timeout_s: int = 20) -> None:
+    el = page.locator('img[alt*="CAPTCHA" i]').first
+    await el.wait_for(state='visible', timeout=timeout_s * 1000)
+    for _ in range(timeout_s * 4):
+        if await el.evaluate('(img) => img.complete && img.naturalWidth > 10'):
+            return
+        await asyncio.sleep(0.25)
+    raise RuntimeError('Captcha load fail')
+
+
+async def _force_refresh_page_captcha(
+    page: Page,
+    net_txn: dict[str, Any] | None = None,
+) -> tuple[bytes, str]:
+    """Click refresh and wait until captcha image or txn actually changes."""
+    hook_txn = net_txn if net_txn is not None else {}
+    _attach_captcha_net_hook(page, hook_txn)
+    img = page.locator('img[alt*="CAPTCHA" i]').first
+    old_txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    old_src = await img.get_attribute('src')
+    await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+    await asyncio.sleep(_ui_delay(0.5))
+    try:
+        await _wait_page_captcha_visible(page, 12 if uidai_fast() else 20)
+    except Exception:
+        pass
+    poll_sleep = 0.2 if uidai_fast() else 0.35
+    poll_rounds = 20 if uidai_fast() else 30
+    changed = False
+    for _ in range(poll_rounds):
+        if await _page_captcha_changed(page, old_txn, old_src):
+            changed = True
+            break
+        await asyncio.sleep(poll_sleep)
+    if not changed:
+        await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+        await asyncio.sleep(_ui_delay(0.8))
+        for _ in range(poll_rounds):
+            if await _page_captcha_changed(page, old_txn, old_src):
+                changed = True
+                break
+            await asyncio.sleep(poll_sleep)
+    txn = await _wait_page_captcha_txn(
+        page, hook_txn, timeout_s=6.0 if uidai_fast() else 10.0,
+    )
+    png, cap_txn = await _capture_page_captcha(page)
+    txn = (txn or cap_txn or '').strip()
+    if len(png) < 200 or not txn:
+        raise RuntimeError('Fresh captcha failed after refresh')
+    return png, txn
+
+
 async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]:
     """Fill EID on download page and capture paired captcha image + txn."""
     if not eid:
         raise RuntimeError('EID required for download captcha')
     net_txn: dict[str, Any] = {}
-    _attach_captcha_net_hook(page, net_txn)
     await page.evaluate(SELECT_DOWNLOAD_EID_JS)
     await asyncio.sleep(_ui_delay(0.15))
     await page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
     await asyncio.sleep(_ui_delay(0.25))
-    await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-    await asyncio.sleep(_ui_delay(0.35))
-    el = page.locator('img[alt*="CAPTCHA" i]').first
-    vis_timeout = 12_000 if uidai_fast() else 20_000
-    for vis_try in range(3):
-        try:
-            await el.wait_for(state='visible', timeout=vis_timeout)
-            break
-        except Exception:
-            if vis_try < 2:
-                await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                await asyncio.sleep(_ui_delay(1.2))
-            else:
-                raise
-    txn = await _wait_page_captcha_txn(
-        page, net_txn, timeout_s=8.0 if uidai_fast() else 22.0,
-    )
-    png, cap_txn = await _capture_page_captcha(page)
-    txn = txn or cap_txn or ''
+    png, txn = await _force_refresh_page_captcha(page, net_txn)
     if not txn:
         raise RuntimeError('captchaTxnID missing — reload page or run /open again')
     if len(png) < 200:
@@ -1404,14 +1472,7 @@ class UidaiBrowserSession:
         raise RuntimeError(f'Download captcha failed: {last_err}')
 
     async def _captcha_changed(self, old_txn: str, old_src: str | None) -> bool:
-        img = self.page.locator('img[alt*="CAPTCHA" i]').first
-        new_src = await img.get_attribute('src')
-        txn = await self._extract_captcha_txn()
-        if txn and old_txn and txn != old_txn:
-            return True
-        if old_src and new_src and new_src != old_src:
-            return True
-        return False
+        return await _page_captcha_changed(self.page, old_txn, old_src)
 
     async def refresh_captcha(self) -> bytes:
         old_txn = self.captcha_txn_id

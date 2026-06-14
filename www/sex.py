@@ -47,6 +47,7 @@ from browser_session import (
     UidaiBrowserSession,
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
+    fresh_retrieve_captcha,
     instant_pool_captcha,
     instant_retrieve_captcha,
     pool_form_ready,
@@ -590,15 +591,16 @@ async def _turbo_pdf_phase1(
     dob_norm: str | None,
     pdf_pass: str,
 ) -> bool:
-    """Preloaded EID pool → instant form fill + captcha for /pdf phase 1."""
+    """EID pool — guaranteed fresh captcha for /pdf phase 1."""
     if not uidai_instant_form():
         return False
-    hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+    sess.clear_browser_captcha()
+    hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
     if not hit and not pool_form_ready('eid'):
         try:
             from browser_session import STANDBY_EID, warm_standby_slot
             await asyncio.wait_for(warm_standby_slot(STANDBY_EID), timeout=10.0)
-            hit = await instant_retrieve_captcha(name, mobile, pool='eid')
+            hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
         except Exception as e:
             log.warning('pdf turbo warm retry: %s', e)
     if not hit:
@@ -799,22 +801,23 @@ async def _prime_pdf_phase1_open(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 1 captcha — pool → cold browser."""
-    if not refresh and uidai_instant_form():
-        hit = await instant_retrieve_captcha(sess.name, sess.mobile, pool='eid')
+    """Phase 1 captcha — always fresh browser image + txn."""
+    if not refresh:
+        hit = await fresh_retrieve_captcha(sess.name, sess.mobile, pool='eid')
         if hit:
             sess.prime_browser_captcha(hit[0], hit[1])
             return True
     browser = await _pdf_browser_session(chat_id, None, pool='eid')
+    browser.name = sess.name
+    browser.mobile = sess.mobile
     for attempt in range(3):
         try:
             await browser.start()
-            if refresh and await browser.page_alive():
-                png = await browser.refresh_captcha()
-                txn = browser.captcha_txn_id or browser._captcha_cache_txn
-            else:
-                png = await browser.instant_fetch(sess.name, sess.mobile)
-                txn = browser.captcha_txn_id or browser._captcha_cache_txn
+            if not await browser.page_alive():
+                await browser.start()
+            await browser._fill_fields_only_fast()
+            png = await browser.refresh_captcha()
+            txn = browser.captcha_txn_id or browser._captcha_cache_txn
             if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
                 sess.prime_browser_captcha(png, txn)
                 return True
@@ -890,6 +893,7 @@ async def _prime_pdf_browser_captcha(
             and not sess.captcha_is_stale()
         ):
             return True
+        sess.clear_browser_captcha()
         sess._ensure_phase2_headers()
         if not refresh and await _try_http_captcha_prime(sess, phase):
             sess.stash_phase2_captcha()
