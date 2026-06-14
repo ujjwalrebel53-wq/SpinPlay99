@@ -2,7 +2,7 @@
   "ok": true,
   "panel_version": 16,
   "min_apk_version": 30,
-  "message": "Panel v16 — SIM picker for Send SMS + auto bank balance fetch",
+  "message": "Panel v16 — NovaP7 Firebase + SIM picker + bank auto-fetch",
   "files": {
     "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
     "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",

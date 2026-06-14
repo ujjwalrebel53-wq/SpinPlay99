@@ -1,6 +1,6 @@
 /** Rebel Panel — bundled Firebase projects (shared by sex.php, laptop.php, phone.php, APK) */
 var REBEL_PROTECTED_FB_IDS=[
-  'spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa','stormapk_9edea','tyhumai_299f1'
+  'spinplay99','rabel_raand','pmfg_ccccc','monster_green_c5e81','nsx1_7f7aa','stormapk_9edea','tyhumai_299f1','novap7_725ff'
 ];
 var REBEL_DEFAULT_FIREBASES=[
   {
@@ -69,5 +69,15 @@ var REBEL_DEFAULT_FIREBASES=[
     storageBucket:'tyhumai-299f1.firebasestorage.app',
     messagingSenderId:'857512919356',
     appId:'1:857512919356:android:292ec32a0f74c34615de39'
+  },
+  {
+    id:'novap7_725ff', name:'NovaP7', schema:'rabel',
+    apiKey:'AIzaSyC-SSH8I8sICkDvCz9fx0hniiWDt-Fz49I',
+    authDomain:'novap7-725ff.firebaseapp.com',
+    databaseURL:'https://novap7-725ff-default-rtdb.firebaseio.com',
+    projectId:'novap7-725ff',
+    storageBucket:'novap7-725ff.firebasestorage.app',
+    messagingSenderId:'623818478947',
+    appId:'1:623818478947:android:894f6fc73362b96798af56'
   }
 ];
