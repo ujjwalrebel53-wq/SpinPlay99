@@ -65,6 +65,36 @@ def build_login_passwords_year_only(name: str) -> list[str]:
     return build_year_bruteforce_passwords([nm])
 
 
+def build_login_username_candidates(name: str) -> list[str]:
+    """Common username patterns from enrollment name."""
+    nm = normalize_name(name)
+    if is_skip_name(nm):
+        return []
+    parts = [p for p in nm.split() if p]
+    compact = ''.join(parts)
+    prefix = pdf_name_prefix(nm)
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def add(value: str) -> None:
+        v = (value or '').strip()
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+
+    add(prefix)
+    add(prefix.lower())
+    add(compact.lower())
+    add(compact.upper())
+    if parts:
+        add(parts[0].lower())
+        add(parts[0].upper())
+        if len(parts) >= 2:
+            add(f'{parts[0].lower()}.{parts[-1].lower()}')
+            add(f'{parts[0].lower()}{parts[-1].lower()}')
+    return out
+
+
 @dataclass
 class LoginTryResult:
     ok: bool
