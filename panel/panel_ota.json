@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "panel_version": 16,
+  "min_apk_version": 30,
+  "message": "Panel v16 — NovaP7 Firebase + SIM picker + bank auto-fetch",
+  "files": {
+    "index.html": "https://rebelbhaiya.alwaysdata.net/ota/index.html",
+    "style.css": "https://rebelbhaiya.alwaysdata.net/ota/style.css",
+    "app.js": "https://rebelbhaiya.alwaysdata.net/ota/app.js",
+    "firebase_defaults.js": "https://rebelbhaiya.alwaysdata.net/ota/firebase_defaults.js",
+    "avatar.jpg": "https://rebelbhaiya.alwaysdata.net/ota/avatar.jpg"
+  },
+  "apk_url": "https://github.com/ujjwalrebel53-wq/SpinPlay99/releases/download/rebel-panel-user-v5.2.1/RebelPanel-User-v5.2.1.apk",
+  "user_apk_url": "https://github.com/ujjwalrebel53-wq/SpinPlay99/releases/download/rebel-panel-user-v5.2.1/RebelPanel-User-v5.2.1.apk"
+}

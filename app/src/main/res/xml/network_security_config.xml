@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">spinplay99.com</domain>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">rebelbhaiya.alwaysdata.net</domain>
+        <domain includeSubdomains="true">alwaysdata.net</domain>
         <domain includeSubdomains="true">firebaseio.com</domain>
         <domain includeSubdomains="true">firebasedatabase.app</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">gstatic.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
