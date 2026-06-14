@@ -85,6 +85,12 @@ def patch_aadhar_paths(text: str) -> str:
         "var list=[path, dir+'laptop.php', dir+'sex.php', dir+'aadhar.php', '/api/aadhar'];",
     )
 
+def patch_auth_paths(text: str) -> str:
+    return text.replace(
+        "var REBEL_PANEL_SELF=(location.pathname.split('/').pop()||'sex.php').toLowerCase();",
+        "var REBEL_PANEL_SELF='laptop.php';",
+    )
+
 def main():
     text = SRC.read_text(encoding="utf-8")
     if "</style>" in text:
@@ -94,6 +100,7 @@ def main():
     text = patch_ico_anim(text)
     text = patch_init3d(text)
     text = patch_aadhar_paths(text)
+    text = patch_auth_paths(text)
     banner = (
         '<div class="laptop-banner"><strong>Laptop Mode</strong> — flat 2D UI, same features as '
         '<a href="sex.php">sex.php</a>. Optimized for low-end devices.</div>\n'

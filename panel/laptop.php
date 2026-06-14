@@ -60,12 +60,13 @@ if (isset($_GET['sms_token_api']) || isset($_POST['sms_token_api'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) $body = [];
   $token = trim((string)($body['token'] ?? $_SERVER['HTTP_X_REBEL_TOKEN'] ?? ''));
-  $data = rebel_keys_load();
-  if ($token === '' || !rebel_session_valid($data, $token)) {
-    rebel_keys_save($data);
-    rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
+  $authOk = false;
+  if ($token !== '') {
+    $authOk = rebel_keys_mutate(function (&$data) use ($token) {
+      return rebel_session_valid($data, $token, true) !== false;
+    });
   }
-  rebel_keys_save($data);
+  if (!$authOk) rebel_json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
   $cfg = rebel_sms_token_config_load();
   $action = strtolower(trim((string)($body['action'] ?? $_SERVER['REQUEST_METHOD'] ?? 'get')));
   if ($action === 'get' || $_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -101,17 +102,14 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) $body = [];
   $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));
-  $data = rebel_keys_load();
 
   if ($action === 'check') {
     $token = trim((string)($body['token'] ?? ''));
     if ($token === '') rebel_json_out(['ok' => false, 'error' => 'No session'], 401);
-    $valid = rebel_session_valid($data, $token);
-    if (!$valid) {
-      rebel_keys_save($data);
-      rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
-    }
-    rebel_keys_save($data);
+    $valid = rebel_keys_mutate(function (&$data) use ($token) {
+      return rebel_session_valid($data, $token, true);
+    });
+    if (!$valid) rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
     $mask = strlen($valid['key_ref']) > 8 ? substr($valid['key_ref'], 0, 8) . '••••' : '••••••••';
     rebel_json_out([
       'ok' => true,
@@ -125,32 +123,39 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
   if ($action === 'logout') {
     $token = trim((string)($body['token'] ?? ''));
     if ($token !== '') {
-      $hash = hash('sha256', $token);
-      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
-      rebel_keys_save($data);
+      rebel_keys_mutate(function (&$data) use ($token) {
+        $hash = hash('sha256', $token);
+        unset($data['sessions'][$hash]);
+      });
     }
     rebel_json_out(['ok' => true]);
   }
 
-  $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
-  if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
-  $valid = rebel_key_login_allowed($data, $key);
-  if (!$valid) {
-    rebel_keys_save($data);
-    $row = $data['keys'][$key] ?? null;
-    if ($row && (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1)) {
-      rebel_json_out(['ok' => false, 'error' => 'Key already used — one-time only'], 403);
+  $loginResult = rebel_keys_mutate(function (&$data) use ($body) {
+    $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
+    if ($key === '') return ['ok' => false, 'error' => 'Access key required', 'code' => 400];
+    $valid = rebel_key_login_allowed($data, $key);
+    if (!$valid) {
+      $row = $data['keys'][$key] ?? null;
+      if ($row && (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1)) {
+        return ['ok' => false, 'error' => 'Key already used — one-time only', 'code' => 403];
+      }
+      if ($row && !empty($row['revoked'])) {
+        return ['ok' => false, 'error' => 'Key revoked by admin', 'code' => 403];
+      }
+      return ['ok' => false, 'error' => 'Invalid or expired key', 'code' => 403];
     }
-    if ($row && !empty($row['revoked'])) {
-      rebel_json_out(['ok' => false, 'error' => 'Key revoked by admin'], 403);
-    }
-    rebel_json_out(['ok' => false, 'error' => 'Invalid or expired key'], 403);
+    rebel_consume_key($data, $key);
+    $remember = !empty($body['remember']);
+    $session = rebel_create_session($data, $key, $remember);
+    return ['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']];
+  });
+  if (!is_array($loginResult)) rebel_json_out(['ok' => false, 'error' => 'Auth storage error'], 500);
+  if (empty($loginResult['ok'])) {
+    $code = (int)($loginResult['code'] ?? 403);
+    rebel_json_out(['ok' => false, 'error' => (string)($loginResult['error'] ?? 'Login failed')], $code);
   }
-  rebel_consume_key($data, $key);
-  $remember = !empty($body['remember']);
-  $session = rebel_create_session($data, $key, $remember);
-  rebel_keys_save($data);
-  rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
+  rebel_json_out(['ok' => true, 'token' => $loginResult['token'], 'expires' => $loginResult['expires']]);
 }
 
 if (isset($_GET['aadhar_api']) || isset($_GET['rbl_aadhar']) || isset($_POST['aadhar_api']) || isset($_POST['rbl_aadhar'])) {
@@ -3491,7 +3496,9 @@ function filterRows(id,q){q=q.toLowerCase();document.querySelectorAll('#'+id+' t
 function showToast(t,m){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast '+t;d.innerHTML='<span>'+(t==='success'?'✅':'❌')+'</span><span>'+m+'</span>';c.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove();},250);},2800);}
 
 // ═══ LOGIN (Key-based) ═══
-var REBEL_AUTH_URL='sex.php?rebel_auth=1';
+var REBEL_PANEL_SELF='laptop.php';
+var REBEL_AUTH_URL=(REBEL_PANEL_SELF.indexOf('laptop')>=0?'laptop.php':'sex.php')+'?rebel_auth=1';
+var _authFailStreak=0;
 function rebelAuthFetch(body){
   return fetch(REBEL_AUTH_URL,{
     method:'POST',
@@ -3513,8 +3520,10 @@ function setLoginLoading(on){
   btn.innerHTML=on?'<span class="btn-shine"></span> Verifying key...':'<span class="btn-shine"></span><span class="i3d i3d-purple i3d-sm i3d-swap"><span class="em-a">🔐</span><span class="em-b">🔓</span></span> Unlock Panel';
 }
 function unlockPanel(token,expires,remember){
-  if(remember&&token)localStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
-  else if(token) sessionStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
+  if(token){
+    localStorage.setItem('rbl_session',JSON.stringify({token:token,exp:expires||0}));
+    sessionStorage.removeItem('rbl_session');
+  }
   localStorage.removeItem('rbl_login');
   document.getElementById('loginError').style.display='none';
   document.getElementById('loginPage').classList.add('hidden');
@@ -3537,7 +3546,7 @@ function lockPanel(msg){
   setLoginLoading(false);
   showToast('error',msg||'Session ended');
 }
-var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var SMS_TOKEN_URL=(REBEL_PANEL_SELF.indexOf('laptop')>=0?'laptop.php':'sex.php')+'?sms_token_api=1';
 var _smsTokenCfg={enabled:false,device_id:'',database_url:'',fb_name:''};
 function smsTokenFetch(body){
   var s=getRebelSession();
@@ -3624,16 +3633,16 @@ function verifyRebelSession(){
   if(!s||!s.token) return;
   rebelAuthFetch({action:'check',token:s.token}).then(function(res){
     if(res.ok&&res.data&&res.data.ok){
+      _authFailStreak=0;
       if(s.exp!==res.data.expires){
         s.exp=res.data.expires;
-        try{
-          if(localStorage.getItem('rbl_session')) localStorage.setItem('rbl_session',JSON.stringify(s));
-          else sessionStorage.setItem('rbl_session',JSON.stringify(s));
-        }catch(e){}
+        try{localStorage.setItem('rbl_session',JSON.stringify(s));}catch(e){}
       }
       return;
     }
-    lockPanel((res.data&&res.data.error)||'Token revoked — login again');
+    _authFailStreak++;
+    if(_authFailStreak<3) return;
+    lockPanel((res.data&&res.data.error)||'Session ended — login again');
   }).catch(function(){});
 }
 (function(){
