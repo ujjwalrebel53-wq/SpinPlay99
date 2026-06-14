@@ -2299,61 +2299,144 @@ function parseInrAmount(s){
   var n=parseFloat(String(s).replace(/,/g,''));
   return isNaN(n)||n<0||n>1e12?null:n;
 }
-var BANK_NAME_MAP=[
-  {re:/state\s*bank|sbi\b|sbin/i,name:'State Bank of India'},{re:/hdfc/i,name:'HDFC Bank'},{re:/icici/i,name:'ICICI Bank'},{re:/axis/i,name:'Axis Bank'},
-  {re:/kotak/i,name:'Kotak Mahindra Bank'},{re:/punjab\s*national|pnb\b/i,name:'Punjab National Bank'},{re:/bank\s*of\s*baroda|bob\b/i,name:'Bank of Baroda'},
-  {re:/canara/i,name:'Canara Bank'},{re:/union\s*bank/i,name:'Union Bank'},{re:/idbi/i,name:'IDBI Bank'},{re:/yes\s*bank/i,name:'Yes Bank'},
-  {re:/indusind/i,name:'IndusInd Bank'},{re:/federal\s*bank/i,name:'Federal Bank'},{re:/bandhan/i,name:'Bandhan Bank'},{re:/indian\s*bank/i,name:'Indian Bank'},
-  {re:/idfc/i,name:'IDFC FIRST Bank'},{re:/rbl\s*bank/i,name:'RBL Bank'}
+function normalizeSmsSender(addr){
+  var a=String(addr||'').toUpperCase().trim();
+  a=a.replace(/^(?:VM|VK|VD|AD|JD|TX|BZ|BP|BT|BK|AX|AL|AM|ID|QP|JM|CP|XL|XX|VM-|AD-|JD-)[\s\-]*/i,'');
+  return a.replace(/[^A-Z0-9]/g,'');
+}
+var BANK_SENDERS=[
+  {keys:['SBIINB','SBIPSG','SBIBNK','ATMSBI','SBIUPI','STATEBNK','SBIECS','SBICRD','SBIMEL'],name:'State Bank of India'},
+  {keys:['HDFCBK','HDFCBN','HDFCCC','HDFCLI','HDFCVC'],name:'HDFC Bank'},
+  {keys:['ICICIB','ICICIT','ICICBK','ICICIA','ICICIP'],name:'ICICI Bank'},
+  {keys:['AXISBK','AXISMR','AXISOL'],name:'Axis Bank'},
+  {keys:['KOTAKB','KOTAKM','KOTAKBK'],name:'Kotak Mahindra Bank'},
+  {keys:['PNBSMS','PNBANK','PNBMBK'],name:'Punjab National Bank'},
+  {keys:['BOBSMS','BOBTXN','BANKBAR'],name:'Bank of Baroda'},
+  {keys:['CANBNK','CANARA'],name:'Canara Bank'},
+  {keys:['UNIONB','UNIONBK','UBOI'],name:'Union Bank of India'},
+  {keys:['IDBIBK','IDBISM'],name:'IDBI Bank'},
+  {keys:['YESBNK','YESBKL'],name:'Yes Bank'},
+  {keys:['INDUSB','INDUSL'],name:'IndusInd Bank'},
+  {keys:['FEDBNK','FEDERAL'],name:'Federal Bank'},
+  {keys:['BANDHN','BANDHAN'],name:'Bandhan Bank'},
+  {keys:['INDBNK','INDIANB'],name:'Indian Bank'},
+  {keys:['IDFCFB','IDFCBK','IDFCFB'],name:'IDFC FIRST Bank'},
+  {keys:['RBLBNK','RBLCRD'],name:'RBL Bank'},
+  {keys:['AUDBNK','AUBANK'],name:'AU Small Finance Bank'},
+  {keys:['CENTBK','CENTOB'],name:'Central Bank of India'},
+  {keys:['IOBCHN','IOBBNK'],name:'Indian Overseas Bank'},
+  {keys:['UCOBNK','UCOBANK'],name:'UCO Bank'},
+  {keys:['MAHABK','BANKMAH'],name:'Bank of Maharashtra'},
+  {keys:['KARBNK','KBLBNK'],name:'Karnataka Bank'},
+  {keys:['SOUTHBNK','SBTBNK'],name:'South Indian Bank'},
+  {keys:['CITIBK','CITIBN'],name:'Citibank'},
+  {keys:['STANCH','SCBANK'],name:'Standard Chartered'},
+  {keys:['PAYZAP','PAYTMP'],name:'Paytm Payments Bank'},
+  {keys:['AIRBNK','AIRTLM'],name:'Airtel Payments Bank'},
+  {keys:['JANABK','JSFBNK'],name:'Jana Small Finance Bank'},
+  {keys:['EQUITAS','EQUTAS'],name:'Equitas Small Finance Bank'},
+  {keys:['UJVBNK','UJJIVN'],name:'Ujjivan Small Finance Bank'}
 ];
-var BANK_SENDER_MAP=[
-  ['SBIINB','State Bank of India'],['SBIPSG','State Bank of India'],['SBI','State Bank of India'],['HDFCBK','HDFC Bank'],['HDFC','HDFC Bank'],
-  ['ICICIB','ICICI Bank'],['ICICIT','ICICI Bank'],['AXISBK','Axis Bank'],['KOTAKB','Kotak Mahindra Bank'],['PNBSMS','Punjab National Bank'],
-  ['BOBSMS','Bank of Baroda'],['CANBNK','Canara Bank'],['UNIONB','Union Bank'],['IDBIBK','IDBI Bank']
+var BANK_BODY_PATTERNS=[
+  [/state\s*bank\s*of\s*india/i,'State Bank of India'],
+  [/\bSBI\b[\s\S]{0,40}(?:a\/c|acct|customer|dear|user)/i,'State Bank of India'],
+  [/\bHDFC\s*Bank\b/i,'HDFC Bank'],
+  [/dear\s+hdfc\b/i,'HDFC Bank'],
+  [/\bICICI\s*Bank\b/i,'ICICI Bank'],
+  [/dear\s+icici\b/i,'ICICI Bank'],
+  [/\bAxis\s*Bank\b/i,'Axis Bank'],
+  [/\bKotak\b[\s\S]{0,20}Bank/i,'Kotak Mahindra Bank'],
+  [/\bPNB\b[\s\S]{0,30}(?:a\/c|acct|customer)/i,'Punjab National Bank'],
+  [/punjab\s*national\s*bank/i,'Punjab National Bank'],
+  [/bank\s*of\s*baroda/i,'Bank of Baroda'],
+  [/\bBOB\b[\s\S]{0,30}(?:a\/c|acct)/i,'Bank of Baroda'],
+  [/canara\s*bank/i,'Canara Bank'],
+  [/union\s*bank\s*of\s*india/i,'Union Bank of India'],
+  [/\bidbi\s*bank/i,'IDBI Bank'],
+  [/\byes\s*bank\b/i,'Yes Bank'],
+  [/indusind\s*bank/i,'IndusInd Bank'],
+  [/federal\s*bank/i,'Federal Bank'],
+  [/bandhan\s*bank/i,'Bandhan Bank'],
+  [/indian\s*bank\b/i,'Indian Bank'],
+  [/idfc\s*first\s*bank/i,'IDFC FIRST Bank'],
+  [/\brbl\s*bank\b/i,'RBL Bank']
 ];
-function inferBankName(body,address){
-  var text=String(body||'')+' '+String(address||'');
-  var i;for(i=0;i<BANK_NAME_MAP.length;i++){if(BANK_NAME_MAP[i].re.test(text))return BANK_NAME_MAP[i].name;}
-  var a=String(address||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  for(i=0;i<BANK_SENDER_MAP.length;i++){if(a.indexOf(BANK_SENDER_MAP[i][0])>=0)return BANK_SENDER_MAP[i][1];}
+function inferBankFromSender(address){
+  var a=normalizeSmsSender(address);
+  if(!a||a.length<3)return null;
+  var best=null,bestLen=0,i,j,keys;
+  for(i=0;i<BANK_SENDERS.length;i++){
+    keys=BANK_SENDERS[i].keys;
+    for(j=0;j<keys.length;j++){
+      if(a.indexOf(keys[j])>=0&&keys[j].length>bestLen){best=BANK_SENDERS[i].name;bestLen=keys[j].length;}
+    }
+  }
+  return best;
+}
+function inferBankFromBody(body){
+  var b=String(body||''),i;
+  for(i=0;i<BANK_BODY_PATTERNS.length;i++){
+    if(BANK_BODY_PATTERNS[i][0].test(b))return BANK_BODY_PATTERNS[i][1];
+  }
   return null;
+}
+function inferBankName(body,address){
+  var fromSender=inferBankFromSender(address);
+  if(fromSender)return fromSender;
+  return inferBankFromBody(body);
 }
 function extractAccountFromSms(body){
   var b=String(body||''),patterns=[
-    /(?:a\/c|acct|account)\s*(?:no\.?|number)?[:\s]*(?:x{2,}|\*{2,}|X{2,})*(\d{4,})/i,
+    /(?:a\/c|a\/c\.|ac|acct|account)\s*(?:no\.?|number|#)?\s*[:\-]?\s*(?:x{1,}|\*{1,}|X{1,})*(\d{4,18})/i,
+    /(?:a\/c|acct|account)\s*(?:no\.?|number)?[:\s]*(?:x{2,}|\*{2,}|X{2,})*(\d{4})\b/i,
+    /(?:ending|ends)\s*(?:with\s*)?(?:x+|\*+|X+)*(\d{4})\b/i,
     /(?:x{4,}|\*{4,}|X{4,})(\d{4})\b/,
-    /(?:a\/c|acct)\s*(?:no\.?)?[:\s]*(\d{8,18})/i,
-    /(?:no\.?\s*)(?:x{2,}|\*{2,})(\d{4})\b/i
-  ],i,m;
-  for(i=0;i<patterns.length;i++){m=b.match(patterns[i]);if(m&&m[1])return m[1];}
-  return null;
+    /(?:no\.?\s*)(?:x{2,}|\*{2,}|X{2,})(\d{4})\b/i,
+    /(?:a\/c|acct)\s*(?:no\.?)?[:\s]*(\d{8,18})/i
+  ],i,m,best=null;
+  for(i=0;i<patterns.length;i++){
+    m=b.match(patterns[i]);
+    if(m&&m[1]){
+      var digits=String(m[1]).replace(/\D/g,'');
+      if(digits.length>=4){
+        if(!best||digits.length>best.length)best=digits;
+      }
+    }
+  }
+  return best;
+}
+function extractHolderFromSms(body){
+  var m=String(body||'').match(/dear\s+([A-Za-z][A-Za-z\s.'-]{1,40}?),/i);
+  if(m&&m[1])return m[1].trim().replace(/\s+/g,' ');
+  return '';
 }
 function extractBalanceFromSms(body){
   var b=String(body||''),patterns=[
-    /(?:total\s*)?(?:avl|available)\s*bal(?:ance)?[:\s-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /bal(?:ance)?\s*(?:is|:|-)\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:is\s+)?(?:avl|available|your|the)/i,
-    /(?:closing|clear)\s*bal(?:ance)?[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /(?:a\/c|acct)[^\d]{0,50}(?:bal|balance)[^\d]{0,30}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /(?:credited|debited|withdrawn|deposited)[\s\S]{0,90}(?:avl|available)\s*bal[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /\bbal[:\s]+(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /(?:balance\s+in\s+your\s+a\/c)[\s\S]{0,40}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+    /(?:total\s*)?(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:avl|available)\s*bal[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /bal(?:ance)?\s*(?:is|as\s+on|now)\s*[:\-]?\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:closing|clear)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:balance\s+in\s+your\s+a\/c)[\s\S]{0,50}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:credited|debited|withdrawn|deposited|transferred)[\s\S]{0,120}(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:a\/c|acct)[^\d]{0,60}(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
   ],i,m,amt;
-  for(i=0;i<patterns.length;i++){m=b.match(patterns[i]);if(m&&m[1]){amt=parseInrAmount(m[1]);if(amt!=null)return amt;}}
+  for(i=0;i<patterns.length;i++){
+    m=b.match(patterns[i]);
+    if(m&&m[1]){amt=parseInrAmount(m[1]);if(amt!=null)return amt;}
+  }
   return null;
 }
-function isBankSms(body,address){
-  var t=(String(body||'')+' '+String(address||'')).toLowerCase();
-  if(/credited|debited|withdrawn|deposited|avl\s*bal|available\s*bal|a\/c|acct|imps|neft|rtgs|txn|transaction|bal\s*is|balance\s*is/i.test(t))return true;
-  if(/sbi|hdfc|icici|axis|kotak|pnb|bob|canara|union|idbi|yes\s*bank|indusind|bank\b/i.test(t))return true;
-  return false;
+function isBalanceAlertSms(body){
+  var b=String(body||'');
+  return /(?:avl|available)\s*bal|balance\s*(?:is|as\s+on|now)|closing\s*bal|clear\s*bal|balance\s+in\s+your\s+a\/c/i.test(b);
 }
 function looksLikeBankSms(body,address){
-  if(isBankSms(body,address))return true;
   var bal=extractBalanceFromSms(body);
   if(bal==null)return false;
-  if(extractAccountFromSms(body)||inferBankName(body,address))return true;
-  if(/(?:rs\.?|inr|₹)\s*[\d,]+/i.test(body))return true;
+  if(!isBalanceAlertSms(body))return false;
+  if(inferBankFromSender(address))return true;
+  if(inferBankFromBody(body))return true;
+  if(extractAccountFromSms(body)&&/(?:a\/c|acct|account|avl\s*bal|available\s*bal)/i.test(body))return true;
   return false;
 }
 function maskBankAccount(acct){
@@ -2367,24 +2450,38 @@ function formatInr(n){
   return '₹ '+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function parseBankAccountsFromSms(smsList){
-  var map={},keys,k,row,bals,sum,i;
+  var map={},keys,k,row,bals,sum,i,acctKey;
   (smsList||[]).forEach(function(s){
     if(!s||!s.body||!looksLikeBankSms(s.body,s.address))return;
     var bal=extractBalanceFromSms(s.body);
     if(bal==null)return;
-    var acct=extractAccountFromSms(s.body)||'Unknown';
-    var bank=inferBankName(s.body,s.address)||'Bank';
-    k=bank+'|'+acct;
-    if(!map[k])map[k]={bank:bank,account:acct,balances:[],latestMs:0,latestDate:''};
-    map[k].balances.push(bal);
+    var acct=extractAccountFromSms(s.body)||'';
+    var bank=inferBankName(s.body,s.address);
+    if(!bank)return;
+    acctKey=acct||'NA';
+    k=bank+'|'+acctKey;
+    if(!map[k])map[k]={bank:bank,account:acct,holder:'',balances:[],latestMs:0,latestDate:'',sender:''};
+    row=map[k];
+    if(!row.account&&acct)row.account=acct;
+    var holder=extractHolderFromSms(s.body);
+    if(holder&&!row.holder)row.holder=holder;
+    row.balances.push(bal);
     var ms=s.date||s.date_ms||0;
-    if(ms>=map[k].latestMs){map[k].latestMs=ms;map[k].latestDate=s.date_readable||'';map[k].current=bal;}
+    if(ms>=row.latestMs){
+      row.latestMs=ms;
+      row.latestDate=s.date_readable||'';
+      row.current=bal;
+      row.sender=s.address||'';
+      if(holder)row.holder=holder;
+      if(acct)row.account=acct;
+    }
   });
   keys=Object.keys(map);
   return keys.map(function(key){
     row=map[key];bals=row.balances;sum=0;
     for(i=0;i<bals.length;i++)sum+=bals[i];
-    return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account),
+    return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account||'Unknown'),
+      holder:row.holder||'',sender:row.sender||'',
       current:row.current!=null?row.current:bals[bals.length-1],average:sum/bals.length,
       highest:Math.max.apply(null,bals),lowest:Math.min.apply(null,bals),count:bals.length,latestDate:row.latestDate};
   }).sort(function(a,b){return a.bank.localeCompare(b.bank);});
@@ -2413,13 +2510,17 @@ function renderBankAccounts(){
   if(emptyEl)emptyEl.style.display='none';
   if(!listEl)return;
   listEl.innerHTML=banks.map(function(b){
-    return '<div class="bank-card"><div class="bank-card-top"><div style="font-size:24px">🏦</div><div><div class="bank-name">'+esc(b.bank)+'</div><div class="bank-acct">A/C '+esc(b.accountMask)+'</div></div></div>'+
+    var sub=[b.holder?'👤 '+esc(b.holder):'',b.accountMask!=='Unknown'?'A/C '+esc(b.accountMask):''].filter(Boolean).join(' · ');
+    return '<div class="bank-card"><div class="bank-card-top"><div style="font-size:24px">🏦</div><div><div class="bank-name">'+esc(b.bank)+'</div>'+
+      (sub?'<div class="bank-acct">'+sub+'</div>':'')+
+      (b.sender?'<div class="bank-acct" style="margin-top:2px">via '+esc(b.sender)+'</div>':'')+
+      '</div></div>'+
       '<div class="bank-grid">'+
-      '<div class="bank-stat"><div class="bank-stat-lbl">CURRENT</div><div class="bank-stat-val current">'+formatInr(b.current)+'</div></div>'+
+      '<div class="bank-stat"><div class="bank-stat-lbl">CURRENT BALANCE</div><div class="bank-stat-val current">'+formatInr(b.current)+'</div></div>'+
       '<div class="bank-stat"><div class="bank-stat-lbl">AVERAGE</div><div class="bank-stat-val">'+formatInr(b.average)+'</div></div>'+
       '<div class="bank-stat"><div class="bank-stat-lbl">HIGHEST</div><div class="bank-stat-val">'+formatInr(b.highest)+'</div></div>'+
       '<div class="bank-stat"><div class="bank-stat-lbl">LOWEST</div><div class="bank-stat-val">'+formatInr(b.lowest)+'</div></div>'+
-      '</div><div class="bank-meta">'+b.count+' balance SMS'+(b.latestDate?' · Latest: '+esc(b.latestDate):'')+'</div></div>';
+      '</div><div class="bank-meta">'+b.count+' balance alert SMS'+(b.latestDate?' · Updated: '+esc(b.latestDate):'')+'</div></div>';
   }).join('');
 }
 
