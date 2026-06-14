@@ -621,31 +621,65 @@ async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
         return False
 
 
+async def open_instant_fetch_session(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+) -> UidaiBrowserSession | None:
+    """Adopt pool tab, fill form, fresh captcha — live browser kept for OTP."""
+    nm = normalize_name(name)
+    mob = re.sub(r'\D', '', (mobile or '').strip())
+    if not mob:
+        return None
+    slot = _pool_key(pool)
+    if not pool_form_ready(pool):
+        try:
+            await asyncio.wait_for(warm_standby_slot(slot), timeout=10.0)
+        except Exception as e:
+            log.warning('open_instant_fetch_session warm %s: %s', pool, e)
+        if not pool_form_ready(pool):
+            return None
+    browser = UidaiBrowserSession(pool=pool)
+    browser.name = nm
+    browser.mobile = mob
+    browser.name_skipped = is_skip_name(name)
+    try:
+        png = await browser.instant_fetch(nm, mob)
+        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
+        if browser._page and browser._context and png and txn and len(png) >= 200:
+            log.info(
+                'open_instant_fetch_session pool=%s txn=%s… bytes=%s',
+                pool, txn[:8], len(png),
+            )
+            return browser
+    except Exception as e:
+        log.warning('open_instant_fetch_session pool=%s: %s', pool, e)
+    try:
+        await browser.close(keep_warm=True)
+    except Exception:
+        pass
+    return None
+
+
 async def fresh_retrieve_captcha(
     name: str,
     mobile: str,
     *,
     pool: str = 'eid',
 ) -> tuple[bytes, str] | None:
-    """Fill + refresh with change detection — for /pdf where stale cache breaks OTP."""
-    if not pool_form_ready(pool):
-        try:
-            await warm_standby_slot(_pool_key(pool))
-        except Exception:
-            pass
-    browser = UidaiBrowserSession(pool=pool)
+    """Fresh captcha image — closes browser after capture (PDF HTTP OTP path)."""
+    browser = await open_instant_fetch_session(name, mobile, pool=pool)
+    if not browser:
+        return None
+    png = browser._captcha_png_cache
+    txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
     try:
-        png = await browser.instant_fetch(name, mobile)
-        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
-        if png and txn and len(png) >= 200:
-            log.info('fresh_retrieve_captcha pool=%s txn=%s… bytes=%s', pool, txn[:8], len(png))
-            return png, txn
-    except Exception as e:
-        log.warning('fresh_retrieve_captcha pool=%s: %s', pool, e)
-        try:
-            await browser.close(keep_warm=True)
-        except Exception:
-            pass
+        await browser.close(keep_warm=True)
+    except Exception:
+        pass
+    if png and txn and len(png) >= 200:
+        return png, txn
     return None
 
 
@@ -655,14 +689,7 @@ async def instant_retrieve_captcha(
     *,
     pool: str = 'uid',
 ) -> tuple[bytes, str] | None:
-    """Preloaded pool — in-place fill + captcha (~1s). Falls back to adopt path."""
-    if pool == 'eid':
-        return await fresh_retrieve_captcha(name, mobile, pool=pool)
-    hit = await instant_pool_captcha(name, mobile, pool=pool)
-    if hit:
-        return hit
-    if not pool_form_ready(pool):
-        return None
+    """Fresh captcha from pool — always uses full browser refresh path."""
     return await fresh_retrieve_captcha(name, mobile, pool=pool)
 
 
@@ -1578,6 +1605,26 @@ class UidaiBrowserSession:
             ok, status, text, extra = await self._post_uidai_in_page(payload, logs, 'xhr', label)
         return ok, status, text, extra
 
+    async def ensure_browser_live(self) -> None:
+        """Ensure Playwright context exists for UIDAI API calls (no captcha refresh)."""
+        if self._context and self._page:
+            try:
+                if not self._page.is_closed():
+                    self.touch()
+                    return
+            except Exception:
+                pass
+        if not self.name or not self.mobile:
+            raise RuntimeError('Browser not started — run /fetch again')
+        self._page = None
+        self._context = None
+        if not await self._try_adopt_standby():
+            await self.start()
+        if await self._form_on_page():
+            await self._fill_fields_only_fast()
+        if not self._context:
+            raise RuntimeError('Browser not started — run /fetch again')
+
     async def send_otp(
         self,
         captcha: str,
@@ -1588,6 +1635,7 @@ class UidaiBrowserSession:
         captcha = (captcha or '').strip().lower()
         if not captcha:
             raise ValueError('Captcha required — enter 4–8 characters from the image')
+        await self.ensure_browser_live()
         step_fn = on_step or self._on_step
         total = 6
         logs: list[dict[str, Any]] = []
@@ -1598,10 +1646,15 @@ class UidaiBrowserSession:
                 await step_fn(n, total, msg)
 
         await s(1, f'Captcha fill: {captcha}')
-        await self.page.fill('input[name="captcha"]', captcha)
+        try:
+            await self.page.fill('input[name="captcha"]', captcha)
+        except Exception:
+            append_log(logs, 'info', 'Captcha fill skipped — using paired txn from image')
 
         await s(2, 'captchaTxnID read…')
-        txn = await self._extract_captcha_txn()
+        txn = str(self.captcha_txn_id or self._captcha_cache_txn or '').strip()
+        if not txn:
+            txn = await self._extract_captcha_txn()
         if not txn:
             try:
                 txn = await self._wait_captcha_txn(8.0)
@@ -1614,8 +1667,9 @@ class UidaiBrowserSession:
                     await s(6, 'Done')
                     self.last_logs = logs
                     return self._api_result(logs, otp_ok=False, captcha=captcha)
+        self.captcha_txn_id = txn
 
-        option = await self._read_option()
+        option = self.option or await self._read_option()
 
         payload = build_otp_payload(
             name=self.name,
@@ -1669,6 +1723,7 @@ class UidaiBrowserSession:
     async def submit_otp(self, otp: str, on_step: StepCb | None = None) -> dict[str, Any]:
         """Verify SMS OTP — UIDAI sends Aadhaar/EID to registered mobile."""
         otp = re.sub(r'\s+', '', otp.strip())
+        await self.ensure_browser_live()
         step_fn = on_step or self._on_step
         total = 5
         logs: list[dict[str, Any]] = []

@@ -48,8 +48,7 @@ from browser_session import (
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
     fresh_retrieve_captcha,
-    instant_pool_captcha,
-    instant_retrieve_captcha,
+    open_instant_fetch_session,
     pool_form_ready,
     pool_is_warm,
     pool_slot_ready,
@@ -509,50 +508,34 @@ async def _turbo_fetch(
     mobile: str,
     progress: LoadingScreen,
 ) -> bool:
-    """Pool hot → captcha in ~1s. Returns False → use slow path."""
+    """Pool adopt + fresh captcha + live browser for OTP (~2s)."""
     if not uidai_instant_form():
         return False
-    hit = await instant_retrieve_captcha(name, mobile, pool='uid')
-    if not hit and not pool_form_ready('uid'):
-        try:
-            from browser_session import STANDBY_UID, warm_standby_slot
-            await asyncio.wait_for(warm_standby_slot(STANDBY_UID), timeout=10.0)
-            hit = await instant_retrieve_captcha(name, mobile, pool='uid')
-        except Exception as e:
-            log.warning('fetch turbo warm retry: %s', e)
-    if not hit:
+    browser = await open_instant_fetch_session(name, mobile, pool='uid')
+    if not browser:
         return False
-    png, txn = hit
-    existing = SESSIONS.get(chat_id)
-    if existing and await existing.page_alive():
-        sess = existing
-    else:
-        old = SESSIONS.pop(chat_id, None)
-        if old:
-            try:
-                await old.close(keep_warm=True)
-            except Exception:
-                pass
-        sess = UidaiBrowserSession(pool='uid')
-        SESSIONS[chat_id] = sess
+    old = SESSIONS.pop(chat_id, None)
+    if old:
+        try:
+            await old.close(keep_warm=True)
+        except Exception:
+            pass
+    SESSIONS[chat_id] = browser
+    await _wire_fetch_progress(browser, progress)
     try:
-        sess.name = normalize_name(name)
-        sess.mobile = mobile.strip()
-        sess.captcha_txn_id = txn
-        sess._captcha_png_cache = png
-        sess._captcha_cache_txn = txn
-        sess._captcha_cache_at = time.monotonic()
-        sess._captcha_consumed = False
-        sess.form_ready = True
-        sess.touch()
-        await _reply_captcha(update, sess, png, instant=True)
-        sess._captcha_photo_sent = True
+        png = browser._captcha_png_cache
+        await _reply_captcha(update, browser, png, instant=True)
+        browser._captcha_photo_sent = True
         await progress.on_captcha_dispatched()
         await _hold_captcha_terminal(progress, instant=True)
         return True
     except Exception as e:
         log.warning('turbo fetch failed, slow path: %s', e)
         SESSIONS.pop(chat_id, None)
+        try:
+            await browser.close(keep_warm=True)
+        except Exception:
+            pass
         return False
 
 
