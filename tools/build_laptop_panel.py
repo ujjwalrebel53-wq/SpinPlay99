@@ -36,6 +36,10 @@ LAPTOP_CSS = """
     .modal-overlay{background:rgba(0,0,0,0.65)!important}
     .rebel-wizard-fill{transition:none!important}
     .tbl-wrap{box-shadow:none!important}
+    #devList{contain:content;overflow-anchor:none}
+    .dev-item{contain:layout style}
+    .data-section{contain:layout style}
+    .bank-list{contain:content}
 """
 
 REPLACEMENTS = [
@@ -85,6 +89,12 @@ def patch_aadhar_paths(text: str) -> str:
         "var list=[path, dir+'laptop.php', dir+'sex.php', dir+'aadhar.php', '/api/aadhar'];",
     )
 
+def patch_laptop_mode(text: str) -> str:
+    return text.replace(
+        "var IS_LAPTOP_MODE=/laptop\\.php/i.test(String(location.pathname||''));",
+        "var IS_LAPTOP_MODE=true;",
+    )
+
 def patch_auth_paths(text: str) -> str:
     return text.replace(
         "var REBEL_PANEL_SELF=(location.pathname.split('/').pop()||'sex.php').toLowerCase();",
@@ -101,6 +111,7 @@ def main():
     text = patch_init3d(text)
     text = patch_aadhar_paths(text)
     text = patch_auth_paths(text)
+    text = patch_laptop_mode(text)
     banner = (
         '<div class="laptop-banner"><strong>Laptop Mode</strong> — flat 2D UI, same features as '
         '<a href="sex.php">sex.php</a>. Optimized for low-end devices.</div>\n'
