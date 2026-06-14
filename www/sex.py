@@ -48,12 +48,15 @@ from browser_session import (
     capture_phase2_captcha_on_pool,
     ensure_pool_warm,
     fresh_retrieve_captcha,
+    instant_pool_captcha,
     open_instant_fetch_session,
     pool_form_ready,
     pool_is_warm,
     pool_slot_ready,
     prefill_standby_name,
+    prime_pool_captchas_now,
     refresh_standby_captcha,
+    schedule_pool_captcha_prime,
     shutdown_browser_pool,
     _schedule_background,
 )
@@ -581,18 +584,20 @@ async def _turbo_pdf_phase1(
     dob_norm: str | None,
     pdf_pass: str,
 ) -> bool:
-    """EID pool — guaranteed fresh captcha for /pdf phase 1."""
+    """EID pool — instant fill + fresh captcha (~3–6s)."""
     if not uidai_instant_form():
         return False
     sess.clear_browser_captcha()
-    hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
+    hit = await instant_pool_captcha(name, mobile, pool='eid')
     if not hit and not pool_form_ready('eid'):
         try:
             from browser_session import STANDBY_EID, warm_standby_slot
-            await asyncio.wait_for(warm_standby_slot(STANDBY_EID), timeout=10.0)
-            hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
+            await asyncio.wait_for(warm_standby_slot(STANDBY_EID), timeout=8.0)
+            hit = await instant_pool_captcha(name, mobile, pool='eid')
         except Exception as e:
             log.warning('pdf turbo warm retry: %s', e)
+    if not hit:
+        hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
     if not hit:
         log.info(
             'pdf turbo miss — eid_form=%s eid_captcha=%s',
@@ -1274,6 +1279,12 @@ async def _phase2_after_otp1(
         await progress.fail(f'Phase 2 fail: {e}')
 
 
+async def on_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Any message/command — keep all 3 pool captchas hot in background."""
+    if update.effective_message:
+        schedule_pool_captcha_prime('activity')
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id, chat_id = _ids(update)
     uid, starter = _track_user(update)
@@ -1751,6 +1762,8 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    schedule_pool_captcha_prime('fetch')
+    _schedule_background(prime_pool_captchas_now('fetch'), label='fetch-prime')
     if not await guard(update):
         return
     if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
@@ -1802,6 +1815,8 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    schedule_pool_captcha_prime('pdf')
+    _schedule_background(prime_pool_captchas_now('pdf'), label='pdf-prime')
     if not await guard(update):
         return
     if not await guard_credits(update, ACCESS.credit_pdf_cost(), action='/pdf'):
@@ -1859,6 +1874,7 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    schedule_pool_captcha_prime('text')
     if not await guard(update):
         return
     if not update.message or not update.message.text:
@@ -1885,6 +1901,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = normalize_name(text)
         assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name})
         _schedule_pool_prefill_name(name, 'eid')
+        _schedule_background(prime_pool_captchas_now('pdf-name'), label='pdf-eid-prime')
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1929,6 +1946,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
         if mode == FLOW_MODE_DOWNLOAD:
+            _schedule_background(prime_pool_captchas_now('pdf-mobile'), label='pdf-mobile-prime')
             if dob_bypass_on():
                 await _start_download_flow(update, cid, name, mobile)
             else:
@@ -2287,17 +2305,19 @@ async def warm_pool_job(context) -> None:
     default_warm = '1' if uidai_fast() else '0'
     if os.getenv('UIDAI_POOL_WARM', default_warm).strip().lower() in ('0', 'false', 'no', 'off'):
         return
-    if pool_is_warm():
-        return
     try:
-        await asyncio.wait_for(ensure_pool_warm(), timeout=120)
+        if pool_is_warm():
+            await asyncio.wait_for(prime_pool_captchas_now('job'), timeout=45.0)
+        else:
+            await asyncio.wait_for(ensure_pool_warm(), timeout=120)
+            await prime_pool_captchas_now('job-after-warm')
     except Exception as e:
         log.warning('pool warm skip: %s', e)
 
 
 async def standby_captcha_job(context) -> None:
     try:
-        await refresh_standby_captcha()
+        await prime_pool_captchas_now('standby-job')
     except Exception as e:
         log.debug('standby captcha refresh: %s', e)
 
@@ -2363,7 +2383,8 @@ async def _startup_pool_warm() -> None:
         return
     try:
         await asyncio.wait_for(ensure_pool_warm(), timeout=120)
-        log.info('UIDAI triple pool preloaded — instant /fetch ready')
+        await prime_pool_captchas_now('startup')
+        log.info('UIDAI triple pool preloaded — instant /fetch + /pdf ready')
     except Exception as e:
         log.warning('startup pool warm: %s', e)
 
@@ -2437,14 +2458,16 @@ def main() -> None:
     app.add_handler(CommandHandler('user', cmd_user))
     app.add_handler(CommandHandler('users', cmd_user))
     app.add_handler(CommandHandler('access', cmd_access))
+    app.add_handler(MessageHandler(filters.ALL, on_user_activity), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 
     if app.job_queue:
         warm_delay = 0 if uidai_fast() else 5
-        standby_first = 10 if uidai_fast() else 60
+        standby_first = 8 if uidai_fast() else 60
+        standby_interval = 45 if uidai_fast() else 120
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
-        app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
+        app.job_queue.run_repeating(standby_captcha_job, interval=standby_interval, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
         app.job_queue.run_repeating(idle_session_job, interval=15, first=20)
         log.info('24h keepalive every %ss | idle timeout %ss', KEEPALIVE_INTERVAL_SEC, FLOW_IDLE_SEC)
