@@ -49,7 +49,6 @@ from browser_session import (
     ensure_pool_warm,
     instant_pool_captcha,
     instant_retrieve_captcha,
-    get_standby_captcha_pair,
     pool_form_ready,
     pool_is_warm,
     pool_slot_ready,
@@ -476,8 +475,8 @@ async def _send_captcha_ready(
     *,
     instant: bool = False,
 ) -> None:
-    cap = await sess.ensure_fresh_captcha_png()
     if not sess._captcha_photo_sent:
+        cap = await sess.ensure_fresh_captcha_png()
         await _reply_captcha(update, sess, cap, instant=instant)
         sess._captcha_photo_sent = True
     await progress.on_captcha_dispatched()
@@ -542,6 +541,7 @@ async def _turbo_fetch(
         sess._captcha_png_cache = png
         sess._captcha_cache_txn = txn
         sess._captcha_cache_at = time.monotonic()
+        sess._captcha_consumed = False
         sess.form_ready = True
         sess.touch()
         await _reply_captcha(update, sess, png, instant=True)
@@ -805,11 +805,6 @@ async def _prime_pdf_phase1_open(
         if hit:
             sess.prime_browser_captcha(hit[0], hit[1])
             return True
-    pair = get_standby_captcha_pair('eid')
-    if pair and not refresh:
-        sess.prime_browser_captcha(pair[0], pair[1])
-        if _captcha_prime_ok(sess):
-            return True
     browser = await _pdf_browser_session(chat_id, None, pool='eid')
     for attempt in range(3):
         try:
@@ -879,11 +874,6 @@ async def _prime_pdf_browser_captcha(
     if phase_key.startswith('phase1'):
         if mode in ('auto', 'browser', ''):
             if await _prime_pdf_phase1_open(sess, progress, chat_id, refresh=refresh):
-                return True
-        pair = get_standby_captcha_pair('eid')
-        if pair and sess.name and sess.mobile and not refresh:
-            sess.prime_browser_captcha(pair[0], pair[1])
-            if _captcha_prime_ok(sess):
                 return True
         if mode == 'http':
             return await _try_http_captcha_prime(sess, phase)

@@ -270,10 +270,6 @@ async def fetch_pdf_browser_captcha(
             eid=eid,
             on_step=on_step,
         )
-    pair = get_standby_captcha_pair('eid')
-    if pair and name and mobile:
-        log.info('fetch_pdf_browser_captcha — standby cache hit')
-        return pair
     return await fetch_captcha_from_page(
         UIDAI_PAGE_URL,
         name=name,
@@ -296,12 +292,6 @@ async def fetch_captcha_from_page(
     """Browser captcha snapshot — UIDAI HTTP captcha API often returns 500."""
     is_retrieve = 'retrieve-eid-uid' in page_url
     is_download = 'genricdownload' in page_url.lower() or 'downloadaadhaar' in page_url.lower()
-    if is_retrieve and name and mobile:
-        pair = get_standby_captcha_pair()
-        if pair:
-            log.info('fetch_captcha_from_page — standby cache hit')
-            return pair
-
     sess = UidaiBrowserSession(on_step=on_step)
     net_captcha: dict[str, Any] = {}
 
@@ -325,16 +315,15 @@ async def fetch_captcha_from_page(
             form_wait = 10.0 if uidai_fast() else 22.0
             if not await sess._poll_form(form_wait):
                 raise RuntimeError('Retrieve form timeout')
-            await sess.page.fill('input[name="name"]', normalize_name(name))
-            await sess.page.fill('input[name="mobile"]', mobile.strip())
+            sess.name = normalize_name(name)
+            sess.mobile = mobile.strip()
+            await sess.page.fill('input[name="name"]', sess.name)
+            await sess.page.fill('input[name="mobile"]', sess.mobile)
             await sess.page.evaluate(SET_OPTION_JS, option)
-            await asyncio.sleep(_ui_delay(0.6))
-            poll_sleep = _ui_delay(0.35)
-            for _ in range(_poll_attempts(50)):
-                txn_pre = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
-                if txn_pre:
-                    break
-                await asyncio.sleep(poll_sleep)
+            await sess.refresh_captcha()
+            png, txn = sess._captcha_png_cache, sess.captcha_txn_id
+            if len(png or b'') >= 200 and txn:
+                return png, txn
         elif is_download:
             await asyncio.sleep(_ui_delay(1.2))
             if eid:
@@ -578,15 +567,11 @@ async def instant_pool_captcha(
         filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, {'name': nm, 'mobile': mob})
         if not filled:
             log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
-        txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=4.0 if uidai_fast() else 6.0)
+        await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+        await asyncio.sleep(_ui_delay(0.45))
+        txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
         png, cap_txn = await _capture_page_captcha(page)
-        txn = (txn or cap_txn or str(sb.get('captcha_txn_id') or '')).strip()
-        if len(png) < 200 or not txn:
-            await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-            await asyncio.sleep(_ui_delay(0.45))
-            txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=5.0 if uidai_fast() else 8.0)
-            png, cap_txn = await _capture_page_captcha(page)
-            txn = (txn or cap_txn or '').strip()
+        txn = (txn or cap_txn or '').strip()
         if len(png) < 200 or not txn:
             return None
         sb['captcha_png'] = png
@@ -941,20 +926,14 @@ class UidaiBrowserSession:
         return age <= min(CAPTCHA_CACHE_TTL_SEC, captcha_max_age_sec())
 
     async def ensure_fresh_captcha_png(self) -> bytes:
-        """Always serve a captcha that was not already submitted in this session."""
+        """Click refresh and return a brand-new captcha for this request."""
         if not self._page:
             raise RuntimeError('Browser not started — run /fetch again')
-        if not self._captcha_cache_fresh():
-            await self.refresh_captcha()
-            self._captcha_consumed = False
-            self.reset_captcha_notify()
-        elif not self.peek_captcha_png():
-            await self.prefetch_captcha()
-        png = self.peek_captcha_png() or self._captcha_png_cache
+        await self.refresh_captcha()
+        self._captcha_consumed = False
+        self.reset_captcha_notify()
+        png = self._captcha_png_cache
         if len(png or b'') < 200 or not self.captcha_txn_id:
-            await self.refresh_captcha()
-            png = self._captcha_png_cache
-        if len(png or b'') < 200:
             raise RuntimeError('Captcha not ready — try /fetch again')
         return png
 
@@ -1078,11 +1057,8 @@ class UidaiBrowserSession:
         self._page = page
         sb['context'] = None
         sb['page'] = None
-        if sb.get('captcha_png'):
-            self._captcha_png_cache = sb['captcha_png']
-            self._captcha_cache_txn = sb.get('captcha_txn_id', '')
-            self.captcha_txn_id = self._captcha_cache_txn
-            self._captcha_cache_at = float(sb.get('cached_at') or time.monotonic())
+        self._clear_captcha_cache()
+        self.captcha_txn_id = ''
         self.form_ready = True
         self.page_loaded_at = time.monotonic()
         self.touch()
@@ -1209,6 +1185,9 @@ class UidaiBrowserSession:
         self.name_skipped = is_skip_name(name)
         self.otp_txn_id = ''
         self.last_captcha = ''
+        self._captcha_consumed = False
+        self._clear_captcha_cache()
+        self.reset_captcha_notify()
         self.touch()
 
         if not self._page:
@@ -1218,18 +1197,8 @@ class UidaiBrowserSession:
             if not await self._try_adopt_standby():
                 await self.start()
 
-        pair = get_standby_captcha_pair(self._pool_slot)
-        if pair:
-            self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
-            self._captcha_cache_at = time.monotonic()
-
         await self._fill_fields_only_fast()
-        if not self._captcha_cache_fresh():
-            await self.refresh_captcha()
-        else:
-            png = self.peek_captcha_png()
-            if not png or not self.captcha_txn_id:
-                await self.refresh_captcha()
+        await self.refresh_captcha()
         png = self._captcha_png_cache
         if png and self.captcha_txn_id:
             await self._notify_captcha_ready(png, self.captcha_txn_id)
@@ -1318,6 +1287,7 @@ class UidaiBrowserSession:
         self.otp_txn_id = ''
         self.last_captcha = ''
         self.captcha_txn_id = ''
+        self._captcha_consumed = False
         self._clear_captcha_cache()
         self.reset_captcha_notify()
 
