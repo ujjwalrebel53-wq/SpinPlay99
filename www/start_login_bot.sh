@@ -26,6 +26,26 @@ for f in login_bot.py login_try.py pdf_unlock.py uidai_api.py bot_access.py; do
   [ -f "$f" ] || { echo "❌ Missing: $f"; exit 1; }
 done
 
+python3 -c "import selenium" 2>/dev/null || {
+  echo "Installing selenium…"
+  pip install -q "selenium>=4.15.0"
+}
+python3 -c "
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+o = Options()
+o.add_argument('--headless=new')
+o.add_argument('--no-sandbox')
+o.add_argument('--disable-dev-shm-usage')
+d = webdriver.Chrome(options=o)
+d.get('about:blank')
+d.quit()
+print('✅ Selenium + Chrome OK')
+" || {
+  echo "❌ Selenium/Chrome fail — install: apt install chromium-browser OR set CHROME_BIN in .env"
+  exit 1
+}
+
 curl -fsS "https://api.telegram.org/bot${LOGIN_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true" >/dev/null 2>&1 || true
 
 nohup python3 login_bot.py >> login_bot.log 2>&1 &

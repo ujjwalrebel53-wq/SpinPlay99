@@ -13,7 +13,9 @@ Login Try Bot — PDF-style password candidates on YOUR configured login page.
   LOGIN_SUBMIT_SELECTOR=button[type="submit"]
   LOGIN_SUCCESS_URL=dashboard    # optional — URL fragment after success
   LOGIN_SUCCESS_SELECTOR=        # optional — CSS on success page
-  LOGIN_FAIL_TEXT=invalid        # optional
+  LOGIN_FAIL_TEXT=invalid        # optional — page text on wrong password
+  LOGIN_WAIT_SEC=8               # Selenium wait for auto success detect
+  CHROME_BIN=                    # optional chromium path
   TELEGRAM_OWNER_ID=...
   TELEGRAM_ALLOWED_CHAT_IDS=...
 
@@ -61,7 +63,7 @@ OWNER_ID = os.getenv('TELEGRAM_OWNER_ID', '').strip()
 ALLOWED = {x.strip() for x in os.getenv('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',') if x.strip()}
 ACCESS = AccessControl(OWNER_ID, ALLOWED)
 
-LOGIN_TRY_VERSION = '1.1.0'
+LOGIN_TRY_VERSION = '1.2.0'
 MAX_TRIES = int(os.getenv('LOGIN_MAX_TRIES', '120') or '120')
 
 
@@ -102,7 +104,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f'🔐 Login Try Bot v{LOGIN_TRY_VERSION}\n'
         '━━━━━━━━━━━━━━━━━━━━\n\n'
-        'PDF jaisa password guess — tumhari **configured site** pe.\n\n'
+        'PDF jaisa password guess — tumhari **configured site** pe (Selenium).\n'
+        'Login ke baad bot khud detect karega — URL/cookie/form change.\n\n'
         'Commands:\n'
         '/try NAME DOB — e.g. /try KAMAR JAHAN 01/01/1991\n'
         '/try NAME — year brute (1920–2020)\n'
@@ -131,11 +134,12 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(
         f'🌐 URL: {cfg.url}\n'
         f'👤 Username: {cfg.username}\n'
+        f'Engine: Selenium (auto-detect)\n'
         f'User field: `{cfg.user_selector}`\n'
         f'Pass field: `{cfg.pass_selector}`\n'
         f'Submit: `{cfg.submit_selector or "(Enter)"}`\n'
-        f'Success URL contains: `{cfg.success_url_contains or "—"}`\n'
-        f'Max tries: {MAX_TRIES}',
+        f'Success URL contains: `{cfg.success_url_contains or "auto"}`\n'
+        f'Wait: {cfg.wait_sec}s · Max tries: {MAX_TRIES}',
         parse_mode='Markdown',
     )
 

