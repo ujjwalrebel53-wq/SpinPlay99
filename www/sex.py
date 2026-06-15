@@ -1238,6 +1238,7 @@ async def _phase2_after_otp1(
         sess.mobile,
         mode='pdf',
         name=_flow_display_name(chat_id, sess),
+        eid=sess.eid or '',
     )
 
     try:
@@ -2042,6 +2043,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             a_sess.mobile,
             mode='pdf',
             name=_flow_display_name(cid, a_sess),
+            eid=a_sess.eid or '',
         )
         await _on_captcha_text_submitted(
             update, cid, progress, step_text='Download OTP request',
@@ -2092,7 +2094,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text('Session expired — /pdf again.')
             return
         progress = get_loading_screen(cid) or await get_or_create_loading_screen(
-            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+            update.message, cid, a_sess.mobile, mode='pdf',
+            name=_flow_display_name(cid, a_sess), eid=a_sess.eid or '',
         )
         await progress.advance_after_captcha('EID verify request')
         try:
@@ -2110,8 +2113,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             result.get('aadhaar_dob') or FLOW.get(cid, {}).get('dob'),
                         ),
                     )
+                eid = str(result.get('eid') or a_sess.eid or '').strip()
+                if eid:
+                    await progress.set_eid(eid)
                 await progress.append_milestone(
-                    uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'),
+                    uidai_user_message({**result, 'eid': eid}, kind='retrieve'),
                     footer='Phase 2 — captcha loading…',
                 )
                 old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
@@ -2150,6 +2156,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             a_sess.mobile,
             mode='pdf',
             name=_flow_display_name(cid, a_sess),
+            eid=a_sess.eid or '',
         )
         await progress.advance_after_captcha('PDF download request')
         try:

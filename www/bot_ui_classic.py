@@ -94,11 +94,14 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
         return '✅ e-Aadhaar PDF ready — check the document below.'
 
     if kind == 'retrieve' and result.get('retrieve_ok'):
-        eid = result.get('eid') or ''
+        eid = str(result.get('eid') or '').strip()
         a_name = result.get('aadhaar_name') or ''
-        if eid and kind == 'retrieve':
-            lines = ['✅ Phase 1 complete — EID retrieved.']
-            if a_name:
+        if eid:
+            lines = [
+                '✅ Phase 1 complete — EID retrieved.',
+                f'🆔 EID: {eid}',
+            ]
+            if a_name and not is_skip_name(a_name):
                 lines.append(f'👤 Name: {a_name}')
             lines.append('📱 OTP 2 will be sent for PDF download.')
             return '\n'.join(lines)
@@ -192,11 +195,12 @@ async def create_loading_screen(
     *,
     mode: TerminalMode = 'fetch',
     name: str = '',
+    eid: str = '',
 ) -> 'LoadingScreen':
     await dismiss_loading_screen(chat_id)
     sent = await message.reply_text('⏳')
     _LOADING_MSG_BY_CHAT[chat_id] = sent
-    screen = LoadingScreen(sent, mobile, mode=mode, name=name)
+    screen = LoadingScreen(sent, mobile, mode=mode, name=name, eid=eid)
     _LOADING_SCREEN_BY_CHAT[chat_id] = screen
     await screen.show()
     return screen
@@ -213,6 +217,7 @@ async def get_or_create_loading_screen(
     *,
     mode: TerminalMode = 'fetch',
     name: str = '',
+    eid: str = '',
 ) -> LoadingScreen:
     """Reuse session terminal — stays open until OTP phase completes."""
     existing = _LOADING_SCREEN_BY_CHAT.get(chat_id)
@@ -220,9 +225,11 @@ async def get_or_create_loading_screen(
         existing.mobile = (mobile or '').strip() or existing.mobile
         if name:
             existing.name = name
+        if eid:
+            existing.eid = eid.strip()
         existing.mode = mode
         return existing
-    return await create_loading_screen(message, chat_id, mobile, mode=mode, name=name)
+    return await create_loading_screen(message, chat_id, mobile, mode=mode, name=name, eid=eid)
 
 
 class LoadingScreen:
@@ -239,12 +246,14 @@ class LoadingScreen:
         *,
         mode: TerminalMode = 'fetch',
         name: str = '',
+        eid: str = '',
         title: str = '',
         subtitle: str = '',
     ) -> None:
         self._msg = msg
         self.mobile = (mobile or '').strip()
         self.name = name
+        self.eid = (eid or '').strip()
         self.mode = mode
         self.title = title
         self.subtitle = subtitle
@@ -303,6 +312,15 @@ class LoadingScreen:
         if '[+] Captcha ready' not in '\n'.join(self._lines) and not self._captcha_dispatched:
             self._lines.append('[+] Captcha ready — reply with text')
         self._footer = hint or 'Reply with captcha (4–8 chars)'
+        await self._render(force=True)
+
+    async def set_eid(self, eid: str) -> None:
+        """Show full enrolment ID on loading panel."""
+        self.eid = (eid or '').strip()
+        if self.eid:
+            line = f'[+] EID: {self.eid}'
+            if not self._lines or self._lines[-1] != line:
+                self._lines.append(line)
         await self._render(force=True)
 
     async def append_milestone(self, text: str = '', *, footer: str = '') -> None:
@@ -457,6 +475,8 @@ class LoadingScreen:
         display_name = (self.name or '').strip()
         if display_name and not is_skip_name(display_name):
             body.append(f'[👤] NAME:    {display_name}')
+        if self.eid:
+            body.append(f'[🆔] EID:     {self.eid}')
         body.extend([
             '━━━━━━━━━━━━━━━━━━━━',
             '[⚡️] LIVE TERMINAL:',

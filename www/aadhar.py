@@ -779,7 +779,7 @@ class AadharSession:
 
         self.eid = str((resp.get('responseData') or {}).get('eidNumber') or '')
         self._apply_resident_profile(resp, tag='phase1-verify')
-        self._log(f'[+] EID Retrieved: {self.eid[:6]}…{self.eid[-4:] if len(self.eid) > 10 else self.eid}')
+        self._log(f'[+] EID Retrieved: {self.eid}')
         ident = self.resolved_identity()
         return {
             **self._result_base(),
