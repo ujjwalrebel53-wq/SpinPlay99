@@ -36,10 +36,11 @@ LAPTOP_CSS = """
     .modal-overlay{background:rgba(0,0,0,0.65)!important}
     .rebel-wizard-fill{transition:none!important}
     .tbl-wrap{box-shadow:none!important}
-    #devList{contain:content;overflow-anchor:none}
-    .dev-item{contain:layout style}
+    #devList{contain:content;overflow-anchor:none;content-visibility:auto}
+    .dev-item{contain:layout style;content-visibility:auto}
     .data-section{contain:layout style}
     .bank-list{contain:content}
+    .tbl-wrap tbody tr{content-visibility:auto;contain-intrinsic-size:auto 36px}
 """
 
 REPLACEMENTS = [
