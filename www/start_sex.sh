@@ -1,6 +1,12 @@
 #!/bin/bash
 # Classic /open SMS bot — Indian VPS (multi-user safe restart)
 set -e
+
+# Must run under bash (not sh/dash)
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+
 cd "$(dirname "$0")"
 
 echo "=== Rebel /open bot (sex.py) ==="
@@ -30,7 +36,7 @@ _stop_old() {
   sleep 1
 }
 
-# Kill stale processes FIRST — then take lock (old bug: flock before kill blocked restart)
+# Kill stale processes FIRST — then take lock
 _stop_old
 
 exec 9>"$LOCKFILE"
@@ -77,17 +83,5 @@ if ! "$PYTHON" -c "import dotenv, telegram, playwright" 2>/dev/null; then
   exit 1
 fi
 
-if [ "${SKIP_CHROMIUM_TEST:-1}" != "1" ]; then
-  timeout 20 "$PYTHON" -c "
-from playwright.sync_api import sync_playwright
-p = sync_playwright().start()
-b = p.chromium.launch(headless=True, args=['--no-sandbox','--disable-dev-shm-usage'])
-b.close()
-p.stop()
-" 2>/dev/null || echo "⚠ Chromium test failed — starting bot anyway"
-else
-  echo "⚠ Chromium preflight skipped (SKIP_CHROMIUM_TEST=1)"
-fi
-
-echo "✅ Starting sex.py ($PYTHON)…"
+echo "✅ Starting sex.py with $PYTHON …"
 exec "$PYTHON" sex.py
