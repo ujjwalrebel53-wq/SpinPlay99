@@ -2514,4 +2514,10 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        log.exception('Fatal startup error')
+        raise SystemExit(f'❌ Bot crash on start: {exc}') from exc
