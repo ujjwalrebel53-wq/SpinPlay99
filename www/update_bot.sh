@@ -10,7 +10,7 @@ FILES=(
   update_bot.sh
   sex.py aadhar.py browser_session.py react_extract.py pdf_unlock.py pdf_preview.py
   uidai_api.py bot_ui_classic.py bot_access.py captcha_solver.py audio_captcha.py
-  start_sex.sh install_all.sh requirements_sex.txt bot_ui_classic.py
+  start_sex.sh fix_telegram_network.sh install_all.sh requirements_sex.txt bot_ui_classic.py
 )
 
 ASSET_FILES=(

@@ -2456,8 +2456,21 @@ async def _register_bot_commands(application: Application) -> None:
     application.create_task(_startup_pool_warm(), name='startup_pool_warm')
 
 
+def _resolve_telegram_proxy() -> str | None:
+    """TELEGRAM_PROXY, else UIDAI_PROXY when Telegram blocked on VPS."""
+    explicit = os.getenv('TELEGRAM_PROXY', '').strip()
+    if explicit:
+        return explicit
+    if os.getenv('TELEGRAM_USE_UIDAI_PROXY', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+        return None
+    uidai = (os.getenv('UIDAI_PROXY') or '').strip()
+    if uidai and uidai.lower() not in ('auto', '0', 'false', 'no', 'off'):
+        return uidai
+    return None
+
+
 def _telegram_http_request() -> HTTPXRequest:
-    proxy = os.getenv('TELEGRAM_PROXY', '').strip() or None
+    proxy = _resolve_telegram_proxy()
     return HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=30.0,
@@ -2469,7 +2482,7 @@ def _telegram_http_request() -> HTTPXRequest:
 
 def _build_application() -> Application:
     req = _telegram_http_request()
-    proxy = os.getenv('TELEGRAM_PROXY', '').strip()
+    proxy = _resolve_telegram_proxy() or ''
     builder = (
         Application.builder()
         .token(TOKEN)
