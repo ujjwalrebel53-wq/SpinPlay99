@@ -120,6 +120,13 @@ _POOL: dict[str, Any] = {
     STANDBY_PDF: _empty_standby(),
 }
 
+# Limit parallel Chromium — OOM fix when many users hit together.
+_BROWSER_SEM = asyncio.Semaphore(max(1, int(os.getenv('UIDAI_BROWSER_SLOTS', '3'))))
+_WARM_LOCK = asyncio.Lock()
+_WARM_TASK: asyncio.Task | None = None
+_PRIME_LOCK = asyncio.Lock()
+_PRIME_TASK: asyncio.Task | None = None
+
 
 def _slot_lock(slot: str) -> asyncio.Lock:
     return _POOL['slot_locks'][slot]
@@ -555,6 +562,18 @@ async def instant_pool_captcha(
     if not pool_form_ready(pool):
         log.info('instant_pool_captcha — pool %s not ready', pool)
         return None
+    async with _BROWSER_SEM:
+        return await _instant_pool_captcha_locked(nm, mob, pool=pool, slot=slot, skip_replenish=skip_replenish)
+
+
+async def _instant_pool_captcha_locked(
+    nm: str,
+    mob: str,
+    *,
+    pool: str,
+    slot: str,
+    skip_replenish: bool,
+) -> tuple[bytes, str] | None:
     net_txn: dict[str, Any] = {}
     lock = _slot_lock(slot)
     await lock.acquire()
@@ -751,20 +770,24 @@ async def fast_refresh_standby_slot(slot: str) -> bool:
 
 
 async def fast_refresh_all_pool_captchas() -> int:
-    """Parallel fresh captcha on UID + EID + PDF tabs."""
+    """Sequential refresh on UID + EID + PDF — avoids RAM spike under load."""
     if not uidai_instant_form():
         return 0
     if not _browser_connected(_POOL.get('browser')):
         try:
-            await asyncio.wait_for(ensure_triple_pool_warm(), timeout=45.0)
+            await asyncio.wait_for(ensure_pool_warm(), timeout=90.0)
         except Exception as e:
             log.warning('fast_refresh_all warm: %s', e)
             return 0
-    results = await asyncio.gather(
-        *[fast_refresh_standby_slot(slot) for slot in STANDBY_SLOTS],
-        return_exceptions=True,
-    )
-    ok = sum(1 for r in results if r is True)
+    ok = 0
+    for slot in STANDBY_SLOTS:
+        try:
+            async with _BROWSER_SEM:
+                if await fast_refresh_standby_slot(slot):
+                    ok += 1
+        except Exception as e:
+            log.warning('fast_refresh slot %s: %s', slot, e)
+        await asyncio.sleep(0.15)
     log.info('Pool captcha prime — %s/3 slots refreshed', ok)
     return ok
 
@@ -773,42 +796,48 @@ _POOL_PRIME_AT = 0.0
 _POOL_PRIME_RUNNING = False
 
 
-async def _pool_captcha_prime_worker(label: str) -> None:
+async def _pool_captcha_prime_worker(label: str) -> int:
     global _POOL_PRIME_AT, _POOL_PRIME_RUNNING
     _POOL_PRIME_RUNNING = True
     try:
         _POOL_PRIME_AT = time.monotonic()
-        if not pool_is_warm():
-            await asyncio.wait_for(ensure_triple_pool_warm(), timeout=60.0)
-        await fast_refresh_all_pool_captchas()
-        log.debug('pool captcha prime done (%s)', label)
+        return await fast_refresh_all_pool_captchas()
     except Exception as e:
         log.warning('pool captcha prime %s: %s', label, e)
+        return 0
     finally:
         _POOL_PRIME_RUNNING = False
 
 
 def schedule_pool_captcha_prime(label: str = 'activity') -> None:
-    """On user message/command — debounced parallel refresh of all 3 pool captchas."""
+    """Debounced pool refresh — safe when many users message at once."""
     if not uidai_instant_form():
         return
     now = time.monotonic()
-    if _POOL_PRIME_RUNNING:
+    if _POOL_PRIME_RUNNING or (_WARM_TASK is not None and not _WARM_TASK.done()):
         return
-    if now - _POOL_PRIME_AT < 1.5:
+    if now - _POOL_PRIME_AT < 5.0:
         return
     _schedule_background(_pool_captcha_prime_worker(label), label=f'pool-prime-{label}')
 
 
 async def prime_pool_captchas_now(label: str = 'now') -> int:
-    """Immediate refresh — no debounce (e.g. /pdf /fetch start)."""
-    global _POOL_PRIME_AT
+    """Single-flight captcha refresh — concurrent callers share one task."""
+    global _PRIME_TASK
     if not uidai_instant_form():
         return 0
-    _POOL_PRIME_AT = time.monotonic()
-    if not pool_is_warm():
-        await asyncio.wait_for(ensure_triple_pool_warm(), timeout=60.0)
-    return await fast_refresh_all_pool_captchas()
+    async with _PRIME_LOCK:
+        if _PRIME_TASK is not None and not _PRIME_TASK.done():
+            try:
+                return await _PRIME_TASK
+            except Exception:
+                pass
+        _PRIME_TASK = asyncio.create_task(_pool_captcha_prime_worker(label))
+    try:
+        return await _PRIME_TASK
+    except Exception as e:
+        log.warning('prime_pool_captchas_now %s: %s', label, e)
+        return 0
 
 
 async def refresh_standby_captcha() -> bool:
@@ -999,26 +1028,52 @@ async def capture_phase2_captcha_on_pool(eid: str) -> tuple[bytes, str]:
             lock.release()
 
 
-async def ensure_triple_pool_warm() -> bool:
-    """Chromium + 3 UIDAI tabs (UID / EID / PDF) — always on."""
+async def _ensure_triple_pool_warm_staged() -> bool:
+    """Staged warm — one tab at a time; easier on RAM with many users."""
     try:
-        await _pool_browser()
-        results = await asyncio.gather(
-            warm_standby_slot(STANDBY_UID),
-            warm_standby_slot(STANDBY_EID),
-            warm_standby_slot(STANDBY_PDF),
-            return_exceptions=True,
-        )
-        ok = sum(1 for r in results if r is True)
-        log.info('Triple pool warm — %s/3 slots ready', ok)
-        return ok >= 2
+        async with _BROWSER_SEM:
+            await _pool_browser()
     except Exception as e:
-        log.warning('Triple pool warm fail: %s', e)
+        log.warning('pool browser launch: %s', e)
         return False
+    ok_uid = False
+    ok_eid = False
+    ok_pdf = False
+    try:
+        async with _BROWSER_SEM:
+            ok_uid = await warm_standby_slot(STANDBY_UID)
+        await asyncio.sleep(0.25)
+        async with _BROWSER_SEM:
+            ok_eid = await warm_standby_slot(STANDBY_EID)
+        await asyncio.sleep(0.25)
+        async with _BROWSER_SEM:
+            ok_pdf = await warm_standby_slot(STANDBY_PDF)
+    except Exception as e:
+        log.warning('staged pool warm: %s', e)
+    ok = sum(1 for x in (ok_uid, ok_eid, ok_pdf) if x)
+    log.info('Triple pool warm (staged) — %s/3 slots ready', ok)
+    return bool(ok_uid or ok >= 2)
+
+
+async def ensure_triple_pool_warm() -> bool:
+    return await _ensure_triple_pool_warm_staged()
 
 
 async def ensure_pool_warm() -> bool:
-    return await ensure_triple_pool_warm()
+    """Single-flight — many users share one warm task."""
+    global _WARM_TASK
+    async with _WARM_LOCK:
+        if _WARM_TASK is not None and not _WARM_TASK.done():
+            try:
+                return await _WARM_TASK
+            except Exception:
+                pass
+        _WARM_TASK = asyncio.create_task(_ensure_triple_pool_warm_staged())
+    try:
+        return await _WARM_TASK
+    except Exception as e:
+        log.warning('ensure_pool_warm: %s', e)
+        return False
 
 
 def _browser_launch_opts() -> dict[str, Any]:
