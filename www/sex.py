@@ -21,7 +21,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
-from telegram.error import Conflict, InvalidToken
+from telegram.error import Conflict, InvalidToken, NetworkError, TimedOut
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -2455,6 +2456,32 @@ async def _register_bot_commands(application: Application) -> None:
     application.create_task(_startup_pool_warm(), name='startup_pool_warm')
 
 
+def _telegram_http_request() -> HTTPXRequest:
+    proxy = os.getenv('TELEGRAM_PROXY', '').strip() or None
+    return HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+        proxy=proxy,
+    )
+
+
+def _build_application() -> Application:
+    req = _telegram_http_request()
+    proxy = os.getenv('TELEGRAM_PROXY', '').strip()
+    builder = (
+        Application.builder()
+        .token(TOKEN)
+        .concurrent_updates(True)
+        .request(req)
+        .get_updates_request(req)
+    )
+    if proxy:
+        log.info('Telegram via proxy: %s', proxy.split('@')[-1] if '@' in proxy else proxy[:40])
+    return builder.post_init(_register_bot_commands).post_shutdown(_on_shutdown).build()
+
+
 def main() -> None:
     if not TOKEN:
         raise SystemExit(
@@ -2465,14 +2492,7 @@ def main() -> None:
     if ':' not in TOKEN or len(TOKEN) < 20:
         raise SystemExit('❌ Invalid TELEGRAM_BOT_TOKEN — copy from @BotFather')
 
-    app = (
-        Application.builder()
-        .token(TOKEN)
-        .concurrent_updates(True)
-        .post_init(_register_bot_commands)
-        .post_shutdown(_on_shutdown)
-        .build()
-    )
+    app = _build_application()
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
     app.add_handler(CommandHandler('fetch', cmd_fetch))
@@ -2538,6 +2558,14 @@ if __name__ == '__main__':
             '❌ 409 Conflict — bot do jagah chal raha hai.\n'
             '   Fix: pkill -9 -f sex.py; pkill -9 -f bot.py; FORCE_RESTART=1 bash start_sex.sh'
         ) from None
+    except (TimedOut, NetworkError) as exc:
+        raise SystemExit(
+            '❌ Telegram NETWORK TIMEOUT — VPS api.telegram.org tak nahi pahunch raha.\n'
+            '   Test: curl -I --connect-timeout 15 https://api.telegram.org\n'
+            '   Fix 1: Firewall outbound port 443 allow karo\n'
+            '   Fix 2: Indian ISP VPS use karo (AWS/DO pe Telegram block hota hai)\n'
+            '   Fix 3: .env mein TELEGRAM_PROXY=socks5://user:pass@host:port'
+        ) from exc
     except Exception as exc:
         log.exception('Fatal startup error')
         raise SystemExit(f'❌ Bot crash on start: {exc}') from exc

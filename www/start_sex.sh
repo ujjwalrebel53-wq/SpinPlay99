@@ -2,7 +2,6 @@
 # Classic /open SMS bot — Indian VPS (multi-user safe restart)
 set -e
 
-# Must run under bash (not sh/dash)
 if [ -z "${BASH_VERSION:-}" ]; then
   exec bash "$0" "$@"
 fi
@@ -12,6 +11,7 @@ cd "$(dirname "$0")"
 echo "=== Rebel /open bot (sex.py) ==="
 
 LOCKFILE="${TMPDIR:-/tmp}/aadhar-bot-sex.lock"
+CURL_TG=(--connect-timeout 15 --max-time 25 -fsS)
 
 _stop_old() {
   pkill -TERM -f "[p]ython3.*sex\.py" 2>/dev/null || true
@@ -36,7 +36,6 @@ _stop_old() {
   sleep 1
 }
 
-# Kill stale processes FIRST — then take lock
 _stop_old
 
 exec 9>"$LOCKFILE"
@@ -61,14 +60,8 @@ done
 
 TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' | xargs)
 [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "❌ TELEGRAM_BOT_TOKEN empty in .env"; exit 1; }
-case "$TELEGRAM_BOT_TOKEN" in
-  *:*);;
-  *)
-    echo "❌ TELEGRAM_BOT_TOKEN format galat — 123456789:ABC... hona chahiye"
-    exit 1
-    ;;
-esac
-[ "${#TELEGRAM_BOT_TOKEN}" -ge 20 ] || { echo "❌ TELEGRAM_BOT_TOKEN too short"; exit 1; }
+case "$TELEGRAM_BOT_TOKEN" in *:*) ;; *)
+  echo "❌ TELEGRAM_BOT_TOKEN format galat"; exit 1 ;; esac
 
 PYTHON=python3
 if [ -f .venv/bin/python ]; then
@@ -79,16 +72,35 @@ elif [ -f .venv/bin/activate ]; then
   PYTHON=python3
 fi
 
+_telegram_network_fail() {
+  echo "❌ NETWORK — VPS api.telegram.org tak nahi pahunch raha (timeout)"
+  echo ""
+  echo "Ye token problem NAHI hai — firewall / datacenter block hai."
+  echo ""
+  echo "Test:"
+  echo "  curl -I --connect-timeout 15 https://api.telegram.org"
+  echo ""
+  echo "Fix:"
+  echo "  1. Outbound HTTPS 443 allow (ufw/iptables)"
+  echo "  2. Indian ISP VPS use karo (Jio/Airtel broadband ya desi host)"
+  echo "  3. .env mein proxy: TELEGRAM_PROXY=socks5://user:pass@host:port"
+  echo "  4. pip install 'httpx[socks]' agar SOCKS proxy ho"
+  exit 1
+}
+
 if command -v curl >/dev/null 2>&1; then
-  curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true" >/dev/null \
-    && echo "✅ Webhook cleared" || echo "⚠ Webhook clear failed"
-  ME_JSON=$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe" 2>&1) || {
-    echo "❌ TELEGRAM_BOT_TOKEN reject — Telegram getMe fail:"
+  if ! curl "${CURL_TG[@]}" -o /dev/null "https://api.telegram.org" 2>/dev/null; then
+    _telegram_network_fail
+  fi
+  curl "${CURL_TG[@]}" "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true" >/dev/null \
+    && echo "✅ Webhook cleared" || echo "⚠ Webhook clear skipped"
+  ME_JSON=$(curl "${CURL_TG[@]}" "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe" 2>&1) || {
+    if echo "$ME_JSON" | grep -qiE 'timed out|timeout|couldn.t connect|failed to connect'; then
+      _telegram_network_fail
+    fi
+    echo "❌ Token reject — getMe fail:"
     echo "$ME_JSON" | head -5
-    echo ""
-    echo "Fix: @BotFather → /mybots → API Token → copy into .env"
-    echo "  TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI..."
-    echo "  (no quotes, no spaces)"
+    echo "Fix: @BotFather se sahi TELEGRAM_BOT_TOKEN .env mein (no quotes)"
     exit 1
   }
   BOT_USER=$(echo "$ME_JSON" | grep -o '"username":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -97,7 +109,6 @@ fi
 
 if ! "$PYTHON" -c "import dotenv, telegram, playwright" 2>/dev/null; then
   echo "❌ Python deps missing — run: bash install_all.sh"
-  echo "   Or: pip install -r requirements_sex.txt && playwright install chromium"
   exit 1
 fi
 
