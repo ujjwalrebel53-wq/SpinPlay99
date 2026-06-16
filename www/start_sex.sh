@@ -59,9 +59,16 @@ done
 
 [ -f .env ] || { echo "❌ .env missing — run setup_india_vps.sh or bash setup.sh TOKEN CHAT_ID"; exit 1; }
 
-TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' | xargs)
 [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "❌ TELEGRAM_BOT_TOKEN empty in .env"; exit 1; }
-[ "${#TELEGRAM_BOT_TOKEN}" -ge 20 ] || { echo "❌ TELEGRAM_BOT_TOKEN invalid (too short)"; exit 1; }
+case "$TELEGRAM_BOT_TOKEN" in
+  *:*);;
+  *)
+    echo "❌ TELEGRAM_BOT_TOKEN format galat — 123456789:ABC... hona chahiye"
+    exit 1
+    ;;
+esac
+[ "${#TELEGRAM_BOT_TOKEN}" -ge 20 ] || { echo "❌ TELEGRAM_BOT_TOKEN too short"; exit 1; }
 
 PYTHON=python3
 if [ -f .venv/bin/python ]; then
@@ -74,7 +81,18 @@ fi
 
 if command -v curl >/dev/null 2>&1; then
   curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true" >/dev/null \
-    && echo "✅ Webhook cleared" || echo "⚠ Webhook clear failed (check token)"
+    && echo "✅ Webhook cleared" || echo "⚠ Webhook clear failed"
+  ME_JSON=$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe" 2>&1) || {
+    echo "❌ TELEGRAM_BOT_TOKEN reject — Telegram getMe fail:"
+    echo "$ME_JSON" | head -5
+    echo ""
+    echo "Fix: @BotFather → /mybots → API Token → copy into .env"
+    echo "  TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI..."
+    echo "  (no quotes, no spaces)"
+    exit 1
+  }
+  BOT_USER=$(echo "$ME_JSON" | grep -o '"username":"[^"]*"' | head -1 | cut -d'"' -f4)
+  echo "✅ Token OK — @${BOT_USER:-bot}"
 fi
 
 if ! "$PYTHON" -c "import dotenv, telegram, playwright" 2>/dev/null; then

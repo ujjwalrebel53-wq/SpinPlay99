@@ -6,9 +6,16 @@ cd "$(dirname "$0")"
 echo "=== Bot diagnose ==="
 
 if [ -f .env ]; then
-  tok=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  tok=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' | xargs)
   if [ -n "$tok" ]; then
     echo "Token: ${tok:0:12}… (${#tok} chars)"
+    if command -v curl >/dev/null 2>&1; then
+      if curl -fsS "https://api.telegram.org/bot${tok}/getMe" >/dev/null 2>&1; then
+        echo "✅ getMe OK"
+      else
+        echo "❌ getMe FAIL — token galat ya revoked (@BotFather se naya lo)"
+      fi
+    fi
   else
     echo "❌ TELEGRAM_BOT_TOKEN empty"
   fi

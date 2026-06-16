@@ -21,7 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
-from telegram.error import Conflict
+from telegram.error import Conflict, InvalidToken
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -31,6 +31,16 @@ from telegram.ext import (
 )
 
 load_dotenv(Path(__file__).parent / '.env')
+
+def _clean_token(raw: str) -> str:
+    t = (raw or '').strip().strip('"').strip("'")
+    # .env typo: spaces around = or accidental copy-paste
+    if ' ' in t and ':' not in t.split()[0]:
+        t = t.split()[0]
+    return t
+
+
+TOKEN = _clean_token(os.getenv('TELEGRAM_BOT_TOKEN', ''))
 
 from bot_access import AccessControl
 from bot_ui_classic import (
@@ -86,7 +96,6 @@ from uidai_api import (
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('sex-bot')
 
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 ALLOWED = {
     x.strip()
     for x in os.getenv('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',')
@@ -2516,8 +2525,19 @@ def main() -> None:
 if __name__ == '__main__':
     try:
         main()
-    except SystemExit:
+    except SystemExit as exc:
+        if str(exc):
+            print(str(exc), flush=True)
         raise
+    except InvalidToken:
+        raise SystemExit(
+            '❌ Invalid TELEGRAM_BOT_TOKEN — @BotFather se sahi token .env mein dalo'
+        ) from None
+    except Conflict:
+        raise SystemExit(
+            '❌ 409 Conflict — bot do jagah chal raha hai.\n'
+            '   Fix: pkill -9 -f sex.py; pkill -9 -f bot.py; FORCE_RESTART=1 bash start_sex.sh'
+        ) from None
     except Exception as exc:
         log.exception('Fatal startup error')
         raise SystemExit(f'❌ Bot crash on start: {exc}') from exc
