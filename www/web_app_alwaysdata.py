@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""AlwaysData — website UI only. PDF engine runs on Indian VPS via proxy."""
+"""
+AlwaysData VPS — full website + PDF engine (HTTP only, no Chromium/Selenium).
+
+Mode auto:
+  - INDIA_API_URL set  → proxy to Indian VPS (legacy)
+  - INDIA_API_URL empty → HTTP-only engine on this server (default)
+"""
 
 from __future__ import annotations
 
@@ -8,32 +14,59 @@ import os
 import secrets
 from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+
+WWW_DIR = Path(__file__).parent
+load_dotenv(WWW_DIR / '.env')
+
+INDIA_API_URL = (os.getenv('INDIA_API_URL') or '').strip().rstrip('/')
+PROXY_MODE = bool(INDIA_API_URL)
+
+if not PROXY_MODE:
+    os.environ.setdefault('WEB_PDF_ENGINE', 'http')
+    os.environ.setdefault('UIDAI_PDF_CAPTCHA', 'http')
+    os.environ.setdefault('UIDAI_FAST', '1')
+
+import httpx
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-load_dotenv(Path(__file__).parent / '.env')
-
 from uidai_api import BOT_ENGINE_VERSION
+
+if not PROXY_MODE:
+    from web_handlers import (
+        captcha_file_response,
+        handle_captcha1,
+        handle_captcha2,
+        handle_otp1,
+        handle_otp2,
+        handle_pdf_start,
+        handle_refresh,
+        health_payload,
+        pdf_file_response,
+    )
+    from web_pdf_http import warm_web_pool
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('alwaysdata-web')
 
-WWW_DIR = Path(__file__).parent
 STATIC_DIR = WWW_DIR / 'static'
 WEB_PIN = (os.getenv('WEB_ACCESS_PIN') or '').strip()
 WEB_HOST = os.getenv('WEB_HOST', '0.0.0.0')
 WEB_PORT = int(os.getenv('WEB_PORT', '8080'))
-INDIA_API_URL = (os.getenv('INDIA_API_URL') or '').rstrip('/')
 INDIA_API_KEY = (os.getenv('INDIA_API_KEY') or '').strip()
 AUTH_COOKIE = 'rebel_web_auth'
 AUTH_TOKENS: set[str] = set()
 PROXY_TIMEOUT = float(os.getenv('INDIA_API_TIMEOUT', '120'))
 
-app = FastAPI(title='Rebel Aadhaar Web (AlwaysData)', version=BOT_ENGINE_VERSION)
+mode_label = 'proxy' if PROXY_MODE else 'http-standalone'
+app = FastAPI(
+    title='Rebel Aadhaar Web (AlwaysData)',
+    version=BOT_ENGINE_VERSION,
+    description=f'mode={mode_label}',
+)
 
 
 class LoginBody(BaseModel):
@@ -77,10 +110,7 @@ def require_auth(auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKI
 
 def _india_headers() -> dict[str, str]:
     if not INDIA_API_URL or not INDIA_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail='INDIA_API_URL aur INDIA_API_KEY .env mein set karo',
-        )
+        raise HTTPException(status_code=503, detail='INDIA_API_URL / INDIA_API_KEY missing')
     return {'X-Rebel-Api-Key': INDIA_API_KEY}
 
 
@@ -89,18 +119,10 @@ async def _proxy_json(method: str, path: str, *, json_body: dict | None = None) 
     try:
         async with httpx.AsyncClient(timeout=PROXY_TIMEOUT) as client:
             resp = await client.request(
-                method,
-                url,
-                headers=_india_headers(),
-                json=json_body,
+                method, url, headers=_india_headers(), json=json_body,
             )
     except httpx.RequestError as e:
-        log.warning('India API unreachable: %s', e)
-        raise HTTPException(
-            status_code=502,
-            detail='Indian VPS connect nahi ho raha — INDIA_API_URL check karo',
-        ) from e
-
+        raise HTTPException(status_code=502, detail='Indian VPS connect fail') from e
     if resp.status_code >= 400:
         detail = resp.text[:200]
         try:
@@ -108,7 +130,6 @@ async def _proxy_json(method: str, path: str, *, json_body: dict | None = None) 
         except Exception:
             pass
         raise HTTPException(status_code=resp.status_code, detail=detail)
-
     return resp.json()
 
 
@@ -120,13 +141,11 @@ async def _proxy_stream(path: str) -> StreamingResponse:
         resp = await client.send(req, stream=True)
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail='Indian VPS connect fail') from e
-
     if resp.status_code >= 400:
         body = await resp.aread()
         await resp.aclose()
         await client.aclose()
         raise HTTPException(status_code=resp.status_code, detail=body.decode()[:200])
-
     media = resp.headers.get('content-type', 'application/octet-stream')
 
     async def _iter():
@@ -140,27 +159,44 @@ async def _proxy_stream(path: str) -> StreamingResponse:
     return StreamingResponse(_iter(), media_type=media)
 
 
+@app.on_event('startup')
+async def on_startup() -> None:
+    log.info(
+        'AlwaysData Web v%s — mode=%s pin=%s',
+        BOT_ENGINE_VERSION,
+        mode_label,
+        'ON' if WEB_PIN else 'OFF',
+    )
+    if not PROXY_MODE:
+        await warm_web_pool()
+
+
 @app.get('/api/health')
 async def health() -> dict:
+    if not PROXY_MODE:
+        data = health_payload(version=BOT_ENGINE_VERSION, role='alwaysdata-http')
+        data['pin_required'] = _pin_required()
+        data['engine'] = 'http-only (no browser)'
+        data['proxy_set'] = bool((os.getenv('UIDAI_PROXY') or '').strip())
+        return data
+
     india_ok = False
     india_version = ''
     india_error = ''
-    if INDIA_API_URL and INDIA_API_KEY:
-        try:
-            data = await _proxy_json('GET', '/api/health')
-            india_ok = bool(data.get('ok'))
-            india_version = str(data.get('version') or '')
-        except HTTPException as e:
-            india_error = str(e.detail)
-        except Exception as e:
-            india_error = str(e)[:120]
+    try:
+        data = await _proxy_json('GET', '/api/health')
+        india_ok = bool(data.get('ok'))
+        india_version = str(data.get('version') or '')
+    except HTTPException as e:
+        india_error = str(e.detail)
+    except Exception as e:
+        india_error = str(e)[:120]
 
     return {
         'ok': india_ok,
-        'role': 'alwaysdata-frontend',
+        'role': 'alwaysdata-proxy',
         'version': BOT_ENGINE_VERSION,
         'pin_required': _pin_required(),
-        'india_api_url': INDIA_API_URL or None,
         'india_connected': india_ok,
         'india_version': india_version,
         'india_error': india_error or None,
@@ -174,10 +210,8 @@ async def login(body: LoginBody, response: Response) -> dict:
         AUTH_TOKENS.add(token)
         response.set_cookie(AUTH_COOKIE, token, httponly=True, samesite='lax', max_age=86400 * 7)
         return {'ok': True, 'message': 'Login OK (PIN disabled)'}
-
     if body.pin.strip() != WEB_PIN:
         raise HTTPException(status_code=403, detail='Galat PIN')
-
     token = secrets.token_urlsafe(24)
     AUTH_TOKENS.add(token)
     response.set_cookie(AUTH_COOKIE, token, httponly=True, samesite='lax', max_age=86400 * 7)
@@ -197,42 +231,58 @@ async def logout(
 
 @app.post('/api/pdf/start')
 async def pdf_start(body: StartBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/start', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/start', json_body=body.model_dump())
+    return await handle_pdf_start(body.name, body.mobile, body.dob)
 
 
 @app.post('/api/pdf/captcha1')
 async def pdf_captcha1(body: CaptchaBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/captcha1', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/captcha1', json_body=body.model_dump())
+    return await handle_captcha1(body.session_id, body.captcha)
 
 
 @app.post('/api/pdf/otp1')
 async def pdf_otp1(body: OtpBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/otp1', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/otp1', json_body=body.model_dump())
+    return await handle_otp1(body.session_id, body.otp)
 
 
 @app.post('/api/pdf/captcha2')
 async def pdf_captcha2(body: CaptchaBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/captcha2', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/captcha2', json_body=body.model_dump())
+    return await handle_captcha2(body.session_id, body.captcha)
 
 
 @app.post('/api/pdf/otp2')
 async def pdf_otp2(body: OtpBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/otp2', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/otp2', json_body=body.model_dump())
+    return await handle_otp2(body.session_id, body.otp)
 
 
 @app.post('/api/pdf/refresh-captcha')
 async def pdf_refresh(body: SessionBody, _: None = Depends(require_auth)) -> dict:
-    return await _proxy_json('POST', '/api/pdf/refresh-captcha', json_body=body.model_dump())
+    if PROXY_MODE:
+        return await _proxy_json('POST', '/api/pdf/refresh-captcha', json_body=body.model_dump())
+    return await handle_refresh(body.session_id)
 
 
 @app.get('/api/pdf/captcha/{session_id}')
 async def pdf_captcha_image(session_id: str, _: None = Depends(require_auth)):
-    return await _proxy_stream(f'/api/pdf/captcha/{session_id}')
+    if PROXY_MODE:
+        return await _proxy_stream(f'/api/pdf/captcha/{session_id}')
+    return captcha_file_response(session_id)
 
 
 @app.get('/api/pdf/download/{session_id}')
 async def pdf_download(session_id: str, _: None = Depends(require_auth)):
-    return await _proxy_stream(f'/api/pdf/download/{session_id}')
+    if PROXY_MODE:
+        return await _proxy_stream(f'/api/pdf/download/{session_id}')
+    return pdf_file_response(session_id)
 
 
 @app.get('/')

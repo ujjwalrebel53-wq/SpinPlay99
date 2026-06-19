@@ -1,7 +1,8 @@
-"""Shared PDF API handlers — used by India engine and local web_app."""
+"""Shared PDF API handlers — browser or HTTP-only engine."""
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -11,16 +12,40 @@ from fastapi.responses import FileResponse
 
 from aadhar import dob_bypass_on
 from uidai_api import normalize_dob
-from web_pdf_service import (
-    STORE,
-    WebPdfSession,
-    refresh_captcha,
-    start_pdf_flow,
-    submit_captcha1,
-    submit_captcha2,
-    submit_otp1,
-    submit_otp2,
-)
+
+_CAPTCHA_MIN_BYTES = 80 if os.getenv('WEB_PDF_ENGINE', '').lower() in (
+    'http', 'http_only', '1',
+) else 500
+
+
+def _http_engine() -> bool:
+    return os.getenv('WEB_PDF_ENGINE', '').strip().lower() in ('http', 'http_only', '1')
+
+
+if _http_engine():
+    from web_pdf_http import (
+        STORE,
+        WebPdfSession,
+        refresh_captcha,
+        start_pdf_flow,
+        submit_captcha1,
+        submit_captcha2,
+        submit_otp1,
+        submit_otp2,
+        warm_web_pool,
+    )
+else:
+    from web_pdf_service import (
+        STORE,
+        WebPdfSession,
+        refresh_captcha,
+        start_pdf_flow,
+        submit_captcha1,
+        submit_captcha2,
+        submit_otp1,
+        submit_otp2,
+        warm_web_pool,
+    )
 
 MOBILE_RE = re.compile(r'^[6-9]\d{9}$')
 NAME_RE = re.compile(r'^[A-Za-z][A-Za-z\s\.]{1,59}$')
@@ -38,7 +63,7 @@ def session_payload(row: WebPdfSession) -> dict:
         'mobile': row.mobile,
         'name': row.name,
         'pdf_password_hint': row.pdf_password_hint,
-        'has_captcha': bool(len(png) >= 500),
+        'has_captcha': bool(len(png) >= _CAPTCHA_MIN_BYTES),
         'has_pdf': bool(row.unlocked_pdf or row.pdf_bytes),
         'pdf_unlocked': bool(row.unlocked_pdf),
         'pdf_password': row.pdf_password,
@@ -145,7 +170,7 @@ def captcha_file_response(session_id: str) -> FileResponse:
     if not row:
         raise HTTPException(status_code=410, detail='Session expire')
     png = row.aadhar.last_captcha_image or b''
-    if len(png) < 500:
+    if len(png) < _CAPTCHA_MIN_BYTES:
         raise HTTPException(status_code=404, detail='Captcha image nahi hai')
     tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
     try:

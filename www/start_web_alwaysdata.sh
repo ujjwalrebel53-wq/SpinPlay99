@@ -23,15 +23,19 @@ PORT="${PORT:-${WEB_PORT:-8080}}"
 PY="python"
 command -v python >/dev/null 2>&1 || PY="python3"
 
-if ! "$PY" -c "import fastapi, httpx" 2>/dev/null; then
+if ! "$PY" -c "import fastapi, requests" 2>/dev/null; then
   echo "[!] deps missing — bash setup_alwaysdata.sh"
   exit 1
 fi
 
-if [[ -z "${INDIA_API_URL:-}" || -z "${INDIA_API_KEY:-}" ]]; then
-  echo "[!] INDIA_API_URL aur INDIA_API_KEY .env mein set karo"
-  exit 1
+if [[ -z "${INDIA_API_URL:-}" ]]; then
+  export WEB_PDF_ENGINE="${WEB_PDF_ENGINE:-http}"
+  export UIDAI_PDF_CAPTCHA="${UIDAI_PDF_CAPTCHA:-http}"
 fi
 
-echo "[*] AlwaysData Web → India API: ${INDIA_API_URL}"
+if [[ -z "${INDIA_API_URL:-}" ]]; then
+  echo "[*] AlwaysData HTTP standalone (no browser)"
+else
+  echo "[*] AlwaysData proxy → ${INDIA_API_URL}"
+fi
 exec "$PY" -m uvicorn web_app_alwaysdata:app --host "$HOST" --port "$PORT" --app-dir "$ROOT"

@@ -116,13 +116,18 @@ async function boot() {
   try {
     const health = await api('/api/health');
     const ver = health.india_version || health.version;
-    $('versionBadge').textContent = health.india_connected === false && health.role === 'alwaysdata-frontend'
+    let badge = `v${ver || health.version}`;
+    if (health.engine) badge += ' · HTTP';
+    if (health.proxy_set === false && health.role === 'alwaysdata-http') {
+      setError('UIDAI_PROXY .env mein set karo — Indian proxy zaroori hai');
+    }
+    $('versionBadge').textContent = health.india_connected === false && health.role === 'alwaysdata-proxy'
       ? `v${health.version} · India OFF`
-      : `v${ver || health.version}`;
+      : badge;
     state.pinRequired = health.pin_required;
     state.dobBypass = health.dob_bypass;
 
-    if (health.india_connected === false && health.role === 'alwaysdata-frontend') {
+    if (health.india_connected === false && health.role === 'alwaysdata-proxy') {
       setError(health.india_error || 'Indian VPS connect nahi — INDIA_API_URL check karo');
     }
 
