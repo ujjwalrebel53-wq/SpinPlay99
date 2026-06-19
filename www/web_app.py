@@ -166,7 +166,7 @@ async def pdf_download(session_id: str, _: None = Depends(require_auth)):
 
 @app.get('/')
 async def index() -> HTMLResponse:
-    index_path = STATIC_DIR / 'index.html'
+    index_path = STATIC_DIR / 'website.html'
     if not index_path.is_file():
         return HTMLResponse('<h1>Rebel Web — static missing</h1>', status_code=500)
     return HTMLResponse(index_path.read_text(encoding='utf-8'))
