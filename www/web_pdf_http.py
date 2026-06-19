@@ -182,8 +182,21 @@ STORE = WebSessionStore()
 
 
 async def warm_web_pool() -> None:
-    """No browser pool — HTTP only."""
-    log.info('HTTP-only engine — no Playwright pool')
+    """HTTP-only — apply fastest free Indian proxy if UIDAI_PROXY=auto."""
+    try:
+        from proxy_india import _load_cache, fastest_proxy_url, load_ranked_proxies
+
+        raw = (os.getenv('UIDAI_PROXY') or '').strip().lower()
+        if raw in ('auto', 'india', ''):
+            picked = _load_cache() or fastest_proxy_url()
+            if picked:
+                os.environ['UIDAI_PROXY'] = picked
+                ranked = load_ranked_proxies()
+                city = ranked[0].get('city', '?') if ranked else '?'
+                log.info('HTTP engine proxy: %s (%s)', picked, city)
+    except Exception as e:
+        log.warning('proxy warm: %s', e)
+    log.info('HTTP-only engine — no Playwright')
 
 
 async def start_pdf_flow(name: str, mobile: str, dob: str | None) -> WebPdfSession:

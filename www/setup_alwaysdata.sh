@@ -57,8 +57,11 @@ FLOW_IDLE_SEC=300
 DOB_BYPASS=1
 
 # ★ ZAROORI — Indian proxy (AlwaysData France hai, UIDAI India)
-# Bina iske captcha/OTP fail hoga
-UIDAI_PROXY=socks5://USER:PASS@INDIAN_PROXY_HOST:1080
+# auto = fastest free proxy from proxy_ranked.json (bash refresh_free_proxy.sh)
+UIDAI_PROXY=auto
+
+# Ya manually fastest (benchmark 2026-06): Gandhinagar ~1.2s
+# UIDAI_PROXY=http://117.236.124.166:3128
 
 # Indian VPS proxy mode — khali chhodo (standalone)
 # INDIA_API_URL=

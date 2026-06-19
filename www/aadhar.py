@@ -251,7 +251,17 @@ class AadharSession:
         self._session.mount('https://', adapter)
         self._session.mount('http://', adapter)
         proxy = (os.getenv('UIDAI_PROXY') or '').strip()
-        if proxy and proxy.lower() not in ('auto', 'none', 'no', 'off', 'direct', ''):
+        if proxy.lower() in ('auto', 'india'):
+            try:
+                from proxy_india import _load_cache, fastest_proxy_url
+
+                proxy = _load_cache() or fastest_proxy_url() or ''
+                if proxy:
+                    os.environ['UIDAI_PROXY'] = proxy
+            except Exception as e:
+                log.warning('auto proxy pick fail: %s', e)
+                proxy = ''
+        if proxy and proxy.lower() not in ('auto', 'india', 'none', 'no', 'off', 'direct', ''):
             self._session.proxies = {'http': proxy, 'https': proxy}
             log.info('AadharSession proxy: %s', proxy.split('@')[-1][:40])
         self.on_log = on_log

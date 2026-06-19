@@ -177,7 +177,18 @@ async def health() -> dict:
         data = health_payload(version=BOT_ENGINE_VERSION, role='alwaysdata-http')
         data['pin_required'] = _pin_required()
         data['engine'] = 'http-only (no browser)'
-        data['proxy_set'] = bool((os.getenv('UIDAI_PROXY') or '').strip())
+        proxy = (os.getenv('UIDAI_PROXY') or '').strip()
+        data['proxy'] = proxy or None
+        try:
+            from proxy_india import load_ranked_proxies
+            ranked = load_ranked_proxies()
+            if ranked:
+                data['proxy_fastest'] = ranked[0].get('proxy')
+                data['proxy_city'] = ranked[0].get('city')
+                data['proxy_score_sec'] = ranked[0].get('score')
+        except Exception:
+            pass
+        data['proxy_set'] = bool(proxy and proxy.lower() not in ('none', 'no', 'off', 'direct', ''))
         return data
 
     india_ok = False
