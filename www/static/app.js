@@ -115,9 +115,16 @@ function applySession(data) {
 async function boot() {
   try {
     const health = await api('/api/health');
-    $('versionBadge').textContent = `v${health.version}`;
+    const ver = health.india_version || health.version;
+    $('versionBadge').textContent = health.india_connected === false && health.role === 'alwaysdata-frontend'
+      ? `v${health.version} · India OFF`
+      : `v${ver || health.version}`;
     state.pinRequired = health.pin_required;
     state.dobBypass = health.dob_bypass;
+
+    if (health.india_connected === false && health.role === 'alwaysdata-frontend') {
+      setError(health.india_error || 'Indian VPS connect nahi — INDIA_API_URL check karo');
+    }
 
     if (state.dobBypass) {
       $('dobLabel').classList.add('hidden');

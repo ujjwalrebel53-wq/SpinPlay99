@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""AlwaysData — website UI only. PDF engine runs on Indian VPS via proxy."""
+
+from __future__ import annotations
+
+import logging
+import os
+import secrets
+from pathlib import Path
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+load_dotenv(Path(__file__).parent / '.env')
+
+from uidai_api import BOT_ENGINE_VERSION
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+log = logging.getLogger('alwaysdata-web')
+
+WWW_DIR = Path(__file__).parent
+STATIC_DIR = WWW_DIR / 'static'
+WEB_PIN = (os.getenv('WEB_ACCESS_PIN') or '').strip()
+WEB_HOST = os.getenv('WEB_HOST', '0.0.0.0')
+WEB_PORT = int(os.getenv('WEB_PORT', '8080'))
+INDIA_API_URL = (os.getenv('INDIA_API_URL') or '').rstrip('/')
+INDIA_API_KEY = (os.getenv('INDIA_API_KEY') or '').strip()
+AUTH_COOKIE = 'rebel_web_auth'
+AUTH_TOKENS: set[str] = set()
+PROXY_TIMEOUT = float(os.getenv('INDIA_API_TIMEOUT', '120'))
+
+app = FastAPI(title='Rebel Aadhaar Web (AlwaysData)', version=BOT_ENGINE_VERSION)
+
+
+class LoginBody(BaseModel):
+    pin: str = Field(min_length=1, max_length=32)
+
+
+class StartBody(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    mobile: str = Field(min_length=10, max_length=10)
+    dob: str | None = Field(default=None, max_length=12)
+
+
+class CaptchaBody(BaseModel):
+    session_id: str
+    captcha: str = Field(min_length=4, max_length=8)
+
+
+class OtpBody(BaseModel):
+    session_id: str
+    otp: str = Field(min_length=6, max_length=6)
+
+
+class SessionBody(BaseModel):
+    session_id: str
+
+
+def _pin_required() -> bool:
+    return bool(WEB_PIN)
+
+
+def _check_auth(auth_cookie: str | None) -> bool:
+    if not _pin_required():
+        return True
+    return bool(auth_cookie and auth_cookie in AUTH_TOKENS)
+
+
+def require_auth(auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE)) -> None:
+    if not _check_auth(auth_cookie):
+        raise HTTPException(status_code=401, detail='PIN login zaroori hai')
+
+
+def _india_headers() -> dict[str, str]:
+    if not INDIA_API_URL or not INDIA_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail='INDIA_API_URL aur INDIA_API_KEY .env mein set karo',
+        )
+    return {'X-Rebel-Api-Key': INDIA_API_KEY}
+
+
+async def _proxy_json(method: str, path: str, *, json_body: dict | None = None) -> dict:
+    url = f'{INDIA_API_URL}{path}'
+    try:
+        async with httpx.AsyncClient(timeout=PROXY_TIMEOUT) as client:
+            resp = await client.request(
+                method,
+                url,
+                headers=_india_headers(),
+                json=json_body,
+            )
+    except httpx.RequestError as e:
+        log.warning('India API unreachable: %s', e)
+        raise HTTPException(
+            status_code=502,
+            detail='Indian VPS connect nahi ho raha — INDIA_API_URL check karo',
+        ) from e
+
+    if resp.status_code >= 400:
+        detail = resp.text[:200]
+        try:
+            detail = resp.json().get('detail', detail)
+        except Exception:
+            pass
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+
+    return resp.json()
+
+
+async def _proxy_stream(path: str) -> StreamingResponse:
+    url = f'{INDIA_API_URL}{path}'
+    try:
+        client = httpx.AsyncClient(timeout=PROXY_TIMEOUT)
+        req = client.build_request('GET', url, headers=_india_headers())
+        resp = await client.send(req, stream=True)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail='Indian VPS connect fail') from e
+
+    if resp.status_code >= 400:
+        body = await resp.aread()
+        await resp.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=resp.status_code, detail=body.decode()[:200])
+
+    media = resp.headers.get('content-type', 'application/octet-stream')
+
+    async def _iter():
+        try:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(_iter(), media_type=media)
+
+
+@app.get('/api/health')
+async def health() -> dict:
+    india_ok = False
+    india_version = ''
+    india_error = ''
+    if INDIA_API_URL and INDIA_API_KEY:
+        try:
+            data = await _proxy_json('GET', '/api/health')
+            india_ok = bool(data.get('ok'))
+            india_version = str(data.get('version') or '')
+        except HTTPException as e:
+            india_error = str(e.detail)
+        except Exception as e:
+            india_error = str(e)[:120]
+
+    return {
+        'ok': india_ok,
+        'role': 'alwaysdata-frontend',
+        'version': BOT_ENGINE_VERSION,
+        'pin_required': _pin_required(),
+        'india_api_url': INDIA_API_URL or None,
+        'india_connected': india_ok,
+        'india_version': india_version,
+        'india_error': india_error or None,
+    }
+
+
+@app.post('/api/login')
+async def login(body: LoginBody, response: Response) -> dict:
+    if not _pin_required():
+        token = secrets.token_urlsafe(24)
+        AUTH_TOKENS.add(token)
+        response.set_cookie(AUTH_COOKIE, token, httponly=True, samesite='lax', max_age=86400 * 7)
+        return {'ok': True, 'message': 'Login OK (PIN disabled)'}
+
+    if body.pin.strip() != WEB_PIN:
+        raise HTTPException(status_code=403, detail='Galat PIN')
+
+    token = secrets.token_urlsafe(24)
+    AUTH_TOKENS.add(token)
+    response.set_cookie(AUTH_COOKIE, token, httponly=True, samesite='lax', max_age=86400 * 7)
+    return {'ok': True, 'message': 'Login successful'}
+
+
+@app.post('/api/logout')
+async def logout(
+    response: Response,
+    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE),
+) -> dict:
+    if auth_cookie:
+        AUTH_TOKENS.discard(auth_cookie)
+    response.delete_cookie(AUTH_COOKIE)
+    return {'ok': True}
+
+
+@app.post('/api/pdf/start')
+async def pdf_start(body: StartBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/start', json_body=body.model_dump())
+
+
+@app.post('/api/pdf/captcha1')
+async def pdf_captcha1(body: CaptchaBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/captcha1', json_body=body.model_dump())
+
+
+@app.post('/api/pdf/otp1')
+async def pdf_otp1(body: OtpBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/otp1', json_body=body.model_dump())
+
+
+@app.post('/api/pdf/captcha2')
+async def pdf_captcha2(body: CaptchaBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/captcha2', json_body=body.model_dump())
+
+
+@app.post('/api/pdf/otp2')
+async def pdf_otp2(body: OtpBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/otp2', json_body=body.model_dump())
+
+
+@app.post('/api/pdf/refresh-captcha')
+async def pdf_refresh(body: SessionBody, _: None = Depends(require_auth)) -> dict:
+    return await _proxy_json('POST', '/api/pdf/refresh-captcha', json_body=body.model_dump())
+
+
+@app.get('/api/pdf/captcha/{session_id}')
+async def pdf_captcha_image(session_id: str, _: None = Depends(require_auth)):
+    return await _proxy_stream(f'/api/pdf/captcha/{session_id}')
+
+
+@app.get('/api/pdf/download/{session_id}')
+async def pdf_download(session_id: str, _: None = Depends(require_auth)):
+    return await _proxy_stream(f'/api/pdf/download/{session_id}')
+
+
+@app.get('/')
+async def index() -> HTMLResponse:
+    index_path = STATIC_DIR / 'index.html'
+    if not index_path.is_file():
+        return HTMLResponse('<h1>Rebel Web — static missing</h1>', status_code=500)
+    return HTMLResponse(index_path.read_text(encoding='utf-8'))
+
+
+if STATIC_DIR.is_dir():
+    app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
+
+
+def main() -> None:
+    import uvicorn
+
+    uvicorn.run(
+        'web_app_alwaysdata:app',
+        host=WEB_HOST,
+        port=WEB_PORT,
+        reload=False,
+        log_level='info',
+    )
+
+
+if __name__ == '__main__':
+    main()
