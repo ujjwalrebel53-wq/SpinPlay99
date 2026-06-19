@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rebel Aadhaar — e-Aadhaar PDF</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <main class="shell">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Rebel Panel</p>
+        <h1>e-Aadhaar PDF Download</h1>
+        <p class="sub">Saari cheeze yahi website pe — captcha, OTP, PDF download.</p>
+      </div>
+      <div class="badge" id="versionBadge">v…</div>
+    </header>
+
+    <section id="loginCard" class="card hidden">
+      <h2>PIN Login</h2>
+      <p class="hint">Admin ne jo PIN di hai woh daalo.</p>
+      <form id="loginForm" class="stack">
+        <label>
+          Access PIN
+          <input type="password" id="pinInput" autocomplete="current-password" placeholder="••••" required />
+        </label>
+        <button type="submit" class="btn primary">Login</button>
+      </form>
+      <p id="loginError" class="error hidden"></p>
+    </section>
+
+    <section id="flowCard" class="card hidden">
+      <div class="steps" id="stepBar">
+        <div class="step" data-step="form">Details</div>
+        <div class="step" data-step="captcha1">Captcha 1</div>
+        <div class="step" data-step="otp1">OTP 1</div>
+        <div class="step" data-step="captcha2">Captcha 2</div>
+        <div class="step" data-step="otp2">OTP 2</div>
+        <div class="step" data-step="done">PDF</div>
+      </div>
+
+      <div id="panelForm" class="panel">
+        <h2>Details bharo</h2>
+        <form id="startForm" class="stack">
+          <label>
+            Name (Aadhaar pe jo hai)
+            <input type="text" id="nameInput" placeholder="KAMAR JAHAN" required />
+          </label>
+          <label>
+            Mobile (registered)
+            <input type="tel" id="mobileInput" maxlength="10" placeholder="9876543210" required />
+          </label>
+          <label id="dobLabel">
+            DOB (DD/MM/YYYY)
+            <input type="text" id="dobInput" placeholder="01/01/1991" />
+          </label>
+          <button type="submit" class="btn primary" id="startBtn">Start PDF Download</button>
+        </form>
+      </div>
+
+      <div id="panelCaptcha1" class="panel hidden">
+        <h2>Captcha 1</h2>
+        <p class="hint" id="msgCaptcha1"></p>
+        <div class="captcha-box">
+          <img id="captchaImg1" alt="Captcha" />
+          <button type="button" class="btn ghost" id="refreshCaptcha1">Naya Captcha</button>
+        </div>
+        <form id="captcha1Form" class="stack inline">
+          <input type="text" id="captcha1Input" maxlength="8" placeholder="Captcha type karo" required />
+          <button type="submit" class="btn primary">Submit</button>
+        </form>
+      </div>
+
+      <div id="panelOtp1" class="panel hidden">
+        <h2>OTP 1</h2>
+        <p class="hint" id="msgOtp1">SMS mein aaya OTP daalo.</p>
+        <form id="otp1Form" class="stack inline">
+          <input type="text" id="otp1Input" maxlength="6" inputmode="numeric" placeholder="6 digit OTP" required />
+          <button type="submit" class="btn primary">Verify OTP 1</button>
+        </form>
+      </div>
+
+      <div id="panelCaptcha2" class="panel hidden">
+        <h2>Captcha 2</h2>
+        <p class="hint" id="msgCaptcha2"></p>
+        <div class="captcha-box">
+          <img id="captchaImg2" alt="Captcha 2" />
+          <button type="button" class="btn ghost" id="refreshCaptcha2">Naya Captcha</button>
+        </div>
+        <form id="captcha2Form" class="stack inline">
+          <input type="text" id="captcha2Input" maxlength="8" placeholder="Captcha type karo" required />
+          <button type="submit" class="btn primary">Submit</button>
+        </form>
+      </div>
+
+      <div id="panelOtp2" class="panel hidden">
+        <h2>OTP 2</h2>
+        <p class="hint" id="msgOtp2">Dusra OTP SMS se daalo.</p>
+        <form id="otp2Form" class="stack inline">
+          <input type="text" id="otp2Input" maxlength="6" inputmode="numeric" placeholder="6 digit OTP" required />
+          <button type="submit" class="btn primary">Download PDF</button>
+        </form>
+      </div>
+
+      <div id="panelDone" class="panel hidden">
+        <h2>PDF Ready</h2>
+        <p class="success" id="doneMessage"></p>
+        <p class="hint" id="eidLine"></p>
+        <p class="hint" id="pwdLine"></p>
+        <div class="actions">
+          <a class="btn primary" id="downloadBtn" href="#">PDF Download</a>
+          <button type="button" class="btn ghost" id="newFlowBtn">Naya Download</button>
+        </div>
+      </div>
+
+      <p id="flowError" class="error hidden"></p>
+      <div class="loader hidden" id="loader">
+        <div class="spinner"></div>
+        <span>Processing… UIDAI se connect ho raha hai</span>
+      </div>
+    </section>
+
+    <section class="card logs-card hidden" id="logsCard">
+      <h3>Live Log</h3>
+      <pre id="logBox"></pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
