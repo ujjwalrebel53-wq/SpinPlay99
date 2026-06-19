@@ -15,8 +15,10 @@ set -a
 source .env
 set +a
 
-export WEB_HOST="${WEB_HOST:-0.0.0.0}"
-export WEB_PORT="${WEB_PORT:-8080}"
+# AlwaysData User Program injects IP + PORT
+export WEB_HOST="${IP:-${WEB_HOST:-0.0.0.0}}"
+export WEB_PORT="${PORT:-${WEB_PORT:-8080}}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 
 PY="${PYTHON:-python3}"
 if ! "$PY" -c "import fastapi, uvicorn" 2>/dev/null; then
