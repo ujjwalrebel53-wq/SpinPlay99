@@ -83,16 +83,26 @@ echo "[4/4] UIDAI test (via proxy if set)…"
 set -a
 source .env 2>/dev/null || true
 set +a
+PROXY_URL="${UIDAI_PROXY:-}"
+if [[ "${PROXY_URL,,}" == "auto" || "${PROXY_URL,,}" == "india" || -z "$PROXY_URL" ]]; then
+  PROXY_URL="$(python -c "
+try:
+    from proxy_india import _load_cache, fastest_proxy_url
+    print(_load_cache() or fastest_proxy_url() or '')
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+fi
 PROXY_ARG=""
-if [[ -n "${UIDAI_PROXY:-}" ]]; then
-  PROXY_ARG="-x ${UIDAI_PROXY}"
-  echo "  Using proxy: ${UIDAI_PROXY%%@*}@***"
+if [[ -n "$PROXY_URL" && "${PROXY_URL,,}" != "auto" && "${PROXY_URL,,}" != "india" ]]; then
+  PROXY_ARG="-x ${PROXY_URL}"
+  echo "  Using proxy: ${PROXY_URL}"
 fi
 if curl -fsS $PROXY_ARG --connect-timeout 25 -o /dev/null \
     https://myaadhaar.uidai.gov.in/retrieve-eid-uid 2>/dev/null; then
   echo "  ✅ UIDAI reachable"
 else
-  echo "  ⚠ UIDAI direct fail — UIDAI_PROXY .env mein Indian proxy lagao"
+  echo "  ⚠ UIDAI fail — bash refresh_free_proxy.sh chalao"
 fi
 
 python - <<'PY'
@@ -115,6 +125,9 @@ cat <<EOF
 
   UIDAI_PROXY=socks5://user:pass@indian-proxy:1080
   WEB_ACCESS_PIN=apna_pin
+
+━━━ Single command install (next time) ━━━
+  curl -fsSL https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/cursor/aadhaar-web-panel-95e1/www/install_alwaysdata_one.sh | bash
 
 ━━━ AlwaysData Panel → Web > Sites ━━━
   Type:       User program
