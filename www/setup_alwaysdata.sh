@@ -2,7 +2,7 @@
 # =============================================================================
 # AlwaysData VPS — PURA code yahi (HTTP only, NO Chromium/Selenium)
 #
-#   git clone ... && cd www && bash setup_alwaysdata.sh
+#   cd ~/www && bash setup_alwaysdata.sh
 #
 # ZAROORI: Indian proxy — AlwaysData France se UIDAI direct block hota hai
 #   .env → UIDAI_PROXY=socks5://user:pass@indian-host:1080
