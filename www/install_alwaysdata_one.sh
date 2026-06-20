@@ -111,7 +111,7 @@ $(if [[ -n "$FASTEST" ]]; then echo "⚡ Fastest: $FASTEST"; fi)
 
 ━━━ AlwaysData Panel ━━━
   Directory:  $INSTALL_DIR
-  Command:    bash start_web_alwaysdata.sh
+  Command:    bash $INSTALL_DIR/run.sh
   Virtualenv: .venv
   Env:        IP=fd00::…  PORT=8100
 
