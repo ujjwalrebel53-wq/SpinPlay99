@@ -3,12 +3,60 @@ const state = {
   step: 'form',
   pinRequired: false,
   dobBypass: false,
+  name: '',
+  mobile: '',
+  liveTimer: null,
+  waitTimer: null,
+};
+
+const STEP_ORDER = ['form', 'captcha1', 'otp1', 'captcha2', 'otp2', 'done'];
+const SECTION_MAP = {
+  form: 'secForm',
+  captcha1: 'secCaptcha1',
+  otp1: 'secOtp1',
+  captcha2: 'secCaptcha2',
+  otp2: 'secOtp2',
+  done: 'secDone',
+};
+const BADGE_MAP = {
+  form: 'badgeForm',
+  captcha1: 'badgeCaptcha1',
+  otp1: 'badgeOtp1',
+  captcha2: 'badgeCaptcha2',
+  otp2: 'badgeOtp2',
+  done: 'badgeDone',
+};
+
+const WAIT_MSGS = {
+  start: ['Proxy connect…', 'UIDAI server reach…', 'Captcha image fetch…', 'Session create…'],
+  captcha1: ['Captcha verify…', 'OTP 1 request…'],
+  otp1: ['EID verify…', 'Phase 2 start…', 'Captcha 2 load…'],
+  captcha2: ['Captcha 2 verify…', 'OTP 2 request…'],
+  otp2: ['PDF download…', 'Password unlock…'],
 };
 
 const $ = (id) => document.getElementById(id);
 
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
+
+function nowStr() {
+  return new Date().toLocaleTimeString('hi-IN', { hour12: false });
+}
+
+function appendLive(msg, type = 'info') {
+  const box = $('logBox');
+  const prefix = type === 'err' ? '✗' : type === 'ok' ? '✓' : '›';
+  box.textContent += `\n[${nowStr()}] ${prefix} ${msg}`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function setLiveStatus(text, busy = false) {
+  $('liveStatusText').textContent = text;
+  $('liveTime').textContent = nowStr();
+  const dot = $('liveDot');
+  dot.classList.toggle('busy', busy);
+}
 
 function setError(msg) {
   const box = $('flowError');
@@ -19,11 +67,90 @@ function setError(msg) {
   }
   box.textContent = msg;
   show(box);
+  appendLive(msg, 'err');
+  setLiveStatus('Error — ' + msg, false);
 }
 
-function setLoading(on) {
-  $('startBtn').disabled = on;
-  on ? show($('loader')) : hide($('loader'));
+function startWaitMessages(key) {
+  stopWaitMessages();
+  const msgs = WAIT_MSGS[key] || ['Processing…'];
+  let i = 0;
+  appendLive(msgs[0]);
+  state.waitTimer = setInterval(() => {
+    i = (i + 1) % msgs.length;
+    appendLive(msgs[i]);
+    setLiveStatus(msgs[i], true);
+  }, 1200);
+}
+
+function stopWaitMessages() {
+  if (state.waitTimer) {
+    clearInterval(state.waitTimer);
+    state.waitTimer = null;
+  }
+}
+
+function setLoading(on, btnId = 'startBtn') {
+  const btn = $(btnId);
+  if (btn) btn.disabled = on;
+  setLiveStatus(on ? 'Processing…' : $('liveStatusText').textContent, on);
+  if (!on) stopWaitMessages();
+}
+
+function setSectionEnabled(step, enabled) {
+  const fields = {
+    captcha1: ['captcha1Input', 'btnCaptcha1', 'refreshCaptcha1'],
+    otp1: ['otp1Input', 'btnOtp1'],
+    captcha2: ['captcha2Input', 'btnCaptcha2', 'refreshCaptcha2'],
+    otp2: ['otp2Input', 'btnOtp2'],
+  };
+  (fields[step] || []).forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = !enabled;
+  });
+}
+
+function updateSections(currentStep) {
+  const idx = STEP_ORDER.indexOf(currentStep);
+  STEP_ORDER.forEach((step, i) => {
+    const sec = $(SECTION_MAP[step]);
+    const badge = $(BADGE_MAP[step]);
+    if (!sec) return;
+
+    sec.classList.remove('active', 'done', 'locked');
+    if (i < idx) {
+      sec.classList.add('done');
+      if (badge) { badge.textContent = 'Done'; badge.className = 'sec-badge done'; }
+    } else if (i === idx) {
+      sec.classList.add('active');
+      if (badge) { badge.textContent = 'Live'; badge.className = 'sec-badge live'; }
+      setSectionEnabled(step, true);
+    } else {
+      sec.classList.add('locked');
+      if (badge) { badge.textContent = 'Wait'; badge.className = 'sec-badge wait'; }
+      setSectionEnabled(step, false);
+    }
+  });
+
+  // Form always editable until done
+  if (idx > 0 && currentStep !== 'done') {
+    $('nameInput').readOnly = true;
+    $('mobileInput').readOnly = true;
+    $('dobInput').readOnly = true;
+    $('startBtn').disabled = true;
+  }
+}
+
+function updateSummary(data) {
+  show($('summaryCard'));
+  if (data.name || state.name) $('sumName').textContent = data.name || state.name;
+  if (data.mobile || state.mobile) $('sumMobile').textContent = data.mobile || state.mobile;
+  $('sumEid').textContent = data.eid || '—';
+  const labels = {
+    form: 'Details', captcha1: 'Captcha 1', otp1: 'OTP 1',
+    captcha2: 'Captcha 2', otp2: 'OTP 2', done: 'PDF Ready',
+  };
+  $('sumStep').textContent = labels[data.step] || data.step;
 }
 
 async function api(path, options = {}) {
@@ -42,126 +169,122 @@ async function api(path, options = {}) {
   return data;
 }
 
-function updateSteps(step) {
-  const order = ['form', 'captcha1', 'otp1', 'captcha2', 'otp2', 'done'];
-  const idx = order.indexOf(step);
-  document.querySelectorAll('.step').forEach((el) => {
-    const s = el.dataset.step;
-    const i = order.indexOf(s);
-    el.classList.toggle('active', s === step);
-    el.classList.toggle('done', i >= 0 && i < idx);
-  });
-}
-
-function showPanel(step) {
-  const panels = {
-    form: 'panelForm',
-    captcha1: 'panelCaptcha1',
-    otp1: 'panelOtp1',
-    captcha2: 'panelCaptcha2',
-    otp2: 'panelOtp2',
-    done: 'panelDone',
-  };
-  Object.values(panels).forEach((id) => hide($(id)));
-  if (panels[step]) show($(panels[step]));
-  updateSteps(step);
-}
-
 function captchaUrl(sessionId) {
   return `/api/pdf/captcha/${sessionId}?t=${Date.now()}`;
 }
 
-function refreshCaptchaImages() {
+function refreshCaptchaImages(step) {
   if (!state.sessionId) return;
-  if (state.step === 'captcha1' || state.step === 'otp1') {
-    $('captchaImg1').src = captchaUrl(state.sessionId);
+  if (step === 'captcha1' || step === 'otp1') {
+    const img = $('captchaImg1');
+    img.src = captchaUrl(state.sessionId);
+    img.classList.remove('dim');
   }
-  if (state.step === 'captcha2' || state.step === 'otp2') {
-    $('captchaImg2').src = captchaUrl(state.sessionId);
+  if (step === 'captcha2' || step === 'otp2') {
+    const img = $('captchaImg2');
+    img.src = captchaUrl(state.sessionId);
+    img.classList.remove('dim');
   }
 }
 
 function renderLogs(lines) {
   if (!lines || !lines.length) return;
-  show($('logsCard'));
-  $('logBox').textContent = lines.join('\n');
+  lines.forEach((line) => appendLive(line, 'info'));
 }
 
 function applySession(data) {
   state.sessionId = data.session_id;
   state.step = data.step;
-  showPanel(data.step);
-  renderLogs(data.logs);
+  updateSections(data.step);
+  updateSummary(data);
 
-  if (data.message) {
-    if (data.step === 'captcha1') $('msgCaptcha1').textContent = data.message;
-    if (data.step === 'otp1') $('msgOtp1').textContent = data.message;
-    if (data.step === 'captcha2') $('msgCaptcha2').textContent = data.message;
-    if (data.step === 'otp2') $('msgOtp2').textContent = data.message;
+  if (data.logs && data.logs.length) {
+    renderLogs(data.logs.slice(-5));
   }
 
-  if (data.has_captcha) refreshCaptchaImages();
+  const msgs = {
+    captcha1: 'msgCaptcha1',
+    otp1: 'msgOtp1',
+    captcha2: 'msgCaptcha2',
+    otp2: 'msgOtp2',
+  };
+  if (data.message && msgs[data.step]) {
+    $(msgs[data.step]).textContent = data.message;
+    appendLive(data.message, 'ok');
+  }
+
+  if (data.has_captcha) refreshCaptchaImages(data.step);
+
+  const statusText = {
+    form: 'Details bharo',
+    captcha1: 'Captcha 1 — image dekho, type karo',
+    otp1: 'OTP 1 SMS mein aaya — daalo',
+    captcha2: 'Captcha 2 — image dekho',
+    otp2: 'OTP 2 SMS — daalo',
+    done: 'PDF ready — download karo!',
+  };
+  setLiveStatus(statusText[data.step] || data.step, false);
 
   if (data.step === 'done') {
-    $('doneMessage').textContent = data.message || 'PDF ready';
-    $('eidLine').textContent = data.eid ? `EID: ${data.eid}` : '';
+    $('doneMessage').textContent = data.message || '✅ PDF ready';
     $('pwdLine').textContent = data.pdf_password
-      ? `PDF Password: ${data.pdf_password}`
+      ? `Password: ${data.pdf_password}`
       : (data.pdf_password_hint ? `Hint: ${data.pdf_password_hint}` : '');
-    $('downloadBtn').href = `/api/pdf/download/${data.session_id}`;
+    const dl = $('downloadBtn');
+    dl.href = `/api/pdf/download/${data.session_id}`;
+    dl.classList.remove('disabled');
+    dl.removeAttribute('aria-disabled');
+    appendLive('PDF download ready — button dabao', 'ok');
   }
 }
 
 async function boot() {
   try {
     const health = await api('/api/health');
-    const ver = health.india_version || health.version;
-    let badge = `v${ver || health.version}`;
-    if (health.engine) badge += ' · HTTP';
-    if (health.proxy_set === false && health.role === 'alwaysdata-http') {
-      setError('UIDAI_PROXY .env mein set karo — Indian proxy zaroori hai');
-    }
-    $('versionBadge').textContent = health.india_connected === false && health.role === 'alwaysdata-proxy'
-      ? `v${health.version} · India OFF`
-      : badge;
+    let badge = `v${health.version}`;
+    if (health.engine) badge += ' · LIVE';
+    $('versionBadge').textContent = badge;
     state.pinRequired = health.pin_required;
     state.dobBypass = health.dob_bypass;
 
-    if (health.india_connected === false && health.role === 'alwaysdata-proxy') {
-      setError(health.india_error || 'Indian VPS connect nahi — INDIA_API_URL check karo');
+    if (health.proxy_set === false && health.role === 'alwaysdata-http') {
+      appendLive('Warning: UIDAI_PROXY set karo', 'err');
     }
 
     if (state.dobBypass) {
-      $('dobLabel').classList.add('hidden');
+      hide($('dobLabel'));
       $('dobInput').removeAttribute('required');
-    } else {
-      $('dobInput').setAttribute('required', 'required');
     }
+
+    state.liveTimer = setInterval(() => {
+      $('liveTime').textContent = nowStr();
+    }, 1000);
 
     if (state.pinRequired) {
       show($('loginCard'));
-      hide($('flowCard'));
+      hide($('mainPanel'));
     } else {
       hide($('loginCard'));
-      show($('flowCard'));
-      showPanel('form');
+      show($('mainPanel'));
+      updateSections('form');
+      setLiveStatus('Ready — naam aur mobile bharo');
     }
   } catch (e) {
-    setError('Server connect nahi ho raha — start_web.sh chalao');
+    setError('Server connect nahi — start_web_alwaysdata.sh chalao');
   }
 }
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  setError('');
   const pin = $('pinInput').value.trim();
   try {
     await api('/api/login', { method: 'POST', body: JSON.stringify({ pin }) });
     hide($('loginCard'));
-    show($('flowCard'));
-    showPanel('form');
+    show($('mainPanel'));
+    updateSections('form');
+    appendLive('Login OK', 'ok');
   } catch (err) {
-    $('loginError').textContent = err.message || 'Login fail';
+    $('loginError').textContent = err.message;
     show($('loginError'));
   }
 });
@@ -169,17 +292,21 @@ $('loginForm').addEventListener('submit', async (e) => {
 $('startForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('');
+  state.name = $('nameInput').value.trim();
+  state.mobile = $('mobileInput').value.trim();
   setLoading(true);
+  startWaitMessages('start');
+  setLiveStatus('UIDAI connect — captcha la raha hai…', true);
   try {
-    const body = {
-      name: $('nameInput').value.trim(),
-      mobile: $('mobileInput').value.trim(),
-      dob: $('dobInput').value.trim() || null,
-    };
     const data = await api('/api/pdf/start', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        name: state.name,
+        mobile: state.mobile,
+        dob: $('dobInput').value.trim() || null,
+      }),
     });
+    appendLive(`Session start — ${state.name} / ${state.mobile}`, 'ok');
     applySession(data);
   } catch (err) {
     setError(err.message);
@@ -191,104 +318,95 @@ $('startForm').addEventListener('submit', async (e) => {
 $('captcha1Form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('');
-  setLoading(true);
+  setLoading(true, 'btnCaptcha1');
+  startWaitMessages('captcha1');
   try {
     const data = await api('/api/pdf/captcha1', {
       method: 'POST',
-      body: JSON.stringify({
-        session_id: state.sessionId,
-        captcha: $('captcha1Input').value.trim(),
-      }),
+      body: JSON.stringify({ session_id: state.sessionId, captcha: $('captcha1Input').value.trim() }),
     });
     $('captcha1Input').value = '';
     applySession(data);
   } catch (err) {
     setError(err.message);
-    refreshCaptchaImages();
+    refreshCaptchaImages('captcha1');
   } finally {
-    setLoading(false);
+    setLoading(false, 'btnCaptcha1');
   }
 });
 
 $('otp1Form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('');
-  setLoading(true);
+  setLoading(true, 'btnOtp1');
+  startWaitMessages('otp1');
   try {
     const data = await api('/api/pdf/otp1', {
       method: 'POST',
-      body: JSON.stringify({
-        session_id: state.sessionId,
-        otp: $('otp1Input').value.trim(),
-      }),
+      body: JSON.stringify({ session_id: state.sessionId, otp: $('otp1Input').value.trim() }),
     });
     $('otp1Input').value = '';
+    if (data.eid) appendLive(`EID: ${data.eid}`, 'ok');
     applySession(data);
   } catch (err) {
     setError(err.message);
   } finally {
-    setLoading(false);
+    setLoading(false, 'btnOtp1');
   }
 });
 
 $('captcha2Form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('');
-  setLoading(true);
+  setLoading(true, 'btnCaptcha2');
+  startWaitMessages('captcha2');
   try {
     const data = await api('/api/pdf/captcha2', {
       method: 'POST',
-      body: JSON.stringify({
-        session_id: state.sessionId,
-        captcha: $('captcha2Input').value.trim(),
-      }),
+      body: JSON.stringify({ session_id: state.sessionId, captcha: $('captcha2Input').value.trim() }),
     });
     $('captcha2Input').value = '';
     applySession(data);
   } catch (err) {
     setError(err.message);
-    refreshCaptchaImages();
+    refreshCaptchaImages('captcha2');
   } finally {
-    setLoading(false);
+    setLoading(false, 'btnCaptcha2');
   }
 });
 
 $('otp2Form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('');
-  setLoading(true);
+  setLoading(true, 'btnOtp2');
+  startWaitMessages('otp2');
   try {
     const data = await api('/api/pdf/otp2', {
       method: 'POST',
-      body: JSON.stringify({
-        session_id: state.sessionId,
-        otp: $('otp2Input').value.trim(),
-      }),
+      body: JSON.stringify({ session_id: state.sessionId, otp: $('otp2Input').value.trim() }),
     });
     $('otp2Input').value = '';
     applySession(data);
   } catch (err) {
     setError(err.message);
   } finally {
-    setLoading(false);
+    setLoading(false, 'btnOtp2');
   }
 });
 
 async function refreshCaptcha() {
   if (!state.sessionId) return;
   setError('');
-  setLoading(true);
+  appendLive('Naya captcha load…');
   try {
     const data = await api('/api/pdf/refresh-captcha', {
       method: 'POST',
       body: JSON.stringify({ session_id: state.sessionId }),
     });
     applySession(data);
-    refreshCaptchaImages();
+    refreshCaptchaImages(data.step);
   } catch (err) {
     setError(err.message);
-  } finally {
-    setLoading(false);
   }
 }
 
@@ -298,8 +416,20 @@ $('refreshCaptcha2').addEventListener('click', refreshCaptcha);
 $('newFlowBtn').addEventListener('click', () => {
   state.sessionId = null;
   state.step = 'form';
+  state.name = '';
+  state.mobile = '';
   setError('');
-  showPanel('form');
+  $('logBox').textContent = '[system] Naya session — details bharo…';
+  $('nameInput').readOnly = false;
+  $('mobileInput').readOnly = false;
+  $('dobInput').readOnly = false;
+  $('startBtn').disabled = false;
+  $('captchaImg1').classList.add('dim');
+  $('captchaImg2').classList.add('dim');
+  $('downloadBtn').classList.add('disabled');
+  $('downloadBtn').href = '#';
+  updateSections('form');
+  setLiveStatus('Ready — naam aur mobile bharo');
 });
 
 boot();
