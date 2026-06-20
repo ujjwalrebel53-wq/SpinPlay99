@@ -23,6 +23,19 @@ PORT="${PORT:-${WEB_PORT:-8080}}"
 PY="python"
 command -v python >/dev/null 2>&1 || PY="python3"
 
+if [[ -z "${IP:-}" && -z "${PORT:-}" ]]; then
+  echo ""
+  echo "  ℹ AlwaysData panel site already chalati hai — SSH se dubara start mat karo."
+  echo "    Website: https://$(whoami).alwaysdata.net/"
+  echo "    Panel → Web → Sites → Command: bash start_web_alwaysdata.sh"
+  echo ""
+  echo "  Test ke liye alag port:"
+  echo "    WEB_PORT=8787 bash start_web_alwaysdata.sh"
+  echo ""
+fi
+
+echo "[*] Bind: ${HOST}:${PORT}"
+
 if ! "$PY" -c "import fastapi, requests" 2>/dev/null; then
   echo "[!] deps missing — bash setup_alwaysdata.sh"
   exit 1
