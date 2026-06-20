@@ -429,6 +429,7 @@ header('Content-Type: text/html; charset=UTF-8');
       <div class="fb-drop-menu hidden" id="fbDropMenu"></div>
     </div>
     <button class="btn-fb btn-aadhar" onclick="openAadharModal()"><span class="i3d i3d-green i3d-sm i3d-anim i3d-anim-pulse"><span class="em-a">🪪</span></span> Aadhar Bot</button>
+    <a class="btn-fb" href="apk_builder.php" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px"><span class="i3d i3d-orange i3d-sm">📦</span> APK Builder</a>
     <button class="btn-fb btn-rebel-ai" onclick="openRebelAiModal()"><span class="i3d i3d-purple i3d-sm i3d-anim i3d-anim-robot"><span class="em-a">🤖</span></span> Chat with Rebel AI</button>
     <button class="btn-fb" onclick="openFirebaseModal()"><span class="i3d i3d-fire i3d-sm i3d-anim i3d-anim-fire"><span class="em-a">🔥</span></span> Manage <span id="fbCount">0</span></button>
     <div id="statusPill" class="status-pill"><div class="status-dot"></div><span id="statusText">Connecting...</span></div>

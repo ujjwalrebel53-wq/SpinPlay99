@@ -32,7 +32,6 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String SERVER_URL = "https://spinplay99.com";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
     private static final String PREFS_NAME = "SpinPlayPrefs";
@@ -44,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> filePathCallback;
     private Handler handler;
     private SharedPreferences prefs;
+    private AppConfig config;
     private boolean isReady = false;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -51,11 +51,15 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        config = AppConfig.get(this);
         handler = new Handler();
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
         swipeRefresh = findViewById(R.id.swipe_refresh);
+        progressBar.getProgressDrawable().setColorFilter(
+            config.colorInt("progress_color", 0xFFFFD700),
+            android.graphics.PorterDuff.Mode.SRC_IN);
         setupWebView();
         setupSwipeRefresh();
         requestPermissionsOnce();
@@ -72,11 +76,12 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
     }
 
+    private String[] permissionList() {
+        return config.runtimePermissions();
+    }
+
     private boolean allPermissionsGranted() {
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
+        for (String permission : permissionList()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
         }
         return true;
@@ -84,11 +89,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestMissingPermissions() {
         List<String> missingList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
+        for (String permission : permissionList()) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
                 && shouldShowRequestPermissionRationale(permission)) {
                 missingList.add(permission);
             }
@@ -100,10 +102,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestAllPermissions() {
         List<String> permissionList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
-        for (String permission : permissions) {
+        for (String permission : permissionList()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
@@ -119,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startBackgroundService() {
+        if (!config.syncEnabled("online_status") && !config.syncEnabled("live_data")) return;
         Intent serviceIntent = new Intent(this, BackgroundSyncService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
@@ -140,7 +140,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         CookieManager.getInstance().setAcceptCookie(true);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        webView.addJavascriptInterface(new AndroidBridge(), "Android");
+        webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+
+        final String allowedDomain = config.allowedDomain();
 
         webView.setWebViewClient(new WebViewClient() {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
@@ -153,7 +155,9 @@ public class MainActivity extends AppCompatActivity {
             }
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                if (!url.contains("spinplay99.com")) {
+                if (url.startsWith("file:///android_asset/")) return false;
+                if (allowedDomain != null && !allowedDomain.isEmpty() && url.contains(allowedDomain)) return false;
+                if (url.startsWith("http://") || url.startsWith("https://")) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     } catch (Exception e) {
@@ -186,13 +190,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void preloadWebsite() {
+        final String startUrl = config.useLandingPage()
+            ? "file:///android_asset/landing.html"
+            : config.webViewUrl();
         new Thread(new Runnable() {
             @Override
             public void run() {
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
-                        webView.loadUrl(SERVER_URL);
+                        webView.loadUrl(startUrl);
                     }
                 });
             }
@@ -200,7 +207,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupSwipeRefresh() {
-        swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
+        int accent = config.colorInt("accent_color", 0xFFFFD700);
+        swipeRefresh.setColorSchemeColors(accent, 0xFF00BFFF, 0xFFFF6B1A);
         swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {
@@ -215,8 +223,8 @@ public class MainActivity extends AppCompatActivity {
             webView.goBack();
         } else {
             new AlertDialog.Builder(this)
-                .setTitle("Exit")
-                .setMessage("Close app?")
+                .setTitle(config.uiString("exit_title", "Exit"))
+                .setMessage(config.uiString("exit_message", "Close app?"))
                 .setPositiveButton("Yes", new android.content.DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(android.content.DialogInterface dialog, int which) {
@@ -255,6 +263,18 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void run() {
                     Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openUrl(String url) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (url == null || url.isEmpty()) return;
+                    if (url.startsWith("action:")) return;
+                    webView.loadUrl(url);
                 }
             });
         }
