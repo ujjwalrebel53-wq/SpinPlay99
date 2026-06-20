@@ -118,6 +118,7 @@ function updateSections(currentStep) {
     if (!sec) return;
 
     sec.classList.remove('active', 'done', 'locked');
+    sec.style.display = 'block';
     if (i < idx) {
       sec.classList.add('done');
       if (badge) { badge.textContent = 'Done'; badge.className = 'sec-badge done'; }
@@ -125,6 +126,12 @@ function updateSections(currentStep) {
       sec.classList.add('active');
       if (badge) { badge.textContent = 'Live'; badge.className = 'sec-badge live'; }
       setSectionEnabled(step, true);
+      if (step === 'form') {
+        $('nameInput').readOnly = false;
+        $('mobileInput').readOnly = false;
+        $('dobInput').readOnly = false;
+        $('startBtn').disabled = false;
+      }
     } else {
       sec.classList.add('locked');
       if (badge) { badge.textContent = 'Wait'; badge.className = 'sec-badge wait'; }
@@ -132,7 +139,6 @@ function updateSections(currentStep) {
     }
   });
 
-  // Form always editable until done
   if (idx > 0 && currentStep !== 'done') {
     $('nameInput').readOnly = true;
     $('mobileInput').readOnly = true;
@@ -238,9 +244,29 @@ function applySession(data) {
   }
 }
 
+function setBootError(msg) {
+  const box = $('bootError');
+  if (!msg) {
+    hide(box);
+    box.textContent = '';
+    return;
+  }
+  box.textContent = '⚠ ' + msg;
+  show(box);
+}
+
+function initPanel() {
+  show($('mainPanel'));
+  updateSections('form');
+  setLiveStatus('Loading…');
+  if ($('liveTime')) $('liveTime').textContent = nowStr();
+}
+
 async function boot() {
+  initPanel();
   try {
     const health = await api('/api/health');
+    setBootError('');
     let badge = `v${health.version}`;
     if (health.engine) badge += ' · LIVE';
     $('versionBadge').textContent = badge;
@@ -248,7 +274,8 @@ async function boot() {
     state.dobBypass = health.dob_bypass;
 
     if (health.proxy_set === false && health.role === 'alwaysdata-http') {
-      appendLive('Warning: UIDAI_PROXY set karo', 'err');
+      setBootError('UIDAI_PROXY .env mein set karo — Indian proxy zaroori');
+      appendLive('UIDAI_PROXY missing', 'err');
     }
 
     if (state.dobBypass) {
@@ -256,21 +283,25 @@ async function boot() {
       $('dobInput').removeAttribute('required');
     }
 
-    state.liveTimer = setInterval(() => {
-      $('liveTime').textContent = nowStr();
-    }, 1000);
+    if (!state.liveTimer) {
+      state.liveTimer = setInterval(() => {
+        if ($('liveTime')) $('liveTime').textContent = nowStr();
+      }, 1000);
+    }
 
     if (state.pinRequired) {
       show($('loginCard'));
-      hide($('mainPanel'));
+      setLiveStatus('PIN login karo — default: 1234');
     } else {
       hide($('loginCard'));
-      show($('mainPanel'));
-      updateSections('form');
       setLiveStatus('Ready — naam aur mobile bharo');
     }
+    appendLive('Server connected', 'ok');
   } catch (e) {
-    setError('Server connect nahi — start_web_alwaysdata.sh chalao');
+    setBootError('Python app chal nahi rahi — Panel mein: bash start_web_alwaysdata.sh');
+    appendLive('API fail — kya User program site start hai?', 'err');
+    setLiveStatus('Offline mode — form dikhega, submit tab kaam karega jab app start ho');
+    hide($('loginCard'));
   }
 }
 
@@ -280,8 +311,9 @@ $('loginForm').addEventListener('submit', async (e) => {
   try {
     await api('/api/login', { method: 'POST', body: JSON.stringify({ pin }) });
     hide($('loginCard'));
-    show($('mainPanel'));
+    setBootError('');
     updateSections('form');
+    setLiveStatus('Ready — naam aur mobile bharo');
     appendLive('Login OK', 'ok');
   } catch (err) {
     $('loginError').textContent = err.message;
@@ -433,3 +465,10 @@ $('newFlowBtn').addEventListener('click', () => {
 });
 
 boot();
+
+// Panel turant dikhao — API se pehle
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPanel);
+} else {
+  initPanel();
+}

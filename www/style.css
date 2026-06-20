@@ -140,7 +140,7 @@ h1 { margin: 0; font-size: clamp(1.6rem, 4vw, 2.2rem); }
 }
 
 .flow-section.locked {
-  opacity: 0.45;
+  opacity: 0.88;
   pointer-events: none;
 }
 
@@ -245,6 +245,23 @@ input:disabled { opacity: 0.5; cursor: not-allowed; }
 .hint, .success { color: var(--muted); margin: 0 0 10px; font-size: 0.88rem; }
 .success { color: var(--accent-2); }
 .error { color: var(--danger); margin: 10px 0; }
+
+.boot-error {
+  background: rgba(255, 107, 122, 0.12);
+  border: 1px solid rgba(255, 107, 122, 0.4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  color: #ffb4bc;
+  font-size: 0.9rem;
+}
+
+.login-overlay {
+  position: relative;
+  z-index: 10;
+  margin-bottom: 14px;
+  border-color: rgba(91, 140, 255, 0.45);
+}
 
 .captcha-box { display: grid; gap: 10px; margin-bottom: 10px; }
 .captcha-img {

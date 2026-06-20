@@ -18,7 +18,9 @@
       <div class="badge" id="versionBadge">v…</div>
     </header>
 
-    <section id="loginCard" class="card hidden">
+    <p id="bootError" class="boot-error hidden"></p>
+
+    <section id="loginCard" class="card login-overlay hidden">
       <h2>PIN Login</h2>
       <form id="loginForm" class="stack">
         <label>
@@ -30,7 +32,7 @@
       <p id="loginError" class="error hidden"></p>
     </section>
 
-    <div id="mainPanel" class="hidden">
+    <div id="mainPanel">
       <!-- Live status bar -->
       <div class="live-bar card" id="liveBar">
         <span class="live-dot" id="liveDot"></span>
@@ -166,6 +168,10 @@
     </div>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js" defer></script>
+  <script>
+    // Agar API slow/fail ho — panel phir bhi dikhe
+    document.getElementById('mainPanel').style.display = 'block';
+  </script>
 </body>
 </html>
