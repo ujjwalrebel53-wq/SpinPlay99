@@ -10,8 +10,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).parent / '.env')
@@ -34,7 +33,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 log = logging.getLogger('web-app')
 
 WWW_DIR = Path(__file__).parent
-STATIC_DIR = WWW_DIR / 'static'
 WEB_PIN = (os.getenv('WEB_ACCESS_PIN') or '').strip()
 WEB_HOST = os.getenv('WEB_HOST', '0.0.0.0')
 WEB_PORT = int(os.getenv('WEB_PORT', '8080'))
@@ -165,15 +163,28 @@ async def pdf_download(session_id: str, _: None = Depends(require_auth)):
 
 
 @app.get('/')
+@app.get('/website.html')
 async def index() -> HTMLResponse:
-    index_path = STATIC_DIR / 'website.html'
-    if not index_path.is_file():
-        return HTMLResponse('<h1>Rebel Web — static missing</h1>', status_code=500)
-    return HTMLResponse(index_path.read_text(encoding='utf-8'))
+    page = WWW_DIR / 'website.html'
+    if not page.is_file():
+        return HTMLResponse('<h1>website.html missing</h1>', status_code=500)
+    return HTMLResponse(page.read_text(encoding='utf-8'))
 
 
-if STATIC_DIR.is_dir():
-    app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
+@app.get('/style.css')
+async def style_css():
+    path = WWW_DIR / 'style.css'
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail='style.css missing')
+    return FileResponse(path, media_type='text/css')
+
+
+@app.get('/app.js')
+async def app_js():
+    path = WWW_DIR / 'app.js'
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail='app.js missing')
+    return FileResponse(path, media_type='application/javascript')
 
 
 def main() -> None:

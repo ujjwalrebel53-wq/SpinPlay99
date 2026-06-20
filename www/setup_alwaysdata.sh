@@ -147,10 +147,8 @@ cat <<EOF
 
   Captcha user manually type karega — browser nahi chahiye.
 
-━━━ Files (engine) ━━━
-  web_app_alwaysdata.py  — website
-  web_pdf_http.py        — UIDAI HTTP API (no browser)
-  aadhar.py              — PDF logic
-  uidai_api.py pdf_unlock.py
+━━━ Files (sab seedha ~/www mein) ━━━
+  website.html  app.js  style.css
+  web_app_alwaysdata.py  web_pdf_http.py  aadhar.py
 
 EOF
