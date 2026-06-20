@@ -166,13 +166,25 @@ async function api(path, options = {}) {
     ...options,
   });
   let data = {};
-  try { data = await res.json(); } catch (_) {}
+  const text = await res.text();
+  try { data = JSON.parse(text); } catch (_) {
+    data = { detail: text.slice(0, 120) || `HTTP ${res.status}` };
+  }
   if (!res.ok) {
     const err = new Error(data.detail || data.message || `HTTP ${res.status}`);
     err.status = res.status;
     throw err;
   }
   return data;
+}
+
+async function fetchHealth() {
+  for (const path of ['/api/health', '/health', '/ping']) {
+    try {
+      return await api(path);
+    } catch (_) { /* try next */ }
+  }
+  throw new Error('API 404 — Panel mein User program site lagao (bash run.sh)');
 }
 
 function captchaUrl(sessionId) {
@@ -265,7 +277,7 @@ function initPanel() {
 async function boot() {
   initPanel();
   try {
-    const health = await api('/api/health');
+    const health = await fetchHealth();
     setBootError('');
     let badge = `v${health.version}`;
     if (health.engine) badge += ' · LIVE';
@@ -298,8 +310,8 @@ async function boot() {
     }
     appendLive('Server connected', 'ok');
   } catch (e) {
-    setBootError('Python app chal nahi rahi — Panel mein: bash start_web_alwaysdata.sh');
-    appendLive('API fail — kya User program site start hai?', 'err');
+    setBootError('Panel fix: Web → Sites → User program → bash ~/www/run.sh');
+    appendLive('API 404 — static HTML chal raha, Python nahi. bash fix_web.sh', 'err');
     setLiveStatus('Offline mode — form dikhega, submit tab kaam karega jab app start ho');
     hide($('loginCard'));
   }

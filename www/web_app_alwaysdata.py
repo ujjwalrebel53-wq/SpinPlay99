@@ -169,6 +169,12 @@ async def on_startup() -> None:
         await warm_web_pool()
 
 
+@app.get('/health')
+@app.get('/ping')
+async def ping_health() -> dict:
+    return {'ok': True, 'version': BOT_ENGINE_VERSION, 'role': 'alwaysdata-http'}
+
+
 @app.get('/api/health')
 async def health() -> dict:
     if not PROXY_MODE:
