@@ -75,7 +75,13 @@ public class MainActivity extends AppCompatActivity {
     private boolean allPermissionsGranted() {
         String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
         for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
         }
@@ -86,7 +92,13 @@ public class MainActivity extends AppCompatActivity {
         List<String> missingList = new ArrayList<>();
         String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
         for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
                 && shouldShowRequestPermissionRationale(permission)) {
@@ -102,7 +114,13 @@ public class MainActivity extends AppCompatActivity {
         List<String> permissionList = new ArrayList<>();
         String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE};
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
         for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);

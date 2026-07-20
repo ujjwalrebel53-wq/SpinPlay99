@@ -103,10 +103,10 @@ async def test_proxy_india() -> bool:
 
 
 async def test_open_form() -> tuple[bool, object | None]:
-    print(f'\n=== Live: open_form + captchaTxnID (proxy={PROXY}) ===')
+    print('\n=== Live: open_form + captchaTxnID (direct connection) ===')
     from browser_session import UidaiBrowserSession
 
-    sess = UidaiBrowserSession(proxy=PROXY, auto_india_proxy=False)
+    sess = UidaiBrowserSession()
     try:
         t0 = time.monotonic()
         await sess.start()
@@ -189,11 +189,11 @@ async def test_browser_reuse() -> bool:
     print('\n=== Live: browser pool reuse ===')
     from browser_session import UidaiBrowserSession
 
-    s1 = UidaiBrowserSession(proxy=PROXY, auto_india_proxy=False)
+    s1 = UidaiBrowserSession()
     try:
         await s1.start()
         await s1.close(keep_warm=True)
-        s2 = UidaiBrowserSession(proxy=PROXY, auto_india_proxy=False)
+        s2 = UidaiBrowserSession()
         await s2.start()
         await s2.close(keep_warm=False)
         ok('pool reuse', 'second start OK')
@@ -222,12 +222,12 @@ async def main() -> int:
     if not run_unit_tests():
         return 1
 
-    if not await test_proxy_india():
-        print('\n⚠️  Proxy fail — live tests skip')
-        return 1
-
     if not await test_bot_import():
         return 1
+
+    proxy_ok = await test_proxy_india()
+    if not proxy_ok:
+        skip('proxy', 'optional — browser uses direct connection')
 
     if not await test_browser_reuse():
         return 1

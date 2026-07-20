@@ -64,8 +64,6 @@ from browser_session import (
     refresh_standby_captcha,
 )
 from uidai_cookie_session import baked_session_ready, cookie_jar_ready, sync_baked_to_runtime_jar
-from http_uidai_flow import HTTP_SESSIONS
-from react_extract import SET_OPTION_JS
 from uidai_api import (
     BOT_ENGINE_VERSION,
     DOB_RE,
@@ -134,7 +132,6 @@ def clear_flow(chat_id: int) -> None:
 
 
 def clear_http_session(chat_id: int) -> None:
-    HTTP_SESSIONS.pop(chat_id, None)
     clear_aadhar_session(chat_id)
 
 
@@ -1099,9 +1096,6 @@ async def warm_pool_job(context) -> None:
     if os.getenv('UIDAI_POOL_WARM', '1').strip().lower() in ('0', 'false', 'no', 'off'):
         return
     if pool_is_warm():
-        return
-    if not cookie_jar_ready() and not baked_session_ready():
-        log.info('Pool warm skip — no saved cookies yet')
         return
     try:
         await asyncio.wait_for(ensure_pool_warm(), timeout=45)

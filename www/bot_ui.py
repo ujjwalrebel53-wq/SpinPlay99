@@ -41,7 +41,7 @@ def humanize_step(raw: str) -> str:
         return 'Loading captcha'
     if 'otp' in low:
         return 'OTP verification'
-    if 'phase 2' in low or 'download' in low and 'pdf' in low:
+    if 'phase 2' in low or ('download' in low and 'pdf' in low):
         return 'Downloading e-Aadhaar PDF'
     if 'phase 1' in low or 'eid' in low:
         return 'EID retrieve (OTP 1)'

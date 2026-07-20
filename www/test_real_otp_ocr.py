@@ -36,7 +36,7 @@ async def main() -> int:
 
     from browser_session import UidaiBrowserSession
 
-    sess = UidaiBrowserSession(proxy=PROXY, auto_india_proxy=False)
+    sess = UidaiBrowserSession()
     try:
         await sess.start()
         await sess.open_form(NAME, MOBILE)
