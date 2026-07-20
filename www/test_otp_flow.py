@@ -14,10 +14,10 @@ MOBILE = sys.argv[2] if len(sys.argv) > 2 else '7651892956'
 
 async def main() -> None:
     print(f'Engine v{BOT_ENGINE_VERSION} proxy={PROXY}')
-    sess = UidaiBrowserSession(proxy=PROXY)
+    sess = UidaiBrowserSession()
     try:
         await sess.start()
-        print('proxy:', sess.proxy_label)
+        print('connection:', sess.connection_label)
         await sess.open_form(NAME, MOBILE)
         print('captchaTxnId:', sess.captcha_txn_id)
         print('option:', sess.option)

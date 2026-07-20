@@ -1,9 +1,10 @@
 #!/bin/bash
 # .env banao — nano ki zaroorat nahi
 set -e
-cd "$(dirname "$0")"
+WWW_DIR="$(cd "$(dirname "$0")/../www" && pwd)"
+cd "$WWW_DIR"
 
-BUNDLE="../browser-extension/page-bundle.js"
+BUNDLE="$WWW_DIR/browser-extension/page-bundle.js"
 DEFAULT_PROXY="http://139.167.218.162:3127"
 
 TOKEN="${1:-}"
@@ -37,8 +38,9 @@ REBEL_BUNDLE_PATH=$BUNDLE
 EOF
 
 echo ""
-echo "Done — .env ban gaya ($(pwd)/.env)"
+echo "Done — .env ban gaya ($WWW_DIR/.env)"
 echo "Ab chalao:"
+echo "  cd $WWW_DIR"
 echo "  python3 -m venv .venv && source .venv/bin/activate"
 echo "  pip install -r requirements.txt"
 echo "  playwright install chromium"
