@@ -394,7 +394,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <a class="menu-item" href="mobile.php" style="text-decoration:none;color:inherit">Mobile Panel <span>mobile.php →</span></a>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
-        <a class="menu-item danger" href="admin.php?logout=1" style="text-decoration:none;color:inherit">Logout <span>Exit admin</span></a>
       </div>
     </section>
   </div>
