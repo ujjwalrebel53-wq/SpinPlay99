@@ -510,6 +510,7 @@ function rebel_fetch_sms_for_device(
         if ($data === null) {
             continue;
         }
+        $batch = [];
         foreach (rebel_sms_as_list($data) as $raw) {
             $norm = rebel_sms_normalize($raw);
             if ($norm === null) {
@@ -518,11 +519,16 @@ function rebel_fetch_sms_for_device(
             if (!rebel_sms_belongs_to_device($norm, $deviceId, $compositeId)) {
                 continue;
             }
-            $all[] = $norm;
+            $batch[] = $norm;
+        }
+        if (!$batch) {
+            continue;
+        }
+        $all = rebel_merge_sms_lists($all, $batch);
+        if (str_starts_with($path, 'messages/') || str_contains($path, '/all_sms')) {
+            break;
         }
     }
-
-    $messages = rebel_merge_sms_lists($all);
     return [
         'ok' => true,
         'messages' => $messages,

