@@ -518,7 +518,6 @@ function rebel_fetch_sms_for_device(
             if (!rebel_sms_belongs_to_device($norm, $deviceId, $compositeId)) {
                 continue;
             }
-            unset($norm['device_id']);
             $all[] = $norm;
         }
     }
@@ -817,6 +816,73 @@ function rebel_firebase_api_handle(bool $requireAdminForWrite = true): void
             'updated' => (int)($data['updated'] ?? 0),
             'projects' => array_values($data['projects']),
         ]);
+    }
+
+    rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
+}
+
+function rebel_sms_token_file(): string
+{
+    return __DIR__ . '/rebel_sms_token.json';
+}
+
+function rebel_sms_token_load(): array
+{
+    $file = rebel_sms_token_file();
+    if (!is_file($file)) {
+        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+    }
+    $raw = file_get_contents($file);
+    if ($raw === false || trim($raw) === '') {
+        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) {
+        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+    }
+    return $data;
+}
+
+function rebel_sms_token_save(array $config): void
+{
+    file_put_contents(
+        rebel_sms_token_file(),
+        json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        LOCK_EX
+    );
+}
+
+function rebel_sms_token_api_handle(): void
+{
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+    if (!is_array($body)) {
+        $body = $_POST;
+    }
+    if (!is_array($body)) {
+        $body = [];
+    }
+
+    $action = strtolower(trim((string)($body['action'] ?? 'get')));
+    $config = rebel_sms_token_load();
+
+    if ($action === 'get') {
+        rebel_json_out(['ok' => true, 'config' => $config]);
+    }
+
+    if ($action === 'save') {
+        $config['enabled'] = !empty($body['enabled']);
+        if (array_key_exists('device_id', $body)) {
+            $config['device_id'] = trim((string)$body['device_id']);
+        }
+        if (array_key_exists('database_url', $body)) {
+            $config['database_url'] = trim((string)$body['database_url']);
+        }
+        if (array_key_exists('fb_name', $body)) {
+            $config['fb_name'] = trim((string)$body['fb_name']);
+        }
+        $config['updated'] = time();
+        rebel_sms_token_save($config);
+        rebel_json_out(['ok' => true, 'config' => $config]);
     }
 
     rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);

