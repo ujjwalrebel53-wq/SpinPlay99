@@ -304,7 +304,7 @@ function rebel_send_sms_to_device(
     return ['ok' => false, 'error' => 'Failed to send SMS — device offline or Firebase error'];
 }
 
-/** Shared Firebase project list — admin.php writes, mobile.php reads */
+/** Shared Firebase project list — admin.php writes, k.php reads */
 function rebel_firebase_file(): string
 {
     return __DIR__ . '/rebel_firebase.json';
