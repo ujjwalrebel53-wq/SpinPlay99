@@ -519,20 +519,19 @@ function rebel_fetch_sms_for_device(
             if (!rebel_sms_belongs_to_device($norm, $deviceId, $compositeId)) {
                 continue;
             }
+            unset($norm['device_id']);
             $batch[] = $norm;
         }
         if (!$batch) {
             continue;
         }
         $all = rebel_merge_sms_lists($all, $batch);
-        if (str_starts_with($path, 'messages/') || str_contains($path, '/all_sms')) {
-            break;
-        }
     }
+
     return [
         'ok' => true,
-        'messages' => $messages,
-        'count' => count($messages),
+        'messages' => $all,
+        'count' => count($all),
         'schema' => $schema,
     ];
 }
