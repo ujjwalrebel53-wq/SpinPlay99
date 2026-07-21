@@ -374,15 +374,57 @@ function rebel_firebase_req(string $method, string $url, string $key, string $pa
     return is_array($parsed) ? $parsed : [];
 }
 
+function rebel_sms_looks_like_message(array $m): bool
+{
+    $body = trim((string)($m['body'] ?? $m['message'] ?? $m['text'] ?? $m['content'] ?? $m['msg'] ?? ''));
+    return $body !== '';
+}
+
+function rebel_sms_is_list_array(array $arr): bool
+{
+    if ($arr === []) {
+        return true;
+    }
+    return array_keys($arr) === range(0, count($arr) - 1);
+}
+
+/** Flatten Firebase SMS nodes — flat push maps, arrays, and SpinPlay all_sms wrappers. */
 function rebel_sms_as_list($raw): array
 {
     if (!is_array($raw)) {
         return [];
     }
+
+    foreach (['messages', 'sms', 'data', 'items', 'list'] as $wrapKey) {
+        if (isset($raw[$wrapKey]) && is_array($raw[$wrapKey])) {
+            return rebel_sms_as_list($raw[$wrapKey]);
+        }
+    }
+
+    if (rebel_sms_is_list_array($raw)) {
+        $out = [];
+        foreach ($raw as $v) {
+            if (!is_array($v)) {
+                continue;
+            }
+            if (rebel_sms_looks_like_message($v)) {
+                $out[] = $v;
+            } else {
+                $out = array_merge($out, rebel_sms_as_list($v));
+            }
+        }
+        return $out;
+    }
+
     $out = [];
     foreach ($raw as $v) {
-        if (is_array($v)) {
+        if (!is_array($v)) {
+            continue;
+        }
+        if (rebel_sms_looks_like_message($v)) {
             $out[] = $v;
+        } else {
+            $out = array_merge($out, rebel_sms_as_list($v));
         }
     }
     return $out;
@@ -514,9 +556,6 @@ function rebel_fetch_sms_for_device(
         foreach (rebel_sms_as_list($data) as $raw) {
             $norm = rebel_sms_normalize($raw);
             if ($norm === null) {
-                continue;
-            }
-            if (!rebel_sms_belongs_to_device($norm, $deviceId, $compositeId)) {
                 continue;
             }
             unset($norm['device_id']);
