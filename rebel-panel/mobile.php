@@ -489,37 +489,6 @@ function initFirebase(){
   firebaseConfigs.forEach(initFirebaseInstance);
   updateFbUi();
 }
-function syncFirebaseFromAdmin(){
-  fetch('admin.php?rebel_firebase_api=1',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    if(!d||!d.ok||!Array.isArray(d.projects))return;
-    var merged=[], seen={}, url;
-    d.projects.forEach(function(x){
-      url=(x.databaseURL||'').replace(/\/$/,'');
-      if(url&&!seen[url]){seen[url]=1;merged.push(x);}
-    });
-    try{
-      var s=localStorage.getItem(FB_LIST_KEY);
-      if(s){var local=JSON.parse(s);if(Array.isArray(local))local.forEach(function(x){
-        url=(x.databaseURL||'').replace(/\/$/,'');
-        if(url&&!seen[url]){seen[url]=1;merged.push(x);}
-      });}
-    }catch(e){}
-    DEFAULT_FIREBASES.forEach(function(def){
-      url=(def.databaseURL||'').replace(/\/$/,'');
-      if(url&&!seen[url]){seen[url]=1;merged.push(def);}
-    });
-    var nextFp=JSON.stringify(merged.map(function(c){return{id:c.id,databaseURL:(c.databaseURL||'').replace(/\/$/,'')};}));
-    var curFp=JSON.stringify(firebaseConfigs.map(function(c){return{id:c.id,databaseURL:(c.databaseURL||'').replace(/\/$/,'')};}));
-    if(nextFp===curFp)return;
-    try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(merged));}catch(e){}
-    firebaseInstances=[];firebaseConfigs=merged;
-    firebaseConfigs.forEach(initFirebaseInstance);
-    firebaseInstances.forEach(function(inst){attachLive(inst);});
-    Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
-      processClientsData();updateFbUi();
-    });
-  }).catch(function(){});
-}
 function addFirebaseProject(){
   var name=document.getElementById('fbAddName').value.trim();
   var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
@@ -572,7 +541,6 @@ function removeFirebaseProject(id){
   });
 }
 initFirebase();
-syncFirebaseFromAdmin();
 
 function updateFbUi(){
   var total=allDevs.length;
@@ -1142,7 +1110,6 @@ function useSelForAutoToken(){
 })();
 setInterval(function(){
   if(!panelReady)return;
-  syncFirebaseFromAdmin();
   fetchAllData().catch(function(){});
 },60000);
 window.addEventListener('unhandledrejection',function(){});
