@@ -303,3 +303,243 @@ function rebel_send_sms_to_device(
 
     return ['ok' => false, 'error' => 'Failed to send SMS — device offline or Firebase error'];
 }
+
+/** Shared Firebase project list — admin.php writes, mobile.php reads */
+function rebel_firebase_file(): string
+{
+    return __DIR__ . '/rebel_firebase.json';
+}
+
+function rebel_admin_file(): string
+{
+    return __DIR__ . '/rebel_admin.json';
+}
+
+function rebel_admin_load(): array
+{
+    $file = rebel_admin_file();
+    if (!is_file($file)) {
+        $hash = password_hash('rebeladmin', PASSWORD_DEFAULT);
+        $data = ['password_hash' => $hash, 'created' => time()];
+        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+        return $data;
+    }
+    $raw = file_get_contents($file);
+    $data = json_decode($raw ?: '{}', true);
+    return is_array($data) ? $data : [];
+}
+
+function rebel_admin_check_password(string $password): bool
+{
+    $data = rebel_admin_load();
+    $hash = (string)($data['password_hash'] ?? '');
+    if ($hash === '') {
+        return false;
+    }
+    return password_verify($password, $hash);
+}
+
+function rebel_admin_session_start(): void
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start([
+            'cookie_httponly' => true,
+            'cookie_samesite' => 'Lax',
+        ]);
+    }
+}
+
+function rebel_admin_logged_in(): bool
+{
+    rebel_admin_session_start();
+    return !empty($_SESSION['rebel_admin_ok']);
+}
+
+function rebel_admin_login(string $password): bool
+{
+    if (!rebel_admin_check_password($password)) {
+        return false;
+    }
+    rebel_admin_session_start();
+    $_SESSION['rebel_admin_ok'] = time();
+    return true;
+}
+
+function rebel_admin_logout(): void
+{
+    rebel_admin_session_start();
+    unset($_SESSION['rebel_admin_ok']);
+}
+
+function rebel_firebase_load(): array
+{
+    $file = rebel_firebase_file();
+    if (!is_file($file)) {
+        return ['updated' => 0, 'projects' => []];
+    }
+    $raw = file_get_contents($file);
+    if ($raw === false || trim($raw) === '') {
+        return ['updated' => 0, 'projects' => []];
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) {
+        return ['updated' => 0, 'projects' => []];
+    }
+    if (!isset($data['projects']) || !is_array($data['projects'])) {
+        $data['projects'] = [];
+    }
+    if (!isset($data['updated'])) {
+        $data['updated'] = 0;
+    }
+    return $data;
+}
+
+function rebel_firebase_save(array $data): void
+{
+    if (!isset($data['projects']) || !is_array($data['projects'])) {
+        $data['projects'] = [];
+    }
+    $data['updated'] = time();
+    file_put_contents(
+        rebel_firebase_file(),
+        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        LOCK_EX
+    );
+}
+
+function rebel_firebase_norm_url(string $url): string
+{
+    return rtrim(trim($url), '/');
+}
+
+function rebel_firebase_norm_project(array $row): ?array
+{
+    $name = trim((string)($row['name'] ?? ''));
+    $url = rebel_firebase_norm_url((string)($row['databaseURL'] ?? $row['database_url'] ?? $row['url'] ?? ''));
+    if ($name === '' || $url === '') {
+        return null;
+    }
+    $id = trim((string)($row['id'] ?? ''));
+    if ($id === '') {
+        $id = 'fb_' . substr(hash('sha256', $url), 0, 12);
+    }
+    $secret = trim((string)($row['secret'] ?? $row['key'] ?? $row['auth_key'] ?? $row['databaseSecret'] ?? ''));
+    $apiKey = trim((string)($row['apiKey'] ?? $row['api_key'] ?? ''));
+    $schema = strtolower(trim((string)($row['schema'] ?? '')));
+    if ($schema === '') {
+        $schema = (stripos($url, 'rabel') !== false) ? 'rabel' : 'spinplay';
+    }
+
+    return [
+        'id' => $id,
+        'name' => $name,
+        'databaseURL' => $url,
+        'secret' => $secret,
+        'key' => $secret,
+        'apiKey' => $apiKey,
+        'schema' => $schema,
+        'created' => (int)($row['created'] ?? time()),
+    ];
+}
+
+function rebel_firebase_list(): array
+{
+    return rebel_firebase_load()['projects'];
+}
+
+function rebel_firebase_add(array $input): array
+{
+    $proj = rebel_firebase_norm_project($input);
+    if ($proj === null) {
+        return ['ok' => false, 'error' => 'Project name and Firebase URL required'];
+    }
+
+    $data = rebel_firebase_load();
+    foreach ($data['projects'] as $existing) {
+        if (rebel_firebase_norm_url((string)($existing['databaseURL'] ?? '')) === $proj['databaseURL']) {
+            return ['ok' => false, 'error' => 'This Firebase URL is already added'];
+        }
+    }
+
+    $data['projects'][] = $proj;
+    rebel_firebase_save($data);
+
+    return ['ok' => true, 'project' => $proj, 'updated' => $data['updated']];
+}
+
+function rebel_firebase_delete(string $id): array
+{
+    $id = trim($id);
+    if ($id === '') {
+        return ['ok' => false, 'error' => 'Project id required'];
+    }
+
+    $data = rebel_firebase_load();
+    $before = count($data['projects']);
+    $data['projects'] = array_values(array_filter(
+        $data['projects'],
+        static fn($p) => is_array($p) && (string)($p['id'] ?? '') !== $id
+    ));
+
+    if (count($data['projects']) === $before) {
+        return ['ok' => false, 'error' => 'Project not found'];
+    }
+
+    rebel_firebase_save($data);
+    return ['ok' => true, 'updated' => $data['updated']];
+}
+
+/** Public read + admin write API for Firebase projects */
+function rebel_firebase_api_handle(bool $requireAdminForWrite = true): void
+{
+    $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+
+    if ($method === 'GET' && isset($_GET['rebel_firebase_api'])) {
+        $data = rebel_firebase_load();
+        rebel_json_out([
+            'ok' => true,
+            'updated' => (int)($data['updated'] ?? 0),
+            'projects' => array_values($data['projects']),
+            'count' => count($data['projects']),
+        ]);
+    }
+
+    if ($method !== 'POST') {
+        rebel_json_out(['ok' => false, 'error' => 'Method not allowed'], 405);
+    }
+
+    if ($requireAdminForWrite && !rebel_admin_logged_in()) {
+        rebel_json_out(['ok' => false, 'error' => 'Admin login required'], 401);
+    }
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+    if (!is_array($body)) {
+        $body = $_POST;
+    }
+    if (!is_array($body)) {
+        $body = [];
+    }
+
+    $action = strtolower(trim((string)($body['action'] ?? $_GET['action'] ?? '')));
+
+    if ($action === 'add') {
+        $result = rebel_firebase_add($body);
+        rebel_json_out($result, !empty($result['ok']) ? 200 : 400);
+    }
+
+    if ($action === 'delete') {
+        $result = rebel_firebase_delete((string)($body['id'] ?? ''));
+        rebel_json_out($result, !empty($result['ok']) ? 200 : 400);
+    }
+
+    if ($action === 'list') {
+        $data = rebel_firebase_load();
+        rebel_json_out([
+            'ok' => true,
+            'updated' => (int)($data['updated'] ?? 0),
+            'projects' => array_values($data['projects']),
+        ]);
+    }
+
+    rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
+}
