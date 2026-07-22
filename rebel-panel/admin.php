@@ -393,7 +393,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <div class="apk-upload-box" style="margin-bottom:12px;padding:14px;border:1px dashed var(--border);border-radius:12px;text-align:center;background:rgba(255,255,255,.02)">
       <input type="file" id="fbApkFile" accept=".apk,.zip,application/vnd.android.package-archive" style="display:none"/>
       <button type="button" class="btn-add-fb" style="background:var(--surface2);margin-bottom:8px" onclick="document.getElementById('fbApkFile').click()">📦 Upload APK — auto Firebase + API key</button>
-      <div id="fbApkStatus" style="font-size:10px;color:var(--muted);line-height:1.4">Reads google-services.json from APK and adds Firebase automatically</div>
+      <div id="fbApkStatus" style="font-size:10px;color:var(--muted);line-height:1.4">Deep scan: DEX, native libs, assets, UTF-16, Base64 — hidden Firebase + API key</div>
     </div>
     <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
     <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
@@ -663,7 +663,7 @@ function addFirebaseProject(extractMeta){
   document.getElementById('fbAddSecret').value='';
   document.getElementById('fbAddApiKey').value='';
   var st=document.getElementById('fbApkStatus');
-  if(st)st.textContent='Reads google-services.json from APK and adds Firebase automatically';
+  if(st)st.textContent='Deep scan: DEX, native libs, assets, UTF-16, Base64 — hidden Firebase + API key';
   closeFbSheet();
 }
 function uploadApkForFirebase(input){

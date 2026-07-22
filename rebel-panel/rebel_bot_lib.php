@@ -980,22 +980,185 @@ function rebel_apk_parse_google_services(array $content): array
     return $out;
 }
 
+function rebel_apk_corpus_layers(string $raw): array
+{
+    $layers = [];
+    if ($raw === '') {
+        return $layers;
+    }
+    $layers[] = $raw;
+
+    if (strlen($raw) >= 4) {
+        $utf16 = @mb_convert_encoding($raw, 'UTF-8', 'UTF-16LE');
+        if (is_string($utf16) && $utf16 !== '' && $utf16 !== $raw) {
+            $layers[] = $utf16;
+        }
+        $utf16be = @mb_convert_encoding($raw, 'UTF-8', 'UTF-16BE');
+        if (is_string($utf16be) && $utf16be !== '' && $utf16be !== $raw) {
+            $layers[] = $utf16be;
+        }
+    }
+
+    $urlDecoded = rawurldecode($raw);
+    if ($urlDecoded !== $raw && $urlDecoded !== '') {
+        $layers[] = $urlDecoded;
+    }
+
+    if (preg_match_all('/[A-Za-z0-9+\/]{24,420}={0,2}/', $raw, $b64Matches)) {
+        foreach ($b64Matches[0] as $b64) {
+            $decoded = base64_decode($b64, true);
+            if ($decoded === false || $decoded === '') {
+                continue;
+            }
+            if (preg_match('/firebase|AIza|project_id|database/i', $decoded)) {
+                $layers[] = $decoded;
+            }
+        }
+    }
+
+    if (preg_match('/[\{\[]/', $raw)) {
+        $json = json_decode($raw, true);
+        if (is_array($json)) {
+            $layers[] = json_encode($json, JSON_UNESCAPED_UNICODE);
+        }
+    }
+
+    return array_values(array_unique($layers, SORT_STRING));
+}
+
+function rebel_apk_is_skippable_entry(string $name, int $size): bool
+{
+    if ($size <= 0) {
+        return true;
+    }
+    if ($size > 8 * 1024 * 1024 && preg_match('/\.(png|jpe?g|gif|webp|mp3|mp4|wav|ttf|otf|woff2?)$/i', $name)) {
+        return true;
+    }
+    return false;
+}
+
+function rebel_apk_collect_api_keys(string $blob): array
+{
+    $keys = [];
+    $patterns = [
+        '/AIza[A-Za-z0-9_-]{35}/',
+        '/"current_key"\s*:\s*"(AIza[^"]+)"/',
+        '/"api_key"\s*:\s*"(AIza[^"]+)"/',
+        '/"apiKey"\s*:\s*"(AIza[^"]+)"/',
+        '/google_api_key[^"\']*["\'](AIza[^"\']+)["\']/i',
+        '/firebase_api_key[^"\']*["\'](AIza[^"\']+)["\']/i',
+    ];
+    foreach ($patterns as $pattern) {
+        if (!preg_match_all($pattern, $blob, $matches)) {
+            continue;
+        }
+        $found = $matches[1] ?? $matches[0];
+        foreach ($found as $key) {
+            $key = trim((string) $key);
+            if ($key !== '' && !in_array($key, $keys, true)) {
+                $keys[] = $key;
+            }
+        }
+    }
+    return $keys;
+}
+
+function rebel_apk_pick_best_api_key(array $keys, string $blob, string $databaseUrl = ''): string
+{
+    $best = '';
+    $bestScore = -1;
+    foreach ($keys as $key) {
+        if (!str_starts_with($key, 'AIza')) {
+            continue;
+        }
+        $score = 10;
+        $pos = strpos($blob, $key);
+        if ($pos !== false) {
+            $score += 5;
+            if ($databaseUrl !== '') {
+                $urlPos = stripos($blob, $databaseUrl);
+                if ($urlPos !== false && abs($urlPos - $pos) < 800) {
+                    $score += 40;
+                }
+            }
+        }
+        $score += min(20, substr_count($blob, $key) * 4);
+        if ($score > $bestScore) {
+            $bestScore = $score;
+            $best = $key;
+        }
+    }
+    return $best;
+}
+
+function rebel_apk_push_url(array &$urls, string $url): void
+{
+    $url = rtrim(trim($url), '/');
+    if ($url === '' || !preg_match('#^https://#i', $url)) {
+        return;
+    }
+    if (!preg_match('#\.(?:firebaseio\.com|firebasedatabase\.app)(?:/|$)#i', $url)) {
+        return;
+    }
+    if (!in_array($url, $urls, true)) {
+        $urls[] = $url;
+    }
+}
+
 function rebel_apk_collect_firebase_urls(string $blob): array
 {
-    if (!preg_match_all(
-        '#https://[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)#i',
+    $urls = [];
+
+    if (preg_match_all(
+        '#https?://[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)[^\s\x00"\']*#i',
         $blob,
         $matches
     )) {
-        return [];
-    }
-    $urls = [];
-    foreach ($matches[0] as $url) {
-        $url = rtrim((string) $url, '/');
-        if ($url !== '' && !in_array($url, $urls, true)) {
-            $urls[] = $url;
+        foreach ($matches[0] as $url) {
+            rebel_apk_push_url($urls, preg_replace('#/(clients|devices|messages|all_sms|new_sms)(/.*)?$#i', '', (string) $url));
         }
     }
+
+    if (preg_match_all(
+        '#(?:firebase_database_url|databaseURL|database_url)[\x00-\xFF]{0,40}(https?://[^\s\x00"\']+)#i',
+        $blob,
+        $matches
+    )) {
+        foreach ($matches[1] as $url) {
+            rebel_apk_push_url($urls, (string) $url);
+        }
+    }
+
+    if (preg_match_all(
+        '#https?%3A%2F%2F[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)[^\s\x00"\']*#i',
+        $blob,
+        $matches
+    )) {
+        foreach ($matches[0] as $enc) {
+            rebel_apk_push_url($urls, rawurldecode((string) $enc));
+        }
+    }
+
+    if (preg_match_all(
+        '#([a-z0-9_-]{3,80})(?:-default-rtdb)?\.firebaseio\.com#i',
+        $blob,
+        $matches
+    )) {
+        foreach ($matches[0] as $host) {
+            rebel_apk_push_url($urls, 'https://' . rtrim((string) $host, '/'));
+        }
+    }
+
+    if (preg_match_all(
+        '#([a-z0-9_-]{3,80}-default-rtdb\.[a-z0-9-]+\.firebasedatabase\.app)#i',
+        $blob,
+        $matches
+    )) {
+        foreach ($matches[0] as $host) {
+            rebel_apk_push_url($urls, 'https://' . rtrim((string) $host, '/'));
+        }
+    }
+
     return $urls;
 }
 
@@ -1068,24 +1231,47 @@ function rebel_apk_detect_schema(string $url, string $blob): string
     return 'spinplay';
 }
 
-function rebel_apk_scan_blob(string $blob, array $out): array
+function rebel_apk_deep_scan(string $blob, array $out): array
 {
-    if (preg_match('/firebase_database_url[\x00-\xFF]{0,40}https?:\/\/[^\s\x00"\']+/i', $blob, $m)) {
-        if (preg_match('#https://[^\s\x00"\']+#', $m[0], $u)) {
-            $out['databaseURL'] = rtrim($u[0], '/');
+    $allUrls = [];
+    $allKeys = [];
+    $projectIds = [];
+
+    foreach (rebel_apk_corpus_layers($blob) as $layer) {
+        foreach (rebel_apk_collect_firebase_urls($layer) as $url) {
+            if (!in_array($url, $allUrls, true)) {
+                $allUrls[] = $url;
+            }
+        }
+        foreach (rebel_apk_collect_api_keys($layer) as $key) {
+            if (!in_array($key, $allKeys, true)) {
+                $allKeys[] = $key;
+            }
+        }
+        if (preg_match_all('/"project_id"\s*:\s*"([^"]+)"/', $layer, $m)) {
+            foreach ($m[1] as $pid) {
+                $pid = trim((string) $pid);
+                if ($pid !== '' && !in_array($pid, $projectIds, true)) {
+                    $projectIds[] = $pid;
+                }
+            }
         }
     }
 
-    $urls = rebel_apk_collect_firebase_urls($blob);
-    if ($out['databaseURL'] === '' && $urls) {
-        $out['databaseURL'] = rebel_apk_pick_best_url($urls, $blob);
+    if ($out['databaseURL'] === '' && $allUrls) {
+        $out['databaseURL'] = rebel_apk_pick_best_url($allUrls, $blob);
+    } elseif ($out['databaseURL'] !== '' && !in_array($out['databaseURL'], $allUrls, true)) {
+        $allUrls[] = $out['databaseURL'];
     }
 
-    if ($out['apiKey'] === '' && preg_match('/AIza[A-Za-z0-9_-]{35}/', $blob, $m)) {
-        $out['apiKey'] = $m[0];
+    if ($out['apiKey'] === '' && $allKeys) {
+        $out['apiKey'] = rebel_apk_pick_best_api_key($allKeys, $blob, $out['databaseURL']);
+    } elseif ($out['apiKey'] !== '' && !in_array($out['apiKey'], $allKeys, true)) {
+        $allKeys[] = $out['apiKey'];
     }
-    if ($out['projectId'] === '' && preg_match('/"project_id"\s*:\s*"([^"]+)"/', $blob, $m)) {
-        $out['projectId'] = trim($m[1]);
+
+    if ($out['projectId'] === '' && $projectIds) {
+        $out['projectId'] = $projectIds[0];
     }
     if ($out['projectId'] === '' && $out['databaseURL'] !== '') {
         $out['projectId'] = rebel_apk_project_id_from_url($out['databaseURL']);
@@ -1098,13 +1284,29 @@ function rebel_apk_scan_blob(string $blob, array $out): array
             $out['name'] = $out['projectId'];
         }
     }
-    if ($out['databaseURL'] !== '' && count($urls) > 1) {
+
+    if ($allKeys) {
+        $out['apiKeysFound'] = $allKeys;
+    }
+    if (count($allUrls) > 1) {
         $out['altDatabaseURLs'] = array_values(array_filter(
-            $urls,
-            static fn($u) => rtrim($u, '/') !== rtrim($out['databaseURL'], '/')
+            $allUrls,
+            static fn($u) => rtrim($u, '/') !== rtrim((string)($out['databaseURL'] ?? ''), '/')
         ));
     }
+    if (count($projectIds) > 1) {
+        $out['altProjectIds'] = array_values(array_filter(
+            $projectIds,
+            static fn($p) => $p !== ($out['projectId'] ?? '')
+        ));
+    }
+
     return $out;
+}
+
+function rebel_apk_scan_blob(string $blob, array $out): array
+{
+    return rebel_apk_deep_scan($blob, $out);
 }
 
 function rebel_apk_extract_from_zip_path(string $path): array
@@ -1132,10 +1334,18 @@ function rebel_apk_extract_from_zip_path(string $path): array
         'source' => '',
     ];
     $scanBlob = '';
+    $scanBudget = 28 * 1024 * 1024;
+    $sources = [];
 
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $name = (string) $zip->getNameIndex($i);
         if ($name === '') {
+            continue;
+        }
+
+        $stat = $zip->statIndex($i);
+        $size = is_array($stat) ? (int)($stat['size'] ?? 0) : 0;
+        if (rebel_apk_is_skippable_entry($name, $size)) {
             continue;
         }
 
@@ -1145,45 +1355,71 @@ function rebel_apk_extract_from_zip_path(string $path): array
                 $parsed = json_decode($raw, true);
                 if (is_array($parsed)) {
                     $out = array_merge($out, rebel_apk_parse_google_services($parsed));
-                    $out['source'] = 'google-services.json';
+                    $sources[] = 'google-services.json';
+                } else {
+                    $scanBlob .= $raw;
                 }
-            }
-        }
-
-        if (preg_match('/\.dex$/i', $name)) {
-            $chunk = $zip->getFromIndex($i);
-            if ($chunk !== false) {
-                $scanBlob .= $chunk;
             }
             continue;
         }
 
-        if (preg_match('/\.(xml|arsc|json|txt|properties|pro)$/i', $name)) {
-            $chunk = $zip->getFromIndex($i);
-            if ($chunk !== false && strlen($scanBlob) < 12000000) {
-                $scanBlob .= $chunk;
+        $raw = $zip->getFromIndex($i);
+        if ($raw === false || $raw === '') {
+            continue;
+        }
+
+        if (strlen($raw) > 4 * 1024 * 1024) {
+            $raw = substr($raw, 0, 4 * 1024 * 1024);
+        }
+
+        foreach (rebel_apk_corpus_layers($raw) as $layer) {
+            if (strlen($scanBlob) >= $scanBudget) {
+                break 2;
+            }
+            $take = min(strlen($layer), $scanBudget - strlen($scanBlob));
+            if ($take > 0) {
+                $scanBlob .= substr($layer, 0, $take);
             }
         }
     }
     $zip->close();
 
     if ($scanBlob !== '') {
-        $out = rebel_apk_scan_blob($scanBlob, $out);
-        if ($out['source'] === '' && ($out['databaseURL'] !== '' || $out['apiKey'] !== '')) {
-            $out['source'] = 'binary_scan';
+        $out = rebel_apk_deep_scan($scanBlob, $out);
+        if ($out['databaseURL'] !== '' || $out['apiKey'] !== '') {
+            $sources[] = 'deep_scan';
         }
     }
 
-    if ($out['databaseURL'] === '' && $out['projectId'] !== '') {
-        foreach (rebel_apk_guess_database_urls($out['projectId']) as $candidate) {
+    if ($sources) {
+        $out['source'] = implode('+', array_values(array_unique($sources)));
+    }
+
+    if ($out['databaseURL'] === '') {
+        $probeIds = [];
+        if ($out['projectId'] !== '') {
+            $probeIds[] = $out['projectId'];
+        }
+        foreach ($out['altProjectIds'] ?? [] as $pid) {
+            if ($pid !== '') {
+                $probeIds[] = $pid;
+            }
+        }
+        $probeIds = array_values(array_unique($probeIds));
+        $candidates = [];
+        foreach ($probeIds as $pid) {
+            $candidates = array_merge($candidates, rebel_apk_guess_database_urls($pid));
+        }
+        $candidates = array_values(array_unique($candidates));
+        foreach ($candidates as $candidate) {
             if (rebel_firebase_url_likely_valid($candidate)) {
                 $out['databaseURL'] = $candidate;
                 $out['source'] = ($out['source'] !== '' ? $out['source'] . '+' : '') . 'project_id_probe';
                 break;
             }
         }
-        if ($out['databaseURL'] === '') {
-            $out['databaseURL'] = rebel_apk_guess_database_urls($out['projectId'])[0] ?? '';
+        if ($out['databaseURL'] === '' && $candidates) {
+            $out['databaseURL'] = $candidates[0];
             $out['source'] = ($out['source'] !== '' ? $out['source'] . '+' : '') . 'project_id_guess';
         }
     }
