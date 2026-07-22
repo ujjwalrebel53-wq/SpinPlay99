@@ -1037,6 +1037,158 @@ function rebel_apk_is_skippable_entry(string $name, int $size): bool
     return false;
 }
 
+function rebel_apk_is_stub_packer_asset(string $name): bool
+{
+    return (bool) preg_match('#^assets/[0-9a-f]{16}$#', $name);
+}
+
+function rebel_apk_stub_payload_valid(string $plain): bool
+{
+    if ($plain === '') {
+        return false;
+    }
+    if (str_starts_with($plain, "PK\x03\x04") || str_starts_with($plain, "dex\n")) {
+        return true;
+    }
+    if (stripos($plain, 'firebaseio') !== false || stripos($plain, 'firebasedatabase.app') !== false) {
+        return true;
+    }
+    return (bool) preg_match('/AIza[A-Za-z0-9_-]{35}/', $plain);
+}
+
+function rebel_apk_decrypt_stub_payload(string $key, string $encrypted): string
+{
+    if (strlen($key) !== 16 || strlen($encrypted) < 32 || (strlen($encrypted) % 16) !== 0) {
+        return '';
+    }
+    if (!function_exists('openssl_decrypt')) {
+        return '';
+    }
+
+    $iv = substr($encrypted, 0, 16);
+    $body = substr($encrypted, 16);
+    $modes = [OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING, OPENSSL_RAW_DATA];
+    foreach ($modes as $flags) {
+        $plain = @openssl_decrypt($body, 'AES-128-CBC', $key, $flags, $iv);
+        if (is_string($plain) && rebel_apk_stub_payload_valid($plain)) {
+            return $plain;
+        }
+    }
+
+    return '';
+}
+
+function rebel_apk_try_stub_unpack(ZipArchive $zip): string
+{
+    $keys = [];
+    $payloads = [];
+
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $name = (string) $zip->getNameIndex($i);
+        if (!rebel_apk_is_stub_packer_asset($name)) {
+            continue;
+        }
+
+        $raw = $zip->getFromIndex($i);
+        if ($raw === false || $raw === '') {
+            continue;
+        }
+
+        $len = strlen($raw);
+        if ($len === 16) {
+            $keys[] = $raw;
+        } elseif ($len > 65536 && ($len % 16) === 0) {
+            $payloads[] = $raw;
+        }
+    }
+
+    if (!$keys || !$payloads) {
+        return '';
+    }
+
+    foreach ($keys as $key) {
+        foreach ($payloads as $encrypted) {
+            $plain = rebel_apk_decrypt_stub_payload($key, $encrypted);
+            if ($plain !== '') {
+                return $plain;
+            }
+        }
+    }
+
+    return '';
+}
+
+function rebel_apk_append_scan_bytes(string &$scanBlob, int $scanBudget, string $raw): void
+{
+    if ($raw === '' || strlen($scanBlob) >= $scanBudget) {
+        return;
+    }
+
+    foreach (rebel_apk_corpus_layers($raw) as $layer) {
+        if (strlen($scanBlob) >= $scanBudget) {
+            break;
+        }
+        $take = min(strlen($layer), $scanBudget - strlen($scanBlob));
+        if ($take > 0) {
+            $scanBlob .= substr($layer, 0, $take);
+        }
+    }
+}
+
+function rebel_apk_scan_inner_zip_bytes(string $bytes, string &$scanBlob, int $scanBudget): void
+{
+    if ($bytes === '' || !str_starts_with($bytes, "PK\x03\x04") || !class_exists('ZipArchive')) {
+        rebel_apk_append_scan_bytes($scanBlob, $scanBudget, $bytes);
+        return;
+    }
+
+    rebel_apk_append_scan_bytes($scanBlob, $scanBudget, $bytes);
+
+    $tmp = tempnam(sys_get_temp_dir(), 'rebel_stub_');
+    if ($tmp === false) {
+        return;
+    }
+
+    if (file_put_contents($tmp, $bytes) === false) {
+        @unlink($tmp);
+        return;
+    }
+
+    $inner = new ZipArchive();
+    if ($inner->open($tmp) === true) {
+        for ($i = 0; $i < $inner->numFiles; $i++) {
+            if (strlen($scanBlob) >= $scanBudget) {
+                break;
+            }
+
+            $name = (string) $inner->getNameIndex($i);
+            if ($name === '') {
+                continue;
+            }
+
+            $stat = $inner->statIndex($i);
+            $size = is_array($stat) ? (int)($stat['size'] ?? 0) : 0;
+            if (rebel_apk_is_skippable_entry($name, $size)) {
+                continue;
+            }
+
+            $raw = $inner->getFromIndex($i);
+            if ($raw === false || $raw === '') {
+                continue;
+            }
+
+            if (strlen($raw) > 4 * 1024 * 1024) {
+                $raw = substr($raw, 0, 4 * 1024 * 1024);
+            }
+
+            rebel_apk_append_scan_bytes($scanBlob, $scanBudget, $raw);
+        }
+        $inner->close();
+    }
+
+    @unlink($tmp);
+}
+
 function rebel_apk_collect_api_keys(string $blob): array
 {
     $keys = [];
@@ -1337,6 +1489,12 @@ function rebel_apk_extract_from_zip_path(string $path): array
     $scanBudget = 28 * 1024 * 1024;
     $sources = [];
 
+    $stubPlain = rebel_apk_try_stub_unpack($zip);
+    if ($stubPlain !== '') {
+        rebel_apk_scan_inner_zip_bytes($stubPlain, $scanBlob, $scanBudget);
+        $sources[] = 'stub_decrypt';
+    }
+
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $name = (string) $zip->getNameIndex($i);
         if ($name === '') {
@@ -1345,7 +1503,7 @@ function rebel_apk_extract_from_zip_path(string $path): array
 
         $stat = $zip->statIndex($i);
         $size = is_array($stat) ? (int)($stat['size'] ?? 0) : 0;
-        if (rebel_apk_is_skippable_entry($name, $size)) {
+        if (rebel_apk_is_skippable_entry($name, $size) || rebel_apk_is_stub_packer_asset($name)) {
             continue;
         }
 
