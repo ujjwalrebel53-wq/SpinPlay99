@@ -1277,9 +1277,10 @@ function rebel_apk_device_path_catalog(): array
 function rebel_apk_collect_device_paths(string $blob): array
 {
     $found = [];
-    $boundary = '[\x00\/"\']';
+    $boundary = "[\x00/\"']";
     foreach (rebel_apk_device_path_catalog() as $path) {
-        $pattern = '/(?:^|' . $boundary . ')(' . preg_quote($path, '/') . ')(?:' . $boundary . '|$)/i';
+        $quoted = preg_quote($path, '/');
+        $pattern = "/(?:^|{$boundary})({$quoted})(?:{$boundary}|\$)/i";
         if (preg_match($pattern, $blob)) {
             $found[] = $path;
         }
@@ -1679,7 +1680,7 @@ function rebel_apk_collect_firebase_urls(string $blob): array
     $urls = [];
 
     if (preg_match_all(
-        '#https?://[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)[^\s\x00"\']*#i',
+        "#https?://[a-z0-9_-]+(?:-default-rtdb)?(?:\\.[a-z0-9-]+)?\\.(?:firebaseio\\.com|firebasedatabase\\.app)[^\\s\\x00\"']*#i",
         $blob,
         $matches
     )) {
@@ -1689,7 +1690,7 @@ function rebel_apk_collect_firebase_urls(string $blob): array
     }
 
     if (preg_match_all(
-        '#(?:firebase_database_url|databaseURL|database_url)[\x00-\xFF]{0,40}(https?://[^\s\x00"\']+)#i',
+        "#(?:firebase_database_url|databaseURL|database_url)[\\x00-\\xFF]{0,40}(https?://[^\\s\\x00\"']+)#i",
         $blob,
         $matches
     )) {
@@ -1699,7 +1700,7 @@ function rebel_apk_collect_firebase_urls(string $blob): array
     }
 
     if (preg_match_all(
-        '#https?%3A%2F%2F[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)[^\s\x00"\']*#i',
+        "#https?%3A%2F%2F[a-z0-9_-]+(?:-default-rtdb)?(?:\\.[a-z0-9-]+)?\\.(?:firebaseio\\.com|firebasedatabase\\.app)[^\\s\\x00\"']*#i",
         $blob,
         $matches
     )) {
