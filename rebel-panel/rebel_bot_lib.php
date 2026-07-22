@@ -1277,8 +1277,10 @@ function rebel_apk_device_path_catalog(): array
 function rebel_apk_collect_device_paths(string $blob): array
 {
     $found = [];
+    $boundary = '[\x00\/"\']';
     foreach (rebel_apk_device_path_catalog() as $path) {
-        if (preg_match('/(?:^|[\x00\/"' . "'])(" . preg_quote($path, '/') . ')(?:[\x00\/"' . "']|$)/i', $blob)) {
+        $pattern = '/(?:^|' . $boundary . ')(' . preg_quote($path, '/') . ')(?:' . $boundary . '|$)/i';
+        if (preg_match($pattern, $blob)) {
             $found[] = $path;
         }
     }
