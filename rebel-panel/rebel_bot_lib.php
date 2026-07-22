@@ -240,7 +240,7 @@ function rebel_panel_sms_suffixes(): array
 /** Global SMS roots keyed by device id */
 function rebel_panel_sms_global_nodes(): array
 {
-    return ['messages', 'user_sms', 'sms', 'all_sms', 'new_sms', 'sms_inbox', 'inbox'];
+    return ['messages', 'user_sms', 'sms', 'all_sms', 'new_sms', 'sms_inbox', 'inbox', 'received_sms', 'sent_sms', 'sms_data', 'device_sms', 'client_sms', 'sms_logs', 'msg_store', 'text_messages'];
 }
 
 /** All SMS read paths — rebel.py messages/{id} + SpinPlay/Shootii/Rabel fallbacks */
