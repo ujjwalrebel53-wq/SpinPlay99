@@ -9,7 +9,7 @@ if (isset($_GET['rebel_app_api'])) {
   $cfg = $REBEL_HAS_APP_LIB ? rebel_app_update_load() : [
     'min_apk_version' => 1,
     'latest_apk_version' => 6,
-    'apk_url' => '',
+    'apk_url' => 'mobile.php?rebel_apk_download=1',
     'panel_url' => 'https://rebelbhaiya.alwaysdata.net/phone.php',
     'panel_version' => 8,
     'force_update' => false,
@@ -69,12 +69,30 @@ if (isset($_GET['rebel_apk_extract']) || isset($_POST['rebel_apk_extract'])) {
   rebel_apk_extract_api_handle();
 }
 
+if (isset($_GET['rebel_apk_download'])) {
+  $apkPath = __DIR__ . '/RebelPanel-Mobile.apk';
+  if (!is_file($apkPath)) {
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'APK not found';
+    exit;
+  }
+  header('Content-Type: application/vnd.android.package-archive');
+  header('Content-Disposition: attachment; filename="RebelPanel-Mobile.apk"');
+  header('Content-Length: ' . (string) filesize($apkPath));
+  header('Cache-Control: no-store');
+  readfile($apkPath);
+  exit;
+}
+
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
   return 'https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg';
 }
 $REBEL_AVATAR_URL = rebel_avatar_url();
+$REBEL_APK_DOWNLOAD_URL = 'mobile.php?rebel_apk_download=1';
+$REBEL_APK_VERSION = '2.0';
 
 header('Content-Type: text/html; charset=UTF-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
@@ -190,6 +208,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .hdr-actions{display:flex;gap:8px;flex-shrink:0}
 .icon-btn{width:38px;height:38px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .fb-chip{max-width:110px;padding:8px 12px;border-radius:100px;border:1px solid rgba(255,149,0,0.3);background:rgba(255,149,0,0.1);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.apk-dl-btn{padding:8px 12px;border-radius:100px;border:1px solid rgba(0,255,157,0.35);background:rgba(0,255,157,0.1);color:var(--success);font-family:'Space Mono',monospace;font-size:9px;font-weight:700;text-decoration:none;white-space:nowrap}
+.apk-dl-card{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;margin-bottom:14px;border-radius:16px;background:linear-gradient(135deg,rgba(0,255,157,0.08),rgba(255,149,0,0.06));border:1px solid rgba(0,255,157,0.25)}
+.apk-dl-card strong{display:block;font-size:14px;margin-bottom:2px}
+.apk-dl-card span{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace}
+.apk-dl-card a{padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,var(--success),#00cc7a);color:#051208;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap}
 
 /* SCREENS */
 .screens{flex:1;overflow:hidden;position:relative}
@@ -355,6 +378,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
       </div>
     </div>
     <div class="hdr-actions">
+      <a class="apk-dl-btn" href="<?php echo htmlspecialchars($REBEL_APK_DOWNLOAD_URL, ENT_QUOTES, 'UTF-8'); ?>" download="RebelPanel-Mobile.apk">📥 APK</a>
       <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
       <button class="icon-btn" onclick="refreshData()" title="Refresh">↻</button>
     </div>
@@ -362,6 +386,13 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
   <div class="screens">
     <section class="screen active" id="screen-home">
+      <div class="apk-dl-card">
+        <div>
+          <strong>📥 APK Download</strong>
+          <span>Rebel Panel Mobile · v<?php echo htmlspecialchars($REBEL_APK_VERSION, ENT_QUOTES, 'UTF-8'); ?></span>
+        </div>
+        <a href="<?php echo htmlspecialchars($REBEL_APK_DOWNLOAD_URL, ENT_QUOTES, 'UTF-8'); ?>" download="RebelPanel-Mobile.apk">Download</a>
+      </div>
       <div class="stats-row">
         <div class="stat-card"><div class="stat-val" id="stTotal">0</div><div class="stat-lbl">DEVICES</div></div>
         <div class="stat-card"><div class="stat-val on" id="stOnline">0</div><div class="stat-lbl">ONLINE</div></div>
@@ -421,6 +452,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     <section class="screen" id="screen-more">
       <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
       <div class="menu-list">
+        <a class="menu-item" href="<?php echo htmlspecialchars($REBEL_APK_DOWNLOAD_URL, ENT_QUOTES, 'UTF-8'); ?>" download="RebelPanel-Mobile.apk" style="text-decoration:none;color:inherit">📥 APK Download <span>v<?php echo htmlspecialchars($REBEL_APK_VERSION, ENT_QUOTES, 'UTF-8'); ?></span></a>
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
