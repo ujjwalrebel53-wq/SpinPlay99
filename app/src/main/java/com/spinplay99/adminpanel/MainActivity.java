@@ -22,15 +22,18 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
+import org.json.JSONObject;
+
 public class MainActivity extends AppCompatActivity {
+
+    private static final String PANEL_ENTRY = "file:///android_asset/panel/index.html";
 
     private WebView webView;
     private ProgressBar progressBar;
     private SwipeRefreshLayout swipeRefresh;
     private ValueCallback<Uri[]> filePathCallback;
     private boolean isReady = false;
-    private String panelUrl;
-    private String panelHost;
+    private String fallbackPanelUrl;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -38,8 +41,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        panelUrl = getString(R.string.panel_url).trim();
-        panelHost = Uri.parse(panelUrl).getHost();
+        fallbackPanelUrl = getString(R.string.panel_url).trim();
 
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
@@ -47,7 +49,7 @@ public class MainActivity extends AppCompatActivity {
 
         setupWebView();
         setupSwipeRefresh();
-        webView.loadUrl(panelUrl);
+        webView.loadUrl(PANEL_ENTRY);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -61,7 +63,14 @@ public class MainActivity extends AppCompatActivity {
         settings.setDatabaseEnabled(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            settings.setAllowFileAccessFromFileURLs(true);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            settings.setAllowUniversalAccessFromFileURLs(true);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(true);
         }
@@ -73,7 +82,9 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                if (!isReady) progressBar.setVisibility(View.VISIBLE);
+                if (!isReady) {
+                    progressBar.setVisibility(View.VISIBLE);
+                }
             }
 
             @Override
@@ -103,12 +114,18 @@ public class MainActivity extends AppCompatActivity {
             public void onProgressChanged(WebView view, int newProgress) {
                 if (!isReady) {
                     progressBar.setProgress(newProgress);
-                    if (newProgress > 85) progressBar.setVisibility(View.GONE);
+                    if (newProgress > 85) {
+                        progressBar.setVisibility(View.GONE);
+                    }
                 }
             }
 
             @Override
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+            public boolean onShowFileChooser(
+                    WebView webView,
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params
+            ) {
                 filePathCallback = callback;
                 try {
                     startActivityForResult(params.createIntent(), 1001);
@@ -122,13 +139,33 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean shouldStayInWebView(String url) {
-        if (url == null || url.isEmpty()) return true;
-        if (url.startsWith("javascript:") || url.startsWith("about:")) return true;
-        if (url.contains(panelHost)) return true;
-        if (url.contains("firebaseio.com") || url.contains("firebasedatabase.app")) return true;
-        if (url.contains("googleapis.com") || url.contains("gstatic.com")) return true;
-        if (url.contains("githubusercontent.com")) return true;
-        if (url.contains("spinplay99.com")) return true;
+        if (url == null || url.isEmpty()) {
+            return true;
+        }
+        if (url.startsWith("file:///android_asset/")) {
+            return true;
+        }
+        if (url.startsWith("javascript:") || url.startsWith("about:")) {
+            return true;
+        }
+        if (url.contains("firebaseio.com") || url.contains("firebasedatabase.app")) {
+            return true;
+        }
+        if (url.contains("googleapis.com") || url.contains("gstatic.com")) {
+            return true;
+        }
+        if (url.contains("githubusercontent.com")) {
+            return true;
+        }
+        if (!fallbackPanelUrl.isEmpty()) {
+            try {
+                String host = Uri.parse(fallbackPanelUrl).getHost();
+                if (host != null && url.contains(host)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
         return url.endsWith(".php") || url.contains("/mobile.php") || url.contains("/admin.php");
     }
 
@@ -144,11 +181,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("Exit Rebel Panel?")
-            .setMessage("Close the app?")
-            .setPositiveButton("Yes", (dialog, which) -> finish())
-            .setNegativeButton("No", null)
-            .show();
+                .setTitle("Exit Rebel Panel?")
+                .setMessage("Close the app?")
+                .setPositiveButton("Yes", (dialog, which) -> finish())
+                .setNegativeButton("No", null)
+                .show();
     }
 
     @Override
@@ -173,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
     public class RebelAndroidBridge {
         @JavascriptInterface
         public String getAttest() {
-            return "rebel-panel-mobile-2.0";
+            return "rebel-panel-native-3.0";
         }
 
         @JavascriptInterface
@@ -188,6 +225,33 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void showToast(String message) {
             runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
+        }
+
+        @JavascriptInterface
+        public String apiPost(String endpoint, String jsonBody) {
+            try {
+                JSONObject body = new JSONObject(jsonBody == null || jsonBody.isEmpty() ? "{}" : jsonBody);
+                JSONObject result;
+                if ("rebel_send_sms".equals(endpoint)) {
+                    result = RebelPanelApi.sendSms(body);
+                } else if ("rebel_fetch_sms".equals(endpoint)) {
+                    result = RebelPanelApi.fetchSms(body);
+                } else {
+                    result = new JSONObject();
+                    result.put("ok", false);
+                    result.put("error", "Unknown endpoint: " + endpoint);
+                }
+                return result.toString();
+            } catch (Exception e) {
+                try {
+                    JSONObject err = new JSONObject();
+                    err.put("ok", false);
+                    err.put("error", e.getMessage() == null ? "Native API failed" : e.getMessage());
+                    return err.toString();
+                } catch (Exception ignored) {
+                    return "{\"ok\":false,\"error\":\"Native API failed\"}";
+                }
+            }
         }
     }
 }
