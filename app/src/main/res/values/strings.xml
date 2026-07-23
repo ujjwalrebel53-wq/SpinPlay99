@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">SpinPlay</string>
+    <string name="app_name">Rebel Panel</string>
+    <string name="panel_url">https://rebelbhaiya.alwaysdata.net/mobile.php</string>
 </resources>
