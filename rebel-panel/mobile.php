@@ -1464,7 +1464,8 @@ function mergeSummaryNode(fbId,node,raw){
     if(!raw[k])return;
     if(typeof raw[k]==='object')ingestDeviceData(fbId,node,k,raw[k]);
     else if(isHexDeviceKey(k)&&(raw[k]===true||raw[k]===1||raw[k]==='1'||raw[k]==='online'||raw[k]==='true')){
-      ingestDeviceData(fbId,'root',k,{status:true,online:true,online_status:true,_rootMarker:true});
+      var key=makeDevKey(fbId,k);
+      if(!clientsRawMap[key])ingestDeviceData(fbId,'root',k,{_rootMarker:true});
     }
   });
 }
@@ -1473,13 +1474,10 @@ function mergeRootHexMarkers(inst,roots){
   Object.keys(roots).forEach(function(k){
     if(!isHexDeviceKey(k))return;
     var v=roots[k];
-    var online=v===true||v===1||v==='1'||v==='online'||v==='true';
-    if(!online&&v!==false&&v!==0&&v!=='0'&&v!=='false'&&v!=='offline')return;
-    var key=makeDevKey(inst.id,k), existing=clientsRawMap[key]||{};
-    clientsRawMap[key]=Object.assign({},existing,buildDeviceStub(existing,k,existing._node||'user_data',inst.id),{
-      status:online,online:online,online_status:online,
-      _node:existing._node||'user_data',_fbId:inst.id,_devId:k
-    });
+    if(v!==true&&v!==1&&v!=='1'&&v!=='online'&&v!=='true'&&v!==false&&v!==0&&v!=='0')return;
+    var key=makeDevKey(inst.id,k), existing=clientsRawMap[key];
+    if(existing)return;
+    ingestDeviceData(inst.id,'root',k,{_rootMarker:true,status:undefined,online:undefined,online_status:undefined});
   });
 }
 function syncClientsStatus(inst){

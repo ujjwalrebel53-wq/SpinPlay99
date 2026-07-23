@@ -1072,7 +1072,10 @@ function bruteFetchDeviceNodes(inst){
   nodes.forEach(function(n){
     tasks.push(fetchSummaryNode(inst,n).catch(function(){return null;}));
   });
-  return Promise.all(tasks).then(function(){processClientsData();});
+  return Promise.all(tasks).then(function(){
+    syncClientsStatus(inst);
+    processClientsData();
+  });
 }
 function discoverInstance(inst){
   return restJsonInstShallow(inst).then(function(roots){
