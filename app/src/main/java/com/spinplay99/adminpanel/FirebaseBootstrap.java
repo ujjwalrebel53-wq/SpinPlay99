@@ -1,4 +1,4 @@
-package com.spinplay99.adminpanel.internal;
+package com.spinplay99.adminpanel;
 
 import android.content.Context;
 import android.text.TextUtils;
