@@ -3,6 +3,8 @@ package com.spinplay99.adminpanel;
 import android.content.Context;
 import android.text.TextUtils;
 
+import com.spinplay99.adminpanel.internal.CvNative;
+
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.database.FirebaseDatabase;
