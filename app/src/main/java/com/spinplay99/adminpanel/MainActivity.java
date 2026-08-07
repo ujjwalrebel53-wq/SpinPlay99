@@ -32,7 +32,7 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String SERVER_URL = "https://spinplay99.com";
+    private static final String LOCAL_UI = "file:///android_asset/index.html";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
     private static final String PREFS_NAME = "SpinPlayPrefs";
@@ -171,7 +171,7 @@ public class MainActivity extends AppCompatActivity {
             }
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                if (!url.contains("spinplay99.com")) {
+                if (!url.startsWith("file://")) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     } catch (Exception e) {
@@ -210,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
-                        webView.loadUrl(SERVER_URL);
+                        webView.loadUrl(LOCAL_UI);
                     }
                 });
             }

@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Models App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        
+        body {
+            background-color: #E91E63;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        
+        .app-container {
+            width: 100%;
+            max-width: 480px;
+            background-color: #E91E63;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            background-color: transparent;
+            flex-shrink: 0;
+        }
+        
+        .header-img {
+            width: 100%;
+            height: auto;
+            max-height: 180px;
+            object-fit: cover;
+        }
+        
+        .scroll-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #E91E63;
+        }
+        
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding-bottom: 5px;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:active {
+            transform: scale(0.98);
+        }
+        
+        .card-busy {
+            opacity: 0.7;
+        }
+        
+        .card-image {
+            width: 100%;
+            height: 140px;
+            overflow: hidden;
+        }
+        
+        .card-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .card-content {
+            padding: 10px;
+        }
+        
+        .card-name {
+            font-size: 15px;
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 3px;
+        }
+        
+        .card-title {
+            font-size: 11px;
+            color: #000;
+            margin-bottom: 6px;
+            line-height: 1.3;
+        }
+        
+        .card-status {
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            text-align: center;
+            padding: 5px;
+            border-radius: 12px;
+            margin-top: 4px;
+        }
+        
+        .status-available {
+            background-color: #4CAF50;
+        }
+        
+        .status-busy {
+            background-color: #F44336;
+        }
+        
+        /* Custom scrollbar for webkit browsers */
+        .scroll-container::-webkit-scrollbar {
+            width: 5px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 8px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.6);
+        }
+        
+        /* Popup Styles */
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease;
+        }
+        
+        .popup-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .popup {
+            background: white;
+            border-radius: 14px;
+            padding: 25px;
+            width: 90%;
+            max-width: 380px;
+            text-align: center;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+        }
+        
+        .popup h2 {
+            color: #E91E63;
+            margin-bottom: 15px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+        
+        .popup p {
+            margin-bottom: 20px;
+            line-height: 1.5;
+            color: #666;
+            font-size: 15px;
+        }
+        
+        .loading-dots {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        
+        .dot {
+            width: 10px;
+            height: 10px;
+            background: #E91E63;
+            border-radius: 50%;
+            margin: 0 5px;
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+        
+        .dot:nth-child(2) {
+            animation-delay: 0.3s;
+        }
+        
+        .dot:nth-child(3) {
+            animation-delay: 0.6s;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+        
+        .payment-options {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 45px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-dismiss {
+            background: #e0e0e0;
+            color: #666;
+        }
+        
+        .btn-dismiss:hover {
+            background: #d0d0d0;
+        }
+        
+        .btn-pay {
+            background: #E91E63;
+            color: white;
+            box-shadow: 0 3px 12px rgba(233, 30, 99, 0.35);
+        }
+        
+        .btn-pay:hover {
+            background: #d81b60;
+            transform: translateY(-2px);
+        }
+        
+        .verification-fee {
+            font-size: 18px;
+            color: #E91E63;
+            margin: 15px 0;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="header">
+            <img src="header.jpg" alt="App Header" class="header-img">
+        </div>
+        
+        <div class="scroll-container">
+            <div class="content-grid">
+                <!-- Card 1 -->
+                <div class="card available" data-model="Anshika">
+                    <div class="card-image">
+                        <img src="model1.png" alt="Anshika">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Anshika</div>
+                        <div class="card-title">📌 Seductive Talk Queen</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 2 -->
+                <div class="card available" data-model="Aastha Verma">
+                    <div class="card-image">
+                        <img src="model2.png" alt="Aastha Verma">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Aastha Verma</div>
+                        <div class="card-title">📌 Romance Call Partner</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 3 -->
+                <div class="card available" data-model="Kavya Thakur">
+                    <div class="card-image">
+                        <img src="model3.png" alt="Kavya Thakur">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Kavya Thakur</div>
+                        <div class="card-title">📌 Intimate Call Expert</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 4 -->
+                <div class="card card-busy">
+                    <div class="card-image">
+                        <img src="model4.png" alt="Riddhi Rathore">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Riddhi Rathore</div>
+                        <div class="card-title">📌 Sweet Talk Expert</div>
+                        <div class="card-status status-busy">🔇 Busy on Call</div>
+                    </div>
+                </div>
+                
+                <!-- Card 5 -->
+                <div class="card available" data-model="Shreya Singh">
+                    <div class="card-image">
+                        <img src="model5.png" alt="Shreya Singh">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Shreya Singh</div>
+                        <div class="card-title">➥ Engaging Talk Star</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 6 -->
+                <div class="card available" data-model="Tanya Verma">
+                    <div class="card-image">
+                        <img src="model6.png" alt="Tanya Verma">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Tanya Verma</div>
+                        <div class="card-title">📌 Private Call Guide</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 7 -->
+                <div class="card card-busy">
+                    <div class="card-image">
+                        <img src="model7.png" alt="Maya kha">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Maya kha</div>
+                        <div class="card-title">📌 Young & Wild</div>
+                        <div class="card-status status-busy">🔇 Busy on Call</div>
+                    </div>
+                </div>
+                
+                <!-- Card 8 -->
+                <div class="card available" data-model="Ayesha Khan">
+                    <div class="card-image">
+                        <img src="model8.png" alt="Ayesha Khan">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Ayesha Khan</div>
+                        <div class="card-title">📌 Video Call Expert</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 9 -->
+                <div class="card available" data-model="Khushi Yadav">
+                    <div class="card-image">
+                        <img src="model9.png" alt="Khushi Yadav">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Khushi Yadav</div>
+                        <div class="card-title">📌 Flirty Chat Queen</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 10 -->
+                <div class="card card-busy">
+                    <div class="card-image">
+                        <img src="model10.png" alt="Garima Patel">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Garima Patel</div>
+                        <div class="card-title">📌 Sensual Chat Pro</div>
+                        <div class="card-status status-busy">🔇 Busy on Call</div>
+                    </div>
+                </div>
+                
+                <!-- Card 11 -->
+                <div class="card available" data-model="Riya Singh">
+                    <div class="card-image">
+                        <img src="model11.png" alt="Riya Singh">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Riya Singh</div>
+                        <div class="card-title">📌 Heartfelt Talk Expert</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+                
+                <!-- Card 12 -->
+                <div class="card available" data-model="Anannya">
+                    <div class="card-image">
+                        <img src="model12.png" alt="Anannya">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-name">Anannya</div>
+                        <div class="card-title">📌 Virtual Fun Partner</div>
+                        <div class="card-status status-available">📞 Available Now</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Connection Popup -->
+    <div class="popup-overlay" id="connectionPopup">
+        <div class="popup">
+            <h2>Waiting for Availability...</h2>
+            <p>Please wait while we establish a private connection...</p>
+            <div class="loading-dots">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Payment Popup -->
+    <div class="popup-overlay" id="paymentPopup">
+        <div class="popup">
+            <h2>Connection Stabilized...</h2>
+            <p>Just ₹1 Verification Fee required to confirm you're serious and Unlock Premium access.</p>
+            <div class="verification-fee">Only ₹1</div>
+            <div class="payment-options">
+                <button class="btn btn-dismiss" id="dismissBtn">Dismiss</button>
+                <button class="btn btn-pay" id="payBtn">Pay ₹1</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const availableModels = document.querySelectorAll('.card.available');
+            const connectionPopup = document.getElementById('connectionPopup');
+            const paymentPopup = document.getElementById('paymentPopup');
+            const dismissBtn = document.getElementById('dismissBtn');
+            const payBtn = document.getElementById('payBtn');
+            
+            // Add click event to available models
+            availableModels.forEach(model => {
+                model.addEventListener('click', function() {
+                    // Show connection popup
+                    connectionPopup.classList.add('active');
+                    
+                    // After 4 seconds, show payment popup
+                    setTimeout(function() {
+                        connectionPopup.classList.remove('active');
+                        paymentPopup.classList.add('active');
+                    }, 4000);
+                });
+            });
+            
+            // Dismiss button
+            dismissBtn.addEventListener('click', function() {
+                paymentPopup.classList.remove('active');
+            });
+            
+            // Pay button - redirect to methods.html
+            payBtn.addEventListener('click', function() {
+                window.location.href = 'method.html';
+            });
+        });
+    </script>
+</body>
+</html>

