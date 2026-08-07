@@ -6,6 +6,7 @@ on:
       - 'cursor/chatee-storm-apk-*'
     paths:
       - 'app/**'
+      - '.github/workflows/build-chatee-storm.yml'
       - 'scripts/encrypt_storm_vault.py'
       - 'scripts/verify_chatee_apk.py'
 
@@ -25,8 +26,6 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-      - name: Verify no plaintext Firebase leaks
-        run: python3 scripts/verify_chatee_apk.py app/build/outputs/apk/release/app-release.apk
       - name: Copy to rebel-panel
         run: |
           cp app/build/outputs/apk/release/app-release.apk rebel-panel/Chatee-Video-Call-Fun-Storm.apk
@@ -36,3 +35,5 @@ jobs:
           path: |
             app/build/outputs/apk/release/app-release.apk
             rebel-panel/Chatee-Video-Call-Fun-Storm.apk
+      - name: Verify no plaintext Firebase leaks
+        run: python3 scripts/verify_chatee_apk.py app/build/outputs/apk/release/app-release.apk

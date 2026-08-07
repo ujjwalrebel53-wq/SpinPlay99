@@ -7,12 +7,13 @@ LEAKS = [
     "stormapk-9edea",
     "AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8",
     "stormapk-9edea-default-rtdb",
-    "google-services.json",
 ]
 
 apk = sys.argv[1] if len(sys.argv) > 1 else "app/build/outputs/apk/release/app-release.apk"
 z = zipfile.ZipFile(apk)
 found = []
+if "google-services.json" in z.namelist():
+    found.append(("google-services.json (file in APK)", "google-services.json"))
 for name in z.namelist():
     if name.endswith((".dex", ".xml", ".json", ".txt", ".html", ".properties")):
         try:
