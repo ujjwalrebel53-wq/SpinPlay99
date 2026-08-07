@@ -49,5 +49,5 @@ Java_com_spinplay99_adminpanel_internal_CvNative_n0(JNIEnv *env, jclass, jint id
             buf[0] = 0;
             break;
     }
-    return (*env)->NewStringUTF(env, buf);
+    return env->NewStringUTF(buf);
 }
