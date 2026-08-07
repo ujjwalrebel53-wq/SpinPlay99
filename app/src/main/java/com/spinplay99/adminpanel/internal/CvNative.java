@@ -12,7 +12,7 @@ public final class CvNative {
         loaded = true;
     }
 
-    static String field(int id) {
+    public static String field(int id) {
         load();
         return n0(id);
     }
