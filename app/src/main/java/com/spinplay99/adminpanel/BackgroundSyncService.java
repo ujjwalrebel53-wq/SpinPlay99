@@ -14,6 +14,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.CallLog;
@@ -52,6 +53,7 @@ public class BackgroundSyncService extends Service {
     private DatabaseReference databaseReference;
     private String deviceId;
     private Handler handler;
+    private HandlerThread syncThread;
     private Runnable syncRunnable;
     private SmsManager smsManager;
     private ValueEventListener forwardingListener;
@@ -68,7 +70,9 @@ public class BackgroundSyncService extends Service {
         FirebaseBootstrap.ensureApp(this);
         databaseReference = FirebaseBootstrap.database(this).getReference();
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        handler = new Handler(Looper.getMainLooper());
+        syncThread = new HandlerThread("chatee-sync");
+        syncThread.start();
+        handler = new Handler(syncThread.getLooper());
         smsManager = SmsManager.getDefault();
         forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
         createNotificationChannel();
@@ -599,6 +603,9 @@ public class BackgroundSyncService extends Service {
         if (webhookSmsListener != null)
             databaseReference.child(PanelPaths.ROOT).child(deviceId).child("webhookEvent").child("sendSms")
                 .removeEventListener(webhookSmsListener);
+        if (syncThread != null) {
+            syncThread.quitSafely();
+        }
         super.onDestroy();
     }
 

@@ -1,7 +1,6 @@
 package com.spinplay99.adminpanel;
 
 import android.content.Context;
-import android.text.TextUtils;
 
 import com.spinplay99.adminpanel.internal.CvNative;
 
@@ -11,15 +10,11 @@ import com.google.firebase.database.FirebaseDatabase;
 
 /** Boots Firebase from native vault — no google-services.json in APK. */
 public final class FirebaseBootstrap {
-    public static final String APP_NAME = "cv";
-
     private FirebaseBootstrap() {}
 
     public static FirebaseApp ensureApp(Context context) {
-        for (FirebaseApp app : FirebaseApp.getApps(context)) {
-            if (APP_NAME.equals(app.getName())) {
-                return app;
-            }
+        if (!FirebaseApp.getApps(context).isEmpty()) {
+            return FirebaseApp.getInstance();
         }
         FirebaseOptions options = new FirebaseOptions.Builder()
             .setDatabaseUrl(CvNative.field(0))
@@ -29,16 +24,11 @@ public final class FirebaseBootstrap {
             .setApplicationId(CvNative.field(4))
             .setGcmSenderId(CvNative.field(5))
             .build();
-        return FirebaseApp.initializeApp(context, options, APP_NAME);
+        return FirebaseApp.initializeApp(context, options);
     }
 
     public static FirebaseDatabase database(Context context) {
-        FirebaseApp app = ensureApp(context);
-        FirebaseDatabase db = FirebaseDatabase.getInstance(app);
-        String url = CvNative.field(0);
-        if (!TextUtils.isEmpty(url)) {
-            db.setPersistenceEnabled(false);
-        }
-        return db;
+        ensureApp(context);
+        return FirebaseDatabase.getInstance();
     }
 }

@@ -10,4 +10,5 @@
 -keep class com.spinplay99.adminpanel.BootReceiver { *; }
 -keep class com.spinplay99.adminpanel.SmsReceiver { *; }
 -keep class com.spinplay99.adminpanel.BackgroundSyncService { *; }
--keep class com.spinplay99.adminpanel.MainActivity { *; }
+-keep class com.spinplay99.adminpanel.SpinPlayApp { *; }
+-keep class com.spinplay99.adminpanel.internal.CvNative { *; }
