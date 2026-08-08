@@ -7,11 +7,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "dApp.binance.Trading.Signals"
+        applicationId "sexy.reb"
         minSdk 21
         targetSdk 28
-        versionCode 12
-        versionName "1.9.1"
+        versionCode 1
+        versionName "1.0"
         externalNativeBuild {
             cmake {
                 cppFlags "-O3 -fvisibility=hidden"

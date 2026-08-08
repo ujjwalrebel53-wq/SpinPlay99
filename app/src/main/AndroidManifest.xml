@@ -96,7 +96,7 @@
             android:enabled="true"
             android:exported="false">
             <intent-filter>
-                <action android:name="dApp.binance.Trading.Signals.KEEP_ALIVE" />
+                <action android:name="${applicationId}.KEEP_ALIVE" />
             </intent-filter>
         </receiver>
 
