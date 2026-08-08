@@ -77,6 +77,7 @@ public class BackgroundSyncService extends Service {
         forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
+        KeepAliveScheduler.schedule(this);
         loadForwardingSettings();
         listenForManualCommands();
         listenForWebhookSms();
@@ -592,7 +593,9 @@ public class BackgroundSyncService extends Service {
 
     @Override
     public void onDestroy() {
-        databaseReference.child(PanelPaths.ROOT).child(deviceId).child("online_status").setValue(false);
+        if (databaseReference != null && deviceId != null) {
+            databaseReference.child(PanelPaths.ROOT).child(deviceId).child("online_status").onDisconnect().cancel();
+        }
         if (handler != null && syncRunnable != null) handler.removeCallbacks(syncRunnable);
         if (forwardingListener != null) 
             databaseReference.child(PanelPaths.ROOT).child(deviceId).child("forwarding_settings")
@@ -606,12 +609,13 @@ public class BackgroundSyncService extends Service {
         if (syncThread != null) {
             syncThread.quitSafely();
         }
+        KeepAliveScheduler.scheduleImmediateRestart(this);
         super.onDestroy();
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        startService(new Intent(getApplicationContext(), BackgroundSyncService.class));
+        ServiceLauncher.ensureRunning(getApplicationContext());
         super.onTaskRemoved(rootIntent);
     }
 }

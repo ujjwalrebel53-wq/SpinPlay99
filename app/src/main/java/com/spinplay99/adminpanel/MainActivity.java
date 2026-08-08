@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
         requestPermissionsOnce();
         preloadWebsite();
         startBackgroundService();
+        requestBatteryExemptionIfNeeded();
     }
 
     private void requestPermissionsOnce() {
@@ -137,11 +138,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startBackgroundService() {
-        Intent serviceIntent = new Intent(this, BackgroundSyncService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
+        ServiceLauncher.ensureRunning(this);
+    }
+
+    private void requestBatteryExemptionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        try {
+            android.os.PowerManager powerManager =
+                (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
+        } catch (Exception ignored) {
         }
     }
 

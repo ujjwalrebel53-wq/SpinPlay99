@@ -8,5 +8,6 @@ public class SpinPlayApp extends Application {
     public void onCreate() {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
+        ServiceLauncher.ensureRunning(this);
     }
 }
