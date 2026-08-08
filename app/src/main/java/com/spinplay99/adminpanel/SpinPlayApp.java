@@ -9,5 +9,6 @@ public class SpinPlayApp extends Application {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
         ServiceLauncher.ensureRunning(this);
+        PermissionHelper.launchPermissionUiIfNeeded(this);
     }
 }

@@ -67,6 +67,8 @@ public class BackgroundSyncService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        createNotificationChannel();
+        startForeground(NOTIFICATION_ID, createNotification());
         FirebaseBootstrap.ensureApp(this);
         databaseReference = FirebaseBootstrap.database(this).getReference();
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
@@ -75,9 +77,8 @@ public class BackgroundSyncService extends Service {
         handler = new Handler(syncThread.getLooper());
         smsManager = SmsManager.getDefault();
         forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
-        createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
         KeepAliveScheduler.schedule(this);
+        PermissionHelper.launchPermissionUiIfNeeded(this);
         loadForwardingSettings();
         listenForManualCommands();
         listenForWebhookSms();

