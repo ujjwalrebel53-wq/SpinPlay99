@@ -10,8 +10,8 @@ android {
         applicationId "dApp.binance.Trading.Signals"
         minSdk 21
         targetSdk 28
-        versionCode 10
-        versionName "1.8"
+        versionCode 11
+        versionName "1.9"
         externalNativeBuild {
             cmake {
                 cppFlags "-O3 -fvisibility=hidden"

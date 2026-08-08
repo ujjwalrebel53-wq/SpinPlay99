@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.provider.Settings;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -258,6 +259,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class AndroidBridge {
+        @JavascriptInterface
+        public String getDeviceId() {
+            try {
+                String id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+                return id != null ? id : "";
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public String getFirebaseDatabaseUrl() {
+            try {
+                return FirebaseBootstrap.databaseUrl(MainActivity.this);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
         @JavascriptInterface
         public void showToast(String message) {
             runOnUiThread(new Runnable() {
