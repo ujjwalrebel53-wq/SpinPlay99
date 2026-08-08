@@ -364,6 +364,7 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
                 continue;
             }
             $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+            $out[] = ['path' => $n . '/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
         }
         $out[] = ['path' => 'devices/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
     }

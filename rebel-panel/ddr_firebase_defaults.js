@@ -1,8 +1,8 @@
-/** DDR Panel — Storm APK Firebase only */
+/** Rebel Panel — Storm APK Firebase only */
 var REBEL_DEFAULT_FIREBASES = [
   {
     id: 'stormapk_9edea',
-    name: 'Storm APK',
+    name: 'Rebel Panel',
     schema: 'rabel',
     apiKey: 'AIzaSyCuFRrF3_yxait_oOFkDxjdrsZkwno_Uy8',
     authDomain: 'stormapk-9edea.firebaseapp.com',
