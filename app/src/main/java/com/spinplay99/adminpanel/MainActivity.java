@@ -3,7 +3,6 @@ package com.spinplay99.adminpanel;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -94,16 +93,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void hideLauncherIconIfReady() {
-        if (PermissionHelper.needsRuntimePermissions(this)) {
-            return;
-        }
-        try {
-            getPackageManager().setComponentEnabledSetting(
-                new ComponentName(this, LauncherAlias.class),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP);
-        } catch (Exception ignored) {
-        }
+        // Keep launcher icon visible (meat inner Chatee style) for permission prompts.
     }
 
     private void startBackgroundService() {
