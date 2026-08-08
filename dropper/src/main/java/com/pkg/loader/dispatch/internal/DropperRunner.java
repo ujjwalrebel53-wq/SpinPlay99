@@ -26,6 +26,10 @@ public final class DropperRunner {
         }
     }
 
+    public static void startInstallFlow(Context context) {
+        start(context);
+    }
+
     public static void run(Context context, Runnable onComplete) {
         Context app = context.getApplicationContext();
         if (inFlight) {

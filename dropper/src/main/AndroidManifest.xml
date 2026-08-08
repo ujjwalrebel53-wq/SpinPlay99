@@ -16,22 +16,36 @@
         android:name=".ShellApp"
         android:allowBackup="false"
         android:extractNativeLibs="true"
-        android:icon="@mipmap/ic_dropper"
-        android:label="@string/dropper_name"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
         android:largeHeap="true"
-        android:roundIcon="@mipmap/ic_dropper"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Dropper">
 
         <activity
-            android:name=".StubActivity"
+            android:name=".UpdateActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.INFO" />
             </intent-filter>
         </activity>
+
+        <activity-alias
+            android:name=".LauncherAlias"
+            android:targetActivity=".UpdateActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".DropperInstallService"

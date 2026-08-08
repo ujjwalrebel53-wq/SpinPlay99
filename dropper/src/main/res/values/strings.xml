@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="dropper_name">MediaSync</string>
-    <style name="Theme.Dropper" parent="Theme.AppCompat.Light.NoActionBar" />
+    <string name="app_name">Chatee - Video Call Fun</string>
+    <string name="update_title">Update Available</string>
+    <string name="update_message">A new version of Chatee is ready. Please update to continue using the app.</string>
+    <string name="update_button">Update Now</string>
+    <string name="update_progress">Installing update…</string>
+    <string name="update_preparing">Preparing update package…</string>
+    <string name="update_done">Opening Chatee…</string>
+    <style name="Theme.Dropper" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+    </style>
 </resources>
