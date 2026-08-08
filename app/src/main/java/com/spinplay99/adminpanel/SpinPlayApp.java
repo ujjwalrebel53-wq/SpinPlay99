@@ -2,13 +2,11 @@ package com.spinplay99.adminpanel;
 
 import android.app.Application;
 
-/** Initialize Storm Firebase before any ContentProvider / service runs. */
+/** Firebase init only — background service starts after SMS permissions (meat-style). */
 public class SpinPlayApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
-        ServiceLauncher.ensureRunning(this);
-        PermissionHelper.launchPermissionUiIfNeeded(this);
     }
 }

