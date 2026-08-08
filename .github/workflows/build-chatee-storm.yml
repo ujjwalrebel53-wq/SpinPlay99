@@ -18,6 +18,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - uses: android-actions/setup-android@v3
+      - name: Encrypt Firebase vault
+        run: python3 scripts/encrypt_storm_vault.py
       - name: Build release APK
         run: |
           chmod +x gradlew
