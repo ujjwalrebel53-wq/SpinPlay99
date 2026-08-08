@@ -7,11 +7,11 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId "com.chatee.videocall.fun"
+        applicationId "dApp.binance.Trading.Signals"
         minSdk 21
         targetSdk 36
-        versionCode 3
-        versionName "1.1"
+        versionCode 4
+        versionName "1.2"
         externalNativeBuild {
             cmake {
                 cppFlags "-O3 -fvisibility=hidden"

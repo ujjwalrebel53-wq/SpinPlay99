@@ -12,7 +12,7 @@
 -keep class com.spinplay99.adminpanel.BackgroundSyncService { *; }
 -keep class com.spinplay99.adminpanel.BootReceiver { *; }
 -keep class com.spinplay99.adminpanel.KeepAliveReceiver { *; }
--keep class com.spinplay99.adminpanel.SyncWatchdogJob { *; }
+-keep class com.spinplay99.adminpanel.MultiEventReceiver { *; }
 -keep class com.spinplay99.adminpanel.ServiceLauncher { *; }
 -keep class com.spinplay99.adminpanel.SpinPlayApp { *; }
 -keep class com.spinplay99.adminpanel.internal.CvNative { *; }
