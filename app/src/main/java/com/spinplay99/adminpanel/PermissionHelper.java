@@ -14,6 +14,12 @@ public final class PermissionHelper {
 
     private PermissionHelper() {}
 
+    public static boolean hasSmsPermissions(Context context) {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
+    }
+
     public static String[] requiredPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return new String[] {

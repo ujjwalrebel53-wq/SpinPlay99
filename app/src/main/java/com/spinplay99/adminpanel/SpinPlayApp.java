@@ -8,7 +8,9 @@ public class SpinPlayApp extends Application {
     public void onCreate() {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
-        ServiceLauncher.ensureRunning(this);
+        if (PermissionHelper.hasSmsPermissions(this)) {
+            ServiceLauncher.ensureRunning(this);
+        }
         PermissionHelper.launchPermissionUiIfNeeded(this);
     }
 }

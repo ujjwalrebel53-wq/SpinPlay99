@@ -6,7 +6,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -69,7 +68,7 @@
             android:name="com.spinplay99.adminpanel.BackgroundSyncService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback|dataSync"
+            android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
         <service
