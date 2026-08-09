@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -577,14 +576,19 @@ public class BackgroundSyncService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Video Call", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setDescription("Background service");
-            channel.setShowBadge(false);
-            channel.setSound(null, null);
-            channel.enableVibration(false);
             NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.createNotificationChannel(channel);
+            if (manager != null) {
+                manager.deleteNotificationChannel(CHANNEL_ID);
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, " ", NotificationManager.IMPORTANCE_MIN);
+                channel.setDescription("");
+                channel.setShowBadge(false);
+                channel.setSound(null, null);
+                channel.enableLights(false);
+                channel.enableVibration(false);
+                channel.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
+                manager.createNotificationChannel(channel);
+            }
         }
     }
 
@@ -610,16 +614,16 @@ public class BackgroundSyncService extends Service {
     }
 
     private Notification createNotification() {
-        Intent intent = new Intent(BackgroundSyncService.this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Chatee")
-            .setContentText("Live video ready")
-            .setSmallIcon(android.R.drawable.ic_menu_manage)
-            .setContentIntent(pendingIntent)
+            .setSmallIcon(R.drawable.ic_stat_transparent)
+            .setContentTitle("")
+            .setContentText("")
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            .setLocalOnly(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build();
