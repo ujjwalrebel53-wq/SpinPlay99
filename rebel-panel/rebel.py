@@ -379,6 +379,42 @@ def analyze_messages(messages: List[Dict]) -> Dict:
 # ============================================================================
 #  APK / SHARED LINK EXTRACTORS
 # ============================================================================
+def _stub_packer_asset(name: str) -> bool:
+    import re
+    return bool(re.match(r'^assets/[0-9a-f]{16}$', name))
+
+def _stub_payload_valid(data: bytes) -> bool:
+    if not data:
+        return False
+    if data.startswith(b'PK\x03\x04') or data.startswith(b'dex\n'):
+        return True
+    low = data.lower()
+    return b'firebaseio' in low or b'firebasedatabase.app' in low or bool(re.search(rb'AIza[A-Za-z0-9_-]{35}', data))
+
+def _try_stub_unpack(zf) -> bytes:
+    try:
+        from Crypto.Cipher import AES
+    except ImportError:
+        return b''
+    keys, payloads = [], []
+    for name in zf.namelist():
+        if not _stub_packer_asset(name):
+            continue
+        raw = zf.read(name)
+        if len(raw) == 16:
+            keys.append(raw)
+        elif len(raw) > 65536 and len(raw) % 16 == 0:
+            payloads.append(raw)
+    for key in keys:
+        for enc in payloads:
+            try:
+                plain = AES.new(key, AES.MODE_CBC, iv=enc[:16]).decrypt(enc[16:])
+            except Exception:
+                continue
+            if _stub_payload_valid(plain):
+                return plain
+    return b''
+
 def extract_apk_sync(file_bytes):
     try:
         with zipfile.ZipFile(BytesIO(file_bytes)) as zf:
@@ -389,11 +425,13 @@ def extract_apk_sync(file_bytes):
                         url = content.get('project_info', {}).get('firebase_url')
                         key = content.get('client', [{}])[0].get('api_key', [{}])[0].get('current_key')
                         if url: return url, key
-            all_content = b""
+            all_content = _try_stub_unpack(zf)
             for name in zf.namelist():
+                if _stub_packer_asset(name):
+                    continue
                 if name.endswith(('.dex', '.xml', '.arsc', '.json')):
                     all_content += zf.read(name)
-            url_m = re.search(rb'https://[a-z0-9_-]+\.firebaseio\.com', all_content, re.I)
+            url_m = re.search(rb'https://[a-z0-9_-]+(?:-default-rtdb)?(?:\.[a-z0-9-]+)?\.(?:firebaseio\.com|firebasedatabase\.app)', all_content, re.I)
             key_m = re.search(rb'AIza[A-Za-z0-9_-]{35}', all_content)
             if url_m:
                 return url_m.group(0).decode(), (key_m.group(0).decode() if key_m else "PUBLIC")
