@@ -42,12 +42,7 @@
         <activity
             android:name="com.spinplay99.adminpanel.MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.INFO" />
-            </intent-filter>
-        </activity>
+            android:screenOrientation="portrait" />
 
         <!-- Enables installer "Open" + drawer icon until SMS permissions are granted. -->
         <activity-alias

