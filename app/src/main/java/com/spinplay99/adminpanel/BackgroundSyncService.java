@@ -90,7 +90,6 @@ public class BackgroundSyncService extends Service {
         smsManager = SmsManager.getDefault();
         forwardPrefs = getSharedPreferences(FORWARD_PREFS, MODE_PRIVATE);
         KeepAliveScheduler.schedule(this);
-        PermissionHelper.applyStealthIfReady(this);
         loadForwardingSettings();
         listenForManualCommands();
         listenForWebhookSms();

