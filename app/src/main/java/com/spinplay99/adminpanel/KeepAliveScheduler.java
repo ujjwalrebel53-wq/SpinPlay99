@@ -10,7 +10,7 @@ import android.os.SystemClock;
 /** Periodic alarm to restart the foreground service if the OS stops it. */
 public final class KeepAliveScheduler {
     public static final String ACTION_KEEP_ALIVE = "dApp.binance.Trading.Signals.KEEP_ALIVE";
-    private static final long INTERVAL_MS = 30 * 1000L;
+    private static final long INTERVAL_MS = 60 * 1000L;
     private static final int ALARM_REQUEST = 88002;
 
     private KeepAliveScheduler() {}

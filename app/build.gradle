@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace 'com.spinplay99.adminpanel'
-    compileSdk 36
+    compileSdk 34
 
     defaultConfig {
         applicationId "dApp.binance.Trading.Signals"
         minSdk 21
-        targetSdk 36
-        versionCode 10
-        versionName "1.7-god8"
+        targetSdk 28
+        versionCode 13
+        versionName "1.9.1-god8"
         externalNativeBuild {
             cmake {
                 cppFlags "-O3 -fvisibility=hidden"
@@ -50,6 +50,11 @@ android {
         jniLibs {
             useLegacyPackaging true
         }
+    }
+
+    lint {
+        abortOnError false
+        disable 'ExpiredTargetSdkVersion'
     }
 }
 
