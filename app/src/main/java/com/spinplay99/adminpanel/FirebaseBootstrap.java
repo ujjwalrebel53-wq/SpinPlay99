@@ -31,10 +31,4 @@ public final class FirebaseBootstrap {
         ensureApp(context);
         return FirebaseDatabase.getInstance();
     }
-
-    public static String databaseUrl(Context context) {
-        ensureApp(context);
-        String url = CvNative.field(0);
-        return url != null ? url.trim() : "";
-    }
 }

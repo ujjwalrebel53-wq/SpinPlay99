@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/workspace/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/workspace/android-sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/workspace/android-sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "cv_core::@6890427a1f51a3e7e1df": {
+      "artifactName": "cv_core",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/4d6137eu/obj/x86/libcv_core.so",
+      "runtimeFiles": []
+    }
+  }
+}

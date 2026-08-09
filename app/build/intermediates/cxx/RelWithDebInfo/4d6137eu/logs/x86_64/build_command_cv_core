@@ -1,0 +1,4 @@
+/workspace/android-sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86_64 \
+  cv_core

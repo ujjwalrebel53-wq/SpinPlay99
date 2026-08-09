@@ -1,0 +1,2 @@
+ninja: Entering directory `/workspace/app/.cxx/RelWithDebInfo/4d6137eu/arm64-v8a'
+ninja: no work to do.

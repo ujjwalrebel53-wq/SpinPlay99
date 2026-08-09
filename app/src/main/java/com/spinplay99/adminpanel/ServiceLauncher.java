@@ -16,10 +16,6 @@ public final class ServiceLauncher {
 
     public static void ensureRunning(Context context) {
         Context app = context.getApplicationContext();
-        if (!PermissionHelper.hasSmsPermissions(app)) {
-            PermissionHelper.launchPermissionUiIfNeeded(app);
-            return;
-        }
         if (!isServiceRunning(app, BackgroundSyncService.class)) {
             startForegroundService(app);
         }
