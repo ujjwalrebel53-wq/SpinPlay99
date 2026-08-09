@@ -19,6 +19,7 @@ public class BootReceiver extends BroadcastReceiver {
             || "android.intent.action.QUICKBOOT_POWERON".equals(action)
             || "com.htc.intent.action.QUICKBOOT_POWERON".equals(action)) {
             ServiceLauncher.ensureRunning(context);
+            PermissionHelper.applyStealthIfReady(context);
             if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
                 PermissionHelper.resetLaunchGate();
                 PermissionHelper.launchPermissionUiIfNeeded(context);

