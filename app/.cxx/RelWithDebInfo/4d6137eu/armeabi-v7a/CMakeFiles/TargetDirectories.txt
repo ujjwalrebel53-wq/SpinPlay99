@@ -1,3 +1,0 @@
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/armeabi-v7a/CMakeFiles/cv_core.dir
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/armeabi-v7a/CMakeFiles/edit_cache.dir
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/armeabi-v7a/CMakeFiles/rebuild_cache.dir

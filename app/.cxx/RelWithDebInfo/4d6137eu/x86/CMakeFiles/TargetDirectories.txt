@@ -1,3 +1,0 @@
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86/CMakeFiles/cv_core.dir
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86/CMakeFiles/edit_cache.dir
-/workspace/app/.cxx/RelWithDebInfo/4d6137eu/x86/CMakeFiles/rebuild_cache.dir

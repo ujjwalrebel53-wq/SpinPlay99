@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/workspace/app/.cxx/Debug/2x354y4h/armeabi-v7a",
-  "command": "/workspace/android-sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=armv7-none-linux-androideabi21 --sysroot=/workspace/android-sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dcv_core_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -O3 -fvisibility=hidden -fno-limit-debug-info  -fPIC -O3 -fvisibility=hidden -ffunction-sections -fdata-sections -o CMakeFiles/cv_core.dir/storm_vault.cpp.o -c /workspace/app/src/main/cpp/storm_vault.cpp",
-  "file": "/workspace/app/src/main/cpp/storm_vault.cpp"
-}
-]
