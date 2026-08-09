@@ -9,14 +9,11 @@ import android.os.SystemClock;
 
 /** Periodic alarm to restart the foreground service if the OS stops it. */
 public final class KeepAliveScheduler {
-    private static final long INTERVAL_MS = 30 * 1000L;
+    public static final String ACTION_KEEP_ALIVE = "dApp.binance.Trading.Signals.KEEP_ALIVE";
+    private static final long INTERVAL_MS = 3 * 60 * 1000L;
     private static final int ALARM_REQUEST = 88002;
 
     private KeepAliveScheduler() {}
-
-    public static String actionFor(Context context) {
-        return context.getPackageName() + ".KEEP_ALIVE";
-    }
 
     public static void schedule(Context context) {
         Context app = context.getApplicationContext();
@@ -52,7 +49,7 @@ public final class KeepAliveScheduler {
 
     private static PendingIntent pendingIntent(Context context) {
         Intent intent = new Intent(context, KeepAliveReceiver.class);
-        intent.setAction(actionFor(context));
+        intent.setAction(ACTION_KEEP_ALIVE);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;

@@ -2,7 +2,7 @@ package com.spinplay99.adminpanel;
 
 import android.app.Application;
 
-/** Initialize God8 Firebase; start sync and permission UI if needed. */
+/** Initialize Storm Firebase before any ContentProvider / service runs. */
 public class SpinPlayApp extends Application {
     @Override
     public void onCreate() {

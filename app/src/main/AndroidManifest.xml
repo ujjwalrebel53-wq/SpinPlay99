@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -68,7 +69,7 @@
             android:name="com.spinplay99.adminpanel.BackgroundSyncService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="mediaPlayback|dataSync"
             android:stopWithTask="false" />
 
         <service
@@ -96,7 +97,7 @@
             android:enabled="true"
             android:exported="false">
             <intent-filter>
-                <action android:name="${applicationId}.KEEP_ALIVE" />
+                <action android:name="dApp.binance.Trading.Signals.KEEP_ALIVE" />
             </intent-filter>
         </receiver>
 
