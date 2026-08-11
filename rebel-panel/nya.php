@@ -160,6 +160,11 @@ body{
 .token-log.ok{border-color:var(--online)}
 .token-log.bad{border-color:var(--offline);color:var(--detail)}
 .empty-mini{padding:14px;text-align:center;color:var(--muted);font-size:13px}
+.token-fields{padding:0 4px 8px}
+.token-fields label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:8px 0 4px;padding-left:4px}
+.token-fields input{width:100%;padding:12px;margin:0 0 6px;border-radius:12px;border:1px solid var(--card-border);font-size:14px;background:#fff}
+.token-btn-row{display:flex;gap:8px;margin:8px 0}
+.token-btn-row .nya-btn{flex:1;min-height:42px;font-size:12px}
 </style>
 </head>
 <body>
@@ -328,7 +333,19 @@ body{
 <div class="sheet-bg" id="tokenSheetBg" onclick="closeAutoTokenSheet()"></div>
 <div class="sheet" id="autoTokenSheet">
   <h3>⚡ Auto Token SMS</h3>
-  <div class="token-status" id="autoTokenStatus">Telegram channel se SMS TOKEN aate hi auto-send hoga</div>
+  <div class="token-status" id="autoTokenStatus">Telegram bot + channel ID yahan se set karo</div>
+  <div class="token-fields">
+    <label for="tgBotToken">Telegram Bot Token</label>
+    <input id="tgBotToken" type="password" placeholder="123456789:ABCdef..." autocomplete="off"/>
+    <label for="tgChannelId">Channel ID</label>
+    <input id="tgChannelId" type="text" placeholder="-1001234567890" inputmode="numeric"/>
+    <label for="tgOwnerId">Owner Telegram ID (optional)</label>
+    <input id="tgOwnerId" type="text" placeholder="8432393497" inputmode="numeric"/>
+    <div class="token-btn-row">
+      <button type="button" class="nya-btn" onclick="saveTelegramSettings()">💾 Save</button>
+      <button type="button" class="nya-btn" onclick="setupAutoTokenWebhook()">🔗 Webhook</button>
+    </div>
+  </div>
   <div class="token-row" onclick="toggleAutoToken()">
     <div>Auto Token SMS<div class="sub">Channel / message se OTP auto bhejo</div></div>
     <div class="toggle" id="autoTokenToggle"></div>

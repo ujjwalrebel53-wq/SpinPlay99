@@ -2133,6 +2133,9 @@ function rebel_sms_token_defaults(): array
         'schema' => 'rabel',
         'device_node' => 'clients',
         'sim' => 1,
+        'bot_token' => '',
+        'channel_id' => '',
+        'owner_id' => '',
         'log' => [],
     ];
 }
@@ -2169,6 +2172,13 @@ function rebel_sms_token_save(array $config): void
 
 function rebel_sms_token_public_config(array $config): array
 {
+    $botToken = trim((string)($config['bot_token'] ?? ''));
+    $mask = '';
+    if ($botToken !== '') {
+        $mask = strlen($botToken) > 12
+            ? substr($botToken, 0, 8) . '…' . substr($botToken, -4)
+            : '••••••••';
+    }
     return [
         'enabled' => !empty($config['enabled']),
         'device_id' => (string)($config['device_id'] ?? ''),
@@ -2177,8 +2187,27 @@ function rebel_sms_token_public_config(array $config): array
         'schema' => (string)($config['schema'] ?? 'rabel'),
         'device_node' => (string)($config['device_node'] ?? 'clients'),
         'sim' => max(1, (int)($config['sim'] ?? 1)),
+        'bot_token' => $botToken,
+        'bot_token_mask' => $mask,
+        'has_bot_token' => $botToken !== '',
+        'channel_id' => (string)($config['channel_id'] ?? ''),
+        'owner_id' => (string)($config['owner_id'] ?? ''),
         'updated' => (int)($config['updated'] ?? 0),
     ];
+}
+
+function rebel_sms_token_channel_allowed(string $chatId): bool
+{
+    $cfg = rebel_sms_token_load();
+    $want = trim((string)($cfg['channel_id'] ?? ''));
+    if ($want === '') {
+        return true;
+    }
+    $chatId = trim($chatId);
+    if ($chatId === $want) {
+        return true;
+    }
+    return ltrim($chatId, '-') === ltrim($want, '-');
 }
 
 function rebel_sms_token_public_log(array $config, int $limit = 15): array
@@ -2244,31 +2273,34 @@ function rebel_parse_sms_token(string $text): ?array
 
 function rebel_bot_token(): string
 {
-    static $token = null;
-    if ($token !== null) {
+    $cfg = rebel_sms_token_load();
+    $token = trim((string)($cfg['bot_token'] ?? ''));
+    if ($token !== '') {
         return $token;
     }
     $token = trim((string)getenv('REBEL_BOT_TOKEN'));
-    if ($token === '') {
-        $file = __DIR__ . '/rebel_bot_token.txt';
-        if (is_file($file)) {
-            $token = trim((string)file_get_contents($file));
-        }
+    if ($token !== '') {
+        return $token;
     }
-    return $token;
+    $file = __DIR__ . '/rebel_bot_token.txt';
+    if (is_file($file)) {
+        return trim((string)file_get_contents($file));
+    }
+    return '';
 }
 
 function rebel_bot_owner_id(): string
 {
-    static $owner = null;
-    if ($owner !== null) {
+    $cfg = rebel_sms_token_load();
+    $owner = trim((string)($cfg['owner_id'] ?? ''));
+    if ($owner !== '') {
         return $owner;
     }
     $owner = trim((string)getenv('REBEL_OWNER_ID'));
-    if ($owner === '') {
-        $owner = '8432393497';
+    if ($owner !== '') {
+        return $owner;
     }
-    return $owner;
+    return '8432393497';
 }
 
 function rebel_tg_api(string $method, array $params = []): array
@@ -2445,9 +2477,13 @@ function rebel_bot_handle_update(array $update): bool
 {
     if (!empty($update['channel_post']) || !empty($update['edited_channel_post'])) {
         $post = $update['channel_post'] ?? $update['edited_channel_post'];
+        $chatId = (string)($post['chat']['id'] ?? '');
+        if (!rebel_sms_token_channel_allowed($chatId)) {
+            return true;
+        }
         $text = trim((string)($post['text'] ?? $post['caption'] ?? ''));
         if ($text !== '') {
-            rebel_sms_token_try_send($text, ['source' => 'channel', 'chat_id' => (string)($post['chat']['id'] ?? '')]);
+            rebel_sms_token_try_send($text, ['source' => 'channel', 'chat_id' => $chatId]);
         }
         return true;
     }
@@ -2513,6 +2549,15 @@ function rebel_sms_token_api_handle(): void
         if (array_key_exists('sim', $body)) {
             $config['sim'] = max(1, (int)$body['sim']);
         }
+        if (array_key_exists('bot_token', $body)) {
+            $config['bot_token'] = trim((string)$body['bot_token']);
+        }
+        if (array_key_exists('channel_id', $body)) {
+            $config['channel_id'] = trim((string)$body['channel_id']);
+        }
+        if (array_key_exists('owner_id', $body)) {
+            $config['owner_id'] = trim((string)$body['owner_id']);
+        }
         $config['updated'] = time();
         rebel_sms_token_save($config);
         rebel_json_out([
@@ -2520,6 +2565,40 @@ function rebel_sms_token_api_handle(): void
             'config' => rebel_sms_token_public_config($config),
             'log' => rebel_sms_token_public_log($config),
         ]);
+    }
+
+    if ($action === 'setup_webhook') {
+        if (array_key_exists('bot_token', $body) && trim((string)$body['bot_token']) !== '') {
+            $config['bot_token'] = trim((string)$body['bot_token']);
+        }
+        if (array_key_exists('channel_id', $body)) {
+            $config['channel_id'] = trim((string)$body['channel_id']);
+        }
+        if (array_key_exists('owner_id', $body)) {
+            $config['owner_id'] = trim((string)$body['owner_id']);
+        }
+        if (!empty($config['bot_token']) || !empty($config['channel_id']) || !empty($config['owner_id'])) {
+            $config['updated'] = time();
+            rebel_sms_token_save($config);
+        }
+        $hook = rebel_bot_webhook_url();
+        if (strpos($hook, 'https://') !== 0) {
+            rebel_json_out([
+                'ok' => false,
+                'error' => 'HTTPS domain required for Telegram webhook',
+                'webhook' => $hook,
+            ], 400);
+        }
+        if (rebel_bot_token() === '') {
+            rebel_json_out(['ok' => false, 'error' => 'Bot token not set — save token in panel first'], 400);
+        }
+        $res = rebel_tg_api('setWebhook', ['url' => $hook, 'drop_pending_updates' => true]);
+        rebel_json_out([
+            'ok' => !empty($res['ok']),
+            'webhook' => $hook,
+            'telegram' => $res,
+            'config' => rebel_sms_token_public_config(rebel_sms_token_load()),
+        ], !empty($res['ok']) ? 200 : 502);
     }
 
     if ($action === 'test') {

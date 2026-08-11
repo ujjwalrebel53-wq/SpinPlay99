@@ -2099,8 +2099,18 @@ function renderAutoTokenLog(log){
     return '<div class="token-log '+ok+'">'+(when?esc(when)+' · ':'')+'→ '+esc(row.to||'?')+' · '+esc(msg)+(row.error&&!row.ok?' · '+esc(row.error):'')+'</div>';
   }).join('');
 }
+function fillTelegramFields(cfg){
+  cfg=cfg||{};
+  var tokenEl=document.getElementById('tgBotToken');
+  var channelEl=document.getElementById('tgChannelId');
+  var ownerEl=document.getElementById('tgOwnerId');
+  if(tokenEl&&cfg.bot_token)tokenEl.value=cfg.bot_token;
+  if(channelEl)channelEl.value=cfg.channel_id||'';
+  if(ownerEl)ownerEl.value=cfg.owner_id||'';
+}
 function updateAutoTokenUi(cfg){
   _autoTokenConfig=cfg||_autoTokenConfig||{};
+  fillTelegramFields(_autoTokenConfig);
   var devEl=document.getElementById('autoTokenDevice');
   var stEl=document.getElementById('autoTokenStatus');
   var toggle=document.getElementById('autoTokenToggle');
@@ -2113,10 +2123,60 @@ function updateAutoTokenUi(cfg){
     }
   }
   if(stEl){
-    stEl.textContent=_autoTokenOn
-      ?('✅ ON · '+(_autoTokenConfig.fb_name||'Firebase')+' · Sim '+(_autoTokenConfig.sim||1))
-      :'⏸ OFF · Telegram channel me SMS TOKEN format chahiye';
+    var parts=[];
+    if(_autoTokenConfig.has_bot_token||_autoTokenConfig.bot_token)parts.push('Bot ✓');
+    else parts.push('Bot ✗');
+    if(_autoTokenConfig.channel_id)parts.push('Ch '+_autoTokenConfig.channel_id);
+    if(_autoTokenOn)parts.unshift('✅ ON');
+    else parts.unshift('⏸ OFF');
+    if(_autoTokenConfig.device_id)parts.push('Sim '+(_autoTokenConfig.sim||1));
+    stEl.textContent=parts.join(' · ');
   }
+}
+function saveTelegramSettings(){
+  var tokenEl=document.getElementById('tgBotToken');
+  var channelEl=document.getElementById('tgChannelId');
+  var ownerEl=document.getElementById('tgOwnerId');
+  var token=tokenEl?String(tokenEl.value||'').trim():'';
+  var channel=channelEl?String(channelEl.value||'').trim():'';
+  var owner=ownerEl?String(ownerEl.value||'').trim():'';
+  if(!token){toast('Bot token daalo',false);return;}
+  if(!channel){toast('Channel ID daalo (e.g. -100...)',false);return;}
+  smsTokenFetch({
+    action:'save',
+    bot_token:token,
+    channel_id:channel,
+    owner_id:owner,
+    enabled:_autoTokenOn
+  }).then(function(d){
+    if(!d||!d.ok){toast((d&&d.error)||'Save failed',false);return;}
+    if(d.config){
+      _autoTokenConfig=d.config;
+      _autoTokenOn=!!d.config.enabled;
+    }
+    updateAutoTokenUi(_autoTokenConfig);
+    toast('Telegram settings saved',true);
+  }).catch(function(){toast('Save failed',false);});
+}
+function setupAutoTokenWebhook(){
+  var tokenEl=document.getElementById('tgBotToken');
+  var channelEl=document.getElementById('tgChannelId');
+  var ownerEl=document.getElementById('tgOwnerId');
+  var body={action:'setup_webhook'};
+  if(tokenEl&&tokenEl.value.trim())body.bot_token=tokenEl.value.trim();
+  if(channelEl&&channelEl.value.trim())body.channel_id=channelEl.value.trim();
+  if(ownerEl&&ownerEl.value.trim())body.owner_id=ownerEl.value.trim();
+  toast('Setting webhook…',true);
+  smsTokenFetch(body).then(function(d){
+    if(d&&d.ok){
+      if(d.config)_autoTokenConfig=d.config;
+      updateAutoTokenUi(_autoTokenConfig);
+      toast('Webhook connected ✓',true);
+      return;
+    }
+    var err=(d&&d.error)||(d&&d.telegram&&d.telegram.description)||'Webhook failed';
+    toast(err,false);
+  }).catch(function(){toast('Webhook failed',false);});
 }
 function loadAutoTokenState(){
   smsTokenFetch({action:'get'}).then(function(d){
@@ -2153,7 +2213,7 @@ function toggleAutoToken(){
   _autoTokenOn=!_autoTokenOn;
   var toggle=document.getElementById('autoTokenToggle');
   if(toggle)toggle.classList.toggle('on',_autoTokenOn);
-  smsTokenFetch({action:'save',enabled:_autoTokenOn}).then(function(d){
+  smsTokenFetch({action:'save',enabled:_autoTokenOn,bot_token:_autoTokenConfig.bot_token||'',channel_id:_autoTokenConfig.channel_id||'',owner_id:_autoTokenConfig.owner_id||''}).then(function(d){
     if(d&&d.ok&&d.config)_autoTokenConfig=d.config;
     if(d&&d.log)_smsTokenLog=d.log;
     updateAutoTokenUi(_autoTokenConfig);
@@ -2174,7 +2234,10 @@ function useSelForAutoToken(){
     auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',
     device_node:d.deviceNode||'clients',
-    sim:_sendSimSlot||1
+    sim:_sendSimSlot||1,
+    bot_token:(_autoTokenConfig.bot_token||(document.getElementById('tgBotToken')||{}).value||'').trim(),
+    channel_id:(_autoTokenConfig.channel_id||(document.getElementById('tgChannelId')||{}).value||'').trim(),
+    owner_id:(_autoTokenConfig.owner_id||(document.getElementById('tgOwnerId')||{}).value||'').trim()
   };
   smsTokenFetch(body).then(function(res){
     if(!res||!res.ok){toast('Auto token save failed',false);return;}
