@@ -166,8 +166,9 @@ body{
 .token-btn-row{display:flex;gap:8px;margin:8px 0}
 .token-btn-row .nya-btn{flex:1;min-height:42px;font-size:12px}
 .token-btn-row .nya-btn.active{background:var(--online);color:#fff;border-color:var(--online)}
-.wizard-input{width:100%;padding:14px;margin:8px 0;border-radius:12px;border:2px solid var(--card-border);font-size:15px;background:#fff}
-.wizard-input:focus{border-color:var(--black);outline:none}
+.token-device-info{margin:0 4px 12px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:14px;font-weight:700;line-height:1.45}
+.token-device-info small{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:4px}
+.sheet.device-setup{max-height:88vh}
 </style>
 </head>
 <body>
@@ -361,15 +362,35 @@ body{
   <div class="token-log-wrap" id="autoTokenLog"><div class="empty-mini">No activity yet</div></div>
 </div>
 
-<div class="sheet-bg" id="wizardSheetBg" onclick="closeAutoTokenWizard()"></div>
-<div class="sheet" id="autoTokenWizard">
-  <h3 id="autoTokenWizardTitle">⚡ Auto Token Setup</h3>
-  <div class="token-status" id="autoTokenWizardHint">Setup shuru karo</div>
-  <div id="autoTokenWizardBody"></div>
-  <div class="token-btn-row">
-    <button type="button" class="nya-btn" onclick="closeAutoTokenWizard()">Cancel</button>
-    <button type="button" class="nya-btn" id="autoTokenWizardNext" onclick="autoTokenWizardNext()">Next →</button>
+<div class="sheet-bg" id="deviceSetupBg" onclick="closeAutoTokenDeviceSetup()"></div>
+<div class="sheet device-setup" id="autoTokenDeviceSheet">
+  <h3>⚡ Auto Token — Full Setup</h3>
+  <div class="token-device-info" id="autoTokenDeviceInfo">
+    <span id="autoTokenDevicePhone">Device</span>
+    <small id="autoTokenDeviceMeta">Tap Save & Enable when done</small>
   </div>
+  <div class="token-fields">
+    <label for="devTgBotToken">Telegram Bot Token</label>
+    <input id="devTgBotToken" type="password" placeholder="123456789:ABCdef..." autocomplete="off"/>
+    <label for="devTgChannelId">Channel ID</label>
+    <input id="devTgChannelId" type="text" placeholder="-1001234567890" inputmode="numeric"/>
+    <label for="devTgOwnerId">Owner Telegram ID (optional)</label>
+    <input id="devTgOwnerId" type="text" placeholder="8432393497" inputmode="numeric"/>
+    <label>Send from SIM</label>
+    <div class="token-btn-row">
+      <button type="button" class="nya-btn dev-at-sim active" id="devAtSim1" onclick="selectAutoTokenDeviceSim(1,this)">Sim 1</button>
+      <button type="button" class="nya-btn dev-at-sim" id="devAtSim2" onclick="selectAutoTokenDeviceSim(2,this)">Sim 2</button>
+    </div>
+    <div class="token-row" onclick="toggleAutoTokenDeviceEnable()" style="margin-top:4px">
+      <div>Auto Token ON<div class="sub">Channel se SMS TOKEN aate hi bhejo</div></div>
+      <div class="toggle" id="autoTokenDeviceToggle"></div>
+    </div>
+    <div class="token-btn-row">
+      <button type="button" class="nya-btn" onclick="setupAutoTokenDeviceWebhook()">🔗 Webhook</button>
+      <button type="button" class="nya-btn" onclick="saveAutoTokenDeviceSetup()">✅ Save & Enable</button>
+    </div>
+  </div>
+  <div class="token-log-wrap" id="autoTokenDeviceLog"><div class="empty-mini">Activity log yahan dikhega</div></div>
 </div>
 
 <script>var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
