@@ -1,9 +1,6 @@
 python-telegram-bot[job-queue]==21.6
-playwright==1.49.1
 python-dotenv==1.0.1
 Pillow==11.0.0
 requests==2.32.3
-# Optional OCR captcha bypass: apt install tesseract-ocr && pip install pytesseract
-# /pdf aadhar.py — whisper optional (captcha bypass bina whisper bhi chalega)
-# pydub/ffmpeg optional — whisper mp3 direct padh leta hai
-openai-whisper
+# Optional OCR: apt install tesseract-ocr && pip install pytesseract
+# Optional Whisper audio captcha: pip install openai-whisper
