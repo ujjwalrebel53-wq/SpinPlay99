@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Rebel UIDAI Telegram Bot — single file, API-only (no Playwright / browser).
+Rebel UIDAI Telegram Bot — single file, pure HTTP requests (no browser).
+
+Works on any VPS: auto-detects India vs foreign, routes via Indian proxy pool,
+seeds cookies from uidai_baked_session.json.
 
 Usage:
   cd www
   pip install -r requirements.txt
+  wget -O uidai_baked_session.json "$BASE/uidai_baked_session.json"  # foreign VPS
   python bot.py
 """
 
@@ -13,7 +17,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import concurrent.futures
-import io
+import copy
+import urllib.request
 import json
 import logging
 import os
@@ -46,7 +51,9 @@ log = logging.getLogger('uidai-bot')
 # Version & config
 # ---------------------------------------------------------------------------
 
-BOT_ENGINE_VERSION = '3.0.0-api'
+BOT_ENGINE_VERSION = '3.1.0-global'
+
+WWW_DIR = Path(__file__).parent
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 ALLOWED = {x.strip() for x in os.getenv('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',') if x.strip()}
@@ -57,7 +64,28 @@ if not OWNER_ID and len(ALLOWED) == 1:
 DEFAULT_NAME = os.getenv('UIDAI_NAME', 'KAMAR JAHAN').strip()
 DEFAULT_MOBILE = os.getenv('UIDAI_MOBILE', '7651892956').strip()
 
-ACCESS_STATE_FILE = Path(__file__).parent / 'access_state.json'
+ACCESS_STATE_FILE = WWW_DIR / 'access_state.json'
+BAKED_SESSION_FILE = WWW_DIR / 'uidai_baked_session.json'
+PROXY_CACHE_FILE = WWW_DIR / 'proxy_cache.json'
+
+PORTAL_HOME = 'https://myaadhaar.uidai.gov.in/'
+TATHYA_ORIGIN = 'https://tathya.uidai.gov.in'
+
+# Indian proxy pool — foreign VPS auto-routes through these
+DEFAULT_INDIAN_PROXIES = [
+    'http://117.236.124.166:3128',
+    'http://139.167.218.162:3127',
+    'http://111.92.88.27:3128',
+    'http://14.143.222.113:57738',
+    'http://103.94.52.70:3128',
+    'http://117.74.113.104:8080',
+    'http://103.155.98.163:8080',
+    'http://103.149.162.195:80',
+    'http://202.62.75.38:84',
+    'http://49.229.100.42:8080',
+]
+
+_GLOBAL_ROUTE: dict[str, Any] = {'proxy': None, 'label': 'pending', 'india_direct': False}
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 DOWNLOAD_PAGE_URL = 'https://myaadhaar.uidai.gov.in/genricDownloadAadhaar/en'
@@ -115,6 +143,217 @@ def dob_bypass_on() -> bool:
 
 def captcha_bypass_on() -> bool:
     return _env_on('CAPTCHA_BYPASS', '0') or _env_on('UIDAI_CAPTCHA_BYPASS', '0')
+
+
+# ---------------------------------------------------------------------------
+# Global network — auto India proxy + cookie bootstrap (any VPS)
+# ---------------------------------------------------------------------------
+
+def _explicit_proxy() -> str | None:
+    raw = (os.getenv('UIDAI_PROXY') or '').strip()
+    if raw and raw.lower() not in ('auto', 'india', ''):
+        if raw.lower() in ('none', 'no', 'off', 'direct'):
+            return None
+        return raw
+    return None
+
+
+def _load_baked_session() -> dict[str, Any]:
+    if not _env_on('UIDAI_BAKED_SESSION', '1'):
+        return {}
+    if not BAKED_SESSION_FILE.exists():
+        return {}
+    try:
+        data = json.loads(BAKED_SESSION_FILE.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        log.warning('baked session load: %s', e)
+        return {}
+
+
+def _apply_cookies(session: requests.Session, cookies: list[dict[str, Any]]) -> int:
+    n = 0
+    for c in cookies or []:
+        name, value = c.get('name'), c.get('value')
+        if not name or value is None:
+            continue
+        session.cookies.set(name, value, domain=c.get('domain') or '', path=c.get('path') or '/')
+        n += 1
+    return n
+
+
+def _check_direct_india(timeout: int = 6) -> dict[str, Any] | None:
+    try:
+        req = urllib.request.Request(
+            'http://ip-api.com/json/?fields=status,countryCode,city,query',
+            headers={'User-Agent': 'RebelUidaiBot/3.1'},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get('status') == 'success' and data.get('countryCode') == 'IN':
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _probe_uidai_http(session: requests.Session, proxy: str | None, timeout: int = 12) -> bool:
+    proxies = {'http': proxy, 'https': proxy} if proxy else None
+    try:
+        r = session.get(
+            UIDAI_PAGE_URL,
+            headers={
+                'User-Agent': SCRIPT_USER_AGENT,
+                'Accept': 'text/html,*/*',
+                'Accept-Language': 'en-IN,en;q=0.9',
+            },
+            proxies=proxies,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        return r.status_code < 500
+    except Exception:
+        return False
+
+
+def _proxy_candidates() -> list[str]:
+    explicit = _explicit_proxy()
+    if explicit:
+        return [explicit]
+    baked = _load_baked_session()
+    baked_proxy = (baked.get('proxy') or '').strip()
+    out: list[str] = []
+    seen: set[str] = set()
+    if PROXY_CACHE_FILE.exists():
+        try:
+            cached = json.loads(PROXY_CACHE_FILE.read_text()).get('proxy', '').strip()
+            if cached and cached not in seen:
+                out.append(cached)
+                seen.add(cached)
+        except Exception:
+            pass
+    if baked_proxy and baked_proxy not in seen:
+        out.append(baked_proxy)
+        seen.add(baked_proxy)
+    raw_list = os.getenv('UIDAI_PROXY_LIST', '').strip()
+    if raw_list:
+        for p in raw_list.split(','):
+            p = p.strip()
+            if p and p not in seen:
+                out.append(p)
+                seen.add(p)
+    for p in DEFAULT_INDIAN_PROXIES:
+        if p not in seen:
+            out.append(p)
+            seen.add(p)
+    return out[:20]
+
+
+def _save_proxy_cache(proxy: str) -> None:
+    try:
+        PROXY_CACHE_FILE.write_text(json.dumps({'proxy': proxy, 'ts': int(time.time())}, indent=2))
+    except Exception:
+        pass
+
+
+def _pick_working_proxy() -> tuple[str | None, str]:
+    """Find Indian proxy that reaches UIDAI — for foreign VPS."""
+    auto = _env_on('UIDAI_INDIAN_PROXY_AUTO', '1') or (
+        (os.getenv('UIDAI_PROXY') or 'auto').strip().lower() in ('auto', 'india', '')
+    )
+    explicit = _explicit_proxy()
+    if explicit:
+        return explicit, f'proxy:{explicit.split("@")[-1][:28]}'
+
+    india = _check_direct_india()
+    direct_ok = _probe_uidai_http(requests.Session(), None)
+    if india and direct_ok and not auto:
+        return None, f'direct India ({india.get("city", "IN")})'
+
+    if india and direct_ok and not _env_on('UIDAI_FORCE_PROXY', '0'):
+        # India VPS + UIDAI reachable — direct fine
+        return None, f'direct India ({india.get("city", "IN")})'
+
+    if not auto:
+        return None, 'direct (no auto proxy)'
+
+    trial = int(os.getenv('UIDAI_PROXY_TRIAL_SEC', '12'))
+    log.info('Foreign/slow route — trying Indian proxies (max %ds each)…', trial)
+    for proxy in _proxy_candidates():
+        sess = requests.Session()
+        if _probe_uidai_http(sess, proxy, timeout=trial):
+            _save_proxy_cache(proxy)
+            host = proxy.split('//')[-1].split('@')[-1]
+            log.info('Working proxy: %s', host)
+            return proxy, f'India proxy · {host}'
+    return None, 'direct fallback (proxy pool failed)'
+
+
+def resolve_global_route() -> dict[str, Any]:
+    global _GLOBAL_ROUTE
+    if _GLOBAL_ROUTE.get('ready'):
+        return _GLOBAL_ROUTE
+    proxy, label = _pick_working_proxy()
+    india = _check_direct_india()
+    _GLOBAL_ROUTE = {
+        'ready': True,
+        'proxy': proxy,
+        'label': label,
+        'india_direct': bool(india and not proxy),
+    }
+    log.info('Network route: %s', label)
+    return _GLOBAL_ROUTE
+
+
+def _nav_headers(referer: str = PORTAL_HOME) -> dict[str, str]:
+    return {
+        'User-Agent': SCRIPT_USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
+        'Referer': referer,
+        'Upgrade-Insecure-Requests': '1',
+    }
+
+
+def bootstrap_http_session(session: requests.Session, proxy: str | None, *, page: str | None = None) -> None:
+    """GET portal pages + apply baked cookies — mimics browser, pure requests."""
+    if not _env_on('UIDAI_COOKIE_SEED', '1'):
+        return
+    proxies = {'http': proxy, 'https': proxy} if proxy else None
+    baked = _load_baked_session()
+    cookie_list = baked.get('cookies') or (baked.get('storage_state') or {}).get('cookies')
+    if cookie_list:
+        n = _apply_cookies(session, copy.deepcopy(cookie_list))
+        if n:
+            log.debug('Applied %d baked cookies', n)
+
+    target = page or UIDAI_PAGE_URL
+    timeout = int(os.getenv('UIDAI_COOKIE_TIMEOUT', '20'))
+    referer = PORTAL_HOME
+    for url in (PORTAL_HOME, target):
+        try:
+            r = session.get(
+                url, headers=_nav_headers(referer), proxies=proxies,
+                timeout=timeout, allow_redirects=True,
+            )
+            referer = str(r.url) if r.url else url
+        except requests.RequestException as e:
+            log.warning('bootstrap GET %s: %s', url, e)
+
+    try:
+        session.head(
+            TATHYA_ORIGIN + '/',
+            headers={
+                'User-Agent': SCRIPT_USER_AGENT,
+                'Accept': '*/*',
+                'Referer': referer,
+                'Origin': 'https://myaadhaar.uidai.gov.in',
+            },
+            proxies=proxies,
+            timeout=min(timeout, 15),
+        )
+    except requests.RequestException:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +806,7 @@ def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str
 # ---------------------------------------------------------------------------
 
 class UidaiSession:
-    """Pure HTTP UIDAI session — retrieve SMS + 2-OTP PDF."""
+    """Pure HTTP UIDAI session — retrieve SMS + 2-OTP PDF. Works on any VPS."""
 
     def __init__(self, on_log: Callable[[str], None] | None = None) -> None:
         self._http = requests.Session()
@@ -575,9 +814,6 @@ class UidaiSession:
         adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=8)
         self._http.mount('https://', adapter)
         self._http.mount('http://', adapter)
-        proxy = (os.getenv('UIDAI_PROXY') or '').strip()
-        if proxy and proxy.lower() not in ('auto', 'none', 'no', 'off', 'direct', ''):
-            self._http.proxies = {'http': proxy, 'https': proxy}
 
         self.on_log = on_log
         self.logs: list[str] = []
@@ -595,6 +831,22 @@ class UidaiSession:
         self.phase2_headers: dict[str, str] = {}
         self.phase2_req_id = ''
         self.mode = FLOW_MODE_RETRIEVE
+        self.proxy_url: str | None = None
+        self.route_label = ''
+        self._http_ready = False
+
+    def _prepare_http(self) -> None:
+        if self._http_ready:
+            return
+        route = resolve_global_route()
+        self.proxy_url = route.get('proxy')
+        self.route_label = str(route.get('label') or 'direct')
+        if self.proxy_url:
+            self._http.proxies = {'http': self.proxy_url, 'https': self.proxy_url}
+        page = DOWNLOAD_PAGE_URL if self.mode == FLOW_MODE_DOWNLOAD else UIDAI_PAGE_URL
+        bootstrap_http_session(self._http, self.proxy_url, page=page)
+        self._http_ready = True
+        self._log(f'Route: {self.route_label}')
 
     def _log(self, msg: str) -> None:
         line = (msg or '').strip()
@@ -614,8 +866,24 @@ class UidaiSession:
         return (c, t)
 
     def _post(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> requests.Response:
-        self._log(f'POST {url.split("/")[-1][:28]}…')
-        return self._http.post(url, headers=headers, json=payload, timeout=self._timeout())
+        self._prepare_http()
+        self._log(f'POST {url.split("/")[-1][:28]}… [{self.route_label[:24]}]')
+        try:
+            return self._http.post(url, headers=headers, json=payload, timeout=self._timeout())
+        except requests.RequestException as first_err:
+            if self.proxy_url or not _env_on('UIDAI_INDIAN_PROXY_AUTO', '1'):
+                raise
+            self._log('Direct failed — retry with India proxy…')
+            global _GLOBAL_ROUTE
+            _GLOBAL_ROUTE['ready'] = False
+            route = resolve_global_route()
+            self.proxy_url = route.get('proxy')
+            self.route_label = str(route.get('label') or 'proxy')
+            if self.proxy_url:
+                self._http.proxies = {'http': self.proxy_url, 'https': self.proxy_url}
+                bootstrap_http_session(self._http, self.proxy_url)
+                return self._http.post(url, headers=headers, json=payload, timeout=self._timeout())
+            raise first_err
 
     def setup(self, name: str, mobile: str, dob: str | None = None, *, mode: str = FLOW_MODE_RETRIEVE) -> None:
         self.name = normalize_name(name)
@@ -623,7 +891,8 @@ class UidaiSession:
         self.dob_raw = (dob or '').strip() or None
         self.dob = normalize_dob(self.dob_raw) if not dob_bypass_on() else None
         self.mode = mode
-        self._log(f'Session: {self.name} / {self.mobile} [{mode}] API-only')
+        self._prepare_http()
+        self._log(f'Session: {self.name} / {self.mobile} [{mode}] request-only')
 
     def fetch_captcha(self, *, phase: str = 'retrieve') -> dict[str, Any]:
         headers = get_headers(new_request_id())
@@ -853,7 +1122,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = [
         f'🔐 Rebel UIDAI Bot v{BOT_ENGINE_VERSION}',
         '',
-        'API-only — no browser required.',
+        '🌐 Request-only — works on ANY VPS (auto India proxy)',
         '',
         '/open — SMS retrieve (captcha → OTP)',
         '/open 7651892956 — mobile only',
@@ -935,6 +1204,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             lines.append(f'Name: {sess.name}')
         if sess.mobile:
             lines.append(f'Mobile: {sess.mobile}')
+        if sess.route_label:
+            lines.append(f'Route: {sess.route_label}')
     await update.message.reply_text('\n'.join(lines))
 
 
@@ -1235,6 +1506,8 @@ def main() -> None:
     if ':' not in TOKEN or len(TOKEN) < 20:
         raise SystemExit('❌ Invalid TELEGRAM_BOT_TOKEN')
 
+    resolve_global_route()
+
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_start))
@@ -1254,9 +1527,10 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 
+    route = _GLOBAL_ROUTE
     log.info(
-        'Bot start v%s — API-only | access: %s | owner: %s',
-        BOT_ENGINE_VERSION, ACCESS.mode, OWNER_ID or '—',
+        'Bot start v%s — request-only | route: %s | access: %s | owner: %s',
+        BOT_ENGINE_VERSION, route.get('label', '?'), ACCESS.mode, OWNER_ID or '—',
     )
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
