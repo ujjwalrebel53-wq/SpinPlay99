@@ -59,9 +59,22 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
   --muted:#454545;--hint:#888;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;font-family:sans-serif;background:var(--main);color:var(--black);overflow:hidden}
+html,body{
+  height:100%;height:100dvh;width:100%;
+  font-family:sans-serif;background:var(--main);color:var(--black);
+  overflow:hidden;position:fixed;inset:0;
+}
 .hidden{display:none!important}
-.app{height:100%;display:flex;flex-direction:column;background:var(--main)}
+.app{
+  height:100%;height:100dvh;width:100%;
+  display:flex;flex-direction:column;
+  background:var(--main);overflow:hidden;
+}
+.panel-view{
+  display:flex;flex-direction:column;
+  flex:1;min-height:0;width:100%;
+  overflow:hidden;
+}
 
 /* Header block — APK activity_main / onlypin */
 .hdr-block{background:var(--main);padding:12px 0 0;flex-shrink:0;position:relative}
@@ -78,8 +91,15 @@ html,body{height:100%;font-family:sans-serif;background:var(--main);color:var(--
 .search-box{flex:1;height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
 .search-box::placeholder{color:var(--hint)}
 
-/* Device list */
-.list-wrap{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:12px}
+/* Device list — scrollable area */
+.list-wrap{
+  flex:1;min-height:0;width:100%;
+  overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  touch-action:pan-y;
+  padding-bottom:max(20px,env(safe-area-inset-bottom));
+}
 
 /* card_list.xml exact */
 .dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer}
@@ -118,7 +138,8 @@ html,body{height:100%;font-family:sans-serif;background:var(--main);color:var(--
 /* SMS modal */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;display:none;align-items:flex-end;justify-content:center}
 .modal-bg.open{display:flex}
-.modal{width:100%;max-height:85vh;background:var(--main);border-radius:20px 20px 0 0;padding:16px;overflow-y:auto}
+.modal{width:100%;max-height:85vh;background:var(--main);border-radius:20px 20px 0 0;padding:16px;display:flex;flex-direction:column;overflow:hidden}
+#smsModalList{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:12px}
 .sms-card{margin:4px 5px;border-radius:20px;background:var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .sms-inner{background:var(--card);padding:10px 16px;display:flex;gap:10px;align-items:flex-start}
 .sms-icon{font-size:40px;flex-shrink:0}
@@ -133,7 +154,7 @@ html,body{height:100%;font-family:sans-serif;background:var(--main);color:var(--
 <div class="app">
 
   <!-- HOME — activity_main.xml -->
-  <div id="view-home">
+  <div id="view-home" class="panel-view">
     <div class="hdr-block">
       <div class="hdr-row">
         <span style="width:40px"></span>
@@ -159,7 +180,7 @@ html,body{height:100%;font-family:sans-serif;background:var(--main);color:var(--
   </div>
 
   <!-- ONLY PIN — onlypin.xml -->
-  <div id="view-onlypin" class="hidden">
+  <div id="view-onlypin" class="panel-view hidden">
     <div class="hdr-block" style="min-height:180px">
       <div class="hdr-row">
         <button class="nya-btn wide" style="width:150px;height:40px;margin-left:8px" onclick="goHome()">Home 🏡</button>
