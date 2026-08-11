@@ -79,8 +79,8 @@ function isSmsCommandRecord(raw){
 }
 var DEVICE_PHONE_KEYS=['phone_number','mobNo','phone','mobile','phone_no','cell','contact_no','mobile_no','sim_number','sim1','sim2','sim_1','sim_2','primary_phone','device_phone','user_phone','whatsapp','wa_number','caller_id','msisdn'];
 var PHONE_ENRICH_NODES=['user_list','user_data','devices','devices_status','Verify_Device','All_Users','All_User','online_devices','device_list','registered_users','active_devices'];
-/** rto9-style Firebase: these nodes hold SMS send commands, not device profiles */
-var COMMAND_JUNK_NODES=['clients','users','data','sendsms','bots','Admin','admin'];
+/** rto9-style Firebase: these root nodes are command queues, not device profile lists */
+var COMMAND_JUNK_NODES=['users','data','sendsms','bots','Admin','admin'];
 function isLikelySmsRootNode(name){
   if(!name||typeof name!=='string')return false;
   if(/^(config|settings|admin|rules|metadata|logs|test|passwords|webhook|tokens|auth|version|apk|update|banner|ads|payment|otp)$/i.test(name))return false;
@@ -129,6 +129,7 @@ function isRabelPanel(inst){
 function isJunkSmsPath(path){
   if(!path)return true;
   var seg=String(path).split('/')[0];
+  if(seg==='clients'||seg==='users'||seg==='data')return true;
   if(COMMAND_JUNK_NODES.indexOf(seg)>=0)return true;
   if(isHexDeviceKey(seg))return true;
   return false;
@@ -1209,9 +1210,12 @@ function discoverInstance(inst){
       var nodes=Object.keys(roots).filter(function(n){return isDeviceSummaryNode(n);});
       if(roots.user_list&&nodes.indexOf('user_list')<0)nodes.unshift('user_list');
       if(roots.user_data&&nodes.indexOf('user_data')<0)nodes.unshift('user_data');
+      if(roots.clients&&nodes.indexOf('clients')<0)nodes.unshift('clients');
+      if(roots.devices&&nodes.indexOf('devices')<0)nodes.unshift('devices');
       if(roots.user_list||roots.user_data){
         nodes=nodes.filter(function(n){return COMMAND_JUNK_NODES.indexOf(n)<0;});
       }
+      if(roots.clients&&nodes.indexOf('clients')<0)nodes.unshift('clients');
       if(!nodes.length)nodes=getDeviceNodesForInst(inst);
       var tasks=[];
       nodes.forEach(function(n){
@@ -1311,7 +1315,14 @@ function renderDevices(){
   if(currentView==='device'){renderDeviceSmsList();return;}
   var q=getSearchQuery();
   var list=getFilteredDevs().filter(function(d){
-    return !q||(d.displayPhone+d.name+d.rawId+(d.pin||'')).toLowerCase().includes(q);
+    if(!q)return true;
+    var hay=(d.displayPhone+d.name+d.rawId+(d.pin||'')).toLowerCase();
+    var digits=String(q).replace(/\D/g,'');
+    if(digits.length>=6){
+      var phoneHay=(d.displayPhone||'').replace(/\D/g,'');
+      if(phoneHay.indexOf(digits)>=0||phoneHay.slice(-10)===digits.slice(-10))return true;
+    }
+    return hay.includes(String(q).toLowerCase());
   });
   var emptyMsgs={home:'No clients found',online:'No online clients',onlypin:'No PIN clients found',liked:'No liked clients',login:'No logged-in clients'};
   var emptyMsg=!firebaseConfigs.length?'Add Firebase first 🔥':(emptyMsgs[currentView]||'No clients found');
