@@ -1,5 +1,5 @@
 #!/bin/bash
-# .env banao — kisi bhi VPS se chalega (auto India proxy)
+# .env banao — pure API bot, no proxy
 set -e
 WWW_DIR="$(cd "$(dirname "$0")/../www" && pwd)"
 cd "$WWW_DIR"
@@ -20,15 +20,11 @@ cat > .env <<EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
 TELEGRAM_ALLOWED_CHAT_IDS=$CHAT_ID
 TELEGRAM_OWNER_ID=$CHAT_ID
-UIDAI_PROXY=auto
-UIDAI_INDIAN_PROXY_AUTO=1
-UIDAI_BAKED_SESSION=1
-UIDAI_COOKIE_SEED=1
 EOF
 
 echo ""
 echo "Done — .env ban gaya ($WWW_DIR/.env)"
-echo "Foreign VPS? wget uidai_baked_session.json bhi lo (setup.sh output dekho)."
+echo "Pehle test: python bot.py --test"
 echo "Ab chalao:"
 echo "  cd $WWW_DIR"
 echo "  python3 -m venv .venv && source .venv/bin/activate"
