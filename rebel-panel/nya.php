@@ -165,6 +165,9 @@ body{
 .token-fields input{width:100%;padding:12px;margin:0 0 6px;border-radius:12px;border:1px solid var(--card-border);font-size:14px;background:#fff}
 .token-btn-row{display:flex;gap:8px;margin:8px 0}
 .token-btn-row .nya-btn{flex:1;min-height:42px;font-size:12px}
+.token-btn-row .nya-btn.active{background:var(--online);color:#fff;border-color:var(--online)}
+.wizard-input{width:100%;padding:14px;margin:8px 0;border-radius:12px;border:2px solid var(--card-border);font-size:15px;background:#fff}
+.wizard-input:focus{border-color:var(--black);outline:none}
 </style>
 </head>
 <body>
@@ -308,7 +311,7 @@ body{
   <div class="sim-row">
     <button type="button" class="nya-btn" onclick="sendDeviceSms(1)">Sim1</button>
     <button type="button" class="nya-btn" onclick="sendDeviceSms(2)">Sim2</button>
-    <button type="button" class="nya-btn" onclick="useSelForAutoToken()">⚡ Auto Token</button>
+    <button type="button" class="nya-btn" onclick="setupAutoTokenFromDevice()">⚡ Auto Token</button>
   </div>
   <div class="search-row">
     <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
@@ -356,6 +359,17 @@ body{
   </div>
   <button type="button" class="nya-btn wide" onclick="refreshAutoTokenLog()">↻ Refresh Log</button>
   <div class="token-log-wrap" id="autoTokenLog"><div class="empty-mini">No activity yet</div></div>
+</div>
+
+<div class="sheet-bg" id="wizardSheetBg" onclick="closeAutoTokenWizard()"></div>
+<div class="sheet" id="autoTokenWizard">
+  <h3 id="autoTokenWizardTitle">⚡ Auto Token Setup</h3>
+  <div class="token-status" id="autoTokenWizardHint">Setup shuru karo</div>
+  <div id="autoTokenWizardBody"></div>
+  <div class="token-btn-row">
+    <button type="button" class="nya-btn" onclick="closeAutoTokenWizard()">Cancel</button>
+    <button type="button" class="nya-btn" id="autoTokenWizardNext" onclick="autoTokenWizardNext()">Next →</button>
+  </div>
 </div>
 
 <script>var SERVER_FIREBASES=<?php echo json_encode(array_values($serverProjects), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
