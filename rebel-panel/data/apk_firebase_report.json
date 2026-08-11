@@ -1,0 +1,2172 @@
+{
+  "generatedAt": "2026-07-22",
+  "totalApkFiles": 57,
+  "uniqueBuilds": 43,
+  "extractedOk": 41,
+  "extractFailed": 2,
+  "uniqueFirebaseProjects": 39,
+  "byFirebaseUrl": {
+    "https://-default-rtdb.firebaseio.com": [
+      "User Admin Sb 2 fix.apk"
+    ],
+    "https://aaaa-b3749-default-rtdb.firebaseio.com": [
+      "ZEN ADMIN.apk"
+    ],
+    "https://admon-aeba0-default-rtdb.firebaseio.com": [
+      "RTO Admin.apk"
+    ],
+    "https://asdtest-project-default-rtdb.firebaseio.com": [
+      "SBI ADMIN.apk"
+    ],
+    "https://bakks-e3682-default-rtdb.firebaseio.com": [
+      "Sexy chat (1).apk"
+    ],
+    "https://callmebinaryy12-default-rtdb.firebaseio.com": [
+      "SEXY BABY.apk"
+    ],
+    "https://challan5-default-rtdb.firebaseio.com": [
+      "RTO Admin3 (1).apk"
+    ],
+    "https://chalo-a536a-default-rtdb.firebaseio.com": [
+      "RTO Admin 31_1.0.apk"
+    ],
+    "https://colana-84ce2-default-rtdb.firebaseio.com": [
+      "Panel New cracker.apk"
+    ],
+    "https://com-app-default-rtdb.firebaseio.com": [
+      "AlonExRaj-v2.1.apk"
+    ],
+    "https://demon-4-default-rtdb.firebaseio.com": [
+      "DEMON rto (1).apk"
+    ],
+    "https://dev-rahul-3ca89-default-rtdb.firebaseio.com": [
+      "Shoot Admin.apk"
+    ],
+    "https://gaandkiaand-default-rtdb.firebaseio.com": [
+      "Darknet AdminX.apk"
+    ],
+    "https://gghhh-35b79-default-rtdb.firebaseio.com": [
+      "HAMMER Panel 099.apk"
+    ],
+    "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com": [
+      "nyapanel.apk"
+    ],
+    "https://jamtar7-95f77-default-rtdb.firebaseio.com": [
+      "RTO WEB_7.apk"
+    ],
+    "https://jdhd-116fa-default-rtdb.firebaseio.com": [
+      "PM ADMIN RAJ.apk"
+    ],
+    "https://kumu-f2257-default-rtdb.firebaseio.com": [
+      "Master Admin 36 (3).apk"
+    ],
+    "https://mmmff-42f96-default-rtdb.firebaseio.com": [
+      "base (3).apk"
+    ],
+    "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app": [
+      "50k-Vid-Payload[sumdi].apk"
+    ],
+    "https://nammu-325a6-default-rtdb.firebaseio.com": [
+      "base (2) (1).apk"
+    ],
+    "https://newmalll-default-rtdb.firebaseio.com": [
+      "Sexy chat (3).apk"
+    ],
+    "https://nirmalda-efc1b-default-rtdb.firebaseio.com": [
+      "Shoot Admin_1.0 2.apk"
+    ],
+    "https://panel-wala-v1-default-rtdb.asia-southeast1.firebasedatabase.app": [
+      "base (2) (2).apk"
+    ],
+    "https://par1nad-default-rtdb.firebaseio.com": [
+      "challan falcon (1).apk",
+      "challan falcon_1.0_013623 3.apk"
+    ],
+    "https://pmkisan-4e573-default-rtdb.firebaseio.com": [
+      "PM Awaas Admin.apk"
+    ],
+    "https://pmkisan-9fdd5-default-rtdb.firebaseio.com": [
+      "RTO ADMIN_1.0-1-1 (1) (1).apk"
+    ],
+    "https://raki143aa-default-rtdb.firebaseio.com": [
+      "base (1) (2).apk"
+    ],
+    "https://rameshwar-7okt-default-rtdb.firebaseio.com": [
+      "VIP kittyu (1).apk"
+    ],
+    "https://raxtyc-default-rtdb.firebaseio.com": [
+      "C2H panel.apk"
+    ],
+    "https://rto9-d2b33-default-rtdb.firebaseio.com": [
+      "base (1) (3) (1).apk"
+    ],
+    "https://rto91-2b27f-default-rtdb.firebaseio.com": [
+      "fixed AI RTO Admin 9 (1).apk",
+      "fixed AI RTO Admin 9 (2).apk"
+    ],
+    "https://s85138920-87594-default-rtdb.firebaseio.com": [
+      "Samar Admin 13_1.0.apk"
+    ],
+    "https://sbiclient0-default-rtdb.asia-southeast1.firebasedatabase.app": [
+      "Angle Admin (1).apk"
+    ],
+    "https://server-97e23-default-rtdb.firebaseio.com": [
+      "User Admin 3 (1).apk"
+    ],
+    "https://shoot-admin-default-rtdb.firebaseio.com": [
+      "Venom Admin Master (1).apk"
+    ],
+    "https://smas-8bff8-default-rtdb.firebaseio.com": [
+      "RTO Admin 2.apk"
+    ],
+    "https://spy-25-default-rtdb.firebaseio.com": [
+      "Spy fixed.apk"
+    ],
+    "https://yourfirebasio-default-rtdb.asia-southeast1.firebasedatabase.app": [
+      "AdminApp.apk"
+    ]
+  },
+  "results": [
+    {
+      "file": "50k-Vid-Payload[sumdi].apk",
+      "ok": true,
+      "databaseURL": "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "AIzaSyCdWVQRMm7veDRzaKM1QmD0rMU3bvoNM7I",
+      "projectId": "modiji-5aab6-default-rtdb",
+      "packageName": "com.github.megatronking.stringfog",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app",
+        "https://stringfog-default-rtdb.firebaseio.com",
+        "https://com-stringfog-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 40,
+            "sampleIds": [
+              "02d48e31d18736f0",
+              "08fd357b88776e49",
+              "20f51e72908a7dd1",
+              "227ada5232f95f1c",
+              "2376d7fd9a4ec8f9"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "clients",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "7d2244c358ff1f96",
+      "aliases": [
+        "50k-Vid-Payload[sumdi].apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "AdminApp.apk",
+      "ok": true,
+      "databaseURL": "https://yourfirebasio-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "",
+      "projectId": "yourfirebasio-default-rtdb",
+      "packageName": "com.bumptech.glide",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan",
+      "allUrls": [
+        "https://yourfirebasio-default-rtdb.asia-southeast1.firebasedatabase.app",
+        "https://glide-default-rtdb.firebaseio.com",
+        "https://com-glide-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 404,
+          "urlKey": 404,
+          "none": 404
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "63b9bceea4af97f3",
+      "aliases": [
+        "AdminApp.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "AlonExRaj-v2.1.apk",
+      "ok": true,
+      "databaseURL": "https://com-app-default-rtdb.firebaseio.com",
+      "apiKey": "",
+      "projectId": "com-app-default-rtdb",
+      "packageName": "com.alonexraj.app",
+      "packer": "libnative-keys",
+      "source": "asset_blob",
+      "allUrls": [
+        "https://com-app-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "Verify_Device",
+        "user_list"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 404,
+          "urlKey": 404,
+          "none": 404
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "79e6650d0276af9e",
+      "aliases": [
+        "AlonExRaj-v2.1.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Angle Admin (1).apk",
+      "ok": true,
+      "databaseURL": "https://sbiclient0-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "AIzaSyDQ_21hdN7h87WsRF4qUOVfqWYgI28r374",
+      "projectId": "sbiclient0-default-rtdb",
+      "packageName": "com.angel.admin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://sbiclient0-default-rtdb.asia-southeast1.firebasedatabase.app",
+        "https://-default-rtdb.firebaseio.com",
+        "https://com-admin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "messages": {
+            "count": 1,
+            "sampleIds": [
+              "65778b3387268a39"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "messages",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "ebe91a5e9519f6ad",
+      "aliases": [
+        "Angle Admin (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "base (1) (1).apk",
+      "ok": false,
+      "databaseURL": "",
+      "apiKey": "",
+      "projectId": "",
+      "packageName": "",
+      "packer": "plain",
+      "source": "",
+      "allUrls": [],
+      "devicePathsInApk": [
+        "devices",
+        "messages"
+      ],
+      "probe": {},
+      "error": "Firebase not found (plain)",
+      "sha256": "2b4835b76bdd4653",
+      "aliases": [
+        "base (1) (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "base (1) (2).apk",
+      "ok": true,
+      "databaseURL": "https://raki143aa-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCvVwHLgq8ZNHXmxds85lVi1ZCYd_c6yM4",
+      "projectId": "raki143aa-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://raki143aa-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "user_list": {
+            "count": 43,
+            "sampleIds": [
+              "052a8fa2ae6a3846",
+              "07f05a2f5fb8c730",
+              "087c954457fb38a8",
+              "11e7570a972cfb71",
+              "127ed8c249f0176d"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 4,
+            "sampleIds": [
+              "07f05a2f5fb8c730",
+              "14d1e561c7be85b8",
+              "8432941b1fb5468c",
+              "deea482612c20050"
+            ],
+            "auth": "apiKey"
+          },
+          "users": {
+            "count": 2,
+            "sampleIds": [
+              "14d1e561c7be85b8",
+              "all_user"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "87bb8017a7df7830",
+      "aliases": [
+        "base (1) (2).apk",
+        "base (1).apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "base (1) (3) (1).apk",
+      "ok": true,
+      "databaseURL": "https://rto9-d2b33-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyC5pP7ZRx9h_Puc3nvbQ7-O8zzxVPXnl54",
+      "projectId": "rto9-d2b33-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://rto9-d2b33-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "user_data"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "user_data": {
+            "count": 411,
+            "sampleIds": [
+              "019c83c1b1304da0",
+              "025269c1c2940d59",
+              "0368ba5911e8e84b",
+              "040dd43f8147b963",
+              "04c17ab09a8fc22b"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_data",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "38d8523e800f60be",
+      "aliases": [
+        "base (1) (3) (1).apk",
+        "base (1) (3).apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "base (2) (1).apk",
+      "ok": true,
+      "databaseURL": "https://nammu-325a6-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCbT2cHC05tINJ3aOku1URGlAzWTG1IS1E",
+      "projectId": "nammu-325a6-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://nammu-325a6-default-rtdb.firebaseio.com",
+        "https://myapp-8228a-default-rtdb.firebaseio.com",
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "Verify_Device",
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "Verify_Device": {
+            "count": 124,
+            "sampleIds": [
+              "04e9ec3eadfd5c65",
+              "0897e5eeb9feb884",
+              "0953f081b85f898b",
+              "0a9b802f1725795e",
+              "0ae21377798dbaf2"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "Verify_Device",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "3f5867c060f10845",
+      "aliases": [
+        "base (2) (1).apk",
+        "base (2).apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "base (2) (2).apk",
+      "ok": true,
+      "databaseURL": "https://panel-wala-v1-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "",
+      "projectId": "panel-wala-v1-default-rtdb",
+      "packageName": "com.tools.random954",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://panel-wala-v1-default-rtdb.asia-southeast1.firebasedatabase.app",
+        "https://random954-default-rtdb.firebaseio.com",
+        "https://com-random954-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "b1b0d8617688135e",
+      "aliases": [
+        "base (2) (2).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "base (3).apk",
+      "ok": true,
+      "databaseURL": "https://mmmff-42f96-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCbT2cHC05tINJ3aOku1URGlAzWTG1IS1E",
+      "projectId": "mmmff-42f96-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://mmmff-42f96-default-rtdb.firebaseio.com",
+        "https://myapp-8228a-default-rtdb.firebaseio.com",
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "Verify_Device",
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "Verify_Device": {
+            "count": 8,
+            "sampleIds": [
+              "173f2366035fd736",
+              "3db4392d11cd4e63",
+              "45d2ea579c05dc3a",
+              "675eab70e26822c5",
+              "74d54cdb26175a4a"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "Verify_Device",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "c308764f558192db",
+      "aliases": [
+        "base (3).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "C2H panel.apk",
+      "ok": true,
+      "databaseURL": "https://raxtyc-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCeCPe0ez5ZiesFkroZROMxVBEltNd8iEw",
+      "projectId": "raxtyc-default-rtdb",
+      "packageName": "com.github.megatronking.stringfog",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://raxtyc-default-rtdb.firebaseio.com",
+        "https://stringfog-default-rtdb.firebaseio.com",
+        "https://com-stringfog-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "928ec8f76e413988",
+      "aliases": [
+        "C2H panel.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "challan falcon (1).apk",
+      "ok": true,
+      "databaseURL": "https://par1nad-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBkiEDqOUfWMmNC9l1sftivHcmujJUeR38",
+      "projectId": "par1nad-default-rtdb",
+      "packageName": "com.payload.par1nad",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan",
+      "allUrls": [
+        "https://par1nad-default-rtdb.firebaseio.com",
+        "https://com-par1nad-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 404,
+          "urlKey": 404,
+          "none": 404
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "49c4dae6d1001cb0",
+      "aliases": [
+        "challan falcon (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "challan falcon_1.0_013623 3.apk",
+      "ok": true,
+      "databaseURL": "https://par1nad-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBkiEDqOUfWMmNC9l1sftivHcmujJUeR38",
+      "projectId": "par1nad-default-rtdb",
+      "packageName": "com.payload.par1nad",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan",
+      "allUrls": [
+        "https://par1nad-default-rtdb.firebaseio.com",
+        "https://com-par1nad-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 404,
+          "urlKey": 404,
+          "none": 404
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "d911828abbf27a0f",
+      "aliases": [
+        "challan falcon_1.0_013623 3.apk",
+        "challan falcon_1.0_013623.apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "Darknet AdminX.apk",
+      "ok": true,
+      "databaseURL": "https://gaandkiaand-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAYWh8gpn4w9_Dfua7roky2hRnuLRELqIY",
+      "projectId": "gaandkiaand-default-rtdb",
+      "packageName": "",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://gaandkiaand-default-rtdb.firebaseio.com",
+        "https://-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "3b71b84f5896efd4",
+      "aliases": [
+        "Darknet AdminX.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "DEMON rto (1).apk",
+      "ok": true,
+      "databaseURL": "https://demon-4-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCe0nlxw-OKkxz9zvHm2x_B0qf921-rwOA",
+      "projectId": "demon-4-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://demon-4-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 6,
+            "sampleIds": [
+              "025740b69bdaf189",
+              "198158a1568cd938",
+              "48bd44ac86378aa9",
+              "57b15a00881136ab",
+              "83b9fb7ff8900006"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 59,
+            "sampleIds": [
+              "025740b69bdaf189",
+              "06cca05b2be8553b",
+              "0740078aa203aba1",
+              "0f37c7e866f336c8",
+              "11618b264259fc6b"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 20,
+            "sampleIds": [
+              "025740b69bdaf189",
+              "198158a1568cd938",
+              "205a09751e15bc32",
+              "382db62e2ce84083",
+              "48bd44ac86378aa9"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "b91c18f33691f2e2",
+      "aliases": [
+        "DEMON rto (1).apk",
+        "DEMON rto.apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "fixed AI RTO Admin 9 (1).apk",
+      "ok": true,
+      "databaseURL": "https://rto91-2b27f-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAgRUQgmgrRPIJohL5OTqc3tHg77bWtXcI",
+      "projectId": "rto91-2b27f-default-rtdb",
+      "packageName": "com.sam.rto.admin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://rto91-2b27f-default-rtdb.firebaseio.com",
+        "https://com-admin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "devices",
+        "user_data",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 401,
+          "urlKey": 401,
+          "none": 401
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "locked"
+      },
+      "error": "",
+      "sha256": "a8959a2a299ca3e1",
+      "aliases": [
+        "fixed AI RTO Admin 9 (1).apk",
+        "fixed AI RTO Admin 9 (3).apk",
+        "fixed AI RTO Admin 9 (4).apk",
+        "fixed AI RTO Admin 9.apk"
+      ],
+      "fileCount": 4
+    },
+    {
+      "file": "fixed AI RTO Admin 9 (2).apk",
+      "ok": true,
+      "databaseURL": "https://rto91-2b27f-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAgRUQgmgrRPIJohL5OTqc3tHg77bWtXcI",
+      "projectId": "rto91-2b27f-default-rtdb",
+      "packageName": "com.sam.rto.admin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://rto91-2b27f-default-rtdb.firebaseio.com",
+        "https://com-admin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "devices",
+        "user_data",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 401,
+          "urlKey": 401,
+          "none": 401
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "locked"
+      },
+      "error": "",
+      "sha256": "668be8908786a583",
+      "aliases": [
+        "fixed AI RTO Admin 9 (2).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "HAMMER Panel 099.apk",
+      "ok": true,
+      "databaseURL": "https://gghhh-35b79-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBYuTAoYa7yIgFk_31ps5zea7tu6syNJvY",
+      "projectId": "gghhh-35b79-default-rtdb",
+      "packageName": "com.bumptech.glide",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://gghhh-35b79-default-rtdb.firebaseio.com",
+        "https://-default-rtdb.firebaseio.com",
+        "https://glide-default-rtdb.firebaseio.com",
+        "https://com-glide-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "7571ce58cbca53e7",
+      "aliases": [
+        "HAMMER Panel 099.apk",
+        "vip entry panelpass.apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "Live Video Sex.apk",
+      "ok": false,
+      "databaseURL": "",
+      "apiKey": "",
+      "projectId": "",
+      "packageName": "",
+      "packer": "libevalyn",
+      "source": "",
+      "allUrls": [],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "Verify_Device",
+        "user_list"
+      ],
+      "probe": {},
+      "error": "Firebase not found (libevalyn)",
+      "sha256": "55e3ff9391c748fe",
+      "aliases": [
+        "Live Video Sex.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Master Admin 36 (3).apk",
+      "ok": true,
+      "databaseURL": "https://kumu-f2257-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyC_7pBBqu9LYTi4BcXo_q7VUviWoL91V6c",
+      "projectId": "kumu-f2257-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://kumu-f2257-default-rtdb.firebaseio.com",
+        "https://pawankumar92342038-8f702-default-rtdb.firebaseio.com",
+        "https://ruparamee-14f4b-default-rtdb.firebaseio.com",
+        "https://ravikumar7788ccn-11c83-default-rtdb.firebaseio.com",
+        "https://siwanikumar923420-2e01f-default-rtdb.firebaseio.com",
+        "https://m74946448-80a23-default-rtdb.firebaseio.com",
+        "https://master80221-753fb-default-rtdb.firebaseio.com",
+        "https://m90910540-a4e00-default-rtdb.firebaseio.com",
+        "https://m93374762-8c0f6-default-rtdb.firebaseio.com",
+        "https://m631835370-cfdc7-default-rtdb.firebaseio.com",
+        "https://m05960864-6140e-default-rtdb.firebaseio.com",
+        "https://master89812-b77a6-default-rtdb.firebaseio.com",
+        "https://rajkumar8822556644-407f5-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users",
+        "All_Users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 10,
+            "sampleIds": [
+              "21428218cd2e372b",
+              "394e96cae6097648",
+              "447f13a1e03b4840",
+              "6c9d98f3acd65a37",
+              "6e4e8f318a09abae"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 10,
+            "sampleIds": [
+              "21428218cd2e372b",
+              "394e96cae6097648",
+              "447f13a1e03b4840",
+              "6c9d98f3acd65a37",
+              "6e4e8f318a09abae"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 10,
+            "sampleIds": [
+              "21428218cd2e372b",
+              "394e96cae6097648",
+              "447f13a1e03b4840",
+              "6c9d98f3acd65a37",
+              "6e4e8f318a09abae"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "clients",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "937145ecc0a5c02e",
+      "aliases": [
+        "Master Admin 36 (3).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "nyapanel.apk",
+      "ok": true,
+      "databaseURL": "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBfQobM5HmnK6khogyF4ytOX7E9N0e_lAQ",
+      "projectId": "hdjdjdj-a73f2-default-rtdb",
+      "packageName": "com.example.brm",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com",
+        "https://brm-default-rtdb.firebaseio.com",
+        "https://com-brm-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 162,
+            "sampleIds": [
+              "00b2fdea65aca75d",
+              "03360dbdc0305c87",
+              "0511c604f68b5570",
+              "05d728248b0bff56",
+              "0852b0b91848fb2f"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "clients",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "4c86009b15dca944",
+      "aliases": [
+        "nyapanel.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Panel New cracker.apk",
+      "ok": true,
+      "databaseURL": "https://colana-84ce2-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAvyyCkMHoY3Ww_ah6b0pFdNKHTKZnypUY",
+      "projectId": "colana-84ce2-default-rtdb",
+      "packageName": "",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://colana-84ce2-default-rtdb.firebaseio.com",
+        "https://yqhwy-2fb47-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 416,
+            "sampleIds": [
+              "\"232c66a417e0c2c1\"",
+              "00302b4bf6cf2dfa",
+              "0130970f2661f54a",
+              "022d2196f697c7d0",
+              "0393e7017010b547"
+            ],
+            "auth": "apiKey"
+          },
+          "devices": {
+            "count": 277,
+            "sampleIds": [
+              "00302b4bf6cf2dfa",
+              "0393e7017010b547",
+              "05f3f7982d6b8ea0",
+              "0723568cfb4c7939",
+              "0788f95f39c0cad7"
+            ],
+            "auth": "apiKey"
+          },
+          "users": {
+            "count": 278,
+            "sampleIds": [
+              "00302b4bf6cf2dfa",
+              "0393e7017010b547",
+              "05f3f7982d6b8ea0",
+              "0723568cfb4c7939",
+              "0788f95f39c0cad7"
+            ],
+            "auth": "apiKey"
+          },
+          "messages": {
+            "count": 39,
+            "sampleIds": [
+              "0f3a1496af0f75e0",
+              "18eb89ac273f723d",
+              "19f120479f56ac3e",
+              "1f751f8232922af1",
+              "219150ad7f98b2a5"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "clients",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "d68306fca35dc6b1",
+      "aliases": [
+        "Panel New cracker.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "PM ADMIN RAJ.apk",
+      "ok": true,
+      "databaseURL": "https://jdhd-116fa-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyA0ZVXm46PNdW8zTa_D6Mpwoyv_ctpkm8g",
+      "projectId": "jdhd-116fa-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://rajesh-kumar-cea7d-default-rtdb.firebaseio.com",
+        "https://jdhd-116fa-default-rtdb.firebaseio.com",
+        "https://uttffttytt-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users",
+        "All_Users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "user_list": {
+            "count": 23,
+            "sampleIds": [
+              "0bf5bb9040d0cfea",
+              "1e115835dc330d43",
+              "25b48bc9f5fb9a81",
+              "2ad2b7d0e407cbdf",
+              "2ec696febbfcc76b"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 10,
+            "sampleIds": [
+              "0bf5bb9040d0cfea",
+              "1e115835dc330d43",
+              "2ec696febbfcc76b",
+              "41647ded3a5e4f6e",
+              "74159f77c2f3fe9c"
+            ],
+            "auth": "apiKey"
+          },
+          "All_Users": {
+            "count": 1,
+            "sampleIds": [
+              "Login"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "1e8c1d75a41ba591",
+      "aliases": [
+        "PM ADMIN RAJ.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "PM Awaas Admin.apk",
+      "ok": true,
+      "databaseURL": "https://pmkisan-4e573-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAYcJyDPqhmRyMW34rcDktqlU2Vu7BFzOs",
+      "projectId": "pmkisan-4e573-default-rtdb",
+      "packageName": "com.godz.awaas.admin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://pmkisan-4e573-default-rtdb.firebaseio.com",
+        "https://com-admin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "36aba5a787fd9a41",
+      "aliases": [
+        "PM Awaas Admin.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "RTO Admin 2.apk",
+      "ok": true,
+      "databaseURL": "https://smas-8bff8-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyC6tb3NaodXCW4Qh8KR8xTW5BteUTbwMc8",
+      "projectId": "smas-8bff8-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://smas-8bff8-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 19,
+            "sampleIds": [
+              "225e9cad49edae7e",
+              "2e74a7cc37c619ab",
+              "31bb6b007db17457",
+              "3c7de7af197fa48d",
+              "403a6559d03d7c88"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 24,
+            "sampleIds": [
+              "1731c3274e0a2ac3",
+              "1a8eea46035c4d09",
+              "225e9cad49edae7e",
+              "2e74a7cc37c619ab",
+              "31bb6b007db17457"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 11,
+            "sampleIds": [
+              "225e9cad49edae7e",
+              "3e7e0583211dda12",
+              "866d475fd4cd926e",
+              "9a7175bbdef2aae8",
+              "9a7639f8ce0efc06"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "23d1ce717c6c1204",
+      "aliases": [
+        "RTO Admin 2.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "RTO Admin 31_1.0.apk",
+      "ok": true,
+      "databaseURL": "https://chalo-a536a-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCUMIP0vzCO60Ubh6lO6QE7YFQujzh14I8",
+      "projectId": "chalo-a536a-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://chalo-a536a-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 72,
+            "sampleIds": [
+              "0170fb0109be81f7",
+              "06cbbcdb5fb6c015",
+              "0a746d32cd794a51",
+              "0aaf9941ce663316",
+              "0af6d3f8d1383edd"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 152,
+            "sampleIds": [
+              "0170fb0109be81f7",
+              "06cbbcdb5fb6c015",
+              "0a746d32cd794a51",
+              "0aaf9941ce663316",
+              "0af6d3f8d1383edd"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 32,
+            "sampleIds": [
+              "0170fb0109be81f7",
+              "06cbbcdb5fb6c015",
+              "0a746d32cd794a51",
+              "0aaf9941ce663316",
+              "0af6d3f8d1383edd"
+            ],
+            "auth": "apiKey"
+          },
+          "users": {
+            "count": 49,
+            "sampleIds": [
+              "0170fb0109be81f7",
+              "06cbbcdb5fb6c015",
+              "0a746d32cd794a51",
+              "0aaf9941ce663316",
+              "0d1752aa6ef77afb"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "e1a1ab914d7f126b",
+      "aliases": [
+        "RTO Admin 31_1.0.apk",
+        "base (4).apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "RTO Admin.apk",
+      "ok": true,
+      "databaseURL": "https://admon-aeba0-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAT_Q0BKU6cRmxjHyjVOpLwhASVuVih4Ao",
+      "projectId": "admon-aeba0-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://admon-aeba0-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "user_list",
+        "user_data",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "user_list": {
+            "count": 2,
+            "sampleIds": [
+              "47530825edecfef0",
+              "8411d80a38b8c610"
+            ],
+            "auth": "apiKey"
+          },
+          "users": {
+            "count": 1,
+            "sampleIds": [
+              "all_user"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "727cadfb7e55b722",
+      "aliases": [
+        "RTO Admin.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "RTO Admin3 (1).apk",
+      "ok": true,
+      "databaseURL": "https://challan5-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyC1dKR2Rmbi-bf28JUN7mhd61ObwZwdhis",
+      "projectId": "challan5-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://challan5-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 13,
+            "sampleIds": [
+              "0b70a1abaac5c617",
+              "28a20a1cd8b29748",
+              "2c37ba1c1f9af77f",
+              "5265a5df678b6171",
+              "629d12d842c41970"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 15,
+            "sampleIds": [
+              "0b70a1abaac5c617",
+              "28a20a1cd8b29748",
+              "2c37ba1c1f9af77f",
+              "5265a5df678b6171",
+              "629d12d842c41970"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 14,
+            "sampleIds": [
+              "0b70a1abaac5c617",
+              "28a20a1cd8b29748",
+              "2c37ba1c1f9af77f",
+              "5265a5df678b6171",
+              "629d12d842c41970"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "d36a7637c154798a",
+      "aliases": [
+        "RTO Admin3 (1).apk",
+        "RTO Admin3 (2).apk",
+        "RTO Admin3.apk"
+      ],
+      "fileCount": 3
+    },
+    {
+      "file": "RTO ADMIN_1.0-1-1 (1) (1).apk",
+      "ok": true,
+      "databaseURL": "https://pmkisan-9fdd5-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyAe6ffgIhBtr8EXFoQE-mvKTJrut1e_gIE",
+      "projectId": "pmkisan-9fdd5-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://pmkisan-9fdd5-default-rtdb.firebaseio.com",
+        "https://jsjsjs-20d84-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "35a7102baa197c4e",
+      "aliases": [
+        "RTO ADMIN_1.0-1-1 (1) (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "RTO WEB_7.apk",
+      "ok": true,
+      "databaseURL": "https://jamtar7-95f77-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBvx2a_aGVoH-tIA9GHE9SpsSep_nH3FS4",
+      "projectId": "jamtar7-95f77-default-rtdb",
+      "packageName": "com.rto.asd",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://jamtar7-95f77-default-rtdb.firebaseio.com",
+        "https://asd-default-rtdb.firebaseio.com",
+        "https://com-asd-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 16,
+            "sampleIds": [
+              "25abe754707f4937",
+              "293d0227d2299a73",
+              "2991e179ebf9a68a",
+              "2be635bcb033ef35",
+              "338eb27fbc3aebe4"
+            ],
+            "auth": "apiKey"
+          },
+          "user_list": {
+            "count": 19,
+            "sampleIds": [
+              "105d6cd5f4bc68ac",
+              "11139a32dd8291da",
+              "25abe754707f4937",
+              "293d0227d2299a73",
+              "2991e179ebf9a68a"
+            ],
+            "auth": "apiKey"
+          },
+          "user_data": {
+            "count": 19,
+            "sampleIds": [
+              "25abe754707f4937",
+              "293d0227d2299a73",
+              "2991e179ebf9a68a",
+              "2be635bcb033ef35",
+              "338eb27fbc3aebe4"
+            ],
+            "auth": "apiKey"
+          },
+          "users": {
+            "count": 12,
+            "sampleIds": [
+              "11139a32dd8291da",
+              "293d0227d2299a73",
+              "338eb27fbc3aebe4",
+              "44fd01fd132b9feb",
+              "698d3344acba5395"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_list",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "7918f184dcc8c078",
+      "aliases": [
+        "RTO WEB_7.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Samar Admin 13_1.0.apk",
+      "ok": true,
+      "databaseURL": "https://s85138920-87594-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyC56Erj8glA0un0ZCJ0_-5kvvKiw2lLuyg",
+      "projectId": "s85138920-87594-default-rtdb",
+      "packageName": "com.godz.hdfc.admin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://jamtara118-7cd20-default-rtdb.firebaseio.com",
+        "https://s85138920-87594-default-rtdb.firebaseio.com",
+        "https://com-admin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_data"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "user_data": {
+            "count": 21,
+            "sampleIds": [
+              "0e7884018f2b381d",
+              "10df6830891ab142",
+              "1f60d6b0ea4ba41d",
+              "2412ee5ac2b9ab5a",
+              "307562d17a6b0b06"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "user_data",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "fc55179102aa35f9",
+      "aliases": [
+        "Samar Admin 13_1.0.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "SBI ADMIN.apk",
+      "ok": true,
+      "databaseURL": "https://asdtest-project-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyASxQw8h2bLatO6f7zkFA861ZTIk0N3LZY",
+      "projectId": "asdtest-project-default-rtdb",
+      "packageName": "com.rbllivr.admin02",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://asdtest-project-default-rtdb.firebaseio.com",
+        "https://admin02-default-rtdb.firebaseio.com",
+        "https://com-admin02-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "7b3f2e681ccc7635",
+      "aliases": [
+        "SBI ADMIN.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "SEXY BABY.apk",
+      "ok": true,
+      "databaseURL": "https://callmebinaryy12-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyDb5z6Nwz0BQW3VeXwCAtLtQmQKdeT6R7w",
+      "projectId": "callmebinaryy12-default-rtdb",
+      "packageName": "com.ikv88f.l0s64q",
+      "packer": "libstub",
+      "source": "stub_decrypt+asset_blob+live_probe",
+      "allUrls": [
+        "https://callmebinaryy12-default-rtdb.firebaseio.com",
+        "https://-default-rtdb.firebaseio.com",
+        "https://l0s64q-default-rtdb.firebaseio.com",
+        "https://com-l0s64q-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 401,
+          "urlKey": 401,
+          "none": 401
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "locked"
+      },
+      "error": "",
+      "sha256": "118407393fe78cf3",
+      "aliases": [
+        "SEXY BABY.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Sexy chat (1).apk",
+      "ok": true,
+      "databaseURL": "https://bakks-e3682-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyDTDzPn-GhPnhq9hYtF5eMHM6srzUliaRo",
+      "projectId": "bakks-e3682-default-rtdb",
+      "packageName": "com.fz0870.xt42qs",
+      "packer": "libstub",
+      "source": "stub_decrypt+asset_blob+live_probe",
+      "allUrls": [
+        "https://bakks-e3682-default-rtdb.firebaseio.com",
+        "https://-default-rtdb.firebaseio.com",
+        "https://xt42qs-default-rtdb.firebaseio.com",
+        "https://com-xt42qs-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 401,
+          "urlKey": 401,
+          "none": 401
+        },
+        "devicePaths": {
+          "devices": {
+            "count": 507,
+            "sampleIds": [
+              "002630888c898ff3",
+              "002d931f1a213be1",
+              "003f9042196aeeeb",
+              "024b1c90ef68d3bd",
+              "030246128f9156b7"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "devices",
+        "dbStatus": "locked"
+      },
+      "error": "",
+      "sha256": "fd8fa4736be0744e",
+      "aliases": [
+        "Sexy chat (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Sexy chat (3).apk",
+      "ok": true,
+      "databaseURL": "https://newmalll-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyDaatvaJnCSmuwX6aF4yXTRCok0XtefjlQ",
+      "projectId": "newmalll-default-rtdb",
+      "packageName": "com.zj2g90.hjvcqf",
+      "packer": "libstub",
+      "source": "stub_decrypt+asset_blob+live_probe",
+      "allUrls": [
+        "https://newmalll-default-rtdb.firebaseio.com",
+        "https://-default-rtdb.firebaseio.com",
+        "https://hjvcqf-default-rtdb.firebaseio.com",
+        "https://com-hjvcqf-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 0,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "devices": {
+            "count": 524,
+            "sampleIds": [
+              "0043d8300bdc6437",
+              "0045ee3f822f3a3c",
+              "005a50adebd060aa",
+              "005fdfa990164d38",
+              "00e83b8b4ad8412a"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "devices",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "2d199f4a85893df9",
+      "aliases": [
+        "Sexy chat (3).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Shoot Admin.apk",
+      "ok": true,
+      "databaseURL": "https://dev-rahul-3ca89-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBQt8xpGbLU6SrW7IBAxeb0OykWm8zAc9w",
+      "projectId": "dev-rahul-3ca89-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://dev-rahul-3ca89-default-rtdb.firebaseio.com",
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "Verify_Device",
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "clients": {
+            "count": 13,
+            "sampleIds": [
+              "0bf61a4c-0941-4801-a8b1-b3bf948e8c97",
+              "13e22f47-a165-4711-b71f-2c09914b8cc0",
+              "17e33e80-b533-4508-912a-56345c618d49",
+              "1d9da5a5-8eec-423d-9f7d-a3ea7a853e23",
+              "28ec12b4-daf4-4607-8c9d-40453eea4420"
+            ],
+            "auth": "apiKey"
+          },
+          "Verify_Device": {
+            "count": 352,
+            "sampleIds": [
+              "00001afb9e712ba4",
+              "003a22197ef487c2",
+              "01708b5170319cce",
+              "01bf2fa59c3084b2",
+              "0271cb3d1b855b12"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "Verify_Device",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "68797cf318f53894",
+      "aliases": [
+        "Shoot Admin.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Shoot Admin_1.0 2.apk",
+      "ok": true,
+      "databaseURL": "https://nirmalda-efc1b-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCbT2cHC05tINJ3aOku1URGlAzWTG1IS1E",
+      "projectId": "nirmalda-efc1b-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://nirmalda-efc1b-default-rtdb.firebaseio.com",
+        "https://myapp-8228a-default-rtdb.firebaseio.com",
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "b92acb100e5ba296",
+      "aliases": [
+        "Shoot Admin_1.0 2.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Spy fixed.apk",
+      "ok": true,
+      "databaseURL": "https://spy-25-default-rtdb.firebaseio.com",
+      "apiKey": "",
+      "projectId": "spy-25-default-rtdb",
+      "packageName": "com.github.megatronking.stringfog",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://spy-25-default-rtdb.firebaseio.com",
+        "https://stringfog-default-rtdb.firebaseio.com",
+        "https://com-stringfog-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {
+          "users": {
+            "count": 3,
+            "sampleIds": [
+              "-OxvN6cEPLiiapYIC02f",
+              "-OxvNHozjFSEFCUaAPHf",
+              "-OxvNHp-1FxOBGwYzsKB"
+            ],
+            "auth": "apiKey"
+          }
+        },
+        "preferredNode": "users",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "5c3b1e6ddd469f31",
+      "aliases": [
+        "Spy fixed.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "User Admin 3 (1).apk",
+      "ok": true,
+      "databaseURL": "https://server-97e23-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyD74TOQXfWjYvfwDQ06U38xhdRUIVJ4Afs",
+      "projectId": "server-97e23-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "plain",
+      "source": "asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://go-one-1b6b2-default-rtdb.firebaseio.com",
+        "https://server-97e23-default-rtdb.firebaseio.com",
+        "https://server-2-fb768-default-rtdb.firebaseio.com",
+        "https://indus-1-cec4f-default-rtdb.firebaseio.com",
+        "https://ufff-52c18-default-rtdb.firebaseio.com",
+        "https://rakesh-cdebe-default-rtdb.firebaseio.com",
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 200,
+          "urlKey": 200,
+          "none": 200
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "edbf0f2c4ef28b86",
+      "aliases": [
+        "User Admin 3 (1).apk",
+        "User Admin 3.apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "User Admin Sb 2 fix.apk",
+      "ok": true,
+      "databaseURL": "https://-default-rtdb.firebaseio.com",
+      "apiKey": "",
+      "projectId": "-default-rtdb",
+      "packageName": "com.transferwise.android",
+      "packer": "plain",
+      "source": "asset_blob",
+      "allUrls": [
+        "https://-default-rtdb.firebaseio.com",
+        "https://android-default-rtdb.firebaseio.com",
+        "https://com-android-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "devices",
+        "users",
+        "messages"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 0,
+          "urlKey": 0,
+          "none": 0
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": ""
+      },
+      "error": "",
+      "sha256": "77ce39b1b1ef7762",
+      "aliases": [
+        "User Admin Sb 2 fix.apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "Venom Admin Master (1).apk",
+      "ok": true,
+      "databaseURL": "https://shoot-admin-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyCymKy0QAPUzHAZG6r2F00bXBbQdzej4uA",
+      "projectId": "shoot-admin-default-rtdb",
+      "packageName": "com.shootii.shootadmin",
+      "packer": "nested-apk",
+      "source": "nested_apk+asset_scan+asset_blob+live_probe",
+      "allUrls": [
+        "https://shoot-admin-default-rtdb.firebaseio.com",
+        "https://shootadmin-default-rtdb.firebaseio.com",
+        "https://com-shootadmin-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 401,
+          "urlKey": 401,
+          "none": 401
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "locked"
+      },
+      "error": "",
+      "sha256": "47a13f51a1c16c95",
+      "aliases": [
+        "Venom Admin Master (1).apk",
+        "Venom Admin Master.apk"
+      ],
+      "fileCount": 2
+    },
+    {
+      "file": "VIP kittyu (1).apk",
+      "ok": true,
+      "databaseURL": "https://rameshwar-7okt-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyBQbjvGvphUOGhjJlGBn7M5c8nSsJDP_XA",
+      "projectId": "rameshwar-7okt-default-rtdb",
+      "packageName": "com.scottyab.aescrypt",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://rameshwar-7okt-default-rtdb.firebaseio.com",
+        "https://aescrypt-default-rtdb.firebaseio.com",
+        "https://com-aescrypt-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "clients",
+        "user_list",
+        "user_data",
+        "users"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "45c528c5ae693f8b",
+      "aliases": [
+        "VIP kittyu (1).apk"
+      ],
+      "fileCount": 1
+    },
+    {
+      "file": "ZEN ADMIN.apk",
+      "ok": true,
+      "databaseURL": "https://aaaa-b3749-default-rtdb.firebaseio.com",
+      "apiKey": "AIzaSyANHri0JIWEroUrloP97KGAcIOKMwT4UgU",
+      "projectId": "aaaa-b3749-default-rtdb",
+      "packageName": "com.px",
+      "packer": "plain",
+      "source": "asset_blob+asset_scan+live_probe",
+      "allUrls": [
+        "https://aaaa-b3749-default-rtdb.firebaseio.com",
+        "https://px-default-rtdb.firebaseio.com",
+        "https://com-px-default-rtdb.firebaseio.com"
+      ],
+      "devicePathsInApk": [
+        "online_status"
+      ],
+      "probe": {
+        "root": {
+          "apiKey": 423,
+          "urlKey": 423,
+          "none": 423
+        },
+        "devicePaths": {},
+        "preferredNode": "",
+        "dbStatus": "deactivated"
+      },
+      "error": "",
+      "sha256": "67fcea5da1ca46af",
+      "aliases": [
+        "ZEN ADMIN.apk"
+      ],
+      "fileCount": 1
+    }
+  ]
+}
