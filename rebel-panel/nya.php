@@ -350,7 +350,7 @@ body{
   <div class="list-wrap" id="devListDeviceSms"></div>
 </div>
 
-<div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+<div class="loading-overlay" id="loading" style="display:none!important" aria-hidden="true"><div class="spinner"></div></div>
 <div class="toast-wrap" id="toasts"></div>
 
 <div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>
