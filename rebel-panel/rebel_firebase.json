@@ -180,7 +180,7 @@
       "id": "fb_miyakhalifa_143d5",
       "name": "Miyakhalifa 143D5 (17)",
       "schema": "rabel",
-      "deviceNode": "user_data",
+      "deviceNode": "clients",
       "apiKey": "",
       "authDomain": "miyakhalifa-143d5.firebaseapp.com",
       "databaseURL": "https://miyakhalifa-143d5-default-rtdb.firebaseio.com",
