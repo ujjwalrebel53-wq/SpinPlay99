@@ -40,13 +40,13 @@
       "id": "nya_hdjdjdj",
       "name": "Nya Panel (194)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "devices",
       "apiKey": "AIzaSyBfQobM5HmnK6khogyF4ytOX7E9N0e_lAQ",
       "authDomain": "hdjdjdj-a73f2.firebaseapp.com",
       "databaseURL": "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com",
       "projectId": "hdjdjdj-a73f2",
       "storageBucket": "hdjdjdj-a73f2.appspot.com",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "devices"
     },
     {
       "id": "fb_adsf_8b4e8",
@@ -64,13 +64,13 @@
       "id": "apk_chalo_a536a_default_rtdb",
       "name": "RTO Admin 31_1.0 (152)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "All_Users",
       "apiKey": "AIzaSyCUMIP0vzCO60Ubh6lO6QE7YFQujzh14I8",
       "authDomain": "chalo-a536a-default-rtdb.firebaseapp.com",
       "databaseURL": "https://chalo-a536a-default-rtdb.firebaseio.com",
       "projectId": "chalo-a536a-default-rtdb",
       "storageBucket": "chalo-a536a-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "All_Users"
     },
     {
       "id": "fb_lodaroll",
@@ -88,25 +88,25 @@
       "id": "fb_customer_1b7ca",
       "name": "Customer 1B7Ca (137)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "All_Users",
       "apiKey": "",
       "authDomain": "customer-1b7ca.firebaseapp.com",
       "databaseURL": "https://customer-1b7ca-default-rtdb.firebaseio.com",
       "projectId": "customer-1b7ca",
       "storageBucket": "customer-1b7ca.appspot.com",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "All_Users"
     },
     {
       "id": "apk_modiji_5aab6_default_rtdb",
       "name": "50k-Vid-Payload[sumdi] (129)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "All_Users",
       "apiKey": "AIzaSyCdWVQRMm7veDRzaKM1QmD0rMU3bvoNM7I",
       "authDomain": "modiji-5aab6-default-rtdb.firebaseapp.com",
       "databaseURL": "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app",
       "projectId": "modiji-5aab6-default-rtdb",
       "storageBucket": "modiji-5aab6-default-rtdb.firebasestorage.app",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "All_Users"
     },
     {
       "id": "fb_amoyu_af062",
@@ -160,13 +160,13 @@
       "id": "apk_smas_8bff8_default_rtdb",
       "name": "RTO Admin 2 (49)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "users",
       "apiKey": "AIzaSyC6tb3NaodXCW4Qh8KR8xTW5BteUTbwMc8",
       "authDomain": "smas-8bff8-default-rtdb.firebaseapp.com",
       "databaseURL": "https://smas-8bff8-default-rtdb.firebaseio.com",
       "projectId": "smas-8bff8-default-rtdb",
       "storageBucket": "smas-8bff8-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "users"
     },
     {
       "id": "fb_rajakk_80ecd",
@@ -196,13 +196,13 @@
       "id": "apk_s85138920_87594_default_rtdb",
       "name": "Samar Admin 13_1.0 (44)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "user_data",
       "apiKey": "AIzaSyC56Erj8glA0un0ZCJ0_-5kvvKiw2lLuyg",
       "authDomain": "s85138920-87594-default-rtdb.firebaseapp.com",
       "databaseURL": "https://s85138920-87594-default-rtdb.firebaseio.com",
       "projectId": "s85138920-87594-default-rtdb",
       "storageBucket": "s85138920-87594-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "fb_sudhir_suexs_seox",
@@ -244,37 +244,37 @@
       "id": "fb_maxbhai_b8d3a",
       "name": "Maxbhai B8D3A (25)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "user_data",
       "apiKey": "",
       "authDomain": "maxbhai-b8d3a.firebaseapp.com",
       "databaseURL": "https://maxbhai-b8d3a-default-rtdb.firebaseio.com",
       "projectId": "maxbhai-b8d3a",
       "storageBucket": "maxbhai-b8d3a.appspot.com",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "apk_spy_25_default_rtdb",
       "name": "Spy fixed (25)",
       "schema": "rabel",
-      "deviceNode": "users",
+      "deviceNode": "All_Users",
       "apiKey": "",
       "authDomain": "spy-25-default-rtdb.firebaseapp.com",
       "databaseURL": "https://spy-25-default-rtdb.firebaseio.com",
       "projectId": "spy-25-default-rtdb",
       "storageBucket": "spy-25-default-rtdb.appspot.com",
-      "preferredDeviceNode": "users"
+      "preferredDeviceNode": "All_Users"
     },
     {
       "id": "apk_jdhd_116fa_default_rtdb",
       "name": "PM ADMIN RAJ (23)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "user_data",
       "apiKey": "AIzaSyA0ZVXm46PNdW8zTa_D6Mpwoyv_ctpkm8g",
       "authDomain": "jdhd-116fa-default-rtdb.firebaseapp.com",
       "databaseURL": "https://jdhd-116fa-default-rtdb.firebaseio.com",
       "projectId": "jdhd-116fa-default-rtdb",
       "storageBucket": "jdhd-116fa-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "fb_ayan_5581d",
@@ -316,13 +316,13 @@
       "id": "fb_miyakhalifa_143d5",
       "name": "Miyakhalifa 143D5 (17)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "user_data",
       "apiKey": "",
       "authDomain": "miyakhalifa-143d5.firebaseapp.com",
       "databaseURL": "https://miyakhalifa-143d5-default-rtdb.firebaseio.com",
       "projectId": "miyakhalifa-143d5",
       "storageBucket": "miyakhalifa-143d5.appspot.com",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "fb_dharmesh_panel",
@@ -472,13 +472,13 @@
       "id": "apk_kumu_f2257_default_rtdb",
       "name": "Master Admin 36 (3) (39)",
       "schema": "rabel",
-      "deviceNode": "clients",
+      "deviceNode": "user_data",
       "apiKey": "AIzaSyC_7pBBqu9LYTi4BcXo_q7VUviWoL91V6c",
       "authDomain": "kumu-f2257-default-rtdb.firebaseapp.com",
       "databaseURL": "https://kumu-f2257-default-rtdb.firebaseio.com",
       "projectId": "kumu-f2257-default-rtdb",
       "storageBucket": "kumu-f2257-default-rtdb.appspot.com",
-      "preferredDeviceNode": "clients"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "apk_newmalll_default_rtdb_firebaseio_com",
@@ -556,37 +556,37 @@
       "id": "apk_sbiclient0_default_rtdb_asia_southeast1_firebase",
       "name": "Angle Admin (1) (1)",
       "schema": "rabel",
-      "deviceNode": "messages",
+      "deviceNode": "clients",
       "apiKey": "AIzaSyDQ_21hdN7h87WsRF4qUOVfqWYgI28r374",
       "authDomain": "sbiclient0-default-rtdb.firebaseapp.com",
       "databaseURL": "https://sbiclient0-default-rtdb.asia-southeast1.firebasedatabase.app",
       "projectId": "sbiclient0-default-rtdb",
       "storageBucket": "sbiclient0-default-rtdb.appspot.com",
-      "preferredDeviceNode": "messages"
+      "preferredDeviceNode": "clients"
     },
     {
       "id": "apk_raki143aa_default_rtdb",
       "name": "base (1) (2) (43)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "user_data",
       "apiKey": "AIzaSyCvVwHLgq8ZNHXmxds85lVi1ZCYd_c6yM4",
       "authDomain": "raki143aa-default-rtdb.firebaseapp.com",
       "databaseURL": "https://raki143aa-default-rtdb.firebaseio.com",
       "projectId": "raki143aa-default-rtdb",
       "storageBucket": "raki143aa-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "apk_rto9_d2b33_default_rtdb",
       "name": "base (1) (3) (1) (751)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "users",
       "apiKey": "AIzaSyC5pP7ZRx9h_Puc3nvbQ7-O8zzxVPXnl54",
       "authDomain": "rto9-d2b33-default-rtdb.firebaseapp.com",
       "databaseURL": "https://rto9-d2b33-default-rtdb.firebaseio.com",
       "projectId": "rto9-d2b33-default-rtdb",
       "storageBucket": "rto9-d2b33-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "users"
     },
     {
       "id": "apk_par1nad_default_rtdb_firebaseio_com",
@@ -604,13 +604,13 @@
       "id": "apk_demon_4_default_rtdb",
       "name": "DEMON rto (1) (59)",
       "schema": "rabel",
-      "deviceNode": "user_list",
+      "deviceNode": "user_data",
       "apiKey": "AIzaSyCe0nlxw-OKkxz9zvHm2x_B0qf921-rwOA",
       "authDomain": "demon-4-default-rtdb.firebaseapp.com",
       "databaseURL": "https://demon-4-default-rtdb.firebaseio.com",
       "projectId": "demon-4-default-rtdb",
       "storageBucket": "demon-4-default-rtdb.appspot.com",
-      "preferredDeviceNode": "user_list"
+      "preferredDeviceNode": "user_data"
     },
     {
       "id": "apk_rto91_2b27f_default_rtdb_firebaseio_com",
@@ -790,18 +790,6 @@
       "databaseURL": "https://callmebinaryy12-default-rtdb.firebaseio.com",
       "projectId": "callmebinaryy12-default-rtdb",
       "storageBucket": "callmebinaryy12-default-rtdb.appspot.com",
-      "preferredDeviceNode": "clients"
-    },
-    {
-      "id": "apk_default_rtdb_firebaseio_com",
-      "name": "User Admin Sb 2 fix",
-      "schema": "rabel",
-      "deviceNode": "clients",
-      "apiKey": "",
-      "authDomain": ".firebaseapp.com",
-      "databaseURL": "https://-default-rtdb.firebaseio.com",
-      "projectId": "-default-rtdb",
-      "storageBucket": "-default-rtdb.appspot.com",
       "preferredDeviceNode": "clients"
     },
     {

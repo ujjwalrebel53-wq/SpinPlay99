@@ -935,6 +935,8 @@ function rebel_firebase_norm_project(array $row): ?array
         'storageBucket' => trim((string)($row['storageBucket'] ?? $row['storage_bucket'] ?? '')),
         'messagingSenderId' => trim((string)($row['messagingSenderId'] ?? $row['messaging_sender_id'] ?? '')),
         'packageName' => trim((string)($row['packageName'] ?? $row['package_name'] ?? '')),
+        'deviceNode' => trim((string)($row['deviceNode'] ?? $row['device_node'] ?? 'clients')),
+        'preferredDeviceNode' => trim((string)($row['preferredDeviceNode'] ?? $row['preferred_device_node'] ?? $row['deviceNode'] ?? $row['device_node'] ?? 'clients')),
         'created' => (int)($row['created'] ?? time()),
     ];
 }

