@@ -36,10 +36,19 @@
           <span class="nav-icon">⏱️</span> Mock Test
         </button>
         <button class="nav-item" data-section="formulas">
-          <span class="nav-icon">📐</span> Formulas
+          <span class="nav-icon">📐</span> Formulas A-Z
+        </button>
+        <button class="nav-item" data-section="tricks">
+          <span class="nav-icon">⚡</span> Tricks & Shortcuts
+        </button>
+        <button class="nav-item" data-section="gk-facts">
+          <span class="nav-icon">🧠</span> GK Facts
+        </button>
+        <button class="nav-item" data-section="vocabulary">
+          <span class="nav-icon">📖</span> Vocabulary
         </button>
         <button class="nav-item" data-section="tips">
-          <span class="nav-icon">💡</span> Tips & Strategy
+          <span class="nav-icon">💡</span> Exam Strategy
         </button>
         <button class="nav-item" data-section="progress">
           <span class="nav-icon">📊</span> Progress
@@ -102,6 +111,8 @@
             <div class="quick-actions">
               <button class="btn btn-primary" onclick="App.navigate('practice')">Start Practice</button>
               <button class="btn btn-secondary" onclick="App.navigate('mock-test')">Take Mock Test</button>
+              <button class="btn btn-outline" onclick="App.navigate('formulas')">Formulas A-Z (150+)</button>
+              <button class="btn btn-outline" onclick="App.navigate('tricks')">Tricks & Shortcuts (100+)</button>
               <button class="btn btn-outline" onclick="App.navigate('study-plan')">View Study Plan</button>
             </div>
           </div>
@@ -267,13 +278,52 @@
       <!-- Formulas -->
       <section class="section" id="formulas">
         <header class="page-header">
-          <h2>Important Formulas</h2>
-          <p class="subtitle">Quick revision for Mathematics & Science</p>
+          <h2>Formulas A to Z</h2>
+          <p class="subtitle" id="formulaCount">Complete formula bank for NDA — Math, Physics, Chemistry & Biology</p>
         </header>
-        <div class="formula-search">
-          <input type="search" id="formulaSearch" placeholder="Search formulas... (e.g. quadratic, trigonometry)">
+        <div class="filter-bar">
+          <input type="search" id="formulaSearch" placeholder="Search formulas...">
+          <div class="category-tabs" id="formulaTabs"></div>
         </div>
         <div id="formulasContent" class="formulas-grid"></div>
+      </section>
+
+      <!-- Tricks & Shortcuts -->
+      <section class="section" id="tricks">
+        <header class="page-header">
+          <h2>Tricks & Shortcuts</h2>
+          <p class="subtitle" id="trickCount">Exam tricks, mnemonics, and speed-solving hacks</p>
+        </header>
+        <div class="filter-bar">
+          <input type="search" id="trickSearch" placeholder="Search tricks...">
+          <div class="category-tabs" id="trickTabs"></div>
+        </div>
+        <div id="tricksContent" class="tricks-grid"></div>
+      </section>
+
+      <!-- GK Facts -->
+      <section class="section" id="gk-facts">
+        <header class="page-header">
+          <h2>GK Quick Facts</h2>
+          <p class="subtitle">Important facts for General Knowledge section</p>
+        </header>
+        <div id="gkFactsContent" class="gk-grid"></div>
+      </section>
+
+      <!-- Vocabulary -->
+      <section class="section" id="vocabulary">
+        <header class="page-header">
+          <h2>Vocabulary & Idioms</h2>
+          <p class="subtitle">Essential words and idioms for English section</p>
+        </header>
+        <div class="vocab-tabs">
+          <button class="tab-btn active" data-vocab="words">Words A-Z</button>
+          <button class="tab-btn" data-vocab="idioms">Idioms & Phrases</button>
+        </div>
+        <div class="filter-bar">
+          <input type="search" id="vocabSearch" placeholder="Search words or idioms...">
+        </div>
+        <div id="vocabularyContent" class="vocab-grid"></div>
       </section>
 
       <!-- Tips -->
@@ -326,6 +376,8 @@
   </div>
 
   <script src="js/data.js"></script>
+  <script src="js/formulas.js"></script>
+  <script src="js/tricks.js"></script>
   <script src="js/questions.js"></script>
   <script src="js/app.js"></script>
 </body>

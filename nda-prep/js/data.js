@@ -209,44 +209,6 @@ const SYLLABUS = {
   }
 };
 
-const FORMULAS = [
-  { category: 'Algebra', name: 'Quadratic Formula', formula: 'x = (-b ± √(b² - 4ac)) / 2a', note: 'For ax² + bx + c = 0' },
-  { category: 'Algebra', name: 'AP nth term', formula: 'aₙ = a + (n-1)d', note: 'a = first term, d = common difference' },
-  { category: 'Algebra', name: 'AP Sum', formula: 'Sₙ = n/2 [2a + (n-1)d]', note: 'Sum of n terms' },
-  { category: 'Algebra', name: 'GP nth term', formula: 'aₙ = arⁿ⁻¹', note: 'r = common ratio' },
-  { category: 'Algebra', name: 'GP Sum (infinite)', formula: 'S = a / (1-r)', note: '|r| < 1' },
-  { category: 'Algebra', name: 'Binomial (a+b)ⁿ', formula: '(a+b)ⁿ = Σ ⁿCᵣ aⁿ⁻ʳ bʳ', note: 'r = 0 to n' },
-  { category: 'Algebra', name: 'Logarithm', formula: 'logₐ(mn) = logₐm + logₐn', note: 'Product rule' },
-  { category: 'Trigonometry', name: 'sin²θ + cos²θ', formula: 'sin²θ + cos²θ = 1', note: 'Pythagorean identity' },
-  { category: 'Trigonometry', name: 'sin(A+B)', formula: 'sin(A+B) = sinA·cosB + cosA·sinB', note: 'Addition formula' },
-  { category: 'Trigonometry', name: 'cos(A+B)', formula: 'cos(A+B) = cosA·cosB - sinA·sinB', note: 'Addition formula' },
-  { category: 'Trigonometry', name: 'sin 2θ', formula: 'sin 2θ = 2 sinθ cosθ', note: 'Double angle' },
-  { category: 'Trigonometry', name: 'cos 2θ', formula: 'cos 2θ = cos²θ - sin²θ', note: 'Double angle' },
-  { category: 'Coordinate Geometry', name: 'Distance Formula', formula: 'd = √[(x₂-x₁)² + (y₂-y₁)²]', note: 'Between two points' },
-  { category: 'Coordinate Geometry', name: 'Section Formula', formula: '((mx₂+nx₁)/(m+n), (my₂+ny₁)/(m+n))', note: 'Internal division m:n' },
-  { category: 'Coordinate Geometry', name: 'Slope', formula: 'm = (y₂-y₁)/(x₂-x₁)', note: 'Gradient of line' },
-  { category: 'Coordinate Geometry', name: 'Circle', formula: '(x-h)² + (y-k)² = r²', note: 'Centre (h,k), radius r' },
-  { category: 'Calculus', name: 'Power Rule', formula: 'd/dx(xⁿ) = nxⁿ⁻¹', note: 'Derivative' },
-  { category: 'Calculus', name: 'Product Rule', formula: '(uv)\' = u\'v + uv\'', note: 'Derivative of product' },
-  { category: 'Calculus', name: 'Chain Rule', formula: 'd/dx[f(g(x))] = f\'(g(x))·g\'(x)', note: 'Composite function' },
-  { category: 'Calculus', name: '∫xⁿ dx', formula: '∫xⁿ dx = xⁿ⁺¹/(n+1) + C', note: 'n ≠ -1' },
-  { category: 'Calculus', name: '∫1/x dx', formula: '∫1/x dx = ln|x| + C', note: 'Logarithmic integral' },
-  { category: 'Vectors', name: 'Dot Product', formula: 'a·b = |a||b|cosθ', note: 'Scalar product' },
-  { category: 'Vectors', name: 'Cross Product', formula: '|a×b| = |a||b|sinθ', note: 'Vector product magnitude' },
-  { category: 'Statistics', name: 'Mean', formula: 'x̄ = Σxᵢ/n', note: 'Arithmetic mean' },
-  { category: 'Statistics', name: 'Variance', formula: 'σ² = Σ(xᵢ-x̄)²/n', note: 'Population variance' },
-  { category: 'Probability', name: 'Bayes Theorem', formula: 'P(A|B) = P(B|A)·P(A) / P(B)', note: 'Conditional probability' },
-  { category: 'Physics', name: 'Newton\'s 2nd Law', formula: 'F = ma', note: 'Force = mass × acceleration' },
-  { category: 'Physics', name: 'Kinetic Energy', formula: 'KE = ½mv²', note: 'Energy of motion' },
-  { category: 'Physics', name: 'Potential Energy', formula: 'PE = mgh', note: 'Gravitational potential energy' },
-  { category: 'Physics', name: 'Ohm\'s Law', formula: 'V = IR', note: 'Voltage = Current × Resistance' },
-  { category: 'Physics', name: 'Power', formula: 'P = VI = I²R', note: 'Electrical power' },
-  { category: 'Physics', name: 'Lens Formula', formula: '1/f = 1/v - 1/u', note: 'f=focal length, v=image, u=object' },
-  { category: 'Physics', name: 'Wave Speed', formula: 'v = fλ', note: 'velocity = frequency × wavelength' },
-  { category: 'Chemistry', name: 'Moles', formula: 'n = m/M', note: 'm=mass, M=molar mass' },
-  { category: 'Chemistry', name: 'Ideal Gas', formula: 'PV = nRT', note: 'Gas equation' }
-];
-
 const TIPS = [
   { title: 'Understand Negative Marking', text: 'NDA me har galat answer par 1/3 marks katte hain. Agar sure nahi ho to question skip karo. Guess kam karo — accuracy > attempts.' },
   { title: 'Time Management — Math', text: '120 questions, 150 minutes = ~75 seconds per question. Pehle easy questions solve karo, phir medium, last me hard questions attempt karo.' },

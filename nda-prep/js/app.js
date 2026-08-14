@@ -4,6 +4,10 @@ const App = {
     mock: { questions: [], current: 0, answers: {}, review: new Set(), type: '', timer: null, timeLeft: 0, finished: false }
   },
 
+  formulaCategory: 'All',
+  trickCategory: 'All',
+  vocabTab: 'words',
+
   init() {
     this.loadProgress();
     this.bindNavigation();
@@ -11,7 +15,12 @@ const App = {
     this.bindMock();
     this.renderDashboard();
     this.renderSyllabus();
+    this.renderFormulaTabs();
     this.renderFormulas();
+    this.renderTrickTabs();
+    this.renderTricks();
+    this.renderGkFacts();
+    this.renderVocabulary();
     this.renderTips();
     this.renderStudyPlan();
     this.renderProgress();
@@ -51,6 +60,16 @@ const App = {
     });
     document.getElementById('generatePlan')?.addEventListener('click', () => this.renderStudyPlan());
     document.getElementById('formulaSearch')?.addEventListener('input', (e) => this.renderFormulas(e.target.value));
+    document.getElementById('trickSearch')?.addEventListener('input', (e) => this.renderTricks(e.target.value));
+    document.getElementById('vocabSearch')?.addEventListener('input', (e) => this.renderVocabulary(e.target.value));
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.vocabTab = btn.dataset.vocab;
+        this.renderVocabulary();
+      });
+    });
     document.getElementById('resetProgress')?.addEventListener('click', () => this.confirmReset());
   },
 
@@ -137,20 +156,130 @@ const App = {
     `).join('');
   },
 
+  renderFormulaTabs() {
+    const container = document.getElementById('formulaTabs');
+    if (!container) return;
+    container.innerHTML = FORMULA_CATEGORIES.map(cat => `
+      <button class="cat-tab ${cat === this.formulaCategory ? 'active' : ''}" data-cat="${cat}">${cat}</button>
+    `).join('');
+    container.querySelectorAll('.cat-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.formulaCategory = btn.dataset.cat;
+        container.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.renderFormulas(document.getElementById('formulaSearch')?.value || '');
+      });
+    });
+  },
+
   renderFormulas(search = '') {
     const container = document.getElementById('formulasContent');
-    const filtered = FORMULAS.filter(f =>
-      !search || f.name.toLowerCase().includes(search.toLowerCase()) ||
-      f.category.toLowerCase().includes(search.toLowerCase()) ||
-      f.formula.toLowerCase().includes(search.toLowerCase())
-    );
+    let filtered = FORMULAS.filter(f => {
+      const matchCat = this.formulaCategory === 'All' || f.category === this.formulaCategory;
+      const matchSearch = !search ||
+        f.name.toLowerCase().includes(search.toLowerCase()) ||
+        f.category.toLowerCase().includes(search.toLowerCase()) ||
+        f.formula.toLowerCase().includes(search.toLowerCase()) ||
+        f.note.toLowerCase().includes(search.toLowerCase());
+      return matchCat && matchSearch;
+    });
+    document.getElementById('formulaCount').textContent =
+      `${filtered.length} formulas — Math, Physics, Chemistry & Biology`;
     container.innerHTML = filtered.map(f => `
       <div class="formula-card">
-        <h4>${f.category} — ${f.name}</h4>
+        <span class="formula-cat-badge">${f.category}</span>
+        <h4>${f.name}</h4>
         <div class="formula">${f.formula}</div>
         <p>${f.note}</p>
       </div>
+    `).join('') || '<p class="empty-msg">No formulas found. Try a different search.</p>';
+  },
+
+  renderTrickTabs() {
+    const container = document.getElementById('trickTabs');
+    if (!container) return;
+    container.innerHTML = TRICK_CATEGORIES.map(cat => `
+      <button class="cat-tab ${cat === this.trickCategory ? 'active' : ''}" data-cat="${cat}">${cat}</button>
     `).join('');
+    container.querySelectorAll('.cat-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.trickCategory = btn.dataset.cat;
+        container.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.renderTricks(document.getElementById('trickSearch')?.value || '');
+      });
+    });
+  },
+
+  renderTricks(search = '') {
+    const container = document.getElementById('tricksContent');
+    let filtered = TRICKS.filter(t => {
+      const matchCat = this.trickCategory === 'All' || t.category === this.trickCategory;
+      const matchSearch = !search ||
+        t.title.toLowerCase().includes(search.toLowerCase()) ||
+        t.trick.toLowerCase().includes(search.toLowerCase()) ||
+        t.category.toLowerCase().includes(search.toLowerCase()) ||
+        (t.example && t.example.toLowerCase().includes(search.toLowerCase()));
+      return matchCat && matchSearch;
+    });
+    document.getElementById('trickCount').textContent =
+      `${filtered.length} tricks & shortcuts for faster solving`;
+    container.innerHTML = filtered.map(t => `
+      <div class="trick-card">
+        <span class="trick-cat-badge">${t.category}</span>
+        <h4>${t.title}</h4>
+        <p class="trick-text">${t.trick}</p>
+        ${t.example ? `<div class="trick-example"><strong>Example:</strong> ${t.example}</div>` : ''}
+      </div>
+    `).join('') || '<p class="empty-msg">No tricks found. Try a different search.</p>';
+  },
+
+  renderGkFacts() {
+    const container = document.getElementById('gkFactsContent');
+    if (!container) return;
+    container.innerHTML = GK_FACTS.map(g => `
+      <div class="gk-card">
+        <div class="gk-header">
+          <span class="gk-cat">${g.category}</span>
+          <h4>${g.title}</h4>
+        </div>
+        <ul class="gk-list">
+          ${g.facts.map(f => `<li>${f}</li>`).join('')}
+        </ul>
+      </div>
+    `).join('');
+  },
+
+  renderVocabulary(search = '') {
+    const container = document.getElementById('vocabularyContent');
+    if (this.vocabTab === 'idioms') {
+      const filtered = IDIOMS.filter(i =>
+        !search || i.idiom.toLowerCase().includes(search.toLowerCase()) ||
+        i.meaning.toLowerCase().includes(search.toLowerCase())
+      );
+      container.innerHTML = filtered.map(i => `
+        <div class="vocab-card idiom-card">
+          <h4>"${i.idiom}"</h4>
+          <p>${i.meaning}</p>
+        </div>
+      `).join('') || '<p class="empty-msg">No idioms found.</p>';
+    } else {
+      const filtered = VOCABULARY.filter(v =>
+        !search || v.word.toLowerCase().includes(search.toLowerCase()) ||
+        v.meaning.toLowerCase().includes(search.toLowerCase()) ||
+        v.synonym.toLowerCase().includes(search.toLowerCase())
+      );
+      container.innerHTML = filtered.map(v => `
+        <div class="vocab-card">
+          <h4>${v.word}</h4>
+          <p class="vocab-meaning">${v.meaning}</p>
+          <div class="vocab-pair">
+            <span class="syn">Syn: ${v.synonym}</span>
+            <span class="ant">Ant: ${v.antonym}</span>
+          </div>
+        </div>
+      `).join('') || '<p class="empty-msg">No words found.</p>';
+    }
   },
 
   renderTips() {
