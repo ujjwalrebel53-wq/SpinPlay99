@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NDA Prep Academy — Exam Preparation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+:root {
+  --bg-dark: #0a0f1a;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2332;
+  --bg-sidebar: #0d1320;
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-glow: rgba(245, 158, 11, 0.15);
+  --success: #10b981;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --border: #1e293b;
+  --radius: 12px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --font: 'Inter', 'Noto Sans Devanagari', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg-dark);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 100;
+  transition: transform 0.3s ease;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-icon {
+  font-size: 2rem;
+  background: linear-gradient(135deg, var(--accent), #b45309);
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.brand p {
+  font-size: 0.75rem;
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.nav {
+  flex: 1;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+}
+
+.nav-item:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.nav-item.active {
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nav-icon { font-size: 1.1rem; }
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.menu-toggle {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 200;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1.5rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Main */
+.main {
+  flex: 1;
+  margin-left: 260px;
+  padding: 32px;
+  max-width: 1200px;
+}
+
+.section { display: none; animation: fadeIn 0.3s ease; }
+.section.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.page-header h2 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-size: 0.95rem;
+}
+
+.exam-countdown {
+  background: linear-gradient(135deg, var(--accent-glow), transparent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 20px;
+  text-align: center;
+}
+
+.exam-countdown .countdown-label {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.exam-countdown .countdown-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+/* Stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+/* Cards */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+  font-weight: 700;
+}
+
+.highlight-card {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--bg-card), rgba(245, 158, 11, 0.05));
+}
+
+.pattern-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.pattern-table th,
+.pattern-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.pattern-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checklist {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checklist li {
+  padding-left: 24px;
+  position: relative;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.checklist li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--success);
+  font-weight: 700;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-primary:hover { background: var(--accent-hover); }
+
+.btn-secondary {
+  background: var(--info);
+  color: #fff;
+}
+
+.btn-secondary:hover { background: #2563eb; }
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-outline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Syllabus */
+.syllabus-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.syllabus-topic {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.syllabus-topic-header {
+  padding: 16px 20px;
+  background: var(--bg-card-hover);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+}
+
+.syllabus-topic-header:hover { background: #1f2a3d; }
+
+.syllabus-topic-body {
+  padding: 0 20px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
+
+.syllabus-topic.open .syllabus-topic-body {
+  max-height: 600px;
+  padding: 16px 20px;
+}
+
+.syllabus-topic-body ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.syllabus-topic-body li {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  padding-left: 16px;
+  position: relative;
+}
+
+.syllabus-topic-body li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+/* Study Plan */
+.plan-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.plan-controls select {
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-family: inherit;
+  margin-left: 8px;
+}
+
+.study-plan-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-week {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.plan-week h4 {
+  color: var(--accent);
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.plan-day {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.plan-day:last-child { border-bottom: none; }
+
+.plan-day .day-label {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+/* Practice & Quiz */
+.practice-setup, .mock-selection { margin-bottom: 24px; }
+
+.filter-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-group label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.filter-group select {
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-family: inherit;
+  min-width: 160px;
+}
+
+.quiz-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.quiz-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.quiz-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.badge {
+  background: var(--bg-card-hover);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.badge-score { color: var(--success); }
+
+.timer {
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.timer.warning { color: var(--danger); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.question-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.palette-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.palette-btn.current { border-color: var(--accent); color: var(--accent); }
+.palette-btn.answered { background: var(--success); color: #fff; border-color: var(--success); }
+.palette-btn.review { background: var(--info); color: #fff; border-color: var(--info); }
+
+.question-card {
+  margin-bottom: 24px;
+}
+
+.question-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  line-height: 1.7;
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.option-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.option-btn:hover { border-color: var(--accent); }
+
+.option-btn.selected {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.option-btn.correct {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.option-btn.wrong {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.option-label {
+  background: var(--bg-card);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.explanation {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid var(--info);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.9rem;
+}
+
+.explanation strong { color: var(--info); }
+
+.quiz-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Mock cards */
+.mock-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.mock-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  text-align: center;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.mock-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+}
+
+.mock-icon { font-size: 3rem; margin-bottom: 12px; }
+
+.mock-card h3 { margin-bottom: 8px; }
+
+.mock-card p {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 20px;
+}
+
+.mock-card .btn { width: 100%; margin-bottom: 8px; }
+
+/* Formulas */
+.formula-search {
+  margin-bottom: 24px;
+}
+
+.formula-search input {
+  width: 100%;
+  max-width: 400px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.formulas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.formula-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.formula-card h4 {
+  color: var(--accent);
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+
+.formula-card .formula {
+  font-family: 'Courier New', monospace;
+  background: var(--bg-dark);
+  padding: 12px;
+  border-radius: 8px;
+  margin: 8px 0;
+  font-size: 0.9rem;
+  overflow-x: auto;
+}
+
+.formula-card p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Tips */
+.tips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.tip-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.tip-card .tip-number {
+  display: inline-block;
+  background: var(--accent);
+  color: #000;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 32px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.tip-card h4 { margin-bottom: 8px; }
+
+.tip-card p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* Progress */
+.progress-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.subject-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.subject-bar .label {
+  width: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.subject-bar .bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.subject-bar .bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 5px;
+}
+
+.subject-bar .pct {
+  width: 40px;
+  text-align: right;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.activity-list, .mock-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activity-item, .history-item {
+  padding: 12px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.weak-areas .weak-tag {
+  display: inline-block;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 4px;
+}
+
+/* Results */
+.result-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+}
+
+.result-score {
+  font-size: 4rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 16px 0;
+}
+
+.result-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.result-stat {
+  padding: 16px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+}
+
+.result-stat .val {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.result-stat .lbl {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  max-width: 420px;
+  width: 90%;
+}
+
+.modal-content h3 { margin-bottom: 12px; }
+
+.modal-content p {
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.hidden { display: none !important; }
+
+.daily-focus-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.daily-focus-item:last-child { border-bottom: none; }
+
+.daily-focus-item strong { color: var(--accent); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .menu-toggle { display: block; }
+
+  .main {
+    margin-left: 0;
+    padding: 72px 16px 24px;
+  }
+
+  .page-header h2 { font-size: 1.4rem; }
+
+  .timer { font-size: 1.5rem; }
+
+  .result-score { font-size: 3rem; }
+}
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚔️</div>
+        <div>
+          <h1>NDA Prep</h1>
+          <p>Academy</p>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-section="dashboard">
+          <span class="nav-icon">🏠</span> Dashboard
+        </button>
+        <button class="nav-item" data-section="syllabus">
+          <span class="nav-icon">📋</span> Syllabus
+        </button>
+        <button class="nav-item" data-section="study-plan">
+          <span class="nav-icon">📅</span> Study Plan
+        </button>
+        <button class="nav-item" data-section="practice">
+          <span class="nav-icon">✏️</span> Practice
+        </button>
+        <button class="nav-item" data-section="mock-test">
+          <span class="nav-icon">⏱️</span> Mock Test
+        </button>
+        <button class="nav-item" data-section="formulas">
+          <span class="nav-icon">📐</span> Formulas
+        </button>
+        <button class="nav-item" data-section="tips">
+          <span class="nav-icon">💡</span> Tips & Strategy
+        </button>
+        <button class="nav-item" data-section="progress">
+          <span class="nav-icon">📊</span> Progress
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <p>Best of luck, future officer! 🇮🇳</p>
+      </div>
+    </aside>
+
+    <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+
+    <main class="main">
+      <!-- Dashboard -->
+      <section class="section active" id="dashboard">
+        <header class="page-header">
+          <div>
+            <h2>Welcome to NDA Prep Academy</h2>
+            <p class="subtitle">UPSC NDA/NA Written Exam — Complete Preparation Hub</p>
+          </div>
+          <div class="exam-countdown" id="examCountdown"></div>
+        </header>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Questions Solved</span>
+            <span class="stat-value" id="statSolved">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Accuracy</span>
+            <span class="stat-value" id="statAccuracy">0%</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Mock Tests Done</span>
+            <span class="stat-value" id="statMocks">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Study Streak</span>
+            <span class="stat-value" id="statStreak">0 days</span>
+          </div>
+        </div>
+
+        <div class="card-grid">
+          <div class="card highlight-card">
+            <h3>🎯 Exam Pattern (NDA I & II)</h3>
+            <table class="pattern-table">
+              <thead>
+                <tr><th>Paper</th><th>Subject</th><th>Questions</th><th>Marks</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Paper I</td><td>Mathematics</td><td>120</td><td>300</td><td>2.5 hrs</td></tr>
+                <tr><td>Paper II</td><td>GAT (English + GK)</td><td>150</td><td>600</td><td>2.5 hrs</td></tr>
+              </tbody>
+            </table>
+            <p class="note">Negative marking: <strong>⅓</strong> marks deducted per wrong answer</p>
+          </div>
+
+          <div class="card">
+            <h3>🚀 Quick Start</h3>
+            <div class="quick-actions">
+              <button class="btn btn-primary" onclick="App.navigate('practice')">Start Practice</button>
+              <button class="btn btn-secondary" onclick="App.navigate('mock-test')">Take Mock Test</button>
+              <button class="btn btn-outline" onclick="App.navigate('study-plan')">View Study Plan</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>📌 Today's Focus</h3>
+            <div id="dailyFocus"></div>
+          </div>
+
+          <div class="card">
+            <h3>✅ Eligibility Reminder</h3>
+            <ul class="checklist">
+              <li>Age: 16.5 to 19.5 years (as per notification)</li>
+              <li>Education: 10+2 or appearing (Army/Navy/Air Force)</li>
+              <li>Nationality: Indian citizen / subject of Nepal/Bhutan</li>
+              <li>Physical standards as per UPSC notification</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Syllabus -->
+      <section class="section" id="syllabus">
+        <header class="page-header">
+          <h2>Complete Syllabus</h2>
+          <p class="subtitle">UPSC NDA Written Exam — Mathematics & GAT</p>
+        </header>
+        <div id="syllabusContent" class="syllabus-grid"></div>
+      </section>
+
+      <!-- Study Plan -->
+      <section class="section" id="study-plan">
+        <header class="page-header">
+          <h2>90-Day Study Plan</h2>
+          <p class="subtitle">Structured preparation roadmap for NDA success</p>
+        </header>
+        <div class="plan-controls">
+          <label>Plan duration:
+            <select id="planDuration">
+              <option value="60">60 Days (Intensive)</option>
+              <option value="90" selected>90 Days (Recommended)</option>
+              <option value="120">120 Days (Relaxed)</option>
+            </select>
+          </label>
+          <button class="btn btn-primary" id="generatePlan">Generate My Plan</button>
+        </div>
+        <div id="studyPlanContent" class="study-plan-timeline"></div>
+      </section>
+
+      <!-- Practice -->
+      <section class="section" id="practice">
+        <header class="page-header">
+          <h2>Practice Questions</h2>
+          <p class="subtitle">Topic-wise MCQs with instant explanations</p>
+        </header>
+        <div class="practice-setup" id="practiceSetup">
+          <div class="filter-row">
+            <div class="filter-group">
+              <label>Subject</label>
+              <select id="practiceSubject">
+                <option value="all">All Subjects</option>
+                <option value="math">Mathematics</option>
+                <option value="english">English</option>
+                <option value="physics">Physics</option>
+                <option value="chemistry">Chemistry</option>
+                <option value="history">History</option>
+                <option value="geography">Geography</option>
+                <option value="polity">Polity & Current Affairs</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Difficulty</label>
+              <select id="practiceDifficulty">
+                <option value="all">All Levels</option>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Questions</label>
+              <select id="practiceCount">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="30">30</option>
+                <option value="50">50</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="startPractice">Start Practice</button>
+          </div>
+        </div>
+        <div class="quiz-container hidden" id="practiceQuiz">
+          <div class="quiz-header">
+            <div class="quiz-progress">
+              <div class="progress-bar"><div class="progress-fill" id="practiceProgress"></div></div>
+              <span id="practiceCounter">1 / 20</span>
+            </div>
+            <div class="quiz-meta">
+              <span class="badge" id="practiceSubjectBadge">Math</span>
+              <span class="badge badge-score">Score: <span id="practiceScore">0</span></span>
+            </div>
+          </div>
+          <div class="question-card" id="practiceQuestionCard"></div>
+          <div class="quiz-actions">
+            <button class="btn btn-outline" id="practicePrev" disabled>Previous</button>
+            <button class="btn btn-primary" id="practiceNext">Next</button>
+            <button class="btn btn-success hidden" id="practiceFinish">Finish</button>
+          </div>
+        </div>
+        <div class="result-container hidden" id="practiceResult"></div>
+      </section>
+
+      <!-- Mock Test -->
+      <section class="section" id="mock-test">
+        <header class="page-header">
+          <h2>Mock Tests</h2>
+          <p class="subtitle">Timed tests simulating real NDA exam conditions</p>
+        </header>
+        <div class="mock-selection" id="mockSelection">
+          <div class="mock-cards">
+            <div class="mock-card" data-mock="math">
+              <div class="mock-icon">🔢</div>
+              <h3>Mathematics Mock</h3>
+              <p>120 Questions · 150 Minutes · 300 Marks</p>
+              <button class="btn btn-primary start-mock" data-type="math">Start Full Mock</button>
+              <button class="btn btn-outline start-mock" data-type="math-mini">Mini (30 Q · 40 min)</button>
+            </div>
+            <div class="mock-card" data-mock="gat">
+              <div class="mock-icon">📚</div>
+              <h3>GAT Mock</h3>
+              <p>150 Questions · 150 Minutes · 600 Marks</p>
+              <button class="btn btn-primary start-mock" data-type="gat">Start Full Mock</button>
+              <button class="btn btn-outline start-mock" data-type="gat-mini">Mini (30 Q · 30 min)</button>
+            </div>
+            <div class="mock-card" data-mock="full">
+              <div class="mock-icon">🏆</div>
+              <h3>Combined Mini</h3>
+              <p>Math 15 + GAT 15 · 45 Minutes</p>
+              <button class="btn btn-primary start-mock" data-type="combined">Start Combined</button>
+            </div>
+          </div>
+        </div>
+        <div class="quiz-container hidden" id="mockQuiz">
+          <div class="quiz-header mock-header">
+            <div class="timer" id="mockTimer">02:30:00</div>
+            <div class="quiz-meta">
+              <span class="badge" id="mockTypeBadge">Math Mock</span>
+              <span id="mockCounter">1 / 120</span>
+            </div>
+          </div>
+          <div class="question-palette" id="questionPalette"></div>
+          <div class="question-card" id="mockQuestionCard"></div>
+          <div class="quiz-actions">
+            <button class="btn btn-outline" id="mockPrev">Previous</button>
+            <button class="btn btn-outline" id="mockMarkReview">Mark for Review</button>
+            <button class="btn btn-primary" id="mockNext">Save & Next</button>
+            <button class="btn btn-danger" id="mockSubmit">Submit Test</button>
+          </div>
+        </div>
+        <div class="result-container hidden" id="mockResult"></div>
+      </section>
+
+      <!-- Formulas -->
+      <section class="section" id="formulas">
+        <header class="page-header">
+          <h2>Important Formulas</h2>
+          <p class="subtitle">Quick revision for Mathematics & Science</p>
+        </header>
+        <div class="formula-search">
+          <input type="search" id="formulaSearch" placeholder="Search formulas... (e.g. quadratic, trigonometry)">
+        </div>
+        <div id="formulasContent" class="formulas-grid"></div>
+      </section>
+
+      <!-- Tips -->
+      <section class="section" id="tips">
+        <header class="page-header">
+          <h2>Tips & Exam Strategy</h2>
+          <p class="subtitle">Proven strategies to maximize your NDA score</p>
+        </header>
+        <div id="tipsContent" class="tips-grid"></div>
+      </section>
+
+      <!-- Progress -->
+      <section class="section" id="progress">
+        <header class="page-header">
+          <h2>Your Progress</h2>
+          <p class="subtitle">Track your preparation journey</p>
+        </header>
+        <div class="progress-dashboard">
+          <div class="card">
+            <h3>Subject-wise Performance</h3>
+            <div id="subjectChart" class="subject-chart"></div>
+          </div>
+          <div class="card">
+            <h3>Recent Activity</h3>
+            <div id="recentActivity" class="activity-list"></div>
+          </div>
+          <div class="card">
+            <h3>Mock Test History</h3>
+            <div id="mockHistory" class="mock-history"></div>
+          </div>
+          <div class="card">
+            <h3>Weak Areas</h3>
+            <div id="weakAreas" class="weak-areas"></div>
+            <button class="btn btn-outline btn-sm" id="resetProgress">Reset All Progress</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="confirmModal">
+    <div class="modal-content">
+      <h3 id="modalTitle">Confirm</h3>
+      <p id="modalMessage"></p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="modalCancel">Cancel</button>
+        <button class="btn btn-primary" id="modalConfirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+const SYLLABUS = {
+  mathematics: {
+    title: 'Paper I — Mathematics (300 Marks)',
+    icon: '🔢',
+    topics: [
+      {
+        name: 'Algebra',
+        items: [
+          'Concept of set, operations on sets, Venn diagrams',
+          'De Morgan laws, Cartesian product, relation, equivalence relation',
+          'Representation of real numbers on a line',
+          'Complex numbers — basic properties, modulus, argument, cube roots of unity',
+          'Binary system of numbers, conversion of decimal to binary and vice versa',
+          'Arithmetic, Geometric and Harmonic progressions',
+          'Quadratic equations with real coefficients',
+          'Solution of linear inequations in two variables by graphs',
+          'Permutation and Combination, Binomial theorem and its applications',
+          'Logarithms and their applications'
+        ]
+      },
+      {
+        name: 'Matrices & Determinants',
+        items: [
+          'Types of matrices, operations on matrices',
+          'Determinant of a matrix, basic properties of determinants',
+          'Adjoint and inverse of a square matrix',
+          'Applications — solution of system of linear equations (two or three variables) using Cramer\'s rule and Matrix Method'
+        ]
+      },
+      {
+        name: 'Trigonometry',
+        items: [
+          'Angles and their measures in degrees and radians',
+          'Trigonometrical ratios, trigonometric identities',
+          'Sum and difference formulae, multiple and sub-multiple angles',
+          'Inverse trigonometric functions, applications — height and distance'
+        ]
+      },
+      {
+        name: 'Analytical Geometry',
+        items: [
+          'Rectangular Cartesian Coordinate system',
+          'Distance formula, equation of a line in various forms',
+          'Angle between two lines, distance of a point from a line',
+          'Equation of a circle in standard and general form',
+          'Standard forms of parabola, ellipse and hyperbola',
+          'Point in a three dimensional space, distance between two points',
+          'Direction Cosines and direction ratios, equation of a plane and a line in space'
+        ]
+      },
+      {
+        name: 'Differential Calculus',
+        items: [
+          'Concept of a real valued function — domain, range and graph',
+          'Composite functions, one to one, onto and inverse functions',
+          'Notion of limit, Standard limits',
+          'Continuity of functions, algebraic operations on continuous functions',
+          'Derivative of function at a point, geometrical and physical interpretation',
+          'Derivatives of sum, product and quotient of functions',
+          'Derivative of a function with respect to another function, derivative of a composite function',
+          'Second order derivatives, increasing and decreasing functions',
+          'Application in problems of maxima and minima'
+        ]
+      },
+      {
+        name: 'Integral Calculus & Differential Equations',
+        items: [
+          'Integration as inverse of differentiation',
+          'Integration by substitution and by parts, standard integrals',
+          'Definite integrals — determination of areas of plane regions',
+          'Definition and order and degree of a differential equation',
+          'Formation of a differential equation, solution of first order and first degree differential equations'
+        ]
+      },
+      {
+        name: 'Vector Algebra',
+        items: [
+          'Vectors in two and three dimensions, magnitude and direction',
+          'Unit and null vectors, addition of vectors, scalar multiplication',
+          'Scalar product or dot product, vector product or cross product',
+          'Applications — work done by a force and moment of a force'
+        ]
+      },
+      {
+        name: 'Statistics & Probability',
+        items: [
+          'Classification of data, frequency distribution, cumulative frequency distribution',
+          'Graphical representation — Histogram, Pie Chart, frequency polygon',
+          'Measures of Central tendency — Mean, Median and Mode',
+          'Variance and standard deviation, determination and comparison',
+          'Random experiment, outcomes and associated sample space',
+          'Events, mutually exclusive and exhaustive events',
+          'Bayes\' theorem, simple problems'
+        ]
+      }
+    ]
+  },
+  gat: {
+    title: 'Paper II — GAT (600 Marks)',
+    icon: '📚',
+    topics: [
+      {
+        name: 'English (200 Marks approx.)',
+        items: [
+          'Grammar and usage',
+          'Vocabulary — synonyms, antonyms, idioms & phrases',
+          'Comprehension and cohesion',
+          'Spotting errors, sentence improvement',
+          'Ordering of words in sentences, ordering of sentences in paragraphs',
+          'Fill in the blanks, para jumbles',
+          'Cloze test, one word substitution'
+        ]
+      },
+      {
+        name: 'Physics',
+        items: [
+          'Physical Properties and States of Matter',
+          'Mass, Weight, Volume, Density, Specific Gravity',
+          'Principle of Archimedes, Pressure Barometer',
+          'Motion of objects, Velocity and Acceleration',
+          'Newton\'s Laws of Motion, Force and Momentum',
+          'Parallelogram of Forces, Stability and Equilibrium',
+          'Gravitation, elementary ideas of work, power and energy',
+          'Heat — its transmission, temperature and its effects',
+          'Sound waves and their properties, reflection and refraction',
+          'Spherical mirrors and Lenses, human eye',
+          'Natural and Artificial Magnets, properties of a Magnet',
+          'Earth as a Magnet, Static and Current Electricity',
+          'Primary and Secondary Cells, Ohm\'s Law',
+          'Simple Electrical Circuits, Heating, Lighting and Magnetic effects of Current',
+          'Measurement of Electrical Power, Domestic electric circuits',
+          'X-Rays, Simple Pendulum, Simple Pulleys, Siphon, Levers, Balloon, Pumps',
+          'Hydrometer, Pressure Cooker, Thermos Flask, Gramophone, Telegraphs, Telephone, Periscope, Telescope, Microscope, Mariner\'s Compass; Lightening Conductors, Safety Fuses'
+        ]
+      },
+      {
+        name: 'Chemistry',
+        items: [
+          'Physical and Chemical changes',
+          'Elements, Mixtures and Compounds, Symbols, Formulae',
+          'Law of Chemical Combination',
+          'Properties of Air and Water',
+          'Preparation and Properties of Hydrogen, Oxygen, Nitrogen and Carbon dioxide',
+          'Oxidation and Reduction, Acids, bases and salts',
+          'Carbon — different forms, Fertilizers — Natural and Artificial',
+          'Material used in the preparation of substances like Soap, Glass, Ink, Paper, Cement, Paints, Safety Matches and Gun-Powder',
+          'Elementary ideas about the structure of Atom, Atomic Equivalent and Molecular Weights, Valency'
+        ]
+      },
+      {
+        name: 'General Science',
+        items: [
+          'Difference between living and non-living',
+          'Basis of Life — Cells, Protoplasms and Tissues',
+          'Growth and Reproduction in Plants and Animals',
+          'Elementary knowledge of Human Body and its important organs',
+          'Common Epidemics, their causes and prevention',
+          'Food — Source of Energy for man',
+          'Constituents of food, Balanced Diet',
+          'The Solar System — Meteors and Comets, Eclipses',
+          'Achievements of Eminent Scientists'
+        ]
+      },
+      {
+        name: 'History & Freedom Movement',
+        items: [
+          'A broad survey of Indian History with emphasis on Culture and Civilisation',
+          'Freedom Movement in India',
+          'Elementary study of Indian Constitution and Administration',
+          'Elementary knowledge of Five Year Plans of India',
+          'Panchayati Raj, Co-operatives and Community Development',
+          'Bhoodan, Sarvodaya, National Integration and Welfare State',
+          'Basic Teachings of Mahatma Gandhi',
+          'Renaissance, Exploration and Discovery',
+          'War of American Independence, French Revolution',
+          'Industrial Revolution and Russian Revolution',
+          'Impact of Science and Technology on Society',
+          'Concept of one World, UNO, Panchsheel, Democracy, Socialism and Communism',
+          'Role of India in the present world'
+        ]
+      },
+      {
+        name: 'Geography',
+        items: [
+          'Earth — its shape and size, latitudes and longitudes',
+          'Concept of time, International Date Line',
+          'Movements of Earth and their effects',
+          'Origin of Earth, Rocks and their classification',
+          'Weathering — Mechanical and Chemical, Earthquakes and Volcanoes',
+          'Ocean Currents and Tides',
+          'Atmosphere and its composition, Temperature and Atmospheric Pressure',
+          'Planetary Winds, Cyclones and Anti-cyclones, Humidity, Condensation and Precipitation',
+          'Types of Climate, Major Natural regions of the World',
+          'Regional Geography of India — Climate, Natural vegetation',
+          'Mineral and Power resources, location and distribution of agricultural and Industrial activities',
+          'Important Sea ports and main land, sea and air routes of India',
+          'Main items of Imports and Exports of India'
+        ]
+      },
+      {
+        name: 'Current Events',
+        items: [
+          'Knowledge of Important events in India in recent years',
+          'Current important world events',
+          'Prominent personalities — both Indian and International including those connected with cultural and sports activities'
+        ]
+      }
+    ]
+  }
+};
+
+const FORMULAS = [
+  { category: 'Algebra', name: 'Quadratic Formula', formula: 'x = (-b ± √(b² - 4ac)) / 2a', note: 'For ax² + bx + c = 0' },
+  { category: 'Algebra', name: 'AP nth term', formula: 'aₙ = a + (n-1)d', note: 'a = first term, d = common difference' },
+  { category: 'Algebra', name: 'AP Sum', formula: 'Sₙ = n/2 [2a + (n-1)d]', note: 'Sum of n terms' },
+  { category: 'Algebra', name: 'GP nth term', formula: 'aₙ = arⁿ⁻¹', note: 'r = common ratio' },
+  { category: 'Algebra', name: 'GP Sum (infinite)', formula: 'S = a / (1-r)', note: '|r| < 1' },
+  { category: 'Algebra', name: 'Binomial (a+b)ⁿ', formula: '(a+b)ⁿ = Σ ⁿCᵣ aⁿ⁻ʳ bʳ', note: 'r = 0 to n' },
+  { category: 'Algebra', name: 'Logarithm', formula: 'logₐ(mn) = logₐm + logₐn', note: 'Product rule' },
+  { category: 'Trigonometry', name: 'sin²θ + cos²θ', formula: 'sin²θ + cos²θ = 1', note: 'Pythagorean identity' },
+  { category: 'Trigonometry', name: 'sin(A+B)', formula: 'sin(A+B) = sinA·cosB + cosA·sinB', note: 'Addition formula' },
+  { category: 'Trigonometry', name: 'cos(A+B)', formula: 'cos(A+B) = cosA·cosB - sinA·sinB', note: 'Addition formula' },
+  { category: 'Trigonometry', name: 'sin 2θ', formula: 'sin 2θ = 2 sinθ cosθ', note: 'Double angle' },
+  { category: 'Trigonometry', name: 'cos 2θ', formula: 'cos 2θ = cos²θ - sin²θ', note: 'Double angle' },
+  { category: 'Coordinate Geometry', name: 'Distance Formula', formula: 'd = √[(x₂-x₁)² + (y₂-y₁)²]', note: 'Between two points' },
+  { category: 'Coordinate Geometry', name: 'Section Formula', formula: '((mx₂+nx₁)/(m+n), (my₂+ny₁)/(m+n))', note: 'Internal division m:n' },
+  { category: 'Coordinate Geometry', name: 'Slope', formula: 'm = (y₂-y₁)/(x₂-x₁)', note: 'Gradient of line' },
+  { category: 'Coordinate Geometry', name: 'Circle', formula: '(x-h)² + (y-k)² = r²', note: 'Centre (h,k), radius r' },
+  { category: 'Calculus', name: 'Power Rule', formula: 'd/dx(xⁿ) = nxⁿ⁻¹', note: 'Derivative' },
+  { category: 'Calculus', name: 'Product Rule', formula: '(uv)\' = u\'v + uv\'', note: 'Derivative of product' },
+  { category: 'Calculus', name: 'Chain Rule', formula: 'd/dx[f(g(x))] = f\'(g(x))·g\'(x)', note: 'Composite function' },
+  { category: 'Calculus', name: '∫xⁿ dx', formula: '∫xⁿ dx = xⁿ⁺¹/(n+1) + C', note: 'n ≠ -1' },
+  { category: 'Calculus', name: '∫1/x dx', formula: '∫1/x dx = ln|x| + C', note: 'Logarithmic integral' },
+  { category: 'Vectors', name: 'Dot Product', formula: 'a·b = |a||b|cosθ', note: 'Scalar product' },
+  { category: 'Vectors', name: 'Cross Product', formula: '|a×b| = |a||b|sinθ', note: 'Vector product magnitude' },
+  { category: 'Statistics', name: 'Mean', formula: 'x̄ = Σxᵢ/n', note: 'Arithmetic mean' },
+  { category: 'Statistics', name: 'Variance', formula: 'σ² = Σ(xᵢ-x̄)²/n', note: 'Population variance' },
+  { category: 'Probability', name: 'Bayes Theorem', formula: 'P(A|B) = P(B|A)·P(A) / P(B)', note: 'Conditional probability' },
+  { category: 'Physics', name: 'Newton\'s 2nd Law', formula: 'F = ma', note: 'Force = mass × acceleration' },
+  { category: 'Physics', name: 'Kinetic Energy', formula: 'KE = ½mv²', note: 'Energy of motion' },
+  { category: 'Physics', name: 'Potential Energy', formula: 'PE = mgh', note: 'Gravitational potential energy' },
+  { category: 'Physics', name: 'Ohm\'s Law', formula: 'V = IR', note: 'Voltage = Current × Resistance' },
+  { category: 'Physics', name: 'Power', formula: 'P = VI = I²R', note: 'Electrical power' },
+  { category: 'Physics', name: 'Lens Formula', formula: '1/f = 1/v - 1/u', note: 'f=focal length, v=image, u=object' },
+  { category: 'Physics', name: 'Wave Speed', formula: 'v = fλ', note: 'velocity = frequency × wavelength' },
+  { category: 'Chemistry', name: 'Moles', formula: 'n = m/M', note: 'm=mass, M=molar mass' },
+  { category: 'Chemistry', name: 'Ideal Gas', formula: 'PV = nRT', note: 'Gas equation' }
+];
+
+const TIPS = [
+  { title: 'Understand Negative Marking', text: 'NDA me har galat answer par 1/3 marks katte hain. Agar sure nahi ho to question skip karo. Guess kam karo — accuracy > attempts.' },
+  { title: 'Time Management — Math', text: '120 questions, 150 minutes = ~75 seconds per question. Pehle easy questions solve karo, phir medium, last me hard questions attempt karo.' },
+  { title: 'Time Management — GAT', text: '150 questions, 150 minutes. English aur GK dono ko balance rakho. Comprehension passages ko end me mat chhodo.' },
+  { title: 'NCERT is King', text: 'Math ke liye Class 11-12 NCERT, Science ke liye Class 9-10 NCERT padho. NDA ke 70%+ questions NCERT level ke hote hain.' },
+  { title: 'Daily Current Affairs', text: 'Roz 30 minute news padho — The Hindu, Indian Express ya any reliable source. Last 6 months ke important events yaad rakho.' },
+  { title: 'English Vocabulary', text: 'Roz 10 naye words + 5 idioms yaad karo. Previous year papers se vocabulary questions repeat hote hain.' },
+  { title: 'Mock Tests are Essential', text: 'Har hafte kam se kam 2 mock tests do. Real exam environment me practice karo — timer lagao, OMR sheet simulate karo.' },
+  { title: 'Previous Year Papers', text: 'Last 10 years ke NDA papers solve karo. Pattern samajhne ke liye ye sabse best hai.' },
+  { title: 'Physical Fitness Matters', text: 'Written exam ke baad SSB interview aur medical test hai. Roz running, push-ups aur exercise karo — body bhi fit honi chahiye.' },
+  { title: 'Revision Strategy', text: 'Har Sunday ko poora week revise karo. Formula sheet aur short notes banao — exam se pehle ye lifesavers hain.' },
+  { title: 'Stay Consistent', text: 'Roz 6-8 ghante padhai karo. Consistency > intensity. Ek din 12 ghante padh kar 3 din kuch na karna — ye kaam nahi karega.' },
+  { title: 'SSB Preparation Parallel', text: 'Written exam ke saath SSB ki preparation bhi shuru karo — OIR test, PPDT, lecturette practice karo.' }
+];
+
+const STUDY_PLAN_TEMPLATE = {
+  60: [
+    { week: 'Week 1-2', focus: 'Foundation Building', days: ['Math: Algebra basics + Trigonometry', 'English: Grammar rules + Vocabulary (50 words/day)', 'Physics: Mechanics + Laws of Motion', 'Chemistry: Basic concepts + Periodic table', 'History: Ancient India + Medieval India', 'Geography: Physical geography + Maps', 'Revision + 20 practice questions'] },
+    { week: 'Week 3-4', focus: 'Core Topics', days: ['Math: Calculus basics + Coordinate Geometry', 'English: Comprehension practice + Error spotting', 'Physics: Heat, Light, Sound', 'Chemistry: Acids, Bases, Salts + Reactions', 'History: Modern India + Freedom Movement', 'Geography: Indian geography + Climate', 'Mini mock test (30 questions)'] },
+    { week: 'Week 5-6', focus: 'Advanced Topics', days: ['Math: Matrices + Probability + Statistics', 'English: Para jumbles + Cloze test', 'Physics: Electricity + Magnetism', 'Chemistry: Organic basics + Carbon compounds', 'Polity: Constitution basics', 'Current Affairs: Last 3 months review', 'Full Math mini mock (50 Q)'] },
+    { week: 'Week 7-8', focus: 'Intensive Practice', days: ['Math: Previous year questions', 'GAT: Mixed practice (all subjects)', 'Weak area focus (identify from mocks)', 'Formula revision', 'Current affairs daily', 'Full GAT mini mock (50 Q)', 'Complete revision'] },
+    { week: 'Week 9', focus: 'Final Sprint', days: ['Full Math mock test', 'Full GAT mock test', 'Combined mock test', 'Formula + notes revision', 'Light study — confidence building', 'Rest + exam day preparation', 'EXAM DAY — All the best!'] }
+  ],
+  90: [
+    { week: 'Week 1-3', focus: 'Foundation Phase', days: ['Math: Algebra + Sets + Complex numbers', 'English: Grammar fundamentals + 300 vocabulary words', 'Physics: Units, Motion, Force, Energy', 'Chemistry: Matter, Elements, Compounds', 'History: Ancient + Medieval India', 'Geography: Earth, Maps, Lat-Long', 'Weekly revision + 30 practice Q'] },
+    { week: 'Week 4-6', focus: 'Building Phase', days: ['Math: Trigonometry + Coordinate Geometry', 'English: Comprehension + Sentence improvement', 'Physics: Heat, Light, Sound, Waves', 'Chemistry: Chemical reactions + Acids/Bases', 'History: Modern India + Freedom struggle', 'Geography: Indian physical + climate', 'Mini mock test'] },
+    { week: 'Week 7-9', focus: 'Advanced Phase', days: ['Math: Calculus + Matrices + Vectors', 'English: Advanced vocabulary + Idioms', 'Physics: Electricity + Magnetism + Modern physics', 'Chemistry: Organic + Carbon + Fertilizers', 'Polity: Constitution + Panchayati Raj', 'Current Affairs: Monthly review', 'Subject-wise mock tests'] },
+    { week: 'Week 10-11', focus: 'Practice Phase', days: ['Math: Previous 5 years papers', 'GAT: Previous 5 years papers', 'Weak areas intensive practice', 'Daily current affairs', 'Formula sheet revision', 'Full mock — Math (120 Q)', 'Full mock — GAT (150 Q)'] },
+    { week: 'Week 12-13', focus: 'Final Phase', days: ['Combined full mock tests (2)', 'Quick revision of all formulas', 'English vocabulary final review', 'Current affairs last 6 months', 'Light practice — confidence building', 'Rest, sleep well, stay calm', 'EXAM DAY — Jai Hind!'] }
+  ],
+  120: [
+    { week: 'Week 1-4', focus: 'Basics Mastery', days: ['Math: Algebra complete', 'English: Grammar + 200 words', 'Physics: Mechanics complete', 'Chemistry: Fundamentals', 'History: Ancient India', 'Geography: Physical geography', 'Weekly test + revision'] },
+    { week: 'Week 5-8', focus: 'Intermediate', days: ['Math: Trigonometry + Coordinate Geometry', 'English: Comprehension + Vocabulary 400 words', 'Physics: Heat, Light, Sound', 'Chemistry: Reactions + Periodic properties', 'History: Medieval + Modern India', 'Geography: Indian geography complete', 'Bi-weekly mock tests'] },
+    { week: 'Week 9-12', focus: 'Advanced', days: ['Math: Calculus + Probability + Statistics', 'English: Advanced practice', 'Physics: Electricity + Magnetism', 'Chemistry: Organic + Applications', 'Polity + Economics basics', 'Current Affairs: Regular reading', 'Full subject mocks'] },
+    { week: 'Week 13-16', focus: 'Mastery', days: ['Previous year papers (all)', 'Weak area elimination', 'Daily mocks alternating Math/GAT', 'Formula + notes revision', 'SSB OIR practice', 'Final full mocks', 'Exam preparation + Rest'] },
+    { week: 'Week 17', focus: 'Final Week', days: ['Light revision only', 'Formula sheet review', 'Current affairs quick scan', 'Confidence building', 'Physical exercise + rest', 'Exam kit preparation', 'EXAM DAY!'] }
+  ]
+};
+
+const DAILY_FOCUS = [
+  { subject: 'Mathematics', task: 'Practice 20 Algebra & Trigonometry questions' },
+  { subject: 'English', task: 'Learn 10 new vocabulary words + 1 comprehension passage' },
+  { subject: 'General Science', task: 'Revise Physics: Laws of Motion + Chemistry: Acids & Bases' },
+  { subject: 'GK', task: 'Read today\'s current affairs + revise 1 History chapter' }
+];
+
+const SUBJECT_LABELS = {
+  math: 'Mathematics',
+  english: 'English',
+  physics: 'Physics',
+  chemistry: 'Chemistry',
+  history: 'History',
+  geography: 'Geography',
+  polity: 'Polity & Current Affairs'
+};
+
+  </script>
+  <script>
+const QUESTIONS = [
+  // Mathematics
+  { id: 1, subject: 'math', difficulty: 'easy', question: 'If x² - 5x + 6 = 0, what are the roots?', options: ['1 and 6', '2 and 3', '-2 and -3', '1 and 5'], answer: 1, explanation: 'x² - 5x + 6 = (x-2)(x-3) = 0, so x = 2 or x = 3.' },
+  { id: 2, subject: 'math', difficulty: 'easy', question: 'What is the value of sin 30°?', options: ['1/2', '√3/2', '1', '0'], answer: 0, explanation: 'sin 30° = 1/2 (standard trigonometric value).' },
+  { id: 3, subject: 'math', difficulty: 'medium', question: 'The 10th term of an AP with first term 3 and common difference 4 is:', options: ['39', '40', '37', '43'], answer: 0, explanation: 'aₙ = a + (n-1)d = 3 + 9(4) = 3 + 36 = 39.' },
+  { id: 4, subject: 'math', difficulty: 'medium', question: 'If |A| = 5 for a 2×2 matrix A, then |2A| equals:', options: ['10', '20', '25', '4'], answer: 1, explanation: '|kA| = kⁿ|A| where n=2. So |2A| = 2² × 5 = 20.' },
+  { id: 5, subject: 'math', difficulty: 'easy', question: 'Distance between points (1, 2) and (4, 6) is:', options: ['5', '4', '3', '7'], answer: 0, explanation: 'd = √[(4-1)² + (6-2)²] = √[9+16] = √25 = 5.' },
+  { id: 6, subject: 'math', difficulty: 'hard', question: '∫(3x² + 2x)dx equals:', options: ['x³ + x² + C', '6x + 2 + C', 'x³ + 2x² + C', '3x³ + x² + C'], answer: 0, explanation: '∫3x²dx = x³, ∫2xdx = x². Answer: x³ + x² + C.' },
+  { id: 7, subject: 'math', difficulty: 'medium', question: 'If log₂8 = x, then x equals:', options: ['2', '3', '4', '8'], answer: 1, explanation: '2³ = 8, so log₂8 = 3.' },
+  { id: 8, subject: 'math', difficulty: 'easy', question: 'Number of ways to arrange 3 books on a shelf:', options: ['3', '6', '9', '12'], answer: 1, explanation: '3! = 3 × 2 × 1 = 6 arrangements.' },
+  { id: 9, subject: 'math', difficulty: 'medium', question: 'Derivative of x³ is:', options: ['3x²', 'x²', '3x', 'x³/3'], answer: 0, explanation: 'd/dx(xⁿ) = nxⁿ⁻¹. So d/dx(x³) = 3x².' },
+  { id: 10, subject: 'math', difficulty: 'hard', question: 'If P(A) = 0.4 and P(B) = 0.5, and A, B are independent, then P(A∩B) =', options: ['0.9', '0.2', '0.1', '0.45'], answer: 1, explanation: 'P(A∩B) = P(A) × P(B) = 0.4 × 0.5 = 0.2.' },
+  { id: 11, subject: 'math', difficulty: 'easy', question: 'cos 60° equals:', options: ['√3/2', '1/2', '0', '1'], answer: 1, explanation: 'cos 60° = 1/2.' },
+  { id: 12, subject: 'math', difficulty: 'medium', question: 'Sum of first 10 natural numbers is:', options: ['45', '50', '55', '60'], answer: 2, explanation: 'S = n(n+1)/2 = 10(11)/2 = 55.' },
+  { id: 13, subject: 'math', difficulty: 'medium', question: 'Equation of circle with centre (0,0) and radius 5:', options: ['x² + y² = 25', 'x² + y² = 5', 'x + y = 5', 'x² - y² = 25'], answer: 0, explanation: 'Standard form: x² + y² = r² = 25.' },
+  { id: 14, subject: 'math', difficulty: 'hard', question: 'If vectors a = (1,2,3) and b = (4,5,6), then a·b =', options: ['32', '21', '15', '10'], answer: 0, explanation: 'a·b = 1(4) + 2(5) + 3(6) = 4 + 10 + 18 = 32.' },
+  { id: 15, subject: 'math', difficulty: 'easy', question: '√144 equals:', options: ['11', '12', '13', '14'], answer: 1, explanation: '12 × 12 = 144, so √144 = 12.' },
+  { id: 16, subject: 'math', difficulty: 'medium', question: 'If f(x) = 2x + 3, then f(5) =', options: ['10', '13', '15', '8'], answer: 1, explanation: 'f(5) = 2(5) + 3 = 13.' },
+  { id: 17, subject: 'math', difficulty: 'hard', question: 'Mean of 2, 4, 6, 8, 10 is:', options: ['5', '6', '7', '8'], answer: 1, explanation: 'Mean = (2+4+6+8+10)/5 = 30/5 = 6.' },
+  { id: 18, subject: 'math', difficulty: 'medium', question: '(1 + i)² equals:', options: ['2i', '1 + 2i', '2', 'i'], answer: 0, explanation: '(1+i)² = 1 + 2i + i² = 1 + 2i - 1 = 2i.' },
+  { id: 19, subject: 'math', difficulty: 'easy', question: 'Slope of line y = 3x + 2 is:', options: ['2', '3', '5', '1/3'], answer: 1, explanation: 'In y = mx + c, slope m = 3.' },
+  { id: 20, subject: 'math', difficulty: 'medium', question: '7C₂ equals:', options: ['21', '42', '14', '35'], answer: 0, explanation: '7C₂ = 7!/(2!×5!) = (7×6)/2 = 21.' },
+  { id: 21, subject: 'math', difficulty: 'hard', question: 'Maximum value of f(x) = -x² + 4x + 1 occurs at x =', options: ['2', '-2', '4', '1'], answer: 0, explanation: 'For ax²+bx+c, max at x = -b/2a = -4/(2×-1) = 2.' },
+  { id: 22, subject: 'math', difficulty: 'easy', question: 'tan 45° equals:', options: ['0', '1', '√3', '1/√3'], answer: 1, explanation: 'tan 45° = 1.' },
+  { id: 23, subject: 'math', difficulty: 'medium', question: 'If A = [[1,2],[3,4]], then |A| =', options: ['-2', '2', '10', '-10'], answer: 0, explanation: '|A| = 1(4) - 2(3) = 4 - 6 = -2.' },
+  { id: 24, subject: 'math', difficulty: 'hard', question: 'Solution of dy/dx = 2x is:', options: ['x² + C', '2x² + C', 'x + C', '2 + C'], answer: 0, explanation: '∫2x dx = x² + C.' },
+  { id: 25, subject: 'math', difficulty: 'medium', question: '5th term of GP: 2, 6, 18, ... is:', options: ['54', '162', '108', '81'], answer: 1, explanation: 'r = 3, a₅ = 2 × 3⁴ = 2 × 81 = 162.' },
+
+  // English
+  { id: 26, subject: 'english', difficulty: 'easy', question: 'Choose the correct synonym of "Abundant":', options: ['Scarce', 'Plentiful', 'Rare', 'Limited'], answer: 1, explanation: 'Abundant means existing in large quantities; plentiful.' },
+  { id: 27, subject: 'english', difficulty: 'medium', question: 'Antonym of "Benevolent":', options: ['Kind', 'Generous', 'Malevolent', 'Charitable'], answer: 2, explanation: 'Benevolent = kind; Malevolent = wishing evil.' },
+  { id: 28, subject: 'english', difficulty: 'easy', question: 'Correct sentence:', options: ['He don\'t like tea', 'He doesn\'t likes tea', 'He doesn\'t like tea', 'He not like tea'], answer: 2, explanation: 'Third person singular: doesn\'t + base verb (like).' },
+  { id: 29, subject: 'english', difficulty: 'medium', question: 'Meaning of "A piece of cake":', options: ['A dessert', 'Very easy', 'Very difficult', 'A reward'], answer: 1, explanation: 'Idiom meaning something very easy to do.' },
+  { id: 30, subject: 'english', difficulty: 'hard', question: 'One word for "A person who loves mankind":', options: ['Misanthrope', 'Philanthropist', 'Optimist', 'Pessimist'], answer: 1, explanation: 'Philanthropist = lover of mankind; Misanthrope = hater of mankind.' },
+  { id: 31, subject: 'english', difficulty: 'easy', question: 'Past tense of "go" is:', options: ['goed', 'gone', 'went', 'going'], answer: 2, explanation: 'Irregular verb: go → went → gone.' },
+  { id: 32, subject: 'english', difficulty: 'medium', question: 'Synonym of "Ephemeral":', options: ['Permanent', 'Lasting', 'Transient', 'Eternal'], answer: 2, explanation: 'Ephemeral = lasting for a very short time; transient.' },
+  { id: 33, subject: 'english', difficulty: 'easy', question: 'Correct spelling:', options: ['Accomodation', 'Accommodation', 'Acommodation', 'Acomodation'], answer: 1, explanation: 'Accommodation has double c and double m.' },
+  { id: 34, subject: 'english', difficulty: 'medium', question: 'Antonym of "Verbose":', options: ['Wordy', 'Concise', 'Lengthy', 'Rambling'], answer: 1, explanation: 'Verbose = using too many words; Concise = brief.' },
+  { id: 35, subject: 'english', difficulty: 'hard', question: 'Meaning of "To beat around the bush":', options: ['To garden', 'To avoid the main topic', 'To be direct', 'To fight'], answer: 1, explanation: 'Idiom meaning to avoid talking directly about something.' },
+  { id: 36, subject: 'english', difficulty: 'easy', question: 'Plural of "child" is:', options: ['childs', 'childes', 'children', 'childrens'], answer: 2, explanation: 'Irregular plural: child → children.' },
+  { id: 37, subject: 'english', difficulty: 'medium', question: 'Synonym of "Diligent":', options: ['Lazy', 'Hardworking', 'Careless', 'Slow'], answer: 1, explanation: 'Diligent = showing care and effort; hardworking.' },
+  { id: 38, subject: 'english', difficulty: 'easy', question: 'Opposite of "Artificial":', options: ['Fake', 'Natural', 'Synthetic', 'Man-made'], answer: 1, explanation: 'Artificial = made by humans; Natural = occurring in nature.' },
+  { id: 39, subject: 'english', difficulty: 'hard', question: 'One word for "Fear of heights":', options: ['Claustrophobia', 'Acrophobia', 'Agoraphobia', 'Hydrophobia'], answer: 1, explanation: 'Acrophobia = fear of heights.' },
+  { id: 40, subject: 'english', difficulty: 'medium', question: 'Fill in: "She has been living here ___ 2010."', options: ['since', 'for', 'from', 'by'], answer: 0, explanation: '"Since" is used with a specific point in time (2010).' },
+
+  // Physics
+  { id: 41, subject: 'physics', difficulty: 'easy', question: 'SI unit of force is:', options: ['Joule', 'Newton', 'Watt', 'Pascal'], answer: 1, explanation: 'Force is measured in Newtons (N).' },
+  { id: 42, subject: 'physics', difficulty: 'medium', question: 'A body of mass 2 kg is accelerated at 3 m/s². Force applied is:', options: ['5 N', '6 N', '1.5 N', '9 N'], answer: 1, explanation: 'F = ma = 2 × 3 = 6 N.' },
+  { id: 43, subject: 'physics', difficulty: 'easy', question: 'Speed of light in vacuum is approximately:', options: ['3 × 10⁶ m/s', '3 × 10⁸ m/s', '3 × 10¹⁰ m/s', '3 × 10⁴ m/s'], answer: 1, explanation: 'Speed of light c ≈ 3 × 10⁸ m/s.' },
+  { id: 44, subject: 'physics', difficulty: 'medium', question: 'Ohm\'s Law states:', options: ['V = IR', 'P = VI', 'F = ma', 'E = mc²'], answer: 0, explanation: 'Ohm\'s Law: Voltage = Current × Resistance.' },
+  { id: 45, subject: 'physics', difficulty: 'hard', question: 'Kinetic energy of a 4 kg body moving at 3 m/s:', options: ['12 J', '18 J', '36 J', '6 J'], answer: 1, explanation: 'KE = ½mv² = ½ × 4 × 9 = 18 J.' },
+  { id: 46, subject: 'physics', difficulty: 'easy', question: 'Sound cannot travel through:', options: ['Air', 'Water', 'Steel', 'Vacuum'], answer: 3, explanation: 'Sound needs a medium; it cannot travel through vacuum.' },
+  { id: 47, subject: 'physics', difficulty: 'medium', question: 'A convex lens is also called:', options: ['Diverging lens', 'Converging lens', 'Plane lens', 'Bifocal lens'], answer: 1, explanation: 'Convex lens converges light rays; also called converging lens.' },
+  { id: 48, subject: 'physics', difficulty: 'easy', question: 'Unit of electric current is:', options: ['Volt', 'Ampere', 'Ohm', 'Coulomb'], answer: 1, explanation: 'Electric current is measured in Amperes (A).' },
+  { id: 49, subject: 'physics', difficulty: 'medium', question: 'Boiling point of water at sea level is:', options: ['90°C', '100°C', '110°C', '80°C'], answer: 1, explanation: 'Water boils at 100°C at standard atmospheric pressure.' },
+  { id: 50, subject: 'physics', difficulty: 'hard', question: 'Power consumed by a 100W bulb in 2 hours:', options: ['50 Wh', '100 Wh', '200 Wh', '0.2 kWh'], answer: 3, explanation: 'Energy = Power × Time = 100W × 2h = 200 Wh = 0.2 kWh.' },
+
+  // Chemistry
+  { id: 51, subject: 'chemistry', difficulty: 'easy', question: 'Chemical formula of water is:', options: ['H₂O', 'CO₂', 'NaCl', 'O₂'], answer: 0, explanation: 'Water = 2 Hydrogen atoms + 1 Oxygen atom = H₂O.' },
+  { id: 52, subject: 'chemistry', difficulty: 'medium', question: 'pH of a neutral solution is:', options: ['0', '7', '14', '1'], answer: 1, explanation: 'pH 7 is neutral; below 7 is acidic, above 7 is basic.' },
+  { id: 53, subject: 'chemistry', difficulty: 'easy', question: 'Most abundant gas in atmosphere is:', options: ['Oxygen', 'Carbon dioxide', 'Nitrogen', 'Hydrogen'], answer: 2, explanation: 'Nitrogen makes up ~78% of Earth\'s atmosphere.' },
+  { id: 54, subject: 'chemistry', difficulty: 'medium', question: 'Process of conversion of solid directly to gas:', options: ['Evaporation', 'Condensation', 'Sublimation', 'Fusion'], answer: 2, explanation: 'Sublimation: solid → gas without becoming liquid (e.g., dry ice).' },
+  { id: 55, subject: 'chemistry', difficulty: 'hard', question: 'Atomic number of Carbon is:', options: ['6', '12', '14', '8'], answer: 0, explanation: 'Carbon has 6 protons, so atomic number = 6.' },
+  { id: 56, subject: 'chemistry', difficulty: 'easy', question: 'Rusting of iron is an example of:', options: ['Physical change', 'Chemical change', 'Reversible change', 'Nuclear change'], answer: 1, explanation: 'Rusting forms new substance (iron oxide) — chemical change.' },
+  { id: 57, subject: 'chemistry', difficulty: 'medium', question: 'Main component of biogas is:', options: ['Carbon dioxide', 'Methane', 'Hydrogen', 'Nitrogen'], answer: 1, explanation: 'Biogas is primarily methane (CH₄).' },
+  { id: 58, subject: 'chemistry', difficulty: 'easy', question: 'Symbol of Gold is:', options: ['Go', 'Gd', 'Au', 'Ag'], answer: 2, explanation: 'Gold = Aurum, symbol Au. Ag is Silver.' },
+
+  // History
+  { id: 59, subject: 'history', difficulty: 'easy', question: 'Who is known as the Father of the Nation in India?', options: ['Jawaharlal Nehru', 'Mahatma Gandhi', 'Subhash Chandra Bose', 'Bhagat Singh'], answer: 1, explanation: 'Mahatma Gandhi led India\'s freedom movement.' },
+  { id: 60, subject: 'history', difficulty: 'medium', question: 'Jallianwala Bagh massacre took place in:', options: ['1917', '1919', '1921', '1930'], answer: 1, explanation: 'Jallianwala Bagh massacre occurred on April 13, 1919.' },
+  { id: 61, subject: 'history', difficulty: 'easy', question: 'India got independence on:', options: ['15 August 1945', '15 August 1947', '26 January 1950', '26 January 1947'], answer: 1, explanation: 'India became independent on 15 August 1947.' },
+  { id: 62, subject: 'history', difficulty: 'medium', question: 'The Battle of Plassey was fought in:', options: ['1757', '1764', '1857', '1947'], answer: 0, explanation: 'Battle of Plassey (1757) established British rule in Bengal.' },
+  { id: 63, subject: 'history', difficulty: 'hard', question: 'Who wrote "Discovery of India"?', options: ['Gandhi', 'Nehru', 'Tagore', 'Ambedkar'], answer: 1, explanation: 'Jawaharlal Nehru wrote "The Discovery of India" in 1944.' },
+  { id: 64, subject: 'history', difficulty: 'medium', question: 'Non-Cooperation Movement was launched in:', options: ['1919', '1920', '1922', '1930'], answer: 1, explanation: 'Gandhi launched Non-Cooperation Movement in 1920.' },
+  { id: 65, subject: 'history', difficulty: 'easy', question: 'Constitution of India was adopted on:', options: ['15 Aug 1947', '26 Jan 1950', '26 Nov 1949', 'Both B and C'], answer: 3, explanation: 'Adopted 26 Nov 1949, came into effect 26 Jan 1950.' },
+
+  // Geography
+  { id: 66, subject: 'geography', difficulty: 'easy', question: 'Longest river in India is:', options: ['Yamuna', 'Ganga', 'Godavari', 'Narmada'], answer: 1, explanation: 'Ganga is the longest river in India.' },
+  { id: 67, subject: 'geography', difficulty: 'medium', question: 'Tropic of Cancer passes through how many Indian states?', options: ['6', '7', '8', '9'], answer: 2, explanation: 'Tropic of Cancer passes through 8 Indian states.' },
+  { id: 68, subject: 'geography', difficulty: 'easy', question: 'Capital of India is:', options: ['Mumbai', 'Kolkata', 'New Delhi', 'Chennai'], answer: 2, explanation: 'New Delhi is the capital of India.' },
+  { id: 69, subject: 'geography', difficulty: 'medium', question: 'Highest peak in India is:', options: ['K2', 'Kanchenjunga', 'Nanda Devi', 'Mount Everest'], answer: 1, explanation: 'Kanchenjunga (8,586 m) is the highest peak entirely in India.' },
+  { id: 70, subject: 'geography', difficulty: 'hard', question: 'Which state has the longest coastline in India?', options: ['Tamil Nadu', 'Maharashtra', 'Gujarat', 'Andhra Pradesh'], answer: 2, explanation: 'Gujarat has the longest coastline (~1,600 km).' },
+  { id: 71, subject: 'geography', difficulty: 'easy', question: 'Largest desert in India is:', options: ['Rann of Kutch', 'Thar Desert', 'Ladakh Desert', 'Cold Desert'], answer: 1, explanation: 'Thar Desert is the largest desert in India.' },
+
+  // Polity & Current Affairs
+  { id: 72, subject: 'polity', difficulty: 'easy', question: 'How many fundamental rights are in the Indian Constitution?', options: ['5', '6', '7', '8'], answer: 1, explanation: 'Originally 7, now 6 fundamental rights (Right to Property removed).' },
+  { id: 73, subject: 'polity', difficulty: 'medium', question: 'President of India is elected for a term of:', options: ['4 years', '5 years', '6 years', '7 years'], answer: 1, explanation: 'President serves a 5-year term.' },
+  { id: 74, subject: 'polity', difficulty: 'easy', question: 'Lok Sabha can have maximum ___ members:', options: ['530', '545', '552', '560'], answer: 2, explanation: 'Maximum strength of Lok Sabha is 552 (530 states + 20 UTs + 2 Anglo-Indian).' },
+  { id: 75, subject: 'polity', difficulty: 'medium', question: 'Who is the head of the Indian State?', options: ['Prime Minister', 'President', 'Chief Justice', 'Speaker'], answer: 1, explanation: 'President is the constitutional head of the Indian State.' },
+  { id: 76, subject: 'polity', difficulty: 'hard', question: 'Article 370 was related to:', options: ['Kerala', 'Jammu & Kashmir', 'Nagaland', 'Punjab'], answer: 1, explanation: 'Article 370 gave special status to Jammu & Kashmir (abrogated in 2019).' },
+  { id: 77, subject: 'polity', difficulty: 'easy', question: 'National emblem of India is adopted from:', options: ['Sarnath Lion Capital', 'Ashoka Pillar Delhi', 'Red Fort', 'Qutub Minar'], answer: 0, explanation: 'National emblem adapted from Sarnath Lion Capital of Ashoka.' },
+
+  // More Math for variety
+  { id: 78, subject: 'math', difficulty: 'medium', question: 'If sin θ = 3/5, then cos θ =', options: ['4/5', '3/4', '5/4', '5/3'], answer: 0, explanation: 'cos²θ = 1 - sin²θ = 1 - 9/25 = 16/25, cos θ = 4/5.' },
+  { id: 79, subject: 'math', difficulty: 'easy', question: '2³ × 2⁴ =', options: ['2⁷', '2¹²', '4⁷', '2¹'], answer: 0, explanation: 'aᵐ × aⁿ = aᵐ⁺ⁿ. So 2³ × 2⁴ = 2⁷.' },
+  { id: 80, subject: 'math', difficulty: 'hard', question: 'Standard deviation of 2, 4, 4, 4, 5, 5, 7, 9 (mean=5) is approximately:', options: ['2', '2.5', '3', '1.5'], answer: 0, explanation: 'Variance = 32/8 = 4, SD = √4 = 2.' },
+
+  // More English
+  { id: 81, subject: 'english', difficulty: 'medium', question: 'Synonym of "Meticulous":', options: ['Careless', 'Careful', 'Quick', 'Lazy'], answer: 1, explanation: 'Meticulous = showing great attention to detail; careful.' },
+  { id: 82, subject: 'english', difficulty: 'easy', question: 'Choose correct article: "___ honest man"', options: ['A', 'An', 'The', 'No article'], answer: 1, explanation: '"Honest" starts with vowel sound, so "an" is used.' },
+
+  // More Physics
+  { id: 83, subject: 'physics', difficulty: 'medium', question: 'Which mirror is used in vehicles as rear-view mirror?', options: ['Plane', 'Concave', 'Convex', 'Parabolic'], answer: 2, explanation: 'Convex mirrors give wider field of view — used as rear-view mirrors.' },
+  { id: 84, subject: 'physics', difficulty: 'easy', question: 'Gravitational force on moon is ___ that on earth:', options: ['Same', '1/6th', '6 times', '1/3rd'], answer: 1, explanation: 'Moon\'s gravity is about 1/6th of Earth\'s gravity.' },
+
+  // More Chemistry
+  { id: 85, subject: 'chemistry', difficulty: 'medium', question: 'Which gas is used in fire extinguishers?', options: ['Oxygen', 'Nitrogen', 'CO₂', 'Hydrogen'], answer: 2, explanation: 'CO₂ displaces oxygen and smothers fire.' },
+
+  // More History
+  { id: 86, subject: 'history', difficulty: 'medium', question: 'Quit India Movement was launched in:', options: ['1940', '1942', '1945', '1947'], answer: 1, explanation: 'Quit India Movement (Bharat Chhodo Andolan) started in August 1942.' },
+
+  // More Geography
+  { id: 87, subject: 'geography', difficulty: 'medium', question: 'Which is the smallest state of India by area?', options: ['Sikkim', 'Goa', 'Tripura', 'Nagaland'], answer: 1, explanation: 'Goa is the smallest state by area.' },
+
+  // More Polity
+  { id: 88, subject: 'polity', difficulty: 'medium', question: 'Minimum age to become PM of India:', options: ['21', '25', '30', '35'], answer: 1, explanation: 'Must be 25 years to be a member of Lok Sabha, hence eligible for PM.' },
+
+  // Additional questions for larger mock tests
+  { id: 89, subject: 'math', difficulty: 'easy', question: 'HCF of 12 and 18 is:', options: ['3', '6', '36', '2'], answer: 1, explanation: 'HCF(12, 18) = 6.' },
+  { id: 90, subject: 'math', difficulty: 'medium', question: 'LCM of 4 and 6 is:', options: ['12', '24', '2', '10'], answer: 0, explanation: 'LCM(4, 6) = 12.' },
+  { id: 91, subject: 'english', difficulty: 'hard', question: 'Antonym of "Pragmatic":', options: ['Practical', 'Realistic', 'Idealistic', 'Sensible'], answer: 2, explanation: 'Pragmatic = practical; Idealistic = pursuing ideals over practicality.' },
+  { id: 92, subject: 'physics', difficulty: 'hard', question: 'Frequency of AC supply in India is:', options: ['50 Hz', '60 Hz', '100 Hz', '220 Hz'], answer: 0, explanation: 'India uses 50 Hz AC supply.' },
+  { id: 93, subject: 'chemistry', difficulty: 'hard', question: 'Hardest natural substance is:', options: ['Gold', 'Iron', 'Diamond', 'Platinum'], answer: 2, explanation: 'Diamond is the hardest natural substance (allotrope of carbon).' },
+  { id: 94, subject: 'history', difficulty: 'hard', question: 'First war of Indian Independence is also called:', options: ['Green Revolution', 'Sepoy Mutiny', 'Salt March', 'Civil Disobedience'], answer: 1, explanation: '1857 revolt is also called Sepoy Mutiny or First War of Independence.' },
+  { id: 95, subject: 'geography', difficulty: 'hard', question: 'India shares longest land border with:', options: ['China', 'Pakistan', 'Bangladesh', 'Nepal'], answer: 2, explanation: 'India shares its longest land border with Bangladesh (~4,096 km).' },
+  { id: 96, subject: 'polity', difficulty: 'hard', question: 'Directive Principles are in which part of Constitution?', options: ['Part III', 'Part IV', 'Part V', 'Part II'], answer: 1, explanation: 'Directive Principles of State Policy are in Part IV (Articles 36-51).' },
+  { id: 97, subject: 'math', difficulty: 'hard', question: 'If cot θ = 12/5, then sin θ =', options: ['5/13', '12/13', '5/12', '13/5'], answer: 0, explanation: 'cot θ = 12/5, so adjacent=12, opposite=5, hypotenuse=13, sin θ = 5/13.' },
+  { id: 98, subject: 'english', difficulty: 'medium', question: 'Meaning of "Break the ice":', options: ['To freeze', 'To start a conversation', 'To end a relationship', 'To cool down'], answer: 1, explanation: 'To break the ice = to initiate social interaction.' },
+  { id: 99, subject: 'physics', difficulty: 'medium', question: 'Unit of power is:', options: ['Joule', 'Newton', 'Watt', 'Pascal'], answer: 2, explanation: 'Power is measured in Watts (W).' },
+  { id: 100, subject: 'chemistry', difficulty: 'easy', question: 'Gas used by plants for photosynthesis:', options: ['Oxygen', 'Nitrogen', 'Carbon dioxide', 'Hydrogen'], answer: 2, explanation: 'Plants use CO₂ for photosynthesis and release O₂.' }
+];
+
+function getQuestionsByFilter(subject, difficulty, count) {
+  let filtered = [...QUESTIONS];
+  if (subject && subject !== 'all') {
+    filtered = filtered.filter(q => q.subject === subject);
+  }
+  if (difficulty && difficulty !== 'all') {
+    filtered = filtered.filter(q => q.difficulty === difficulty);
+  }
+  filtered = shuffleArray(filtered);
+  return filtered.slice(0, Math.min(count, filtered.length));
+}
+
+function getMockQuestions(type) {
+  const configs = {
+    'math': { subjects: ['math'], count: 120 },
+    'math-mini': { subjects: ['math'], count: 30 },
+    'gat': { subjects: ['english', 'physics', 'chemistry', 'history', 'geography', 'polity'], count: 150 },
+    'gat-mini': { subjects: ['english', 'physics', 'chemistry', 'history', 'geography', 'polity'], count: 30 },
+    'combined': { subjects: ['math', 'english', 'physics', 'chemistry', 'history', 'geography', 'polity'], count: 30 }
+  };
+  const config = configs[type];
+  if (!config) return [];
+
+  let pool = QUESTIONS.filter(q => config.subjects.includes(q.subject));
+  pool = shuffleArray(pool);
+
+  const result = [];
+  const perSubject = Math.ceil(config.count / config.subjects.length);
+
+  for (const sub of config.subjects) {
+    const subQs = pool.filter(q => q.subject === sub);
+    const needed = type === 'combined' ? (sub === 'math' ? 15 : Math.ceil(15 / 6)) : perSubject;
+    for (let i = 0; i < needed && result.length < config.count; i++) {
+      result.push(subQs[i % subQs.length] || pool[result.length % pool.length]);
+    }
+  }
+
+  while (result.length < config.count) {
+    result.push(pool[result.length % pool.length]);
+  }
+
+  return shuffleArray(result.slice(0, config.count));
+}
+
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getMockDuration(type) {
+  const durations = {
+    'math': 150 * 60,
+    'math-mini': 40 * 60,
+    'gat': 150 * 60,
+    'gat-mini': 30 * 60,
+    'combined': 45 * 60
+  };
+  return durations[type] || 3600;
+}
+
+function getMockMarks(type) {
+  const marks = {
+    'math': { correct: 2.5, wrong: -0.83 },
+    'math-mini': { correct: 2.5, wrong: -0.83 },
+    'gat': { correct: 4, wrong: -1.33 },
+    'gat-mini': { correct: 4, wrong: -1.33 },
+    'combined': { correct: 3, wrong: -1 }
+  };
+  return marks[type] || { correct: 2, wrong: -0.67 };
+}
+
+  </script>
+  <script>
+const App = {
+  state: {
+    practice: { questions: [], current: 0, answers: {}, score: 0, finished: false },
+    mock: { questions: [], current: 0, answers: {}, review: new Set(), type: '', timer: null, timeLeft: 0, finished: false }
+  },
+
+  init() {
+    this.loadProgress();
+    this.bindNavigation();
+    this.bindPractice();
+    this.bindMock();
+    this.renderDashboard();
+    this.renderSyllabus();
+    this.renderFormulas();
+    this.renderTips();
+    this.renderStudyPlan();
+    this.renderProgress();
+    this.setupMobileMenu();
+    this.updateStreak();
+  },
+
+  loadProgress() {
+    try {
+      const saved = localStorage.getItem('ndaPrepProgress');
+      this.progress = saved ? JSON.parse(saved) : {
+        solved: 0, correct: 0, mocks: [], activity: [],
+        subjects: {}, weakAreas: {}
+      };
+    } catch {
+      this.progress = { solved: 0, correct: 0, mocks: [], activity: [], subjects: {}, weakAreas: {} };
+    }
+  },
+
+  saveProgress() {
+    localStorage.setItem('ndaPrepProgress', JSON.stringify(this.progress));
+    this.updateDashboardStats();
+  },
+
+  navigate(section) {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelector(`[data-section="${section}"]`)?.classList.add('active');
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById(section)?.classList.add('active');
+    document.getElementById('sidebar')?.classList.remove('open');
+    if (section === 'progress') this.renderProgress();
+  },
+
+  bindNavigation() {
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.addEventListener('click', () => this.navigate(btn.dataset.section));
+    });
+    document.getElementById('generatePlan')?.addEventListener('click', () => this.renderStudyPlan());
+    document.getElementById('formulaSearch')?.addEventListener('input', (e) => this.renderFormulas(e.target.value));
+    document.getElementById('resetProgress')?.addEventListener('click', () => this.confirmReset());
+  },
+
+  setupMobileMenu() {
+    document.getElementById('menuToggle')?.addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('open');
+    });
+  },
+
+  renderDashboard() {
+    this.updateDashboardStats();
+    this.renderCountdown();
+    this.renderDailyFocus();
+  },
+
+  updateDashboardStats() {
+    const acc = this.progress.solved > 0
+      ? Math.round((this.progress.correct / this.progress.solved) * 100) : 0;
+    document.getElementById('statSolved').textContent = this.progress.solved;
+    document.getElementById('statAccuracy').textContent = acc + '%';
+    document.getElementById('statMocks').textContent = this.progress.mocks.length;
+    document.getElementById('statStreak').textContent = (this.progress.streak || 0) + ' days';
+  },
+
+  renderCountdown() {
+    const examDates = [
+      new Date('2026-04-20'), new Date('2026-09-14'),
+      new Date('2027-04-18'), new Date('2027-09-05')
+    ];
+    const now = new Date();
+    const next = examDates.find(d => d > now) || examDates[examDates.length - 1];
+    const diff = Math.ceil((next - now) / (1000 * 60 * 60 * 24));
+    document.getElementById('examCountdown').innerHTML = `
+      <div class="countdown-label">Next NDA Exam</div>
+      <div class="countdown-value">${diff} Days Left</div>
+    `;
+  },
+
+  renderDailyFocus() {
+    const day = new Date().getDay();
+    const focus = DAILY_FOCUS[day % DAILY_FOCUS.length];
+    document.getElementById('dailyFocus').innerHTML = DAILY_FOCUS.map(f => `
+      <div class="daily-focus-item">
+        <strong>${f.subject}:</strong> ${f.task}
+      </div>
+    `).join('');
+  },
+
+  renderSyllabus() {
+    const container = document.getElementById('syllabusContent');
+    let html = '';
+    for (const [key, data] of Object.entries(SYLLABUS)) {
+      for (const topic of data.topics) {
+        html += `
+          <div class="syllabus-topic">
+            <div class="syllabus-topic-header" onclick="this.parentElement.classList.toggle('open')">
+              <span>${data.icon} ${topic.name}</span>
+              <span>▼</span>
+            </div>
+            <div class="syllabus-topic-body">
+              <ul>${topic.items.map(i => `<li>${i}</li>`).join('')}</ul>
+            </div>
+          </div>
+        `;
+      }
+    }
+    container.innerHTML = html;
+  },
+
+  renderStudyPlan() {
+    const days = document.getElementById('planDuration').value;
+    const plan = STUDY_PLAN_TEMPLATE[days];
+    const container = document.getElementById('studyPlanContent');
+    container.innerHTML = plan.map(week => `
+      <div class="plan-week">
+        <h4>${week.week} — ${week.focus}</h4>
+        ${week.days.map((d, i) => `
+          <div class="plan-day">
+            <span class="day-label">Day ${i + 1}</span>
+            <span>${d}</span>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+  },
+
+  renderFormulas(search = '') {
+    const container = document.getElementById('formulasContent');
+    const filtered = FORMULAS.filter(f =>
+      !search || f.name.toLowerCase().includes(search.toLowerCase()) ||
+      f.category.toLowerCase().includes(search.toLowerCase()) ||
+      f.formula.toLowerCase().includes(search.toLowerCase())
+    );
+    container.innerHTML = filtered.map(f => `
+      <div class="formula-card">
+        <h4>${f.category} — ${f.name}</h4>
+        <div class="formula">${f.formula}</div>
+        <p>${f.note}</p>
+      </div>
+    `).join('');
+  },
+
+  renderTips() {
+    document.getElementById('tipsContent').innerHTML = TIPS.map((t, i) => `
+      <div class="tip-card">
+        <span class="tip-number">${i + 1}</span>
+        <h4>${t.title}</h4>
+        <p>${t.text}</p>
+      </div>
+    `).join('');
+  },
+
+  // Practice Mode
+  bindPractice() {
+    document.getElementById('startPractice')?.addEventListener('click', () => this.startPractice());
+    document.getElementById('practiceNext')?.addEventListener('click', () => this.practiceNext());
+    document.getElementById('practicePrev')?.addEventListener('click', () => this.practicePrev());
+    document.getElementById('practiceFinish')?.addEventListener('click', () => this.finishPractice());
+  },
+
+  startPractice() {
+    const subject = document.getElementById('practiceSubject').value;
+    const difficulty = document.getElementById('practiceDifficulty').value;
+    const count = parseInt(document.getElementById('practiceCount').value);
+    const questions = getQuestionsByFilter(subject, difficulty, count);
+
+    if (questions.length === 0) {
+      alert('No questions found for this filter. Try different options.');
+      return;
+    }
+
+    this.state.practice = { questions, current: 0, answers: {}, score: 0, finished: false };
+    document.getElementById('practiceSetup').classList.add('hidden');
+    document.getElementById('practiceQuiz').classList.remove('hidden');
+    document.getElementById('practiceResult').classList.add('hidden');
+    this.renderPracticeQuestion();
+  },
+
+  renderPracticeQuestion() {
+    const { questions, current, answers } = this.state.practice;
+    const q = questions[current];
+    const total = questions.length;
+    const answered = answers[current];
+
+    document.getElementById('practiceCounter').textContent = `${current + 1} / ${total}`;
+    document.getElementById('practiceProgress').style.width = `${((current + 1) / total) * 100}%`;
+    document.getElementById('practiceSubjectBadge').textContent = SUBJECT_LABELS[q.subject] || q.subject;
+    document.getElementById('practiceScore').textContent = this.state.practice.score;
+
+    const labels = ['A', 'B', 'C', 'D'];
+    let optionsHtml = q.options.map((opt, i) => {
+      let cls = 'option-btn';
+      if (answered !== undefined) {
+        if (i === q.answer) cls += ' correct';
+        else if (i === answered && i !== q.answer) cls += ' wrong';
+        else if (i === answered) cls += ' selected';
+      } else if (answers[current] === i) {
+        cls += ' selected';
+      }
+      return `<button class="${cls}" data-idx="${i}" ${answered !== undefined ? 'disabled' : ''}>
+        <span class="option-label">${labels[i]}</span><span>${opt}</span>
+      </button>`;
+    }).join('');
+
+    let explanation = '';
+    if (answered !== undefined) {
+      explanation = `<div class="explanation"><strong>Explanation:</strong> ${q.explanation}</div>`;
+    }
+
+    document.getElementById('practiceQuestionCard').innerHTML = `
+      <div class="question-text">Q${current + 1}. ${q.question}</div>
+      <div class="options-list">${optionsHtml}</div>
+      ${explanation}
+    `;
+
+    document.querySelectorAll('#practiceQuestionCard .option-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.selectPracticeAnswer(parseInt(btn.dataset.idx)));
+    });
+
+    document.getElementById('practicePrev').disabled = current === 0;
+    document.getElementById('practiceNext').classList.toggle('hidden', current === total - 1);
+    document.getElementById('practiceFinish').classList.toggle('hidden', current !== total - 1);
+  },
+
+  selectPracticeAnswer(idx) {
+    const { current, answers, questions } = this.state.practice;
+    if (answers[current] !== undefined) return;
+
+    answers[current] = idx;
+    const q = questions[current];
+    if (idx === q.answer) this.state.practice.score++;
+
+    this.progress.solved++;
+    if (idx === q.answer) this.progress.correct++;
+    this.progress.subjects[q.subject] = this.progress.subjects[q.subject] || { total: 0, correct: 0 };
+    this.progress.subjects[q.subject].total++;
+    if (idx === q.answer) this.progress.subjects[q.subject].correct++;
+    else {
+      this.progress.weakAreas[q.subject] = (this.progress.weakAreas[q.subject] || 0) + 1;
+    }
+    this.progress.activity.unshift({
+      type: 'practice', subject: q.subject,
+      correct: idx === q.answer, date: new Date().toISOString()
+    });
+    if (this.progress.activity.length > 20) this.progress.activity.pop();
+    this.saveProgress();
+    this.renderPracticeQuestion();
+  },
+
+  practiceNext() {
+    if (this.state.practice.current < this.state.practice.questions.length - 1) {
+      this.state.practice.current++;
+      this.renderPracticeQuestion();
+    }
+  },
+
+  practicePrev() {
+    if (this.state.practice.current > 0) {
+      this.state.practice.current--;
+      this.renderPracticeQuestion();
+    }
+  },
+
+  finishPractice() {
+    const { questions, answers, score } = this.state.practice;
+    const attempted = Object.keys(answers).length;
+    const correct = score;
+    const wrong = attempted - correct;
+    const skipped = questions.length - attempted;
+
+    document.getElementById('practiceQuiz').classList.add('hidden');
+    const resultEl = document.getElementById('practiceResult');
+    resultEl.classList.remove('hidden');
+    resultEl.innerHTML = `
+      <h3>Practice Complete!</h3>
+      <div class="result-score">${Math.round((correct / questions.length) * 100)}%</div>
+      <div class="result-details">
+        <div class="result-stat"><div class="val">${correct}</div><div class="lbl">Correct</div></div>
+        <div class="result-stat"><div class="val">${wrong}</div><div class="lbl">Wrong</div></div>
+        <div class="result-stat"><div class="val">${skipped}</div><div class="lbl">Skipped</div></div>
+        <div class="result-stat"><div class="val">${questions.length}</div><div class="lbl">Total</div></div>
+      </div>
+      <button class="btn btn-primary" onclick="App.resetPractice()">Practice Again</button>
+      <button class="btn btn-outline" onclick="App.navigate('progress')">View Progress</button>
+    `;
+  },
+
+  resetPractice() {
+    document.getElementById('practiceSetup').classList.remove('hidden');
+    document.getElementById('practiceQuiz').classList.add('hidden');
+    document.getElementById('practiceResult').classList.add('hidden');
+  },
+
+  // Mock Test
+  bindMock() {
+    document.querySelectorAll('.start-mock').forEach(btn => {
+      btn.addEventListener('click', () => this.startMock(btn.dataset.type));
+    });
+    document.getElementById('mockNext')?.addEventListener('click', () => this.mockNext());
+    document.getElementById('mockPrev')?.addEventListener('click', () => this.mockPrev());
+    document.getElementById('mockMarkReview')?.addEventListener('click', () => this.toggleReview());
+    document.getElementById('mockSubmit')?.addEventListener('click', () => this.confirmSubmitMock());
+  },
+
+  startMock(type) {
+    const questions = getMockQuestions(type);
+    const duration = getMockDuration(type);
+
+    this.state.mock = {
+      questions, current: 0, answers: {}, review: new Set(),
+      type, timer: null, timeLeft: duration, finished: false
+    };
+
+    document.getElementById('mockSelection').classList.add('hidden');
+    document.getElementById('mockQuiz').classList.remove('hidden');
+    document.getElementById('mockResult').classList.add('hidden');
+
+    const labels = { 'math': 'Math Mock', 'math-mini': 'Math Mini', 'gat': 'GAT Mock', 'gat-mini': 'GAT Mini', 'combined': 'Combined Mock' };
+    document.getElementById('mockTypeBadge').textContent = labels[type] || 'Mock Test';
+
+    this.renderMockPalette();
+    this.renderMockQuestion();
+    this.startMockTimer();
+  },
+
+  startMockTimer() {
+    if (this.state.mock.timer) clearInterval(this.state.mock.timer);
+    this.updateTimerDisplay();
+    this.state.mock.timer = setInterval(() => {
+      this.state.mock.timeLeft--;
+      this.updateTimerDisplay();
+      if (this.state.mock.timeLeft <= 0) {
+        clearInterval(this.state.mock.timer);
+        this.submitMock();
+      }
+    }, 1000);
+  },
+
+  updateTimerDisplay() {
+    const t = this.state.mock.timeLeft;
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = t % 60;
+    const el = document.getElementById('mockTimer');
+    el.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    el.classList.toggle('warning', t < 300);
+  },
+
+  renderMockPalette() {
+    const { questions, current, answers, review } = this.state.mock;
+    document.getElementById('questionPalette').innerHTML = questions.map((_, i) => {
+      let cls = 'palette-btn';
+      if (i === current) cls += ' current';
+      if (answers[i] !== undefined) cls += ' answered';
+      if (review.has(i)) cls += ' review';
+      return `<button class="${cls}" onclick="App.goToMockQuestion(${i})">${i + 1}</button>`;
+    }).join('');
+  },
+
+  goToMockQuestion(idx) {
+    this.saveMockAnswer();
+    this.state.mock.current = idx;
+    this.renderMockQuestion();
+    this.renderMockPalette();
+  },
+
+  renderMockQuestion() {
+    const { questions, current, answers } = this.state.mock;
+    const q = questions[current];
+    const labels = ['A', 'B', 'C', 'D'];
+
+    document.getElementById('mockCounter').textContent = `${current + 1} / ${questions.length}`;
+    document.getElementById('mockQuestionCard').innerHTML = `
+      <div class="question-text">Q${current + 1}. ${q.question}</div>
+      <div class="options-list">
+        ${q.options.map((opt, i) => `
+          <button class="option-btn ${answers[current] === i ? 'selected' : ''}" data-idx="${i}">
+            <span class="option-label">${labels[i]}</span><span>${opt}</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    document.querySelectorAll('#mockQuestionCard .option-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#mockQuestionCard .option-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        this.state.mock.answers[current] = parseInt(btn.dataset.idx);
+        this.renderMockPalette();
+      });
+    });
+  },
+
+  saveMockAnswer() {
+    const selected = document.querySelector('#mockQuestionCard .option-btn.selected');
+    if (selected) {
+      this.state.mock.answers[this.state.mock.current] = parseInt(selected.dataset.idx);
+    }
+  },
+
+  mockNext() {
+    this.saveMockAnswer();
+    if (this.state.mock.current < this.state.mock.questions.length - 1) {
+      this.state.mock.current++;
+      this.renderMockQuestion();
+      this.renderMockPalette();
+    }
+  },
+
+  mockPrev() {
+    this.saveMockAnswer();
+    if (this.state.mock.current > 0) {
+      this.state.mock.current--;
+      this.renderMockQuestion();
+      this.renderMockPalette();
+    }
+  },
+
+  toggleReview() {
+    const idx = this.state.mock.current;
+    if (this.state.mock.review.has(idx)) this.state.mock.review.delete(idx);
+    else this.state.mock.review.add(idx);
+    this.renderMockPalette();
+  },
+
+  confirmSubmitMock() {
+    this.showModal('Submit Test?', 'Are you sure you want to submit? You cannot change answers after submission.', () => this.submitMock());
+  },
+
+  submitMock() {
+    if (this.state.mock.timer) clearInterval(this.state.mock.timer);
+    this.saveMockAnswer();
+
+    const { questions, answers, type } = this.state.mock;
+    const marks = getMockMarks(type);
+    let correct = 0, wrong = 0, skipped = 0, totalMarks = 0;
+
+    questions.forEach((q, i) => {
+      if (answers[i] === undefined) { skipped++; return; }
+      if (answers[i] === q.answer) { correct++; totalMarks += marks.correct; }
+      else { wrong++; totalMarks += marks.wrong; }
+    });
+
+    const maxMarks = questions.length * marks.correct;
+    this.progress.mocks.unshift({
+      type, correct, wrong, skipped, totalMarks: Math.round(totalMarks * 100) / 100,
+      maxMarks, date: new Date().toISOString()
+    });
+    this.progress.solved += correct + wrong;
+    this.progress.correct += correct;
+    this.saveProgress();
+
+    document.getElementById('mockQuiz').classList.add('hidden');
+    const resultEl = document.getElementById('mockResult');
+    resultEl.classList.remove('hidden');
+    resultEl.innerHTML = `
+      <h3>Mock Test Result</h3>
+      <div class="result-score">${Math.round(totalMarks)}/${maxMarks}</div>
+      <div class="result-details">
+        <div class="result-stat"><div class="val">${correct}</div><div class="lbl">Correct</div></div>
+        <div class="result-stat"><div class="val">${wrong}</div><div class="lbl">Wrong</div></div>
+        <div class="result-stat"><div class="val">${skipped}</div><div class="lbl">Skipped</div></div>
+        <div class="result-stat"><div class="val">${Math.round((correct / questions.length) * 100)}%</div><div class="lbl">Accuracy</div></div>
+      </div>
+      <p style="color:var(--text-muted);margin:16px 0">Negative marking applied: +${marks.correct} correct, ${marks.wrong} wrong</p>
+      <button class="btn btn-primary" onclick="App.resetMock()">Take Another Mock</button>
+      <button class="btn btn-outline" onclick="App.navigate('progress')">View Progress</button>
+    `;
+  },
+
+  resetMock() {
+    document.getElementById('mockSelection').classList.remove('hidden');
+    document.getElementById('mockQuiz').classList.add('hidden');
+    document.getElementById('mockResult').classList.add('hidden');
+  },
+
+  // Progress
+  renderProgress() {
+    this.renderSubjectChart();
+    this.renderActivity();
+    this.renderMockHistory();
+    this.renderWeakAreas();
+  },
+
+  renderSubjectChart() {
+    const container = document.getElementById('subjectChart');
+    const subjects = this.progress.subjects;
+    if (Object.keys(subjects).length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted)">Start practicing to see your performance!</p>';
+      return;
+    }
+    container.innerHTML = Object.entries(subjects).map(([sub, data]) => {
+      const pct = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+      return `<div class="subject-bar">
+        <span class="label">${SUBJECT_LABELS[sub] || sub}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <span class="pct">${pct}%</span>
+      </div>`;
+    }).join('');
+  },
+
+  renderActivity() {
+    const container = document.getElementById('recentActivity');
+    if (!this.progress.activity.length) {
+      container.innerHTML = '<p style="color:var(--text-muted)">No activity yet. Start practicing!</p>';
+      return;
+    }
+    container.innerHTML = this.progress.activity.slice(0, 10).map(a => {
+      const date = new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      return `<div class="activity-item">
+        <span>${a.type === 'practice' ? '✏️' : '📝'} ${SUBJECT_LABELS[a.subject] || a.subject}</span>
+        <span style="color:${a.correct ? 'var(--success)' : 'var(--danger)'}">${a.correct ? '✓ Correct' : '✗ Wrong'} · ${date}</span>
+      </div>`;
+    }).join('');
+  },
+
+  renderMockHistory() {
+    const container = document.getElementById('mockHistory');
+    if (!this.progress.mocks.length) {
+      container.innerHTML = '<p style="color:var(--text-muted)">No mock tests taken yet.</p>';
+      return;
+    }
+    container.innerHTML = this.progress.mocks.slice(0, 5).map(m => {
+      const date = new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return `<div class="history-item">
+        <span>${m.type} Mock</span>
+        <span style="color:var(--accent)">${m.totalMarks}/${m.maxMarks} · ${date}</span>
+      </div>`;
+    }).join('');
+  },
+
+  renderWeakAreas() {
+    const container = document.getElementById('weakAreas');
+    const weak = Object.entries(this.progress.weakAreas || {}).sort((a, b) => b[1] - a[1]);
+    if (!weak.length) {
+      container.innerHTML = '<p style="color:var(--text-muted)">No weak areas identified yet. Keep practicing!</p>';
+      return;
+    }
+    container.innerHTML = weak.slice(0, 5).map(([sub, count]) =>
+      `<span class="weak-tag">${SUBJECT_LABELS[sub] || sub} (${count} wrong)</span>`
+    ).join('');
+  },
+
+  updateStreak() {
+    const today = new Date().toDateString();
+    const last = this.progress.lastVisit;
+    if (last === today) return;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (last === yesterday.toDateString()) {
+      this.progress.streak = (this.progress.streak || 0) + 1;
+    } else if (last !== today) {
+      this.progress.streak = 1;
+    }
+    this.progress.lastVisit = today;
+    this.saveProgress();
+  },
+
+  showModal(title, message, onConfirm) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMessage').textContent = message;
+    document.getElementById('confirmModal').classList.remove('hidden');
+    const confirm = document.getElementById('modalConfirm');
+    const cancel = document.getElementById('modalCancel');
+    const handler = () => {
+      document.getElementById('confirmModal').classList.add('hidden');
+      confirm.removeEventListener('click', handler);
+      onConfirm();
+    };
+    confirm.onclick = handler;
+    cancel.onclick = () => document.getElementById('confirmModal').classList.add('hidden');
+  },
+
+  confirmReset() {
+    this.showModal('Reset Progress?', 'This will delete all your practice data, mock test history, and streak. This cannot be undone.', () => {
+      localStorage.removeItem('ndaPrepProgress');
+      this.progress = { solved: 0, correct: 0, mocks: [], activity: [], subjects: {}, weakAreas: {} };
+      this.renderProgress();
+      this.updateDashboardStats();
+    });
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => App.init());
+
+  </script>
+</body>
+</html>
