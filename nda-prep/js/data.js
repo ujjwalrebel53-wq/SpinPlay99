@@ -210,18 +210,18 @@ const SYLLABUS = {
 };
 
 const TIPS = [
-  { title: 'Understand Negative Marking', text: 'NDA me har galat answer par 1/3 marks katte hain. Agar sure nahi ho to question skip karo. Guess kam karo — accuracy > attempts.' },
-  { title: 'Time Management — Math', text: '120 questions, 150 minutes = ~75 seconds per question. Pehle easy questions solve karo, phir medium, last me hard questions attempt karo.' },
-  { title: 'Time Management — GAT', text: '150 questions, 150 minutes. English aur GK dono ko balance rakho. Comprehension passages ko end me mat chhodo.' },
-  { title: 'NCERT is King', text: 'Math ke liye Class 11-12 NCERT, Science ke liye Class 9-10 NCERT padho. NDA ke 70%+ questions NCERT level ke hote hain.' },
-  { title: 'Daily Current Affairs', text: 'Roz 30 minute news padho — The Hindu, Indian Express ya any reliable source. Last 6 months ke important events yaad rakho.' },
-  { title: 'English Vocabulary', text: 'Roz 10 naye words + 5 idioms yaad karo. Previous year papers se vocabulary questions repeat hote hain.' },
-  { title: 'Mock Tests are Essential', text: 'Har hafte kam se kam 2 mock tests do. Real exam environment me practice karo — timer lagao, OMR sheet simulate karo.' },
-  { title: 'Previous Year Papers', text: 'Last 10 years ke NDA papers solve karo. Pattern samajhne ke liye ye sabse best hai.' },
-  { title: 'Physical Fitness Matters', text: 'Written exam ke baad SSB interview aur medical test hai. Roz running, push-ups aur exercise karo — body bhi fit honi chahiye.' },
-  { title: 'Revision Strategy', text: 'Har Sunday ko poora week revise karo. Formula sheet aur short notes banao — exam se pehle ye lifesavers hain.' },
-  { title: 'Stay Consistent', text: 'Roz 6-8 ghante padhai karo. Consistency > intensity. Ek din 12 ghante padh kar 3 din kuch na karna — ye kaam nahi karega.' },
-  { title: 'SSB Preparation Parallel', text: 'Written exam ke saath SSB ki preparation bhi shuru karo — OIR test, PPDT, lecturette practice karo.' }
+  { title: 'Understand Negative Marking', text: 'In the NDA exam, one-third of the marks allotted to a question are deducted for each wrong answer. If you are not sure, skip the question. Minimize guessing — accuracy matters more than attempts.' },
+  { title: 'Time Management — Math', text: '120 questions in 150 minutes gives roughly 75 seconds per question. Solve easy questions first, then medium, and attempt hard questions last.' },
+  { title: 'Time Management — GAT', text: '150 questions in 150 minutes. Balance English and General Knowledge evenly. Do not leave comprehension passages for the end.' },
+  { title: 'NCERT is Essential', text: 'For Mathematics, study NCERT Class 11–12. For Science, study NCERT Class 9–10. More than 70% of NDA questions are at NCERT level.' },
+  { title: 'Daily Current Affairs', text: 'Read the news for 30 minutes every day from reliable sources such as The Hindu or Indian Express. Remember important events from the last 6 months.' },
+  { title: 'English Vocabulary', text: 'Learn 10 new words and 5 idioms daily. Vocabulary questions from previous year papers often repeat.' },
+  { title: 'Mock Tests are Essential', text: 'Take at least 2 mock tests every week. Practice in real exam conditions — use a timer and simulate OMR sheet filling.' },
+  { title: 'Previous Year Papers', text: 'Solve NDA papers from the last 10 years. This is the best way to understand the exam pattern.' },
+  { title: 'Physical Fitness Matters', text: 'After the written exam comes the SSB interview and medical test. Run, do push-ups, and exercise daily — physical fitness is equally important.' },
+  { title: 'Revision Strategy', text: 'Revise the entire week every Sunday. Prepare formula sheets and short notes — they are lifesavers before the exam.' },
+  { title: 'Stay Consistent', text: 'Study 6–8 hours daily. Consistency beats intensity. Studying 12 hours in one day and nothing for the next three days does not work.' },
+  { title: 'SSB Preparation in Parallel', text: 'Start SSB preparation alongside the written exam — practice OIR tests, PPDT, and lecturette topics.' }
 ];
 
 const STUDY_PLAN_TEMPLATE = {
@@ -237,7 +237,7 @@ const STUDY_PLAN_TEMPLATE = {
     { week: 'Week 4-6', focus: 'Building Phase', days: ['Math: Trigonometry + Coordinate Geometry', 'English: Comprehension + Sentence improvement', 'Physics: Heat, Light, Sound, Waves', 'Chemistry: Chemical reactions + Acids/Bases', 'History: Modern India + Freedom struggle', 'Geography: Indian physical + climate', 'Mini mock test'] },
     { week: 'Week 7-9', focus: 'Advanced Phase', days: ['Math: Calculus + Matrices + Vectors', 'English: Advanced vocabulary + Idioms', 'Physics: Electricity + Magnetism + Modern physics', 'Chemistry: Organic + Carbon + Fertilizers', 'Polity: Constitution + Panchayati Raj', 'Current Affairs: Monthly review', 'Subject-wise mock tests'] },
     { week: 'Week 10-11', focus: 'Practice Phase', days: ['Math: Previous 5 years papers', 'GAT: Previous 5 years papers', 'Weak areas intensive practice', 'Daily current affairs', 'Formula sheet revision', 'Full mock — Math (120 Q)', 'Full mock — GAT (150 Q)'] },
-    { week: 'Week 12-13', focus: 'Final Phase', days: ['Combined full mock tests (2)', 'Quick revision of all formulas', 'English vocabulary final review', 'Current affairs last 6 months', 'Light practice — confidence building', 'Rest, sleep well, stay calm', 'EXAM DAY — Jai Hind!'] }
+    { week: 'Week 12-13', focus: 'Final Phase', days: ['Combined full mock tests (2)', 'Quick revision of all formulas', 'English vocabulary final review', 'Current affairs last 6 months', 'Light practice — confidence building', 'Rest, sleep well, stay calm', 'EXAM DAY — Good luck!'] }
   ],
   120: [
     { week: 'Week 1-4', focus: 'Basics Mastery', days: ['Math: Algebra complete', 'English: Grammar + 200 words', 'Physics: Mechanics complete', 'Chemistry: Fundamentals', 'History: Ancient India', 'Geography: Physical geography', 'Weekly test + revision'] },

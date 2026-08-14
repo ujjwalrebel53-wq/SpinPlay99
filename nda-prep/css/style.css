@@ -14,7 +14,7 @@
   --border: #1e293b;
   --radius: 12px;
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --font: 'Inter', 'Noto Sans Devanagari', system-ui, sans-serif;
+  --font: 'Inter', system-ui, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
