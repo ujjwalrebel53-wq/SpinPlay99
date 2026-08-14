@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NDA Prep Academy — Exam Preparation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚔️</div>
+        <div>
+          <h1>NDA Prep</h1>
+          <p>Academy</p>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-section="dashboard">
+          <span class="nav-icon">🏠</span> Dashboard
+        </button>
+        <button class="nav-item" data-section="syllabus">
+          <span class="nav-icon">📋</span> Syllabus
+        </button>
+        <button class="nav-item" data-section="study-plan">
+          <span class="nav-icon">📅</span> Study Plan
+        </button>
+        <button class="nav-item" data-section="practice">
+          <span class="nav-icon">✏️</span> Practice
+        </button>
+        <button class="nav-item" data-section="mock-test">
+          <span class="nav-icon">⏱️</span> Mock Test
+        </button>
+        <button class="nav-item" data-section="formulas">
+          <span class="nav-icon">📐</span> Formulas A-Z
+        </button>
+        <button class="nav-item" data-section="tricks">
+          <span class="nav-icon">⚡</span> Tricks & Shortcuts
+        </button>
+        <button class="nav-item" data-section="gk-facts">
+          <span class="nav-icon">🧠</span> GK Facts
+        </button>
+        <button class="nav-item" data-section="vocabulary">
+          <span class="nav-icon">📖</span> Vocabulary
+        </button>
+        <button class="nav-item" data-section="tips">
+          <span class="nav-icon">💡</span> Exam Strategy
+        </button>
+        <button class="nav-item" data-section="progress">
+          <span class="nav-icon">📊</span> Progress
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <p>Best of luck, future officer! 🇮🇳</p>
+      </div>
+    </aside>
+
+    <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+
+    <main class="main">
+      <!-- Dashboard -->
+      <section class="section active" id="dashboard">
+        <header class="page-header">
+          <div>
+            <h2>Welcome to NDA Prep Academy</h2>
+            <p class="subtitle">UPSC NDA/NA Written Exam — Complete Preparation Hub</p>
+          </div>
+          <div class="exam-countdown" id="examCountdown"></div>
+        </header>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Questions Solved</span>
+            <span class="stat-value" id="statSolved">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Accuracy</span>
+            <span class="stat-value" id="statAccuracy">0%</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Mock Tests Done</span>
+            <span class="stat-value" id="statMocks">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Study Streak</span>
+            <span class="stat-value" id="statStreak">0 days</span>
+          </div>
+        </div>
+
+        <div class="card-grid">
+          <div class="card highlight-card">
+            <h3>🎯 Exam Pattern (NDA I & II)</h3>
+            <table class="pattern-table">
+              <thead>
+                <tr><th>Paper</th><th>Subject</th><th>Questions</th><th>Marks</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Paper I</td><td>Mathematics</td><td>120</td><td>300</td><td>2.5 hrs</td></tr>
+                <tr><td>Paper II</td><td>GAT (English + GK)</td><td>150</td><td>600</td><td>2.5 hrs</td></tr>
+              </tbody>
+            </table>
+            <p class="note">Negative marking: <strong>⅓</strong> marks deducted per wrong answer</p>
+          </div>
+
+          <div class="card">
+            <h3>🚀 Quick Start</h3>
+            <div class="quick-actions">
+              <button class="btn btn-primary" onclick="App.navigate('practice')">Start Practice</button>
+              <button class="btn btn-secondary" onclick="App.navigate('mock-test')">Take Mock Test</button>
+              <button class="btn btn-outline" onclick="App.navigate('formulas')">Formulas A-Z (150+)</button>
+              <button class="btn btn-outline" onclick="App.navigate('tricks')">Tricks & Shortcuts (100+)</button>
+              <button class="btn btn-outline" onclick="App.navigate('study-plan')">View Study Plan</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>📌 Today's Focus</h3>
+            <div id="dailyFocus"></div>
+          </div>
+
+          <div class="card">
+            <h3>✅ Eligibility Reminder</h3>
+            <ul class="checklist">
+              <li>Age: 16.5 to 19.5 years (as per notification)</li>
+              <li>Education: 10+2 or appearing (Army/Navy/Air Force)</li>
+              <li>Nationality: Indian citizen / subject of Nepal/Bhutan</li>
+              <li>Physical standards as per UPSC notification</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Syllabus -->
+      <section class="section" id="syllabus">
+        <header class="page-header">
+          <h2>Complete Syllabus</h2>
+          <p class="subtitle">UPSC NDA Written Exam — Mathematics & GAT</p>
+        </header>
+        <div id="syllabusContent" class="syllabus-grid"></div>
+      </section>
+
+      <!-- Study Plan -->
+      <section class="section" id="study-plan">
+        <header class="page-header">
+          <h2>90-Day Study Plan</h2>
+          <p class="subtitle">Structured preparation roadmap for NDA success</p>
+        </header>
+        <div class="plan-controls">
+          <label>Plan duration:
+            <select id="planDuration">
+              <option value="60">60 Days (Intensive)</option>
+              <option value="90" selected>90 Days (Recommended)</option>
+              <option value="120">120 Days (Relaxed)</option>
+            </select>
+          </label>
+          <button class="btn btn-primary" id="generatePlan">Generate My Plan</button>
+        </div>
+        <div id="studyPlanContent" class="study-plan-timeline"></div>
+      </section>
+
+      <!-- Practice -->
+      <section class="section" id="practice">
+        <header class="page-header">
+          <h2>Practice Questions</h2>
+          <p class="subtitle">Topic-wise MCQs with instant explanations</p>
+        </header>
+        <div class="practice-setup" id="practiceSetup">
+          <div class="filter-row">
+            <div class="filter-group">
+              <label>Subject</label>
+              <select id="practiceSubject">
+                <option value="all">All Subjects</option>
+                <option value="math">Mathematics</option>
+                <option value="english">English</option>
+                <option value="physics">Physics</option>
+                <option value="chemistry">Chemistry</option>
+                <option value="history">History</option>
+                <option value="geography">Geography</option>
+                <option value="polity">Polity & Current Affairs</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Difficulty</label>
+              <select id="practiceDifficulty">
+                <option value="all">All Levels</option>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Questions</label>
+              <select id="practiceCount">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="30">30</option>
+                <option value="50">50</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="startPractice">Start Practice</button>
+          </div>
+        </div>
+        <div class="quiz-container hidden" id="practiceQuiz">
+          <div class="quiz-header">
+            <div class="quiz-progress">
+              <div class="progress-bar"><div class="progress-fill" id="practiceProgress"></div></div>
+              <span id="practiceCounter">1 / 20</span>
+            </div>
+            <div class="quiz-meta">
+              <span class="badge" id="practiceSubjectBadge">Math</span>
+              <span class="badge badge-score">Score: <span id="practiceScore">0</span></span>
+            </div>
+          </div>
+          <div class="question-card" id="practiceQuestionCard"></div>
+          <div class="quiz-actions">
+            <button class="btn btn-outline" id="practicePrev" disabled>Previous</button>
+            <button class="btn btn-primary" id="practiceNext">Next</button>
+            <button class="btn btn-success hidden" id="practiceFinish">Finish</button>
+          </div>
+        </div>
+        <div class="result-container hidden" id="practiceResult"></div>
+      </section>
+
+      <!-- Mock Test -->
+      <section class="section" id="mock-test">
+        <header class="page-header">
+          <h2>Mock Tests</h2>
+          <p class="subtitle">Timed tests simulating real NDA exam conditions</p>
+        </header>
+        <div class="mock-selection" id="mockSelection">
+          <div class="mock-cards">
+            <div class="mock-card" data-mock="math">
+              <div class="mock-icon">🔢</div>
+              <h3>Mathematics Mock</h3>
+              <p>120 Questions · 150 Minutes · 300 Marks</p>
+              <button class="btn btn-primary start-mock" data-type="math">Start Full Mock</button>
+              <button class="btn btn-outline start-mock" data-type="math-mini">Mini (30 Q · 40 min)</button>
+            </div>
+            <div class="mock-card" data-mock="gat">
+              <div class="mock-icon">📚</div>
+              <h3>GAT Mock</h3>
+              <p>150 Questions · 150 Minutes · 600 Marks</p>
+              <button class="btn btn-primary start-mock" data-type="gat">Start Full Mock</button>
+              <button class="btn btn-outline start-mock" data-type="gat-mini">Mini (30 Q · 30 min)</button>
+            </div>
+            <div class="mock-card" data-mock="full">
+              <div class="mock-icon">🏆</div>
+              <h3>Combined Mini</h3>
+              <p>Math 15 + GAT 15 · 45 Minutes</p>
+              <button class="btn btn-primary start-mock" data-type="combined">Start Combined</button>
+            </div>
+          </div>
+        </div>
+        <div class="quiz-container hidden" id="mockQuiz">
+          <div class="quiz-header mock-header">
+            <div class="timer" id="mockTimer">02:30:00</div>
+            <div class="quiz-meta">
+              <span class="badge" id="mockTypeBadge">Math Mock</span>
+              <span id="mockCounter">1 / 120</span>
+            </div>
+          </div>
+          <div class="question-palette" id="questionPalette"></div>
+          <div class="question-card" id="mockQuestionCard"></div>
+          <div class="quiz-actions">
+            <button class="btn btn-outline" id="mockPrev">Previous</button>
+            <button class="btn btn-outline" id="mockMarkReview">Mark for Review</button>
+            <button class="btn btn-primary" id="mockNext">Save & Next</button>
+            <button class="btn btn-danger" id="mockSubmit">Submit Test</button>
+          </div>
+        </div>
+        <div class="result-container hidden" id="mockResult"></div>
+      </section>
+
+      <!-- Formulas -->
+      <section class="section" id="formulas">
+        <header class="page-header">
+          <h2>Formulas A to Z</h2>
+          <p class="subtitle" id="formulaCount">Complete formula bank for NDA — Math, Physics, Chemistry & Biology</p>
+        </header>
+        <div class="filter-bar">
+          <input type="search" id="formulaSearch" placeholder="Search formulas...">
+          <div class="category-tabs" id="formulaTabs"></div>
+        </div>
+        <div id="formulasContent" class="formulas-grid"></div>
+      </section>
+
+      <!-- Tricks & Shortcuts -->
+      <section class="section" id="tricks">
+        <header class="page-header">
+          <h2>Tricks & Shortcuts</h2>
+          <p class="subtitle" id="trickCount">Exam tricks, mnemonics, and speed-solving hacks</p>
+        </header>
+        <div class="filter-bar">
+          <input type="search" id="trickSearch" placeholder="Search tricks...">
+          <div class="category-tabs" id="trickTabs"></div>
+        </div>
+        <div id="tricksContent" class="tricks-grid"></div>
+      </section>
+
+      <!-- GK Facts -->
+      <section class="section" id="gk-facts">
+        <header class="page-header">
+          <h2>GK Quick Facts</h2>
+          <p class="subtitle">Important facts for General Knowledge section</p>
+        </header>
+        <div id="gkFactsContent" class="gk-grid"></div>
+      </section>
+
+      <!-- Vocabulary -->
+      <section class="section" id="vocabulary">
+        <header class="page-header">
+          <h2>Vocabulary & Idioms</h2>
+          <p class="subtitle">Essential words and idioms for English section</p>
+        </header>
+        <div class="vocab-tabs">
+          <button class="tab-btn active" data-vocab="words">Words A-Z</button>
+          <button class="tab-btn" data-vocab="idioms">Idioms & Phrases</button>
+        </div>
+        <div class="filter-bar">
+          <input type="search" id="vocabSearch" placeholder="Search words or idioms...">
+        </div>
+        <div id="vocabularyContent" class="vocab-grid"></div>
+      </section>
+
+      <!-- Tips -->
+      <section class="section" id="tips">
+        <header class="page-header">
+          <h2>Tips & Exam Strategy</h2>
+          <p class="subtitle">Proven strategies to maximize your NDA score</p>
+        </header>
+        <div id="tipsContent" class="tips-grid"></div>
+      </section>
+
+      <!-- Progress -->
+      <section class="section" id="progress">
+        <header class="page-header">
+          <h2>Your Progress</h2>
+          <p class="subtitle">Track your preparation journey</p>
+        </header>
+        <div class="progress-dashboard">
+          <div class="card">
+            <h3>Subject-wise Performance</h3>
+            <div id="subjectChart" class="subject-chart"></div>
+          </div>
+          <div class="card">
+            <h3>Recent Activity</h3>
+            <div id="recentActivity" class="activity-list"></div>
+          </div>
+          <div class="card">
+            <h3>Mock Test History</h3>
+            <div id="mockHistory" class="mock-history"></div>
+          </div>
+          <div class="card">
+            <h3>Weak Areas</h3>
+            <div id="weakAreas" class="weak-areas"></div>
+            <button class="btn btn-outline btn-sm" id="resetProgress">Reset All Progress</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="confirmModal">
+    <div class="modal-content">
+      <h3 id="modalTitle">Confirm</h3>
+      <p id="modalMessage"></p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="modalCancel">Cancel</button>
+        <button class="btn btn-primary" id="modalConfirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/formulas.js"></script>
+  <script src="js/tricks.js"></script>
+  <script src="js/questions.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
