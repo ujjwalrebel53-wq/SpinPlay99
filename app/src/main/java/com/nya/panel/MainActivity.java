@@ -153,10 +153,8 @@ public class MainActivity extends AppCompatActivity {
     private void injectBootConfig() {
         String server = RebelPanelPaths.panelServerUrl(this).replace("'", "\\'");
         String js = "(function(){window.REBEL_NATIVE_APP=true;window.NYA_APK=true;"
-                + "document.body.classList.add('nya-strict-apk');"
                 + "window.PANEL_SERVER_URL='" + server + "';"
-                + "if(typeof nyaGetPanelServer==='function')nyaGetPanelServer();"
-                + "if(typeof bindApkUiGestures==='function')bindApkUiGestures();})();";
+                + "if(typeof nyaGetPanelServer==='function')nyaGetPanelServer();})();";
         webView.evaluateJavascript(js, null);
     }
 

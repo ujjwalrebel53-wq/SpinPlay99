@@ -94,9 +94,7 @@ function nyaNativeFetch(path, opts) {
 })();
 
 document.addEventListener('DOMContentLoaded', function () {
-  document.body.classList.add('nya-strict-apk');
   document.querySelectorAll('.apk-dl-card, .apk-dl-btn, a[download]').forEach(function (el) {
     el.style.display = 'none';
   });
-  if (typeof bindApkUiGestures === 'function') bindApkUiGestures();
 });
