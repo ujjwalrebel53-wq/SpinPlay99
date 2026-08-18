@@ -1,0 +1,9 @@
+local.properties
+*.iml
+.gradle/
+app/build/
+app/.cxx/
+build/
+.idea/
+*.apk
+!rebel-panel/nya-panel-v1.0.0-release.apk

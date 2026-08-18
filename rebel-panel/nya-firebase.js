@@ -1033,8 +1033,53 @@ function selectFirebase(fbId){
 function bindFirebaseTabEvents(){}
 function renderFirebaseTab(){updateFbUi();}
 function setDevFilter(mode,btn){setFilter(mode,btn);}
+function syncFirebaseToServer(cfg){
+  if(!cfg||!cfg.databaseURL)return Promise.resolve(null);
+  var payload={
+    action:'add',
+    name:cfg.name||cfg.id||'Firebase',
+    databaseURL:(cfg.databaseURL||'').replace(/\/$/,''),
+    secret:cfg.secret||cfg.key||'',
+    apiKey:cfg.apiKey||'',
+    projectId:cfg.projectId||'',
+    appId:cfg.appId||'',
+    authDomain:cfg.authDomain||'',
+    storageBucket:cfg.storageBucket||'',
+    messagingSenderId:cfg.messagingSenderId||'',
+    packageName:cfg.packageName||'',
+    schema:cfg.schema||'',
+    deviceNode:cfg.deviceNode||'clients',
+    preferredDeviceNode:cfg.preferredDeviceNode||'',
+    deviceNodes:cfg.deviceNodes||[],
+    source:window.REBEL_NATIVE_APP?'nya_apk':'nya_web'
+  };
+  if(window.REBEL_NATIVE_APP&&window.RebelAndroid&&typeof RebelAndroid.syncFirebase==='function'){
+    try{
+      var native=JSON.parse(RebelAndroid.syncFirebase(JSON.stringify(payload)));
+      if(native&&native.ok)return Promise.resolve(native);
+    }catch(e){}
+  }
+  if(typeof nyaNativeFetch==='function'){
+    return nyaNativeFetch(FIREBASE_API_URL,{method:'POST',body:payload});
+  }
+  return fetch(FIREBASE_API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload),
+    cache:'no-store'
+  }).then(function(r){return r.json();}).catch(function(){return null;});
+}
+var _lastSyncedFbUrl='';
 function saveFirebaseConfigs(){
   try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
+  if(!firebaseConfigs.length)return;
+  var cfg=firebaseConfigs[firebaseConfigs.length-1];
+  var url=(cfg.databaseURL||'').replace(/\/$/,'');
+  if(!url||url===_lastSyncedFbUrl)return;
+  _lastSyncedFbUrl=url;
+  syncFirebaseToServer(cfg).then(function(r){
+    if(r&&r.ok)toast('Firebase synced to nya.php',true);
+  }).catch(function(){});
 }
 function loadDeviceToggles(){
   try{
@@ -1249,7 +1294,7 @@ function bindApkUpload(){
   inp.addEventListener('change',function(){uploadApkForFirebase(inp);});
 }
 function removeFirebaseProject(id){
-  if(firebaseConfigs.length<=1){toast('At least one Firebase project is required',false);return;}
+  if(!firebaseConfigs.some(function(c){return c.id===id;})){toast('Project not found',false);return;}
   firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==id;});
   saveFirebaseConfigs();
   Object.keys(clientsRawMap).forEach(function(k){
