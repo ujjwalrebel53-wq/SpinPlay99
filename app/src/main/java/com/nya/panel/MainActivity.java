@@ -45,6 +45,11 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(0xFFadcf9f);
+            getWindow().setNavigationBarColor(0xFF546b4d);
+        }
+
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
         swipeRefresh = findViewById(R.id.swipe_refresh);
@@ -67,7 +72,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setSupportZoom(false);
+        settings.setTextZoom(100);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             settings.setAllowFileAccessFromFileURLs(true);
         }
@@ -146,8 +153,10 @@ public class MainActivity extends AppCompatActivity {
     private void injectBootConfig() {
         String server = RebelPanelPaths.panelServerUrl(this).replace("'", "\\'");
         String js = "(function(){window.REBEL_NATIVE_APP=true;window.NYA_APK=true;"
+                + "document.body.classList.add('nya-strict-apk');"
                 + "window.PANEL_SERVER_URL='" + server + "';"
-                + "if(typeof nyaGetPanelServer==='function')nyaGetPanelServer();})();";
+                + "if(typeof nyaGetPanelServer==='function')nyaGetPanelServer();"
+                + "if(typeof bindApkUiGestures==='function')bindApkUiGestures();})();";
         webView.evaluateJavascript(js, null);
     }
 

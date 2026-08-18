@@ -60,7 +60,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
 <meta name="theme-color" content="#adcf9f"/>
 <title>BrM — Nya Panel</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -72,32 +72,35 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
   --muted:#454545;--hint:#888;--detail:#ac0000;
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{height:auto;min-height:100%;-webkit-text-size-adjust:100%}
-body{
-  min-height:100%;width:100%;position:relative;
-  font-family:sans-serif;background:var(--main);color:var(--black);
-  overflow-x:hidden;overflow-y:scroll;
-  -webkit-overflow-scrolling:touch;
-  touch-action:pan-y;
-}
-.page{display:none;width:100%;min-height:0;padding-bottom:max(24px,env(safe-area-inset-bottom))}
-.page.active{display:block}
-.hdr-block{background:var(--main);padding:12px 0 8px;position:sticky;top:0;z-index:30;box-shadow:0 2px 0 rgba(0,0,0,.06)}
+html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);color:var(--black);overflow:hidden;-webkit-text-size-adjust:100%}
+.hidden{display:none!important}
+.app{height:100%;width:100%;position:relative;overflow:hidden;background:var(--main)}
+.page{display:none;height:100%;width:100%;flex-direction:column;overflow:hidden;background:var(--main)}
+.page.active{display:flex}
+.page.sub-screen{background:#fff}
+.page.sub-screen .list-wrap{background:var(--main)}
+.hdr-block{background:var(--main);padding:12px 0 0;flex-shrink:0;position:relative}
+.page.sub-screen .hdr-block{min-height:180px}
 .hdr-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px;gap:8px}
+.hdr-spacer{width:40px;flex-shrink:0}
 .hdr-title{font-size:20px;font-weight:800;text-align:center;flex:1}
 .hdr-title.big{font-size:25px;text-align:left;padding-left:16px}
-.icon-btn{background:none;border:none;min-width:40px;min-height:40px;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center;touch-action:manipulation}
+.icon-btn{background:none;border:none;width:40px;height:40px;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center;touch-action:manipulation;flex-shrink:0}
 .upi-line{font-size:20px;font-weight:800;padding:0 16px 8px}
 .btn-row{display:flex;gap:8px;padding:8px;margin:0 8px}
-.btn-row .nya-btn{flex:1;min-height:44px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation}
+.btn-row .nya-btn{flex:1;height:44px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .btn-row .nya-btn.wide{font-size:14px}
-.search-row{display:flex;align-items:center;padding:0 16px 12px;gap:8px}
-.search-box{flex:1;min-height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
+.btn-row .nya-btn.active{outline:3px solid var(--black);outline-offset:2px}
+.search-row{display:flex;align-items:center;padding:0 16px 16px;gap:8px}
+.search-box{flex:1;height:45px;border-radius:20px;border:1px solid var(--card);background:var(--card);padding:0 14px;font-size:16px;color:var(--black);outline:none}
 .search-box::placeholder{color:var(--hint)}
-.list-wrap{width:100%;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+.list-wrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:12px}
+.apk-extra-btn{display:none}
+body:not(.nya-strict-apk) .apk-extra-btn{display:flex}
+.nya-strict-apk .device-extra-btn{display:none!important}
 
 .dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
-.dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px}
+.dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px;position:relative}
 .dev-count{font-size:15px;font-weight:800;grid-column:1;grid-row:1;margin-top:8px}
 .dev-like{width:60px;height:60px;grid-column:1;grid-row:2;display:flex;align-items:center;justify-content:center;font-size:36px;touch-action:manipulation}
 .dev-like.liked{color:#e91e63}
@@ -105,14 +108,14 @@ body{
 .dev-status{grid-column:3;grid-row:1;font-size:20px;font-weight:800;text-shadow:1px 1px 2px rgba(0,0,0,.3)}
 .dev-status.offline{color:var(--offline)}.dev-status.online{color:var(--online)}
 .dev-del{grid-column:3;grid-row:2;font-size:24px;padding:4px;touch-action:manipulation}
-.dev-pin{grid-column:1/3;grid-row:3;font-size:18px;font-weight:800;color:var(--pin)}
+.dev-pin{grid-column:1/3;grid-row:3;font-size:18px;font-weight:800;color:var(--pin);text-shadow:1px 1px 2px rgba(0,0,0,.2)}
 .dev-check{grid-column:3;grid-row:3;font-size:14px;font-weight:800;color:var(--pin);display:flex;align-items:center;gap:4px}
 .dev-check input{width:18px;height:18px;accent-color:var(--pin)}
 .dev-time{grid-column:2/4;grid-row:4;font-size:12px;font-weight:700;color:var(--muted);text-align:right}
 
 .empty{padding:40px 20px;text-align:center;font-weight:700;color:var(--muted)}
-.loading-overlay{position:fixed;inset:0;background:#80ffffff;display:none;align-items:center;justify-content:center;z-index:100;pointer-events:none}
-.loading-overlay.show{display:flex;pointer-events:none}
+.loading-overlay{position:fixed;inset:0;background:#80ffffff;display:none;align-items:center;justify-content:center;z-index:100}
+.loading-overlay.show{display:flex}
 .spinner{width:60px;height:60px;border-radius:50%;border:4px solid rgba(84,107,77,.25);border-top-color:var(--black);animation:apkSpin .55s linear infinite}
 @keyframes apkSpin{to{transform:rotate(360deg)}}
 
@@ -150,7 +153,7 @@ body{
 .sheet .nya-btn{width:100%;margin-top:8px;min-height:44px;background:var(--black);color:var(--main);border-radius:10px;border:1px solid var(--black);font-weight:700}
 
 /* Device detail — activity_main2 */
-.detail-hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--main);position:sticky;top:0;z-index:31}
+.detail-hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--main);flex-shrink:0;min-height:60px}
 .detail-hdr .back{font-size:28px;background:none;border:none;cursor:pointer;padding:4px}
 .detail-hdr .title{flex:1;font-size:24px;font-weight:800;text-align:center}
 .detail-hdr .status{font-size:20px;font-weight:800}
@@ -190,19 +193,22 @@ body{
 .token-btn-row .nya-btn.active{background:var(--online);color:#fff;border-color:var(--online)}
 .token-device-info{margin:0 4px 12px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:14px;font-weight:700;line-height:1.45}
 .token-device-info small{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:4px}
-.sheet.device-setup{max-height:88vh}
+#view-device .detail-line,#view-device .detail-body-wrap,#view-device .detail-paste-row,#view-device .detail-actions,#view-device .sim-row,#view-device .search-row{flex-shrink:0}
 </style>
 </head>
 <body>
+
+<div class="app">
 
 <!-- HOME activity_main -->
 <div id="view-home" class="page active">
   <div class="hdr-block">
     <div class="hdr-row">
-      <span style="width:40px"></span>
+      <span class="hdr-spacer"></span>
       <div class="hdr-title" id="totalClients">Total Clients:-</div>
-      <button type="button" class="icon-btn" onclick="openAutoTokenSheet()" title="Auto Token">⚡</button>
-      <button type="button" class="icon-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
+      <button type="button" class="icon-btn apk-extra-btn" onclick="openAutoTokenSheet()" title="Auto Token">⚡</button>
+      <button type="button" class="icon-btn apk-extra-btn" onclick="openFbSheet()" title="Firebase">🔥</button>
+      <button type="button" class="icon-btn" id="homeRefreshBtn" onclick="refreshData()" title="Refresh">🔄</button>
     </div>
     <div class="btn-row">
       <button type="button" class="nya-btn" onclick="showPage('liked')">Liked ❤️</button>
@@ -211,7 +217,7 @@ body{
     </div>
     <div class="search-row">
       <input class="search-box" id="searchHome" placeholder="Search clients..." oninput="renderDevices()"/>
-      <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
+      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
     </div>
     <div class="btn-row">
       <button type="button" class="nya-btn wide" onclick="showPage('money')">Money 💰</button>
@@ -223,7 +229,7 @@ body{
 </div>
 
 <!-- ONLINE online.xml -->
-<div id="view-online" class="page">
+<div id="view-online" class="page sub-screen">
   <div class="hdr-block">
     <div class="hdr-row">
       <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
@@ -240,7 +246,7 @@ body{
 </div>
 
 <!-- ONLY PIN onlypin.xml -->
-<div id="view-onlypin" class="page">
+<div id="view-onlypin" class="page sub-screen">
   <div class="hdr-block">
     <div class="hdr-row">
       <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
@@ -257,7 +263,7 @@ body{
 </div>
 
 <!-- LIKED liked.xml -->
-<div id="view-liked" class="page">
+<div id="view-liked" class="page sub-screen">
   <div class="hdr-block">
     <div class="hdr-row">
       <span style="font-size:36px;padding-left:8px">❤️</span>
@@ -276,7 +282,7 @@ body{
 </div>
 
 <!-- LOGIN logged.xml -->
-<div id="view-login" class="page">
+<div id="view-login" class="page sub-screen">
   <div class="hdr-block">
     <div class="hdr-row">
       <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
@@ -293,7 +299,7 @@ body{
 </div>
 
 <!-- MONEY money.xml -->
-<div id="view-money" class="page">
+<div id="view-money" class="page sub-screen">
   <div class="hdr-block">
     <div class="hdr-row">
       <button type="button" class="nya-btn wide" style="width:120px" onclick="showPage('home')">Home 🏡</button>
@@ -341,7 +347,7 @@ body{
   <div class="sim-row">
     <button type="button" class="nya-btn" onclick="sendDeviceSms(1)">Sim1</button>
     <button type="button" class="nya-btn" onclick="sendDeviceSms(2)">Sim2</button>
-    <button type="button" class="nya-btn" onclick="setupAutoTokenFromDevice()">⚡ Auto Token</button>
+    <button type="button" class="nya-btn device-extra-btn" onclick="setupAutoTokenFromDevice()">⚡ Auto Token</button>
   </div>
   <div class="search-row">
     <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
@@ -350,7 +356,9 @@ body{
   <div class="list-wrap" id="devListDeviceSms"></div>
 </div>
 
-<div class="loading-overlay" id="loading" style="display:none!important" aria-hidden="true"><div class="spinner"></div></div>
+</div>
+
+<div class="loading-overlay" id="loading" aria-hidden="true"><div class="spinner"></div></div>
 <div class="toast-wrap" id="toasts"></div>
 
 <div class="sheet-bg" id="sheetBg" onclick="closeFbSheet()"></div>

@@ -553,6 +553,11 @@ function getAllListEls(){
   return ['devList','devListOnline','devListPin','devListLiked','devListLogin','devListMoney','devListDeviceSms'].map(function(id){return document.getElementById(id);}).filter(Boolean);
 }
 function setText(id,txt){var el=document.getElementById(id);if(el)el.textContent=txt;}
+function scrollActiveListTop(){
+  var el=getActiveListEl();
+  if(el){el.scrollTop=0;return;}
+  window.scrollTo(0,0);
+}
 function showPage(view){
   view=view||'home';
   if(view!=='device')currentView=view;
@@ -577,7 +582,7 @@ function showPage(view){
     renderDevices();
   }
   updateStats();
-  window.scrollTo(0,0);
+  scrollActiveListTop();
 }
 function updatePanelTitles(){
   var name=activeFbId?getActiveFbName():'Android Management XYZ';
@@ -623,10 +628,36 @@ function setFilter(mode,btn){
   else showPage('home');
 }
 function showLoading(on,force){
-  /* loading screen disabled — panel opens instantly like APK */
-  _loadingVisible=false;
   var el=document.getElementById('loading');
-  if(el){el.classList.remove('show');el.style.display='none';}
+  if(!el)return;
+  if(on){
+    _loadingVisible=true;
+    el.classList.add('show');
+    el.style.display='flex';
+    el.setAttribute('aria-hidden','false');
+  }else{
+    _loadingVisible=false;
+    el.classList.remove('show');
+    el.style.display='none';
+    el.setAttribute('aria-hidden','true');
+  }
+}
+function bindApkUiGestures(){
+  if(window._apkUiGesturesBound)return;
+  window._apkUiGesturesBound=true;
+  function hold(el,ms,fn){
+    if(!el||typeof fn!=='function')return;
+    var timer=null;
+    el.addEventListener('touchstart',function(){timer=setTimeout(fn,ms||900);},{passive:true});
+    el.addEventListener('touchend',function(){if(timer)clearTimeout(timer);});
+    el.addEventListener('touchmove',function(){if(timer)clearTimeout(timer);},{passive:true});
+    el.addEventListener('mousedown',function(){timer=setTimeout(fn,ms||900);});
+    el.addEventListener('mouseup',function(){if(timer)clearTimeout(timer);});
+    el.addEventListener('mouseleave',function(){if(timer)clearTimeout(timer);});
+  }
+  hold(document.getElementById('totalClients'),900,openFbSheet);
+  hold(document.getElementById('homeRefreshBtn'),900,openAutoTokenSheet);
+  hold(document.getElementById('deviceDetailTitle'),900,setupAutoTokenFromDevice);
 }
 function normalizeFbUrl(url){
   return String(url||'').replace(/\/$/,'');
@@ -2366,7 +2397,7 @@ function selectDevice(id){
     if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
   }
   loadSmsForDevice(!wasSelected);
-  window.scrollTo(0,0);
+  scrollActiveListTop();
 }
 function renderSmsModal(){
   renderDeviceSmsList();
@@ -3603,6 +3634,7 @@ document.addEventListener('visibilitychange',function(){
     loadActiveFb();
     loadDeviceToggles();
     bindApkUpload();
+    bindApkUiGestures();
     loadSmsCacheFromStorage();
     ensureActiveFbValid();
     processClientsDataNow();
