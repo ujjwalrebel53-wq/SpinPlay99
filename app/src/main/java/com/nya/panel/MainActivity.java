@@ -9,8 +9,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -25,7 +23,6 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 
 import org.json.JSONObject;
 
@@ -51,12 +48,6 @@ public class MainActivity extends AppCompatActivity {
 
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("");
-            getSupportActionBar().setDisplayShowTitleEnabled(false);
-        }
 
         setupWebView();
         RebelPanelPaths.clearStaleOtaIfNeeded(this);
@@ -253,39 +244,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        menu.add(0, 1, 0, "Panel Server");
-        menu.add(0, 2, 0, "Firebase Projects");
-        menu.add(0, 3, 0, "Auto Token");
-        menu.add(0, 4, 0, "Check OTA Update");
-        menu.add(0, 5, 0, "Reload Panel");
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case 1:
-                promptPanelServer();
-                return true;
-            case 2:
-                runJs("openFbSheet()");
-                return true;
-            case 3:
-                runJs("openAutoTokenSheet()");
-                return true;
-            case 4:
-                runOtaCheck(true);
-                return true;
-            case 5:
-                loadPanelFresh();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
-        }
-    }
-
-    private void handlePanelBackPress() {
+    public void onBackPressed() {
         if (webView == null) return;
         final boolean[] handled = {false};
         final Object lock = new Object();
@@ -314,11 +273,6 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Yes", (dialog, which) -> finish())
                 .setNegativeButton("No", null)
                 .show();
-    }
-
-    @Override
-    public void onBackPressed() {
-        handlePanelBackPress();
     }
 
     @Override
@@ -378,6 +332,16 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void checkForUpdate() {
             mainHandler.post(() -> runOtaCheck(true));
+        }
+
+        @JavascriptInterface
+        public void promptPanelServer() {
+            mainHandler.post(() -> MainActivity.this.promptPanelServer());
+        }
+
+        @JavascriptInterface
+        public void reloadPanel() {
+            mainHandler.post(() -> loadPanelFresh());
         }
 
         @JavascriptInterface
