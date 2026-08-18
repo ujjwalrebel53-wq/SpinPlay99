@@ -111,6 +111,7 @@ function nyaNativeFetch(path, opts) {
 })();
 
 document.addEventListener('DOMContentLoaded', function () {
+  document.body.classList.add('nya-apk-shell');
   document.querySelectorAll('.apk-dl-card, .apk-dl-btn, a[download]').forEach(function (el) {
     el.style.display = 'none';
   });

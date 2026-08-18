@@ -25,7 +25,7 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import androidx.appcompat.widget.Toolbar;
 
 import org.json.JSONObject;
 
@@ -33,7 +33,6 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private ProgressBar progressBar;
-    private SwipeRefreshLayout swipeRefresh;
     private ValueCallback<Uri[]> filePathCallback;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean isReady = false;
@@ -52,10 +51,14 @@ public class MainActivity extends AppCompatActivity {
 
         webView = findViewById(R.id.webview);
         progressBar = findViewById(R.id.progress_bar);
-        swipeRefresh = findViewById(R.id.swipe_refresh);
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle("");
+            getSupportActionBar().setDisplayShowTitleEnabled(false);
+        }
 
         setupWebView();
-        setupSwipeRefresh();
         RebelPanelPaths.clearStaleOtaIfNeeded(this);
         runOtaCheck(false);
     }
@@ -100,7 +103,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
-                swipeRefresh.setRefreshing(false);
                 isReady = true;
                 injectBootConfig();
             }
@@ -150,9 +152,15 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void runJs(String fn) {
+        if (webView == null) return;
+        webView.evaluateJavascript("try{" + fn + "}catch(e){}", null);
+    }
+
     private void injectBootConfig() {
         String server = RebelPanelPaths.panelServerUrl(this).replace("'", "\\'");
         String js = "(function(){window.REBEL_NATIVE_APP=true;window.NYA_APK=true;"
+                + "document.body.classList.add('nya-apk-shell');"
                 + "window.PANEL_SERVER_URL='" + server + "';"
                 + "if(typeof nyaGetPanelServer==='function')nyaGetPanelServer();})();";
         webView.evaluateJavascript(js, null);
@@ -226,14 +234,6 @@ public class MainActivity extends AppCompatActivity {
         return url.endsWith(".php") || url.contains("/nya.php");
     }
 
-    private void setupSwipeRefresh() {
-        swipeRefresh.setColorSchemeColors(0xFFadcf9f, 0xFF546b4d, 0xFF00C853);
-        swipeRefresh.setOnRefreshListener(() -> {
-            runOtaCheck(true);
-            swipeRefresh.setRefreshing(false);
-        });
-    }
-
     private void promptPanelServer() {
         EditText input = new EditText(this);
         input.setHint("https://yourdomain.com/rebel-panel");
@@ -241,7 +241,7 @@ public class MainActivity extends AppCompatActivity {
         input.setSingleLine(true);
         new AlertDialog.Builder(this)
                 .setTitle("Panel Server (nya.php)")
-                .setMessage("Firebase add hone par yahan sync hoga. OTA updates bhi isi server se aayenge.")
+                .setMessage("Firebase sync aur OTA updates ke liye server URL.")
                 .setView(input)
                 .setPositiveButton("Save", (d, w) -> {
                     RebelPanelPaths.setPanelServerUrl(this, input.getText().toString().trim());
@@ -255,30 +255,55 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0, 1, 0, "Panel Server");
-        menu.add(0, 2, 0, "Check OTA Update");
-        menu.add(0, 3, 0, "Reload Panel");
+        menu.add(0, 2, 0, "Firebase Projects");
+        menu.add(0, 3, 0, "Auto Token");
+        menu.add(0, 4, 0, "Check OTA Update");
+        menu.add(0, 5, 0, "Reload Panel");
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == 1) {
-            promptPanelServer();
-            return true;
+        switch (item.getItemId()) {
+            case 1:
+                promptPanelServer();
+                return true;
+            case 2:
+                runJs("openFbSheet()");
+                return true;
+            case 3:
+                runJs("openAutoTokenSheet()");
+                return true;
+            case 4:
+                runOtaCheck(true);
+                return true;
+            case 5:
+                loadPanelFresh();
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
         }
-        if (item.getItemId() == 2) {
-            runOtaCheck(true);
-            return true;
-        }
-        if (item.getItemId() == 3) {
-            loadPanelFresh();
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handlePanelBackPress() {
+        if (webView == null) return;
+        final boolean[] handled = {false};
+        final Object lock = new Object();
+        webView.evaluateJavascript(
+                "(function(){return typeof nyaHandleBack==='function'&&nyaHandleBack();})();",
+                value -> {
+                    synchronized (lock) {
+                        handled[0] = "true".equals(value);
+                        lock.notifyAll();
+                    }
+                });
+        synchronized (lock) {
+            try {
+                lock.wait(350);
+            } catch (InterruptedException ignored) {
+            }
+        }
+        if (handled[0]) return;
         if (webView.canGoBack()) {
             webView.goBack();
             return;
@@ -289,6 +314,11 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Yes", (dialog, which) -> finish())
                 .setNegativeButton("No", null)
                 .show();
+    }
+
+    @Override
+    public void onBackPressed() {
+        handlePanelBackPress();
     }
 
     @Override

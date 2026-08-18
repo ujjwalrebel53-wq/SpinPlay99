@@ -22,7 +22,24 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .page.sub-screen{background:#fff}
 .page.sub-screen .list-wrap{background:var(--main)}
 .hdr-block{background:var(--main);padding:12px 0 0;flex-shrink:0;position:relative}
-.page.sub-screen .hdr-block{min-height:180px}
+.page.sub-screen .hdr-block{min-height:180px;padding:0}
+.sub-hdr-grid{display:grid;grid-template-columns:150px 1fr 40px;grid-template-rows:auto auto auto;align-items:center;padding:8px 16px 0;gap:4px 8px;min-height:180px}
+.sub-hdr-grid .home-btn{grid-column:1;grid-row:2;width:150px;height:40px;font-size:14px}
+.sub-hdr-grid .hdr-title.big{grid-column:1/3;grid-row:1;font-size:25px;text-align:left;padding-left:0;margin-top:4px}
+.sub-hdr-grid .upi-line{grid-column:2/4;grid-row:2;font-size:20px;padding:0}
+.sub-hdr-grid .icon-btn{grid-column:3;grid-row:1;justify-self:end}
+.sub-hdr-grid .search-row{grid-column:1/4;grid-row:3;padding:0 0 16px;margin-top:8px}
+.money-hdr .hdr-title{text-align:center;padding:12px 0 0}
+.money-hdr .btn-row .nya-btn{height:40px}
+.money-active-row .nya-btn{flex:1}
+.nya-web-tools{display:flex}
+.nya-apk-shell .nya-web-tools{display:none!important}
+.sms-card{margin:2px 5px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden}
+.sms-inner{background:var(--card);padding:10px 8px 28px 8px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto;gap:4px 10px;position:relative;min-height:72px}
+.sms-icon{font-size:40px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;grid-row:1;grid-column:1}
+.sms-body{grid-column:2/4;grid-row:1;font-size:14px;color:var(--black);word-break:break-word;line-height:1.35;max-height:10em;overflow:hidden}
+.sms-foot{display:flex;justify-content:space-between;grid-column:1/4;grid-row:2;font-size:12px;font-weight:700;color:var(--muted);padding:0 8px}
+.sms-del{grid-column:3;grid-row:1;font-size:22px;padding:4px;align-self:start}
 .hdr-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px;gap:8px}
 .hdr-spacer{width:40px;flex-shrink:0}
 .hdr-title{font-size:20px;font-weight:800;text-align:center;flex:1}
@@ -51,10 +68,9 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .detail-sim-row{display:flex;justify-content:center;gap:11px;padding:4px 16px 0;margin:0}
 .detail-sim-btn{width:140px;flex:0 0 140px;height:40px;font-size:14px}
 .detail-search-row{padding-bottom:8px;margin-top:12px}
-.device-tools-row{padding-top:4px;padding-bottom:4px}
 
 .dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
-.dev-card-inner{background:var(--card);min-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px;position:relative}
+.dev-card-inner{background:var(--card);height:150px;min-height:150px;max-height:150px;padding:8px 12px;display:grid;grid-template-columns:60px 1fr auto;grid-template-rows:auto auto auto auto;gap:4px 10px;position:relative;overflow:hidden}
 .dev-count{font-size:15px;font-weight:800;grid-column:1;grid-row:1;margin-top:8px}
 .dev-like{width:60px;height:60px;grid-column:1;grid-row:2;display:flex;align-items:center;justify-content:center;font-size:36px;touch-action:manipulation}
 .dev-like.liked{color:#e91e63}
@@ -119,11 +135,6 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .sim-row{display:flex;gap:8px;padding:0 16px 8px}
 .sim-row .nya-btn{flex:1}
 
-.sms-card{margin:4px 8px;border-radius:20px;background:var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.15)}
-.sms-inner{background:var(--card);padding:10px 16px;display:flex;gap:10px;align-items:flex-start}
-.sms-icon{font-size:40px;flex-shrink:0}
-.sms-body{flex:1;font-size:14px;color:var(--black);word-break:break-word}
-.sms-meta{font-size:12px;font-weight:700;color:var(--muted);margin-top:6px}
 .toast-wrap{position:fixed;top:12px;left:12px;right:12px;z-index:200;pointer-events:none}
 .toast{padding:12px;border-radius:12px;background:#fff;border:1px solid var(--card-border);font-size:13px;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.15)}
 .token-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;margin:8px 0;border-radius:12px;background:#fff;border:1px solid var(--card-border);cursor:pointer;touch-action:manipulation;font-weight:700;font-size:14px}
@@ -174,7 +185,7 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
       <button type="button" class="nya-btn" onclick="showPage('login')">Login👨🏻‍💻</button>
       <button type="button" class="nya-btn" onclick="deleteChecked()">Delete🗑️</button>
     </div>
-    <div class="btn-row">
+    <div class="btn-row nya-web-tools">
       <button type="button" class="nya-btn" onclick="openFbSheet()">Firebase 🔥</button>
       <button type="button" class="nya-btn" onclick="openAutoTokenSheet()">Auto Token ⚡</button>
     </div>
@@ -185,15 +196,15 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 <!-- ONLINE online.xml -->
 <div id="view-online" class="page sub-screen">
   <div class="hdr-block">
-    <div class="hdr-row">
-      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+    <div class="sub-hdr-grid">
+      <button type="button" class="nya-btn home-btn" onclick="showPage('home')">Home 🏡</button>
       <div class="hdr-title big" id="panelTitleOnline">Android Management XYZ</div>
       <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
-    </div>
-    <div class="upi-line" id="activeCount">Active🟢:-</div>
-    <div class="search-row">
-      <input class="search-box" id="searchOnline" placeholder="Search Online clients..." oninput="renderDevices()"/>
-      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      <div class="upi-line" id="activeCount">Active🟢:-</div>
+      <div class="search-row">
+        <input class="search-box" id="searchOnline" placeholder="Search Online clients..." oninput="renderDevices()"/>
+        <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      </div>
     </div>
   </div>
   <div class="list-wrap" id="devListOnline"></div>
@@ -202,15 +213,15 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 <!-- ONLY PIN onlypin.xml -->
 <div id="view-onlypin" class="page sub-screen">
   <div class="hdr-block">
-    <div class="hdr-row">
-      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+    <div class="sub-hdr-grid">
+      <button type="button" class="nya-btn home-btn" onclick="showPage('home')">Home 🏡</button>
       <div class="hdr-title big" id="panelTitlePin">Android Management XYZ</div>
       <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
-    </div>
-    <div class="upi-line" id="upiPinCount">UPI PIN:-</div>
-    <div class="search-row">
-      <input class="search-box" id="searchPin" placeholder="Search Only Pin clients..." oninput="renderDevices()"/>
-      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      <div class="upi-line" id="upiPinCount">UPI PIN:-</div>
+      <div class="search-row">
+        <input class="search-box" id="searchPin" placeholder="Search Only Pin clients..." oninput="renderDevices()"/>
+        <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      </div>
     </div>
   </div>
   <div class="list-wrap" id="devListPin"></div>
@@ -238,15 +249,15 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 <!-- LOGIN logged.xml -->
 <div id="view-login" class="page sub-screen">
   <div class="hdr-block">
-    <div class="hdr-row">
-      <button type="button" class="nya-btn wide" style="width:150px" onclick="showPage('home')">Home 🏡</button>
+    <div class="sub-hdr-grid">
+      <button type="button" class="nya-btn home-btn" onclick="showPage('home')">Home 🏡</button>
       <div class="hdr-title big" id="panelTitleLogin">Android Management XYZ</div>
       <button type="button" class="icon-btn" onclick="refreshData()">🔄</button>
-    </div>
-    <div class="upi-line" id="loggedCount">Logged in📲:-</div>
-    <div class="search-row">
-      <input class="search-box" id="searchLogin" placeholder="Search Logged-in clients..." oninput="renderDevices()"/>
-      <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      <div class="upi-line" id="loggedCount">Logged in📲:-</div>
+      <div class="search-row">
+        <input class="search-box" id="searchLogin" placeholder="Search Logged-in clients..." oninput="renderDevices()"/>
+        <button type="button" class="icon-btn" onclick="renderDevices()">🔍</button>
+      </div>
     </div>
   </div>
   <div class="list-wrap" id="devListLogin"></div>
@@ -254,14 +265,13 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 
 <!-- MONEY money.xml -->
 <div id="view-money" class="page sub-screen">
-  <div class="hdr-block">
-    <div class="hdr-row">
-      <button type="button" class="nya-btn wide" style="width:120px" onclick="showPage('home')">Home 🏡</button>
-      <div class="hdr-title" id="moneyTotal">Total:-</div>
-      <span style="width:40px"></span>
-    </div>
+  <div class="hdr-block money-hdr">
+    <div class="hdr-title" id="moneyTotal">Total:-</div>
     <div class="btn-row">
-      <button type="button" class="nya-btn" onclick="pickMoneyAmountRange()">Amount 💵</button>
+      <button type="button" class="nya-btn wide" onclick="showPage('home')">Home 🏡</button>
+      <button type="button" class="nya-btn wide" onclick="pickMoneyAmountRange()">Amount 💵</button>
+    </div>
+    <div class="btn-row money-active-row">
       <button type="button" class="nya-btn" onclick="setMoneyFilter('active')">Active 🟢</button>
     </div>
     <div class="search-row">

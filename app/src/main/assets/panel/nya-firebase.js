@@ -1975,12 +1975,16 @@ function buildSmsCardHtml(m,extra,opts){
   var body=esc(m.body||m.message||m.text||'');
   var sender=esc(m.address||m.sender||m.from||'Unknown');
   var when=esc(m.date_readable||m.dateTime||m.date||m.time||'');
-  var meta=(extra?esc(extra)+' · ':'')+'Sender: '+sender+(when?' · '+when:'');
   var del='';
   if(opts.deletable&&m.id){
-    del='<button type="button" class="icon-btn" style="font-size:22px" onclick="event.stopPropagation();deleteDeviceSms(\''+escAttr(String(m.id))+'\')">🗑️</button>';
+    del='<button type="button" class="icon-btn sms-del" onclick="event.stopPropagation();deleteDeviceSms(\''+escAttr(String(m.id))+'\')">🗑️</button>';
   }
-  return '<div class="sms-card"><div class="sms-inner"><div class="sms-icon">💬</div><div class="sms-body"><div>'+body+'</div><div class="sms-meta">'+meta+'</div></div>'+del+'</div></div>';
+  return '<div class="sms-card"><div class="sms-inner">'+
+    '<div class="sms-icon">💬</div>'+
+    '<div class="sms-body">'+body+'</div>'+
+    del+
+    '<div class="sms-foot"><span>Sender: '+sender+'</span><span>'+(when||'')+'</span></div>'+
+    '</div></div>';
 }
 function renderDevices(){
   if(currentView==='money'){renderMoneyView();return;}
@@ -2292,6 +2296,11 @@ function closeDeviceDetail(){
   clearListeners();
   showPage('home');
 }
+function nyaHandleBack(){
+  if(currentView==='device'){closeDeviceDetail();return true;}
+  if(currentView!=='home'){showPage('home');return true;}
+  return false;
+}
 function sendDeviceSms(sim){
   var d=getSelDev();
   if(!d){toast('Select a device first',false);return;}
@@ -2391,12 +2400,7 @@ function renderSmsModal(){
   var list=(cached&&cached.list&&cached.list.length)?cached.list:(window_allSms||window_sms||[]);
   if(_smsLoading&&!list.length){el.innerHTML='<div class="empty">Loading SMS…</div>';return;}
   if(!list.length){el.innerHTML='<div class="empty">No SMS yet</div>';return;}
-  el.innerHTML=list.slice(0,80).map(function(m){
-    var body=esc(m.body||m.message||m.text||'');
-    var sender=esc(m.sender||m.address||m.from||'Unknown');
-    var when=esc(m.date_readable||m.date||'');
-    return '<div class="sms-card"><div class="sms-inner"><div class="sms-icon">💬</div><div><div class="sms-body">'+body+'</div><div class="sms-meta">Sender: '+sender+' · '+when+'</div></div></div></div>';
-  }).join('');
+  el.innerHTML=list.slice(0,80).map(function(m){return buildSmsCardHtml(m,'',{deletable:true});}).join('');
 }
 function renderDeviceView(){}
 function extractDeviceSims(raw){

@@ -11,8 +11,8 @@ android {
         applicationId "com.nya.panel"
         minSdk 21
         targetSdk 34
-        versionCode 3
-        versionName "1.0.2"
+        versionCode 4
+        versionName "1.0.3"
         buildConfigField "String", "DEFAULT_PANEL_SERVER", "\"\""
         externalNativeBuild {
             cmake {
@@ -94,5 +94,4 @@ android.sourceSets.release.assets.srcDirs += genEncAssetsDir
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
