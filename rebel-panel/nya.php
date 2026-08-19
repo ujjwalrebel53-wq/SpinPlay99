@@ -383,7 +383,7 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
       <button type="button" class="detail-btn" onclick="saveDeviceMoney()">Done</button>
       <button type="button" class="paste-btn" onclick="pasteDeviceSms()" title="Paste">📥</button>
     </div>
-    <input id="smsTo" class="detail-field detail-field-wide" placeholder="Enter recipient phone number"/>
+    <input id="smsTo" class="detail-field detail-field-wide" placeholder="Recipient number (10 digit) — apna SIM number mat daalo"/>
     <input id="smsBody" class="detail-field detail-field-wide" placeholder="Enter SMS body"/>
     <div class="sim-row detail-sim-row">
       <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(1)">Sim1</button>
