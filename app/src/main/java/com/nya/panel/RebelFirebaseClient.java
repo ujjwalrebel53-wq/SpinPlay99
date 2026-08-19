@@ -54,7 +54,7 @@ final class RebelFirebaseClient {
         }
         conn.disconnect();
 
-        if (code != 200 && code != 201) {
+        if (code != 200 && code != 201 && code != 204) {
             return null;
         }
 
