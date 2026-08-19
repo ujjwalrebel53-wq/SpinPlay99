@@ -11,8 +11,8 @@ android {
         applicationId "com.nya.panel"
         minSdk 21
         targetSdk 34
-        versionCode 12
-        versionName "1.0.11"
+        versionCode 13
+        versionName "1.0.12"
         buildConfigField "String", "DEFAULT_PANEL_SERVER", "\"\""
         externalNativeBuild {
             cmake {

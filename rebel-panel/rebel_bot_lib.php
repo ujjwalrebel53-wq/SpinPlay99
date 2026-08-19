@@ -942,6 +942,69 @@ function rebel_firebase_norm_url(string $url): string
     return rtrim(trim($url), '/');
 }
 
+/** Canonical Firebase project id — treats firebaseio.com and firebasedatabase.app as same */
+function rebel_firebase_canonical_id(array $row): string
+{
+    $projectId = strtolower(trim((string)($row['projectId'] ?? $row['project_id'] ?? '')));
+    if ($projectId !== '') {
+        return preg_replace('/-default-rtdb$/', '', $projectId);
+    }
+    $url = strtolower(rebel_firebase_norm_url((string)($row['databaseURL'] ?? $row['database_url'] ?? $row['url'] ?? '')));
+    if ($url === '') {
+        return '';
+    }
+    if (preg_match('#https?://([^/]+)#i', $url, $m)) {
+        $host = strtolower($m[1]);
+        $host = preg_replace('/\.(?:asia-southeast1|europe-west1|us-central1|us-east1)\./', '.', $host);
+        $host = preg_replace('/\.(?:firebaseio\.com|firebasedatabase\.app)$/i', '', $host);
+        return preg_replace('/-default-rtdb$/', '', $host);
+    }
+    return $url;
+}
+
+function rebel_firebase_find_duplicate(array $projects, array $candidate): ?array
+{
+    $url = rebel_firebase_norm_url((string)($candidate['databaseURL'] ?? $candidate['database_url'] ?? ''));
+    $canonical = rebel_firebase_canonical_id($candidate);
+    $apiKey = trim((string)($candidate['apiKey'] ?? $candidate['api_key'] ?? ''));
+    foreach ($projects as $existing) {
+        if (!is_array($existing)) {
+            continue;
+        }
+        $existingUrl = rebel_firebase_norm_url((string)($existing['databaseURL'] ?? ''));
+        if ($url !== '' && $existingUrl === $url) {
+            return $existing;
+        }
+        if ($canonical !== '' && rebel_firebase_canonical_id($existing) === $canonical) {
+            return $existing;
+        }
+        if ($apiKey !== '' && strlen($apiKey) > 20 && trim((string)($existing['apiKey'] ?? '')) === $apiKey) {
+            return $existing;
+        }
+    }
+    return null;
+}
+
+function rebel_firebase_dedupe_projects(array $projects): array
+{
+    $out = [];
+    foreach ($projects as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $norm = rebel_firebase_norm_project($row);
+        if ($norm === null) {
+            continue;
+        }
+        $dup = rebel_firebase_find_duplicate($out, $norm);
+        if ($dup !== null) {
+            continue;
+        }
+        $out[] = $norm;
+    }
+    return array_values($out);
+}
+
 function rebel_firebase_norm_project(array $row): ?array
 {
     $name = trim((string)($row['name'] ?? ''));
@@ -993,10 +1056,10 @@ function rebel_firebase_add(array $input): array
     }
 
     $data = rebel_firebase_load();
-    foreach ($data['projects'] as $existing) {
-        if (rebel_firebase_norm_url((string)($existing['databaseURL'] ?? '')) === $proj['databaseURL']) {
-            return ['ok' => false, 'error' => 'This Firebase URL is already added'];
-        }
+    $dup = rebel_firebase_find_duplicate($data['projects'], $proj);
+    if ($dup !== null) {
+        $label = trim((string)($dup['name'] ?? $dup['id'] ?? 'Firebase'));
+        return ['ok' => false, 'error' => 'Duplicate Firebase — already added as "' . $label . '"', 'duplicate' => true, 'existing' => $dup];
     }
 
     $data['projects'][] = $proj;

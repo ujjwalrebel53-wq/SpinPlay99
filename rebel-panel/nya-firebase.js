@@ -1251,7 +1251,15 @@ function saveFirebaseConfigs(){
   if(!url||url===_lastSyncedFbUrl)return;
   _lastSyncedFbUrl=url;
   syncFirebaseToServer(cfg).then(function(r){
+    if(r&&r.duplicate){
+      firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==cfg.id;});
+      try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
+      toast((r.error||'Duplicate Firebase reject'),false);
+      updateFbUi();
+      return;
+    }
     if(r&&r.ok)toast('Firebase synced to nya.php',true);
+    else if(r&&r.error)toast(r.error,false);
   }).catch(function(){});
 }
 function loadDeviceToggles(){
@@ -1285,11 +1293,48 @@ function restJson(url,timeoutMs){
 }
 function isFirebaseErr(d){return !!(d&&typeof d==='object'&&d.error&&Object.keys(d).length<=2);}
 
+function firebaseCanonicalId(cfg){
+  if(!cfg)return '';
+  var pid=String(cfg.projectId||cfg.project_id||'').trim().toLowerCase();
+  if(pid)return pid.replace(/-default-rtdb$/i,'');
+  var url=String(cfg.databaseURL||cfg.database_url||'').replace(/\/$/,'').toLowerCase();
+  var hm=url.match(/https?:\/\/([^/]+)/i);
+  if(!hm)return url;
+  var host=String(hm[1]).toLowerCase();
+  host=host.replace(/\.(asia-southeast1|europe-west1|us-central1|us-east1)\./,'.');
+  host=host.replace(/\.(?:firebaseio\.com|firebasedatabase\.app)$/i,'');
+  return host.replace(/-default-rtdb$/i,'');
+}
+function findDuplicateFirebase(list,cfg){
+  if(!cfg||!list||!list.length)return null;
+  var url=String(cfg.databaseURL||cfg.database_url||'').replace(/\/$/,'');
+  var key=firebaseCanonicalId(cfg);
+  var api=String(cfg.apiKey||cfg.api_key||'').trim();
+  for(var i=0;i<list.length;i++){
+    var c=list[i];
+    if(!c)continue;
+    if(url&&(String(c.databaseURL||'').replace(/\/$/,'')===url))return c;
+    if(key&&firebaseCanonicalId(c)===key)return c;
+    if(api&&api.length>20&&String(c.apiKey||'').trim()===api)return c;
+  }
+  return null;
+}
+function dedupeFirebaseConfigs(list){
+  var out=[];
+  (list||[]).forEach(function(c){
+    if(!c||!c.databaseURL)return;
+    if(findDuplicateFirebase(out,c))return;
+    out.push(c);
+  });
+  return out;
+}
+
 function loadFirebaseConfigs(){
   function mergeDefaults(list){
-    var out=(list||[]).slice();
+    var out=dedupeFirebaseConfigs((list||[]).slice());
     function addDef(def){
       if(!def||!def.databaseURL)return;
+      if(findDuplicateFirebase(out,def))return;
       var url=String(def.databaseURL).replace(/\/$/,'');
       var i=out.findIndex(function(c){return String(c.databaseURL||'').replace(/\/$/,'')===url;});
       if(i>=0)out[i]=Object.assign({},def,out[i],{databaseURL:url});
@@ -1301,9 +1346,9 @@ function loadFirebaseConfigs(){
       if(!c.deviceNode)c.deviceNode='clients';
       if(c.preferredDeviceNode==='user_data'&&!c.schema)c.preferredDeviceNode='clients';
     });
-    return applyNodeMemoryToConfigs(out.filter(function(c){
+    return applyNodeMemoryToConfigs(dedupeFirebaseConfigs(out.filter(function(c){
       return isValidFirebaseUrl(c.databaseURL);
-    }));
+    })));
   }
   try{
     var s=localStorage.getItem(FB_LIST_KEY);
@@ -1390,8 +1435,15 @@ function addFirebaseProject(extractMeta){
   secret=secret?String(secret).trim():'';
   var apiKey=document.getElementById('fbAddApiKey').value.trim();
   if(!name||!url){toast('Project name and Firebase URL are required',false);return;}
-  if(firebaseConfigs.some(function(c){return (c.databaseURL||'').replace(/\/$/,'')===url;})){
-    toast('This Firebase URL is already added',false);return;
+  var dupCandidate={
+    databaseURL:url,
+    projectId:(meta&&meta.projectId)||'',
+    apiKey:apiKey||((meta&&meta.apiKey)||'')
+  };
+  var dup=findDuplicateFirebase(firebaseConfigs,dupCandidate);
+  if(dup){
+    toast('Duplicate Firebase reject — pehle se hai: '+(dup.name||dup.id||url),false);
+    return;
   }
   var id='fb_'+Date.now();
   var cfg={
@@ -1451,6 +1503,12 @@ function uploadApkForFirebase(input){
       document.getElementById('fbAddUrl').value=url;
       document.getElementById('fbAddApiKey').value=res.apiKey||'';
       if(st)st.textContent='Found '+url+(res.apiKey?' · API key OK':'')+(res.preferredDeviceNode?' · node '+res.preferredDeviceNode:'')+(res.source?' · '+res.source:'');
+      var dup=findDuplicateFirebase(firebaseConfigs,{databaseURL:url,projectId:res.projectId||'',apiKey:res.apiKey||''});
+      if(dup){
+        toast('Duplicate Firebase reject — pehle se added: '+(dup.name||dup.id),false);
+        if(st)st.textContent='Duplicate — already in list as '+(dup.name||dup.id);
+        return;
+      }
       toast('Firebase extracted — adding project...',true);
       addFirebaseProject(res);
     })
