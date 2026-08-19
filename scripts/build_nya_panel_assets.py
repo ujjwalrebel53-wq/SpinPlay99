@@ -14,6 +14,25 @@ OUT_DIR = os.path.join(ROOT, "app", "src", "main", "assets", "panel")
 
 EMPTY_DEFAULTS = '/** Nya Panel APK — no pre-added Firebase */\nvar REBEL_DEFAULT_FIREBASES = [];\nvar DEFAULT_FIREBASES = REBEL_DEFAULT_FIREBASES;\n'
 
+NYAPANEL_DEFAULTS = '''/** Nya Panel APK — nyapanel.apk default Firebase (clients/) */
+var REBEL_DEFAULT_FIREBASES = [{
+  "id": "nya_hdjdjdj",
+  "name": "Nya Panel",
+  "schema": "rabel",
+  "deviceNode": "clients",
+  "preferredDeviceNode": "clients",
+  "apiKey": "AIzaSyBfQobM5HmnK6khogyF4ytOX7E9N0e_lAQ",
+  "authDomain": "hdjdjdj-a73f2.firebaseapp.com",
+  "databaseURL": "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com",
+  "projectId": "hdjdjdj-a73f2",
+  "storageBucket": "hdjdjdj-a73f2.appspot.com",
+  "messagingSenderId": "",
+  "appId": "",
+  "sourceApk": "nyapanel.apk"
+}];
+var DEFAULT_FIREBASES = REBEL_DEFAULT_FIREBASES;
+'''
+
 PANEL_BOOT = """
 window.REBEL_NATIVE_APP = true;
 window.NYA_APK = true;
@@ -115,6 +134,11 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.apk-dl-card, .apk-dl-btn, a[download]').forEach(function (el) {
     el.style.display = 'none';
   });
+  try {
+    if (!localStorage.getItem('rbl_active_fb')) {
+      localStorage.setItem('rbl_active_fb', 'nya_hdjdjdj');
+    }
+  } catch (e) {}
 });
 """
 
@@ -215,9 +239,9 @@ def main() -> None:
     with open(os.path.join(OUT_DIR, "nya-firebase.js"), "w", encoding="utf-8") as handle:
         handle.write(js)
     with open(os.path.join(OUT_DIR, "firebase_defaults.js"), "w", encoding="utf-8") as handle:
-        handle.write(EMPTY_DEFAULTS)
+        handle.write(NYAPANEL_DEFAULTS)
 
-    print(f"Built Nya panel assets in {OUT_DIR} (0 Firebase preloaded)")
+    print(f"Built Nya panel assets in {OUT_DIR} (nyapanel Firebase preloaded)")
 
 
 if __name__ == "__main__":

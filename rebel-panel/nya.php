@@ -412,6 +412,7 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
   <input id="fbAddName" placeholder="Project name"/>
   <input id="fbAddUrl" placeholder="https://xxx.firebaseio.com"/>
   <input id="fbAddApiKey" placeholder="API key (optional)"/>
+  <input id="fbAddSecret" placeholder="Database secret / auth key (optional)"/>
   <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:10px 0 4px">APK se Firebase auto extract</label>
   <input id="fbApkFile" type="file" accept=".apk,application/vnd.android.package-archive"/>
   <div id="fbApkStatus" class="token-status" style="padding:0 0 8px"></div>

