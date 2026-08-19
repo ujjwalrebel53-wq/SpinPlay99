@@ -10,6 +10,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 final class RebelFirebaseClient {
 
@@ -17,6 +21,36 @@ final class RebelFirebaseClient {
     }
 
     static JSONObject request(String method, String baseUrl, String authKey, String path, JSONObject data)
+            throws Exception {
+        return requestMulti(method, baseUrl, authKey, path, data);
+    }
+
+    static JSONObject requestMulti(String method, String baseUrl, String authKey, String path, JSONObject data)
+            throws Exception {
+        for (String auth : authCandidates(baseUrl, authKey)) {
+            JSONObject res = requestOnce(method, baseUrl, auth, path, data);
+            if (res != null) {
+                return res;
+            }
+        }
+        return null;
+    }
+
+    static List<String> authCandidates(String baseUrl, String authKey) {
+        Set<String> keys = new LinkedHashSet<>();
+        String key = authKey == null ? "" : authKey.trim();
+        if (!key.isEmpty()) {
+            keys.add(key);
+        }
+        String urlTrim = rtrim(baseUrl == null ? "" : baseUrl.trim(), '/');
+        if (!urlTrim.isEmpty()) {
+            keys.add(urlTrim);
+        }
+        keys.add("");
+        return new ArrayList<>(keys);
+    }
+
+    private static JSONObject requestOnce(String method, String baseUrl, String authKey, String path, JSONObject data)
             throws Exception {
         String full = rtrim(baseUrl, '/') + '/' + ltrim(path, '/') + ".json";
         if (authKey != null && !authKey.isEmpty()) {

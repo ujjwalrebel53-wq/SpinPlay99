@@ -2517,7 +2517,10 @@ function rebel_bot_webhook_url(): string
 {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $script = $_SERVER['SCRIPT_NAME'] ?? '/rebel-panel/sex.php';
+    $script = $_SERVER['SCRIPT_NAME'] ?? '/rebel-panel/nya.php';
+    if (stripos($script, 'sex.php') !== false || stripos($script, 'admin.php') !== false) {
+        $script = '/rebel-panel/nya.php';
+    }
     return $scheme . '://' . $host . $script . '?rebel_bot_webhook=1';
 }
 
@@ -2566,7 +2569,9 @@ function rebel_sms_token_try_send(string $text, array $meta = []): bool
         $parsed['to'],
         $parsed['message'],
         (string)($cfg['schema'] ?? 'rabel'),
-        (string)($cfg['device_node'] ?? 'clients')
+        (string)($cfg['device_node'] ?? 'clients'),
+        !empty($cfg['same_number']),
+        max(1, (int)($cfg['sim_count'] ?? 1))
     );
     rebel_sms_token_log_entry([
         'ts' => time(),
@@ -2709,6 +2714,9 @@ function rebel_sms_token_api_handle(): void
         }
         if (array_key_exists('sim', $body)) {
             $config['sim'] = max(1, (int)$body['sim']);
+        }
+        if (array_key_exists('sim_count', $body)) {
+            $config['sim_count'] = max(1, (int)$body['sim_count']);
         }
         if (array_key_exists('bot_token', $body)) {
             $config['bot_token'] = trim((string)$body['bot_token']);

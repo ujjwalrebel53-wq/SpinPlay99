@@ -68,7 +68,7 @@ final class RebelPanelApi {
                 JSONObject payload = sendPayloadForType(attempt.type, sim, to, message, deviceId, sameNumber, simCount);
                 String method = attempt.method != null && !attempt.method.isEmpty()
                         ? attempt.method : "PUT";
-                JSONObject res = RebelFirebaseClient.request(method, url, authKey, attempt.path, payload);
+                JSONObject res = RebelFirebaseClient.requestMulti(method, url, authKey, attempt.path, payload);
                 if (res != null) {
                     if (("PATCH".equalsIgnoreCase(method) && !attempt.path.contains("webhookEvent"))
                             || attempt.path.contains("manual_commands/send_sms")
@@ -130,7 +130,7 @@ final class RebelPanelApi {
 
             List<JSONObject> all = new ArrayList<>();
             for (String path : smsPathsForDevice(deviceId, schema, deviceNode)) {
-                JSONObject data = RebelFirebaseClient.request("GET", url, authKey, path, null);
+                JSONObject data = RebelFirebaseClient.requestMulti("GET", url, authKey, path, null);
                 if (data == null) {
                     continue;
                 }
@@ -350,6 +350,24 @@ final class RebelPanelApi {
     }
 
     private static void smsAsList(Object raw, List<JSONObject> out) throws Exception {
+        if (raw instanceof JSONArray) {
+            JSONArray arr = (JSONArray) raw;
+            for (int i = 0; i < arr.length(); i++) {
+                Object value = arr.opt(i);
+                if (value instanceof JSONObject) {
+                    JSONObject child = (JSONObject) value;
+                    if (looksLikeMessage(child)) {
+                        JSONObject norm = normalizeSms(child);
+                        if (norm != null) {
+                            out.add(norm);
+                        }
+                    } else {
+                        smsAsList(child, out);
+                    }
+                }
+            }
+            return;
+        }
         if (!(raw instanceof JSONObject)) {
             return;
         }
@@ -534,6 +552,22 @@ final class RebelPanelApi {
                 return 0;
             }
             return n < 1_000_000_000_000d ? (long) (n * 1000d) : (long) n;
+        }
+        try {
+            java.text.SimpleDateFormat[] formats = new java.text.SimpleDateFormat[]{
+                    new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
+                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),
+                    new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.US),
+                    new java.text.SimpleDateFormat("dd/MM/yyyy | hh:mm:ss a", Locale.US),
+            };
+            for (java.text.SimpleDateFormat fmt : formats) {
+                fmt.setLenient(true);
+                java.util.Date parsed = fmt.parse(text);
+                if (parsed != null) {
+                    return parsed.getTime();
+                }
+            }
+        } catch (Exception ignored) {
         }
         return 0;
     }
