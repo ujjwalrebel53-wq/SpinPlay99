@@ -2262,6 +2262,8 @@ function rebel_sms_token_defaults(): array
         'bot_token' => '',
         'channel_id' => '',
         'owner_id' => '',
+        'tg_phone' => '',
+        'tg_logged_in' => false,
         'log' => [],
     ];
 }
@@ -2318,6 +2320,8 @@ function rebel_sms_token_public_config(array $config): array
         'has_bot_token' => $botToken !== '',
         'channel_id' => (string)($config['channel_id'] ?? ''),
         'owner_id' => (string)($config['owner_id'] ?? ''),
+        'tg_phone' => (string)($config['tg_phone'] ?? ''),
+        'tg_logged_in' => !empty($config['tg_logged_in']),
         'updated' => (int)($config['updated'] ?? 0),
     ];
 }
@@ -2478,6 +2482,443 @@ function rebel_tg_send(string $chatId, string $text): array
     ]);
 }
 
+function rebel_tg_send_with_markup(string $chatId, string $text, array $replyMarkup): array
+{
+    if ($chatId === '') {
+        return ['ok' => false];
+    }
+    return rebel_tg_api('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => $text,
+        'parse_mode' => 'HTML',
+        'disable_web_page_preview' => true,
+        'reply_markup' => $replyMarkup,
+    ]);
+}
+
+function rebel_tg_login_file(): string
+{
+    return __DIR__ . '/rebel_tg_login.json';
+}
+
+function rebel_tg_login_load(): array
+{
+    $file = rebel_tg_login_file();
+    if (!is_file($file)) {
+        return ['sessions' => [], 'bot_username' => ''];
+    }
+    $raw = file_get_contents($file);
+    $data = json_decode($raw ?: '{}', true);
+    if (!is_array($data)) {
+        return ['sessions' => [], 'bot_username' => ''];
+    }
+    if (!isset($data['sessions']) || !is_array($data['sessions'])) {
+        $data['sessions'] = [];
+    }
+    return $data;
+}
+
+function rebel_tg_login_save(array $data): void
+{
+    if (!isset($data['sessions']) || !is_array($data['sessions'])) {
+        $data['sessions'] = [];
+    }
+    file_put_contents(
+        rebel_tg_login_file(),
+        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        LOCK_EX
+    );
+}
+
+function rebel_tg_e164(string $raw): string
+{
+    $digits = preg_replace('/\D/', '', $raw);
+    if ($digits === '') {
+        return '';
+    }
+    if (strlen($digits) === 10) {
+        return '+91' . $digits;
+    }
+    if (strlen($digits) > 10 && str_starts_with($digits, '91')) {
+        return '+' . $digits;
+    }
+    return '+' . ltrim($digits, '+');
+}
+
+function rebel_tg_phones_match(string $a, string $b): bool
+{
+    $da = preg_replace('/\D/', '', $a);
+    $db = preg_replace('/\D/', '', $b);
+    if ($da === '' || $db === '') {
+        return false;
+    }
+    if (strlen($da) >= 10) {
+        $da = substr($da, -10);
+    }
+    if (strlen($db) >= 10) {
+        $db = substr($db, -10);
+    }
+    return $da === $db;
+}
+
+function rebel_tg_extract_otp(string $text): string
+{
+    $text = trim($text);
+    if ($text === '' || !preg_match('/telegram/i', $text)) {
+        return '';
+    }
+    if (preg_match('/(?:code|login|verification)[:\s]*(\d{5,6})/iu', $text, $m)) {
+        return $m[1];
+    }
+    if (preg_match('/(\d{5,6})\s*(?:is your|is the).*telegram/iu', $text, $m)) {
+        return $m[1];
+    }
+    if (preg_match('/telegram.*?(\d{5,6})/iu', $text, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
+function rebel_tg_bot_username(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $store = rebel_tg_login_load();
+    $cached = trim((string)($store['bot_username'] ?? ''));
+    if ($cached !== '') {
+        return $cached;
+    }
+    if (rebel_bot_token() === '') {
+        $cached = '';
+        return $cached;
+    }
+    $res = rebel_tg_api('getMe', []);
+    if (!empty($res['ok']) && !empty($res['result']['username'])) {
+        $cached = (string)$res['result']['username'];
+        $store['bot_username'] = $cached;
+        rebel_tg_login_save($store);
+    } else {
+        $cached = '';
+    }
+    return $cached;
+}
+
+function rebel_tg_login_find_by_token(string $token): ?array
+{
+    $token = trim($token);
+    if ($token === '') {
+        return null;
+    }
+    $store = rebel_tg_login_load();
+    foreach ($store['sessions'] as $idx => $row) {
+        if (($row['token'] ?? '') === $token) {
+            $row['_idx'] = $idx;
+            return $row;
+        }
+    }
+    return null;
+}
+
+function rebel_tg_login_update(string $token, array $patch): ?array
+{
+    $store = rebel_tg_login_load();
+    foreach ($store['sessions'] as $idx => $row) {
+        if (($row['token'] ?? '') !== $token) {
+            continue;
+        }
+        $store['sessions'][$idx] = array_merge($row, $patch, ['updated' => time()]);
+        rebel_tg_login_save($store);
+        return $store['sessions'][$idx];
+    }
+    return null;
+}
+
+function rebel_tg_login_prune(): void
+{
+    $store = rebel_tg_login_load();
+    $now = time();
+    $store['sessions'] = array_values(array_filter(
+        $store['sessions'],
+        static function ($row) use ($now) {
+            $exp = (int)($row['expires'] ?? 0);
+            return $exp === 0 || $exp > $now;
+        }
+    ));
+    rebel_tg_login_save($store);
+}
+
+function rebel_tg_login_public(array $row): array
+{
+    return [
+        'token' => (string)($row['token'] ?? ''),
+        'status' => (string)($row['status'] ?? 'pending'),
+        'phone' => (string)($row['phone'] ?? ''),
+        'device_id' => (string)($row['device_id'] ?? ''),
+        'sim' => max(1, (int)($row['sim'] ?? 1)),
+        'tg_user_id' => (string)($row['tg_user_id'] ?? ''),
+        'tg_username' => (string)($row['tg_username'] ?? ''),
+        'channel_id' => (string)($row['channel_id'] ?? ''),
+        'otp_detected' => !empty($row['otp_detected']),
+        'otp_hint' => !empty($row['otp_detected']) ? '•••••' : '',
+        'code_sent' => !empty($row['code_sent']),
+        'error' => (string)($row['error'] ?? ''),
+        'deep_link' => (string)($row['deep_link'] ?? ''),
+        'bot_username' => (string)($row['bot_username'] ?? rebel_tg_bot_username()),
+        'updated' => (int)($row['updated'] ?? 0),
+    ];
+}
+
+function rebel_tg_login_run_python(string $action, string $phone, string $code = ''): array
+{
+    $script = __DIR__ . '/scripts/tg_device_login.py';
+    if (!is_file($script)) {
+        return ['ok' => false, 'error' => 'Telegram login script missing'];
+    }
+    $py = trim((string)getenv('REBEL_PYTHON'));
+    if ($py === '') {
+        foreach (['python3', 'python'] as $candidate) {
+            $which = trim((string)shell_exec('command -v ' . escapeshellarg($candidate) . ' 2>/dev/null'));
+            if ($which !== '') {
+                $py = $candidate;
+                break;
+            }
+        }
+    }
+    if ($py === '') {
+        return ['ok' => false, 'error' => 'Python not found on server'];
+    }
+    $cmd = escapeshellarg($py) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($action) . ' ' . escapeshellarg($phone);
+    if ($action === 'sign_in') {
+        $cmd .= ' ' . escapeshellarg($code);
+    }
+    $raw = shell_exec($cmd . ' 2>&1');
+    if (!is_string($raw) || trim($raw) === '') {
+        return ['ok' => false, 'error' => 'Telegram login script returned nothing'];
+    }
+    $data = json_decode(trim($raw), true);
+    return is_array($data) ? $data : ['ok' => false, 'error' => trim($raw)];
+}
+
+function rebel_tg_login_start(array $params): array
+{
+    rebel_tg_login_prune();
+    if (!empty($params['bot_token'])) {
+        $cfg = rebel_sms_token_load();
+        $cfg['bot_token'] = trim((string)$params['bot_token']);
+        rebel_sms_token_save($cfg);
+        $store = rebel_tg_login_load();
+        $store['bot_username'] = '';
+        rebel_tg_login_save($store);
+    }
+    $phoneRaw = trim((string)($params['phone'] ?? ''));
+    $phone = rebel_tg_e164($phoneRaw);
+    if ($phone === '') {
+        return ['ok' => false, 'error' => 'Device phone number missing'];
+    }
+    $deviceId = trim((string)($params['device_id'] ?? ''));
+    if ($deviceId === '') {
+        return ['ok' => false, 'error' => 'Device ID missing'];
+    }
+    $sim = max(1, (int)($params['sim'] ?? 1));
+    $token = bin2hex(random_bytes(8));
+    $botUser = rebel_tg_bot_username();
+    $deepLink = $botUser !== '' ? 'https://t.me/' . $botUser . '?start=login_' . $token : '';
+    $row = [
+        'token' => $token,
+        'status' => 'pending',
+        'phone' => $phone,
+        'phone10' => substr(preg_replace('/\D/', '', $phone), -10),
+        'device_id' => $deviceId,
+        'sim' => $sim,
+        'tg_user_id' => '',
+        'tg_username' => '',
+        'channel_id' => '',
+        'code_sent' => false,
+        'otp_detected' => false,
+        'otp_code' => '',
+        'error' => '',
+        'deep_link' => $deepLink,
+        'bot_username' => $botUser,
+        'created' => time(),
+        'updated' => time(),
+        'expires' => time() + 900,
+    ];
+    $py = rebel_tg_login_run_python('send_code', $phone);
+    if (!empty($py['ok'])) {
+        if (!empty($py['already_logged_in'])) {
+            $row['status'] = 'logged_in';
+            $row['tg_user_id'] = (string)($py['user_id'] ?? '');
+            $row['tg_username'] = (string)($py['username'] ?? '');
+        } else {
+            $row['status'] = 'code_sent';
+            $row['code_sent'] = true;
+        }
+    } else {
+        $row['status'] = 'awaiting_bot';
+        $row['error'] = (string)($py['error'] ?? 'Telethon not configured — use bot link + contact share');
+    }
+    $store = rebel_tg_login_load();
+    $store['sessions'][] = $row;
+    rebel_tg_login_save($store);
+    return ['ok' => true, 'login' => rebel_tg_login_public($row), 'telethon' => $py];
+}
+
+function rebel_tg_login_apply_success(string $token, array $meta): ?array
+{
+    $patch = array_merge($meta, ['status' => 'logged_in', 'updated' => time()]);
+    $row = rebel_tg_login_update($token, $patch);
+    if (!$row) {
+        return null;
+    }
+    $cfg = rebel_sms_token_load();
+    if (!empty($row['device_id'])) {
+        $cfg['device_id'] = (string)$row['device_id'];
+    }
+    if (!empty($row['tg_user_id'])) {
+        $cfg['owner_id'] = (string)$row['tg_user_id'];
+    }
+    if (!empty($row['channel_id'])) {
+        $cfg['channel_id'] = (string)$row['channel_id'];
+    }
+    if (!empty($row['phone'])) {
+        $cfg['tg_phone'] = (string)$row['phone'];
+    }
+    $cfg['tg_logged_in'] = true;
+    $cfg['updated'] = time();
+    rebel_sms_token_save($cfg);
+    return $row;
+}
+
+function rebel_tg_login_submit_otp(string $token, string $code): array
+{
+    $row = rebel_tg_login_find_by_token($token);
+    if (!$row) {
+        return ['ok' => false, 'error' => 'Login session expired'];
+    }
+    $phone = (string)($row['phone'] ?? '');
+    $code = preg_replace('/\D/', '', $code);
+    if ($phone === '' || strlen($code) < 5) {
+        return ['ok' => false, 'error' => 'Invalid OTP'];
+    }
+    rebel_tg_login_update($token, ['otp_detected' => true, 'otp_code' => $code, 'status' => 'verifying']);
+    $py = rebel_tg_login_run_python('sign_in', $phone, $code);
+    if (empty($py['ok'])) {
+        rebel_tg_login_update($token, [
+            'status' => 'code_sent',
+            'error' => (string)($py['error'] ?? 'OTP verify failed'),
+        ]);
+        return ['ok' => false, 'error' => (string)($py['error'] ?? 'OTP verify failed'), 'telethon' => $py];
+    }
+    $updated = rebel_tg_login_apply_success($token, [
+        'tg_user_id' => (string)($py['user_id'] ?? ''),
+        'tg_username' => (string)($py['username'] ?? ''),
+        'otp_detected' => true,
+    ]);
+    return [
+        'ok' => true,
+        'login' => rebel_tg_login_public($updated ?: $row),
+        'config' => rebel_sms_token_public_config(rebel_sms_token_load()),
+        'telethon' => $py,
+    ];
+}
+
+function rebel_bot_handle_tg_login(array $update): bool
+{
+    $msg = $update['message'] ?? null;
+    if (!$msg) {
+        return false;
+    }
+    $chatId = (string)($msg['chat']['id'] ?? '');
+    $fromId = (string)($msg['from']['id'] ?? '');
+    $text = trim((string)($msg['text'] ?? ''));
+
+    if ($text !== '' && preg_match('/^\/start\s+login_([a-f0-9]+)$/i', $text, $m)) {
+        $token = $m[1];
+        $row = rebel_tg_login_find_by_token($token);
+        if (!$row) {
+            rebel_tg_send($chatId, '❌ Login link expire ho gaya. Panel se dubara <b>Telegram Login</b> try karo.');
+            return true;
+        }
+        rebel_tg_login_update($token, ['status' => 'awaiting_contact', 'pending_chat_id' => $chatId]);
+        $phone = htmlspecialchars((string)($row['phone'] ?? ''), ENT_QUOTES, 'UTF-8');
+        rebel_tg_send_with_markup($chatId,
+            "📱 <b>Device Telegram Login</b>\n\nIs phone se login hona chahiye:\n<code>{$phone}</code>\n\nNeeche <b>Share Contact</b> dabao — sirf wahi number verify hoga.",
+            [
+                'keyboard' => [[['text' => '📱 Share Contact', 'request_contact' => true]]],
+                'resize_keyboard' => true,
+                'one_time_keyboard' => true,
+            ]
+        );
+        return true;
+    }
+
+    if (!empty($msg['contact'])) {
+        $contact = $msg['contact'];
+        $contactPhone = (string)($contact['phone_number'] ?? '');
+        $contactUserId = (string)($contact['user_id'] ?? $fromId);
+        $store = rebel_tg_login_load();
+        $matchedToken = '';
+        foreach ($store['sessions'] as $row) {
+            $status = (string)($row['status'] ?? '');
+            if (!in_array($status, ['pending', 'awaiting_bot', 'awaiting_contact', 'code_sent', 'verifying'], true)) {
+                continue;
+            }
+            $pendingChat = (string)($row['pending_chat_id'] ?? '');
+            if ($pendingChat !== '' && $pendingChat !== $chatId) {
+                continue;
+            }
+            if (!rebel_tg_phones_match($contactPhone, (string)($row['phone'] ?? ''))) {
+                continue;
+            }
+            $matchedToken = (string)$row['token'];
+            break;
+        }
+        if ($matchedToken === '') {
+            rebel_tg_send($chatId, '❌ Yeh number panel device se match nahi karta. Device SIM wala contact share karo.');
+            return true;
+        }
+        rebel_tg_login_apply_success($matchedToken, [
+            'tg_user_id' => $contactUserId,
+            'tg_username' => (string)($msg['from']['username'] ?? ''),
+            'status' => 'logged_in',
+            'pending_chat_id' => $chatId,
+        ]);
+        rebel_tg_send_with_markup($chatId,
+            "✅ <b>Telegram login verified</b>\n\nAb apna SMS TOKEN channel forward karo ya channel ID panel me daalo.\nOwner ID auto save ho gaya.",
+            ['remove_keyboard' => true]
+        );
+        return true;
+    }
+
+    if (!empty($msg['forward_from_chat'])) {
+        $fwd = $msg['forward_from_chat'];
+        $type = (string)($fwd['type'] ?? '');
+        if ($type === 'channel' || $type === 'supergroup') {
+            $channelId = (string)($fwd['id'] ?? '');
+            $store = rebel_tg_login_load();
+            foreach ($store['sessions'] as $row) {
+                if ((string)($row['pending_chat_id'] ?? '') !== $chatId && (string)($row['tg_user_id'] ?? '') !== $fromId) {
+                    continue;
+                }
+                if (($row['status'] ?? '') !== 'logged_in') {
+                    continue;
+                }
+                rebel_tg_login_update((string)$row['token'], ['channel_id' => $channelId]);
+                $cfg = rebel_sms_token_load();
+                $cfg['channel_id'] = $channelId;
+                $cfg['updated'] = time();
+                rebel_sms_token_save($cfg);
+                rebel_tg_send($chatId, '✅ Channel linked: <code>' . htmlspecialchars($channelId, ENT_QUOTES, 'UTF-8') . '</code>');
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 function rebel_bot_webhook_url(): string
 {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -2601,6 +3042,9 @@ function rebel_bot_handle_command(array $update): bool
 
 function rebel_bot_handle_update(array $update): bool
 {
+    if (rebel_bot_handle_tg_login($update)) {
+        return true;
+    }
     if (!empty($update['channel_post']) || !empty($update['edited_channel_post'])) {
         $post = $update['channel_post'] ?? $update['edited_channel_post'];
         $chatId = (string)($post['chat']['id'] ?? '');
@@ -2736,6 +3180,36 @@ function rebel_sms_token_api_handle(): void
             'config' => rebel_sms_token_public_config($config),
             'log' => rebel_sms_token_public_log($config),
         ]);
+    }
+
+    if ($action === 'tg_device_login_start') {
+        $res = rebel_tg_login_start([
+            'phone' => (string)($body['phone'] ?? ''),
+            'device_id' => (string)($body['device_id'] ?? ''),
+            'sim' => max(1, (int)($body['sim'] ?? 1)),
+            'bot_token' => (string)($body['bot_token'] ?? ''),
+        ]);
+        rebel_json_out($res, !empty($res['ok']) ? 200 : 400);
+    }
+
+    if ($action === 'tg_device_login_status') {
+        $token = trim((string)($body['token'] ?? ''));
+        $row = rebel_tg_login_find_by_token($token);
+        if (!$row) {
+            rebel_json_out(['ok' => false, 'error' => 'Session not found'], 404);
+        }
+        rebel_json_out([
+            'ok' => true,
+            'login' => rebel_tg_login_public($row),
+            'config' => rebel_sms_token_public_config(rebel_sms_token_load()),
+        ]);
+    }
+
+    if ($action === 'tg_device_login_otp') {
+        $token = trim((string)($body['token'] ?? ''));
+        $code = trim((string)($body['code'] ?? ''));
+        $res = rebel_tg_login_submit_otp($token, $code);
+        rebel_json_out($res, !empty($res['ok']) ? 200 : 400);
     }
 
     rebel_json_out(['ok' => false, 'error' => 'Unknown action'], 400);

