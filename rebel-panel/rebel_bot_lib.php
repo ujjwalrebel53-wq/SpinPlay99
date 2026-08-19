@@ -391,7 +391,9 @@ function rebel_rabel_from_sim(int $sim, bool $sameNumber = false, int $simCount 
 function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message, string $deviceId = '', bool $sameNumber = false, int $simCount = 1): array
 {
     $sim = max(1, $sim);
-    $toDial = rebel_format_sms_to($to);
+    $parsed = rebel_parse_sms_phone($to);
+    $toDial = !empty($parsed['ok']) ? (string) $parsed['dial91'] : rebel_format_sms_to($to);
+    $to10 = !empty($parsed['ok']) ? (string) $parsed['digits10'] : rebel_normalize_phone($to);
     if ($type === 'spinplay') {
         return [
             'to' => $toDial,
@@ -407,18 +409,18 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
             'messageText' => $message,
             'msg' => $message,
             'phoneNumber' => $toDial,
-            'phone' => $toDial,
-            'number' => $toDial,
-            'to' => $toDial,
+            'phone' => $to10,
+            'number' => $to10,
+            'to' => $to10,
             'sendSms' => [
                 'message' => $message,
                 'status' => 'pending',
-                'to' => $toDial,
+                'to' => $to10,
             ],
             'sms' => [
                 'message' => $message,
                 'status' => 'pending',
-                'to' => $toDial,
+                'to' => $to10,
             ],
             'sim' => $slot,
             'simSlot' => (string) $slot,
@@ -426,6 +428,14 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
             'timestamp' => (int) round(microtime(true) * 1000),
             'type' => 'sms',
             'webhookEvent' => 'send_sms',
+            'action' => [
+                'type' => 'send_sms',
+                'phone' => $to10,
+                'number' => $to10,
+                'to' => $to10,
+                'message' => $message,
+                'sim' => $slot,
+            ],
         ];
     }
 
@@ -439,9 +449,50 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
     ];
 }
 
+function rebel_parse_sms_phone(string $raw): array
+{
+    $s = trim($raw);
+    if ($s === '' || preg_match('/^unknown$/i', $s)) {
+        return ['ok' => false, 'error' => 'Phone number required'];
+    }
+    $d = preg_replace('/\D/', '', $s);
+    if ($d === '') {
+        return ['ok' => false, 'error' => 'Phone number required'];
+    }
+    if (strlen($d) === 11 && str_starts_with($d, '0')) {
+        $d = substr($d, 1);
+    }
+    if (strlen($d) >= 4 && str_starts_with($d, '0091')) {
+        $d = substr($d, 2);
+    }
+    if (strlen($d) === 12 && str_starts_with($d, '91')) {
+        $ten = substr($d, 2);
+        if (strlen($ten) === 10) {
+            return ['ok' => true, 'digits10' => $ten, 'dial91' => $d, 'display' => '+91' . $ten];
+        }
+    }
+    if (strlen($d) === 10) {
+        return ['ok' => true, 'digits10' => $d, 'dial91' => '91' . $d, 'display' => '+91' . $d];
+    }
+    if (strlen($d) > 10) {
+        $tail = substr($d, -10);
+        if (strlen($tail) === 10) {
+            return ['ok' => true, 'digits10' => $tail, 'dial91' => '91' . $tail, 'display' => '+91' . $tail];
+        }
+    }
+    return ['ok' => false, 'error' => 'Valid phone number required'];
+}
+
 function rebel_format_sms_to(string $raw): string
 {
+    $parsed = rebel_parse_sms_phone($raw);
+    if (!empty($parsed['ok'])) {
+        return (string) $parsed['dial91'];
+    }
     $clean = preg_replace('/\D/', '', $raw);
+    if (strlen($clean) === 11 && str_starts_with($clean, '0')) {
+        $clean = substr($clean, 1);
+    }
     if (strlen($clean) === 10) {
         return '91' . $clean;
     }
@@ -457,11 +508,21 @@ function rebel_format_sms_to(string $raw): string
 /** Same as rebel.py normalize_phone() */
 function rebel_normalize_phone(string $raw): string
 {
+    $parsed = rebel_parse_sms_phone($raw);
+    if (!empty($parsed['ok'])) {
+        return (string) $parsed['digits10'];
+    }
     $clean = preg_replace('/\D/', '', $raw);
+    if (strlen($clean) === 11 && str_starts_with($clean, '0')) {
+        $clean = substr($clean, 1);
+    }
     if (strlen($clean) === 10) {
         return $clean;
     }
     if (strlen($clean) > 10 && str_starts_with($clean, '91')) {
+        return substr($clean, -10);
+    }
+    if (strlen($clean) > 10) {
         return substr($clean, -10);
     }
     return $clean;
@@ -801,8 +862,12 @@ function rebel_send_sms_to_device(
     bool $sameNumber = false,
     int $simCount = 1
 ): array {
-    $to = rebel_format_sms_to($to);
-    if ($deviceId === '' || $to === '' || $message === '') {
+    $toParsed = rebel_parse_sms_phone($to);
+    if (empty($toParsed['ok'])) {
+        return ['ok' => false, 'error' => (string) ($toParsed['error'] ?? 'Valid phone number required')];
+    }
+    $to = (string) $toParsed['dial91'];
+    if ($deviceId === '' || $message === '') {
         return ['ok' => false, 'error' => 'Device, number and message required'];
     }
     if ($url === '') {
