@@ -414,6 +414,7 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
             'targetDeviceId' => $deviceId,
             'timestamp' => (int) round(microtime(true) * 1000),
             'type' => 'sms',
+            'webhookEvent' => 'send_sms',
         ];
     }
 
