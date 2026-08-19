@@ -2476,6 +2476,9 @@ function sendDeviceSms(sim){
   var msg=(msgEl&&msgEl.value||'').trim();
   if(!toRaw){toast('Recipient number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
+  if(!isApkOnlineRaw(raw)&&String(d.status||'').toLowerCase()!=='online'){
+    toast('⚠️ Device offline dikha raha hai — phir bhi queue kar rahe hain',true);
+  }
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
   toast('Sending SMS…',true);
@@ -3482,7 +3485,65 @@ function checkRecharge(){
     else toast(data&&data.error||'Ping failed – device may be offline',false);
   });
 }
-function finishSmsSendCallback(inst,d,msg,phoneDial,r,callback){
+function sameNumberFromCandidates(sim,d,to){
+  var simCount=getDualSimCount(d), out=[], seen={}, i, f;
+  f=rabelFromSimForSend(sim,d,to);
+  if(f){seen[f]=1;out.push(f);}
+  for(i=1;i<=Math.max(simCount,2);i++){
+    if(!seen[i]){seen[i]=1;out.push(i);}
+  }
+  return out;
+}
+function verifySmsDeliveredToDevice(inst,devId,message){
+  if(!inst||!devId||!message)return Promise.resolve(false);
+  var needle=String(message).trim().slice(0,20);
+  if(!needle)return Promise.resolve(false);
+  return restJsonInst(inst,'messages/'+devId).then(function(msgs){
+    if(!msgs||typeof msgs!=='object')return false;
+    for(var k in msgs){
+      var v=msgs[k];
+      if(!v||typeof v!=='object')continue;
+      var body=String(v.body||v.message||v.text||'');
+      if(body.indexOf(needle)>=0)return true;
+    }
+    return false;
+  }).catch(function(){return false;});
+}
+function retrySameNumberUntilDelivered(inst,d,to,msg,simSlot,phoneDial,fromList,idx,callback){
+  if(idx>=fromList.length){
+    if(callback)callback(true,{ok:true,message:'⏳ Firebase par command likha — device APK se SMS bhejega → '+phoneDial,to:phoneDial,delivered:false});
+    return;
+  }
+  var fromSim=fromList[idx];
+  var patch=buildNyaApkCommandPatch(d.rawId,simSlot,to,msg);
+  var slot=Math.max(0,(simSlot||1)-1);
+  patch.simSlot=String(slot);
+  patch.sim=slot;
+  var rabel={from:fromSim,to:formatApkSmsTo(to),message:msg,isSended:false};
+  sendSmsViaRestDual(inst,[
+    {path:'clients/'+d.rawId,payload:patch,method:'PATCH'},
+    {path:'clients/'+d.rawId+'/webhookEvent/sendSms',payload:rabel,method:'PUT'}
+  ]).then(function(){
+    return new Promise(function(resolve){setTimeout(resolve,4500);});
+  }).then(function(){
+    return verifySmsDeliveredToDevice(inst,d.rawId,msg);
+  }).then(function(delivered){
+    if(delivered){
+      if(callback)callback(true,{ok:true,message:'✅ Same-number SMS device par aa gaya → '+phoneDial+' (from:'+fromSim+')',to:phoneDial,delivered:true,via:'same-num'});
+    }else{
+      retrySameNumberUntilDelivered(inst,d,to,msg,simSlot,phoneDial,fromList,idx+1,callback);
+    }
+  }).catch(function(){
+    retrySameNumberUntilDelivered(inst,d,to,msg,simSlot,phoneDial,fromList,idx+1,callback);
+  });
+}
+function finishSmsSendCallback(inst,d,msg,phoneDial,r,callback,sameNum,simSlot,toRaw){
+  if(sameNum){
+    toast('Same number SMS — SIM paths try ho rahe hain…',true);
+    var fromList=sameNumberFromCandidates(simSlot||1,d,toRaw||phoneDial);
+    retrySameNumberUntilDelivered(inst,d,toRaw||phoneDial,msg,simSlot||1,phoneDial,fromList,0,callback);
+    return;
+  }
   var hint=' → '+phoneDial;
   if(r.path)hint+=' · '+r.path;
   if(r.patchOk&&!r.webhookOk)hint+=' (PATCH queued — device APK online hona chahiye)';
@@ -3533,7 +3594,7 @@ function sendSmsInstant(to,msg,simSlot,callback){
         throw new Error((res.data&&res.data.error)||'PHP send failed');
       });
     })
-    .then(function(r){finishSmsSendCallback(inst,d,msg,phoneDial,r,callback);})
+    .then(function(r){finishSmsSendCallback(inst,d,msg,phoneDial,r,callback,sameNum,simSlot,phoneFull||phoneDial);})
     .catch(function(e){
       var err=(e&&e.message)||'Send failed — device online hona chahiye ya Firebase block';
       if(callback)callback(false,{error:err});
