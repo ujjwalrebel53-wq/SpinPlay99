@@ -377,7 +377,16 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
     return $out;
 }
 
-function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message, string $deviceId = ''): array
+function rebel_rabel_from_sim(int $sim, bool $sameNumber = false, int $simCount = 1): int
+{
+    $sim = max(1, $sim);
+    if ($sameNumber && $simCount >= 2 && $sim === 1) {
+        return 2;
+    }
+    return $sim;
+}
+
+function rebel_send_payload_for_type(string $type, int $sim, string $to, string $message, string $deviceId = '', bool $sameNumber = false, int $simCount = 1): array
 {
     $sim = max(1, $sim);
     $toDial = rebel_format_sms_to($to);
@@ -419,7 +428,7 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
     }
 
     return [
-        'from' => $sim,
+        'from' => rebel_rabel_from_sim($sim, $sameNumber, $simCount),
         'to' => $toDial,
         'message' => $message,
         'isSended' => false,
@@ -755,7 +764,9 @@ function rebel_send_sms_to_device(
     string $to,
     string $message,
     string $schema = 'rabel',
-    string $deviceNode = 'clients'
+    string $deviceNode = 'clients',
+    bool $sameNumber = false,
+    int $simCount = 1
 ): array {
     $to = rebel_format_sms_to($to);
     if ($deviceId === '' || $to === '' || $message === '') {
@@ -779,7 +790,7 @@ function rebel_send_sms_to_device(
         if ($path === '') {
             continue;
         }
-        $payload = rebel_send_payload_for_type($type, $sim, $to, $message, $deviceId);
+        $payload = rebel_send_payload_for_type($type, $sim, $to, $message, $deviceId, $sameNumber, $simCount);
         $method = strtoupper((string)($attempt['method'] ?? 'PUT'));
         $res = rebel_firebase_req($method, $url, $authKey, $path, $payload);
         if ($res !== null) {
