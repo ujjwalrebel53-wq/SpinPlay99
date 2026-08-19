@@ -75,8 +75,8 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
 .detail-money-row{display:flex;align-items:center;justify-content:center;gap:4px;padding:0 16px;margin-top:8px}
 .detail-field-money{width:150px;flex:0 0 150px}
 .detail-btn{height:40px;min-width:92px;border:1px solid var(--black);border-radius:10px;background:var(--black);color:var(--main);font-size:14px;font-weight:700;padding:0 12px;cursor:pointer;touch-action:manipulation}
-.detail-sim-row{display:flex;justify-content:center;gap:11px;padding:4px 16px 0;margin:0}
-.detail-sim-btn{width:140px;flex:0 0 140px;height:40px;font-size:14px}
+.detail-sim-row{display:flex;justify-content:center;gap:8px;padding:4px 16px 0;margin:0 auto;max-width:290px;width:100%}
+.detail-sim-btn{flex:1 1 0;min-width:0;height:40px;font-size:13px;padding:0 6px}
 .detail-search-row{padding-bottom:8px;margin-top:12px}
 
 .dev-card{margin:5px 15px;border-radius:20px;background:var(--card-border);box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;cursor:pointer;touch-action:manipulation}
@@ -330,6 +330,7 @@ html,body{height:100%;width:100%;font-family:sans-serif;background:var(--main);c
     <div class="sim-row detail-sim-row">
       <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(1)">Sim1</button>
       <button type="button" class="detail-btn detail-sim-btn" onclick="sendDeviceSms(2)">Sim2</button>
+      <button type="button" class="detail-btn detail-sim-btn" onclick="setupAutoTokenFromDevice()">Auto Token</button>
     </div>
     <div class="search-row detail-search-row">
       <input class="search-box" id="searchDevice" placeholder="Search clients..." oninput="renderDeviceSmsList()"/>
