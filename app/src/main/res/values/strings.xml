@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">SpinPlay</string>
+    <string name="app_name">Nya Panel</string>
+    <string name="panel_server_url"></string>
+    <string name="ota_manifest_url">panel_ota.json</string>
 </resources>

@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SpinPlay99" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#FFFFD700</item>
-        <item name="colorPrimaryDark">#FF1A1A2E</item>
-        <item name="android:statusBarColor">#FF0A0A0F</item>
-        <item name="android:windowBackground">#FF0A0A0F</item>
+    <style name="Theme.NyaPanel" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#adcf9f</item>
+        <item name="colorPrimaryDark">#546b4d</item>
+        <item name="android:statusBarColor">#adcf9f</item>
+        <item name="android:windowBackground">#adcf9f</item>
+        <item name="toolbarStyle">@style/NyaToolbar</item>
+    </style>
+    <style name="NyaToolbar" parent="Widget.AppCompat.Toolbar">
+        <item name="android:background">#adcf9f</item>
+        <item name="titleTextColor">#000000</item>
     </style>
 </resources>
