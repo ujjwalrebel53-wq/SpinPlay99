@@ -1,0 +1,1998 @@
+{
+  "generatedAt": "2026-08-13",
+  "total": 68,
+  "live": 40,
+  "mismatches": 14,
+  "rows": [
+    {
+      "name": "Panel New cracker (416)",
+      "url": "https://colana-84ce2-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Panel New cracker.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "clients",
+      "apk_count": 416,
+      "rec_node": "clients",
+      "rec_count": 416,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 416,
+        "devices": 277,
+        "users": 278,
+        "messages": 39
+      }
+    },
+    {
+      "name": "Shoot Admin (353)",
+      "url": "https://dev-rahul-3ca89-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Shoot Admin.apk",
+      "schema": "rabel",
+      "panel_node": "Verify_Device",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "Verify_Device/{id}/webhookEvent/sendSms + manual_commands/send_sms",
+      "db_status": "dead/empty",
+      "apk_node": "Verify_Device",
+      "apk_count": 352,
+      "rec_node": "Verify_Device",
+      "rec_count": 352,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "Verify_Device/{deviceId}/all_sms"
+      ],
+      "send_detail": "PUT Verify_Device/{id}/webhookEvent/sendSms  OR  manual_commands/send_sms",
+      "apk_device_paths": {
+        "clients": 13,
+        "Verify_Device": 352
+      }
+    },
+    {
+      "name": "Project F2Fd6 (236)",
+      "url": "https://project-f2fd6-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Nya Panel (194)",
+      "url": "https://hdjdjdj-a73f2-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "nyapanel.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "devices",
+      "device_count": 20,
+      "all_device_nodes": {
+        "devices": 20,
+        "All_Users": 2
+      },
+      "sms_paths": [
+        "messages/3e9d19caa6305a43",
+        "devices/3e9d19caa6305a43/sms"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "clients",
+      "apk_count": 162,
+      "rec_node": "devices",
+      "rec_count": 20,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "messages/3e9d19caa6305a43",
+        "devices/3e9d19caa6305a43/sms"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 162
+      }
+    },
+    {
+      "name": "Adsf 8B4E8 (158)",
+      "url": "https://adsf-8b4e8-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "RTO Admin 31_1.0 (152)",
+      "url": "https://chalo-a536a-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO Admin 31_1.0.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "All_Users",
+      "device_count": 1,
+      "all_device_nodes": {
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 152,
+      "rec_node": "All_Users",
+      "rec_count": 1,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "All_Users/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH All_Users/{id} + PUT All_Users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 72,
+        "user_list": 152,
+        "user_data": 32,
+        "users": 49
+      }
+    },
+    {
+      "name": "Lodaroll (149)",
+      "url": "https://lodaroll-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Customer 1B7Ca (137)",
+      "url": "https://customer-1b7ca-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "All_Users",
+      "device_count": 2,
+      "all_device_nodes": {
+        "All_Users": 2
+      },
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "All_Users",
+      "rec_count": 2,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "All_Users/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH All_Users/{id} + PUT All_Users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "50k-Vid-Payload[sumdi] (129)",
+      "url": "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "yes",
+      "apk": "50k-Vid-Payload[sumdi].apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "All_Users",
+      "device_count": 1,
+      "all_device_nodes": {
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "clients",
+      "apk_count": 40,
+      "rec_node": "All_Users",
+      "rec_count": 1,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "All_Users/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH All_Users/{id} + PUT All_Users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 40
+      }
+    },
+    {
+      "name": "Amoyu Af062 (128)",
+      "url": "https://amoyu-af062-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Vdgsh 623Ed (126)",
+      "url": "https://vdgsh-623ed-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Ahisjija (100)",
+      "url": "https://ahisjija-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Abhiyogi 8B07E (97)",
+      "url": "https://abhiyogi-8b07e-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "RTO Admin 2 (49)",
+      "url": "https://smas-8bff8-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO Admin 2.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "users",
+      "device_count": 12,
+      "all_device_nodes": {
+        "devices": 7,
+        "user_data": 7,
+        "users": 12,
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 24,
+      "rec_node": "users",
+      "rec_count": 12,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "users/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH users/{id} + PUT users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 19,
+        "user_list": 24,
+        "user_data": 11
+      }
+    },
+    {
+      "name": "Rajakk 80Ecd (46)",
+      "url": "https://rajakk-80ecd-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Dhumm 90A53 (44)",
+      "url": "https://dhumm-90a53-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Samar Admin 13_1.0 (44)",
+      "url": "https://s85138920-87594-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Samar Admin 13_1.0.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_data",
+      "device_count": 16,
+      "all_device_nodes": {
+        "clients": 4,
+        "user_data": 16,
+        "All_Users": 1
+      },
+      "sms_paths": [
+        "user_sms/f6259a291003710c"
+      ],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_data",
+      "apk_count": 21,
+      "rec_node": "user_data",
+      "rec_count": 16,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/f6259a291003710c"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "user_data": 21
+      }
+    },
+    {
+      "name": "Sudhir Suexs Seox (44)",
+      "url": "https://sudhir-suexs-seox-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Shoot Admin_1.0 2 (39)",
+      "url": "https://nirmalda-efc1b-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Shoot Admin_1.0 2.apk",
+      "schema": "rabel",
+      "panel_node": "Verify_Device",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "Verify_Device/{id}/webhookEvent/sendSms + manual_commands/send_sms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "Verify_Device",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "Verify_Device/{deviceId}/all_sms"
+      ],
+      "send_detail": "PUT Verify_Device/{id}/webhookEvent/sendSms  OR  manual_commands/send_sms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "RTO WEB_7 (27)",
+      "url": "https://jamtar7-95f77-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO WEB_7.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_list",
+      "device_count": 20,
+      "all_device_nodes": {
+        "devices": 11,
+        "user_list": 20,
+        "user_data": 19,
+        "users": 12,
+        "All_Users": 1
+      },
+      "sms_paths": [
+        "user_sms/698d3344acba5395",
+        "devices/698d3344acba5395/sms"
+      ],
+      "send_method": "PATCH user_list/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 19,
+      "rec_node": "user_list",
+      "rec_count": 20,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/698d3344acba5395",
+        "devices/698d3344acba5395/sms"
+      ],
+      "send_detail": "PATCH user_list/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 16,
+        "user_list": 19,
+        "user_data": 19,
+        "users": 12
+      }
+    },
+    {
+      "name": "Maxbhai B8D3A (25)",
+      "url": "https://maxbhai-b8d3a-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "user_data",
+      "device_count": 18,
+      "all_device_nodes": {
+        "user_data": 18,
+        "users": 1
+      },
+      "sms_paths": [
+        "messages/2b96927f4ec945cf",
+        "user_data/2b96927f4ec945cf/sms"
+      ],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "user_data",
+      "rec_count": 18,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "messages/2b96927f4ec945cf",
+        "user_data/2b96927f4ec945cf/sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Spy fixed (25)",
+      "url": "https://spy-25-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "Spy fixed.apk",
+      "schema": "rabel",
+      "panel_node": "users",
+      "live_device_node": "All_Users",
+      "device_count": 8,
+      "all_device_nodes": {
+        "users": 3,
+        "All_Users": 8
+      },
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "users",
+      "apk_count": 3,
+      "rec_node": "All_Users",
+      "rec_count": 8,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH All_Users/{id} + PUT All_Users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "users": 3
+      }
+    },
+    {
+      "name": "PM ADMIN RAJ (23)",
+      "url": "https://jdhd-116fa-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "PM ADMIN RAJ.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_data",
+      "device_count": 10,
+      "all_device_nodes": {
+        "user_data": 10,
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 23,
+      "rec_node": "user_data",
+      "rec_count": 10,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "user_data/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "user_list": 23,
+        "user_data": 10,
+        "All_Users": 1
+      }
+    },
+    {
+      "name": "Ayan 5581D (22)",
+      "url": "https://ayan-5581d-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Jaduopop A9A12 (19)",
+      "url": "https://jaduopop-a9a12-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 19,
+      "all_device_nodes": {
+        "clients": 19,
+        "user_data": 16
+      },
+      "sms_paths": [
+        "messages/ecb5cf984e1e610e",
+        "clients/ecb5cf984e1e610e/sms",
+        "user_data/ecb5cf984e1e610e/sms"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 19,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/ecb5cf984e1e610e",
+        "clients/ecb5cf984e1e610e/sms",
+        "user_data/ecb5cf984e1e610e/sms"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Shadow F9Cd3 (18)",
+      "url": "https://shadow-f9cd3-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 11,
+      "all_device_nodes": {
+        "clients": 11
+      },
+      "sms_paths": [
+        "messages/167758d1923b8d1e"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 11,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/167758d1923b8d1e"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Miyakhalifa 143D5 (17)",
+      "url": "https://miyakhalifa-143d5-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "user_data",
+      "device_count": 17,
+      "all_device_nodes": {
+        "clients": 16,
+        "user_data": 17
+      },
+      "sms_paths": [
+        "messages/fdc9c5fde504f77e",
+        "clients/fdc9c5fde504f77e/sms",
+        "user_data/fdc9c5fde504f77e/sms"
+      ],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "user_data",
+      "rec_count": 17,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "messages/fdc9c5fde504f77e",
+        "clients/fdc9c5fde504f77e/sms",
+        "user_data/fdc9c5fde504f77e/sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Dharmesh Panel (16)",
+      "url": "https://dharmesh-panel-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 16,
+      "all_device_nodes": {
+        "clients": 16,
+        "user_data": 14,
+        "All_Users": 1
+      },
+      "sms_paths": [
+        "messages/841d7da820d2c7d7",
+        "clients/841d7da820d2c7d7/sms",
+        "user_data/841d7da820d2c7d7/sms"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 16,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/841d7da820d2c7d7",
+        "clients/841d7da820d2c7d7/sms",
+        "user_data/841d7da820d2c7d7/sms"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Fyyffyyf 60A54 (15)",
+      "url": "https://fyyffyyf-60a54-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 17,
+      "all_device_nodes": {
+        "clients": 17
+      },
+      "sms_paths": [
+        "messages/62e2a0bc6ad20073"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 17,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/62e2a0bc6ad20073"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Rajputlodu 5Bed0 (15)",
+      "url": "https://rajputlodu-5bed0-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 15,
+      "all_device_nodes": {
+        "clients": 15,
+        "All_Users": 1
+      },
+      "sms_paths": [
+        "messages/f729abd315147c58"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 15,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/f729abd315147c58"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Mparirajkumar (10)",
+      "url": "https://mparirajkumar-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 10,
+      "all_device_nodes": {
+        "clients": 10
+      },
+      "sms_paths": [
+        "messages/0250a4e1bb9d5a0a"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 10,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/0250a4e1bb9d5a0a"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Rmx3511Uuj (10)",
+      "url": "https://rmx3511uuj-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 10,
+      "all_device_nodes": {
+        "clients": 10
+      },
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 10,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Jsjdj7374J (8)",
+      "url": "https://jsjdj7374j-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 8,
+      "all_device_nodes": {
+        "clients": 8
+      },
+      "sms_paths": [
+        "messages/b83ccd5b3e7db34d"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 8,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/b83ccd5b3e7db34d"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Anjali 4A4Bc (5)",
+      "url": "https://anjali-4a4bc-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 5,
+      "all_device_nodes": {
+        "clients": 5
+      },
+      "sms_paths": [
+        "messages/8f7a937b082f0c88"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 5,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/8f7a937b082f0c88"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Sappu E8D46 (5)",
+      "url": "https://sappu-e8d46-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 5,
+      "all_device_nodes": {
+        "clients": 5
+      },
+      "sms_paths": [
+        "messages/7283406c6713e16d"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 5,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/7283406c6713e16d"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Devil King 101D4 (4)",
+      "url": "https://devil-king-101d4-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 4,
+      "all_device_nodes": {
+        "clients": 4
+      },
+      "sms_paths": [
+        "messages/4557023f25264ed8"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 4,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/4557023f25264ed8"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "SBI ADMIN (4)",
+      "url": "https://asdtest-project-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "SBI ADMIN.apk",
+      "schema": "rabel",
+      "panel_node": "user_data",
+      "live_device_node": "user_data",
+      "device_count": 4,
+      "all_device_nodes": {
+        "user_data": 4
+      },
+      "sms_paths": [
+        "user_sms/68b8c865bc485a67"
+      ],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "user_data",
+      "rec_count": 4,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/68b8c865bc485a67"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Shuruwat Admin (4)",
+      "url": "https://shuruwat-admin-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 4,
+      "all_device_nodes": {
+        "clients": 4
+      },
+      "sms_paths": [
+        "messages/298b9e8d819c1106"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 4,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/298b9e8d819c1106"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "base (3) (8)",
+      "url": "https://mmmff-42f96-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "base (3).apk",
+      "schema": "rabel",
+      "panel_node": "Verify_Device",
+      "live_device_node": "Verify_Device",
+      "device_count": 8,
+      "all_device_nodes": {
+        "Verify_Device": 8
+      },
+      "sms_paths": [],
+      "send_method": "Verify_Device/{id}/webhookEvent/sendSms + manual_commands/send_sms",
+      "db_status": "live",
+      "apk_node": "Verify_Device",
+      "apk_count": 8,
+      "rec_node": "Verify_Device",
+      "rec_count": 8,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "Verify_Device/{deviceId}/all_sms"
+      ],
+      "send_detail": "PUT Verify_Device/{id}/webhookEvent/sendSms  OR  manual_commands/send_sms",
+      "apk_device_paths": {
+        "Verify_Device": 8
+      }
+    },
+    {
+      "name": "Master Admin 36 (3) (39)",
+      "url": "https://kumu-f2257-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Master Admin 36 (3).apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "user_data",
+      "device_count": 12,
+      "all_device_nodes": {
+        "user_list": 10,
+        "user_data": 12
+      },
+      "sms_paths": [
+        "user_sms/85c9068daf279f2c",
+        "user_data/85c9068daf279f2c/sms"
+      ],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "clients",
+      "apk_count": 10,
+      "rec_node": "user_data",
+      "rec_count": 12,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/85c9068daf279f2c",
+        "user_data/85c9068daf279f2c/sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 10,
+        "user_list": 10,
+        "user_data": 10
+      }
+    },
+    {
+      "name": "Sexy chat (3) (524)",
+      "url": "https://newmalll-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Sexy chat (3).apk",
+      "schema": "rabel",
+      "panel_node": "devices",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "devices",
+      "apk_count": 524,
+      "rec_node": "devices",
+      "rec_count": 524,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH devices/{id} + PUT devices/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "devices": 524
+      }
+    },
+    {
+      "name": "Suman Penal (3)",
+      "url": "https://suman-penal-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 3,
+      "all_device_nodes": {
+        "clients": 3
+      },
+      "sms_paths": [
+        "messages/5d05751c0849dddd"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 3,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/5d05751c0849dddd"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "base (2) (1) (125)",
+      "url": "https://nammu-325a6-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "base (2) (1).apk",
+      "schema": "rabel",
+      "panel_node": "Verify_Device",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "Verify_Device/{id}/webhookEvent/sendSms + manual_commands/send_sms",
+      "db_status": "dead/empty",
+      "apk_node": "Verify_Device",
+      "apk_count": 124,
+      "rec_node": "Verify_Device",
+      "rec_count": 124,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "Verify_Device/{deviceId}/all_sms"
+      ],
+      "send_detail": "PUT Verify_Device/{id}/webhookEvent/sendSms  OR  manual_commands/send_sms",
+      "apk_device_paths": {
+        "Verify_Device": 124
+      }
+    },
+    {
+      "name": "base (2) (2)",
+      "url": "https://panel-wala-v1-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "no",
+      "apk": "base (2) (2).apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "God8 Chatee (2)",
+      "url": "https://god8-208ac-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "yes",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 1,
+      "all_device_nodes": {
+        "clients": 1
+      },
+      "sms_paths": [
+        "clients/4f2f4608ffa77c91/all_sms"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 1,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "clients/4f2f4608ffa77c91/all_sms"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "RTO Admin (2)",
+      "url": "https://admon-aeba0-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO Admin.apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_list",
+      "device_count": 2,
+      "all_device_nodes": {
+        "user_list": 2,
+        "users": 1
+      },
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH user_list/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 2,
+      "rec_node": "user_list",
+      "rec_count": 2,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH user_list/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "user_list": 2,
+        "users": 1
+      }
+    },
+    {
+      "name": "Angle Admin (1) (1)",
+      "url": "https://sbiclient0-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "yes",
+      "apk": "Angle Admin (1).apk",
+      "schema": "rabel",
+      "panel_node": "messages",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "messages",
+      "apk_count": 1,
+      "rec_node": "messages",
+      "rec_count": 1,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH messages/{id} + PUT messages/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "messages": 1
+      }
+    },
+    {
+      "name": "base (1) (2) (43)",
+      "url": "https://raki143aa-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "base (1) (2).apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_data",
+      "device_count": 8,
+      "all_device_nodes": {
+        "clients": 5,
+        "devices": 1,
+        "user_data": 8,
+        "users": 2,
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 43,
+      "rec_node": "user_data",
+      "rec_count": 8,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "user_data/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "user_list": 43,
+        "user_data": 4,
+        "users": 2
+      }
+    },
+    {
+      "name": "base (1) (3) (1) (751)",
+      "url": "https://rto9-d2b33-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "base (1) (3) (1).apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "users",
+      "device_count": 1,
+      "all_device_nodes": {
+        "users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH users/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_data",
+      "apk_count": 411,
+      "rec_node": "users",
+      "rec_count": 1,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "users/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH users/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "user_data": 411
+      }
+    },
+    {
+      "name": "challan falcon (1)",
+      "url": "https://par1nad-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "challan falcon (1).apk",
+      "schema": "rabel",
+      "panel_node": "users",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "users",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH users/{id} + PUT users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "DEMON rto (1) (59)",
+      "url": "https://demon-4-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "DEMON rto (1).apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_data",
+      "device_count": 20,
+      "all_device_nodes": {
+        "clients": 7,
+        "devices": 10,
+        "user_data": 20,
+        "users": 11,
+        "All_Users": 1
+      },
+      "sms_paths": [],
+      "send_method": "PATCH user_data/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 59,
+      "rec_node": "user_data",
+      "rec_count": 20,
+      "source": "LIVE",
+      "mismatch": true,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "user_data/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH user_data/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 6,
+        "user_list": 59,
+        "user_data": 20
+      }
+    },
+    {
+      "name": "fixed AI RTO Admin 9 (1)",
+      "url": "https://rto91-2b27f-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "fixed AI RTO Admin 9 (1).apk",
+      "schema": "rabel",
+      "panel_node": "devices",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH devices/{id} + PUT webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "devices",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH devices/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "RTO Admin3 (1) (15)",
+      "url": "https://challan5-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO Admin3 (1).apk",
+      "schema": "rabel",
+      "panel_node": "user_list",
+      "live_device_node": "user_list",
+      "device_count": 15,
+      "all_device_nodes": {
+        "clients": 13,
+        "devices": 8,
+        "user_list": 15,
+        "user_data": 14,
+        "users": 9,
+        "All_Users": 1
+      },
+      "sms_paths": [
+        "user_sms/629d12d842c41970",
+        "clients/629d12d842c41970/sms"
+      ],
+      "send_method": "PATCH user_list/{id} + PUT webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "user_list",
+      "apk_count": 15,
+      "rec_node": "user_list",
+      "rec_count": 15,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/629d12d842c41970",
+        "clients/629d12d842c41970/sms"
+      ],
+      "send_detail": "PATCH user_list/{id} (command fields) + PUT webhookEvent/sendSms",
+      "apk_device_paths": {
+        "clients": 13,
+        "user_list": 15,
+        "user_data": 14
+      }
+    },
+    {
+      "name": "RTO ADMIN_1.0-1-1 (1) (1)",
+      "url": "https://pmkisan-9fdd5-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "RTO ADMIN_1.0-1-1 (1) (1).apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Rtoo 6C8E6 (1)",
+      "url": "https://rtoo-6c8e6-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "clients",
+      "device_count": 1,
+      "all_device_nodes": {
+        "clients": 1
+      },
+      "sms_paths": [
+        "messages/a325c326d89b837e"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "live",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 1,
+      "source": "LIVE",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/a325c326d89b837e"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Sexy chat (1) (514)",
+      "url": "https://bakks-e3682-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Sexy chat (1).apk",
+      "schema": "rabel",
+      "panel_node": "devices",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "devices",
+      "apk_count": 507,
+      "rec_node": "devices",
+      "rec_count": 507,
+      "source": "APK scan",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH devices/{id} + PUT devices/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {
+        "devices": 507
+      }
+    },
+    {
+      "name": "User Admin 3 (1)",
+      "url": "https://server-97e23-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "User Admin 3 (1).apk",
+      "schema": "rabel",
+      "panel_node": "online_status",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "online_status",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "online_status/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH online_status/{id} + PUT online_status/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Venom Admin Master (1)",
+      "url": "https://shoot-admin-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Venom Admin Master (1).apk",
+      "schema": "rabel",
+      "panel_node": "online_status",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "online_status",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "online_status/{deviceId}/all_sms"
+      ],
+      "send_detail": "PUT online_status/{id}/webhookEvent/sendSms  OR  manual_commands/send_sms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "VIP kittyu (1)",
+      "url": "https://rameshwar-7okt-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "VIP kittyu (1).apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "AdminApp",
+      "url": "https://yourfirebasio-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "apiKey": "no",
+      "apk": "AdminApp.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "AlonExRaj-v2.1",
+      "url": "https://com-app-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "AlonExRaj-v2.1.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "C2H panel",
+      "url": "https://raxtyc-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "C2H panel.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "Darknet AdminX",
+      "url": "https://gaandkiaand-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "Darknet AdminX.apk",
+      "schema": "rabel",
+      "panel_node": "users",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "users",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH users/{id} + PUT users/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "HAMMER Panel 099",
+      "url": "https://gghhh-35b79-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "HAMMER Panel 099.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "PM Awaas Admin",
+      "url": "https://pmkisan-4e573-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "PM Awaas Admin.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{deviceId}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "SEXY BABY",
+      "url": "https://callmebinaryy12-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "SEXY BABY.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "User Admin Sb 2 fix",
+      "url": "https://-default-rtdb.firebaseio.com",
+      "apiKey": "no",
+      "apk": "User Admin Sb 2 fix.apk",
+      "schema": "rabel",
+      "panel_node": "clients",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [
+        "messages/{id}"
+      ],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "clients",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "messages/{id}"
+      ],
+      "send_detail": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    },
+    {
+      "name": "ZEN ADMIN",
+      "url": "https://aaaa-b3749-default-rtdb.firebaseio.com",
+      "apiKey": "yes",
+      "apk": "ZEN ADMIN.apk",
+      "schema": "rabel",
+      "panel_node": "online_status",
+      "live_device_node": "(none/dead)",
+      "device_count": 0,
+      "all_device_nodes": {},
+      "sms_paths": [],
+      "send_method": "PATCH clients/{id} + PUT clients/{id}/webhookEvent/sendSms",
+      "db_status": "dead/empty",
+      "apk_node": "",
+      "apk_count": 0,
+      "rec_node": "online_status",
+      "rec_count": 0,
+      "source": "config only",
+      "mismatch": false,
+      "rec_sms": [
+        "user_sms/{deviceId}",
+        "messages/{deviceId}",
+        "online_status/{deviceId}/all_sms"
+      ],
+      "send_detail": "PATCH online_status/{id} + PUT online_status/{id}/webhookEvent/sendSms",
+      "apk_device_paths": {}
+    }
+  ]
+}

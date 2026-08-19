@@ -1,0 +1,12 @@
+local.properties
+*.iml
+.gradle/
+app/build/
+app/.cxx/
+build/
+.idea/
+*.apk
+!rebel-panel/nya-panel-v1.0.3-release.apk
+rebel-panel/rebel_tg_login.json
+rebel-panel/tg_sessions/
+rebel-panel/scripts/__pycache__/
