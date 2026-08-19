@@ -261,6 +261,9 @@ final class RebelPanelApi {
         if ("rabel".equals(schema) || "clients".equals(node)) {
             out.add(new SendAttempt("clients/" + id, "rto9", "PATCH"));
         }
+        if (!node.isEmpty() && !"clients".equals(node)) {
+            out.add(new SendAttempt(node + "/" + id, "rto9", "PATCH"));
+        }
 
         if (isRtoStyleUrl(url) || "user_list".equals(deviceNode) || "user_data".equals(deviceNode)) {
             out.add(new SendAttempt("clients/" + id, "rto9", "PATCH"));

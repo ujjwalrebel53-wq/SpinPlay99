@@ -100,13 +100,13 @@
       "id": "apk_modiji_5aab6_default_rtdb",
       "name": "50k-Vid-Payload[sumdi] (129)",
       "schema": "rabel",
-      "deviceNode": "All_Users",
+      "deviceNode": "clients",
       "apiKey": "AIzaSyCdWVQRMm7veDRzaKM1QmD0rMU3bvoNM7I",
       "authDomain": "modiji-5aab6-default-rtdb.firebaseapp.com",
       "databaseURL": "https://modiji-5aab6-default-rtdb.asia-southeast1.firebasedatabase.app",
       "projectId": "modiji-5aab6-default-rtdb",
       "storageBucket": "modiji-5aab6-default-rtdb.firebasestorage.app",
-      "preferredDeviceNode": "All_Users"
+      "preferredDeviceNode": "clients"
     },
     {
       "id": "fb_amoyu_af062",

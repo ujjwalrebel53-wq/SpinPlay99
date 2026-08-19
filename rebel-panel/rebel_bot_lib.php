@@ -362,6 +362,9 @@ function rebel_send_paths_for_device(string $deviceId, string $schema = 'rabel',
         if ($deviceNode === 'clients' || $schema === 'rabel') {
             $out[] = ['path' => 'clients/' . $id, 'type' => 'rto9', 'method' => 'PATCH'];
         }
+        if ($node !== '' && $node !== 'clients') {
+            $out[] = ['path' => $node . '/' . $id, 'type' => 'rto9', 'method' => 'PATCH'];
+        }
         foreach (array_values(array_unique(['clients', $node, 'user_list', 'user_data', 'devices'])) as $n) {
             if ($n === '') {
                 continue;

