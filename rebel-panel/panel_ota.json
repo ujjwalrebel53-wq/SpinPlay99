@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "panel_version": 1,
+  "min_apk_version": 1,
+  "message": "Nya Panel OTA ready",
+  "apk_url": "",
+  "files": {
+    "index.html": "https://YOUR-DOMAIN/rebel-panel/nya.php",
+    "nya-firebase.js": "https://YOUR-DOMAIN/rebel-panel/nya-firebase.js",
+    "firebase_defaults.js": "https://YOUR-DOMAIN/rebel-panel/firebase_defaults.js",
+    "panel-boot.js": "https://YOUR-DOMAIN/rebel-panel/panel-boot.js"
+  }
+}
