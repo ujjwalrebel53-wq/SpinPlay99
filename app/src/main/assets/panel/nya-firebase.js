@@ -433,9 +433,21 @@ function parseApkBool(v){
 }
 function deviceOnlineFromRaw(s,fbId){
   if(!s)return false;
-  if(isNyaApkClientRecord(s)&&s.status!==undefined&&s.status!==null&&String(s.status)!=='')return parseApkOnlineStatus(s);
+  var hb=extractHeartbeatMs(s);
+  var hbAge=hb?Date.now()-hb:Infinity;
+  if(isCommandOnlyClientState(s)||isCommandOnlyRecord(s)){
+    return hbAge<=ONLINE_FRESH_MS;
+  }
+  if(isNyaApkClientRecord(s)&&s.status!==undefined&&s.status!==null&&String(s.status)!==''){
+    if(!parseApkOnlineStatus(s))return false;
+    if(hbAge>ONLINE_FLAG_TRUST_MS)return false;
+    return true;
+  }
   if(s.status!==undefined&&s.status!==null&&String(s.status)!==''){
-    if(parseApkBool(s.status))return true;
+    if(parseApkBool(s.status)){
+      if(hb&&hbAge>ONLINE_FLAG_TRUST_MS)return false;
+      return true;
+    }
     if(s.status===false||String(s.status).toLowerCase()==='false'||String(s.status).toLowerCase()==='0'||String(s.status).toLowerCase()==='offline')return false;
   }
   return resolveOnlineStatus(s,fbId);
