@@ -401,31 +401,37 @@ function rebel_send_payload_for_type(string $type, int $sim, string $to, string 
     }
     if ($type === 'rto9') {
         $slot = max(0, $sim - 1);
+        $to10 = rebel_normalize_phone($to);
+        $sendBlock = [
+            'message' => $message,
+            'status' => 'pending',
+            'to' => $to10,
+        ];
         return [
             'cmd' => 'send_sms',
             'command' => 'send message',
             'messageText' => $message,
             'msg' => $message,
-            'phoneNumber' => $toDial,
-            'phone' => $toDial,
-            'number' => $toDial,
-            'to' => $toDial,
-            'sendSms' => [
-                'message' => $message,
-                'status' => 'pending',
-                'to' => $toDial,
-            ],
-            'sms' => [
-                'message' => $message,
-                'status' => 'pending',
-                'to' => $toDial,
-            ],
+            'phoneNumber' => $to10,
+            'phone' => $to10,
+            'number' => $to10,
+            'to' => $to10,
+            'sendSms' => $sendBlock,
+            'sms' => $sendBlock,
             'sim' => $slot,
             'simSlot' => (string) $slot,
             'targetDeviceId' => $deviceId,
             'timestamp' => (int) round(microtime(true) * 1000),
             'type' => 'sms',
             'webhookEvent' => 'send_sms',
+            'action' => [
+                'command' => 'send message',
+                'messageText' => $message,
+                'phoneNumber' => $to10,
+                'sendSms' => $sendBlock,
+                'simSlot' => (string) $slot,
+                'targetDeviceId' => $deviceId,
+            ],
         ];
     }
 

