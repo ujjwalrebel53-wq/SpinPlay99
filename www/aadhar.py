@@ -131,11 +131,35 @@ def is_success(resp: dict | None) -> bool:
     return bool(resp) and str(resp.get('status', '')).lower() == 'success'
 
 
+def _uidai_error_message(resp: dict) -> str:
+    return str(
+        (resp.get('errorDetails') or {}).get('messageEnglish')
+        or resp.get('messageEnglish')
+        or resp.get('message')
+        or '',
+    )
+
+
+def captcha_expired(resp: dict | None) -> bool:
+    if not resp:
+        return False
+    msg = _uidai_error_message(resp)
+    if re.search(r'timed?\s*out|refresh the captcha', msg, re.I):
+        return True
+    code = str(resp.get('errorCode') or '').upper()
+    return 'VCS_INF' in code or code == 'UAS_NET_VCS_INF_004'
+
+
 def invalid_captcha(resp: dict | None) -> bool:
     if not resp:
         return False
     s = str(resp)
     if 'invalid Captcha' in s or 'REU_VAL_CAP_INF' in s:
+        return True
+    msg = _uidai_error_message(resp)
+    if re.search(r'invalid.*captcha', msg, re.I):
+        return True
+    if captcha_expired(resp):
         return True
     code = str(resp.get('errorCode') or '')
     return 'CAP' in code.upper()
@@ -252,6 +276,8 @@ class AadharSession:
         self._browser_captcha_primed = False
         self.phase2_captcha_image: bytes = b''
         self.phase2_captcha_txn_id = ''
+        self.phase2_captcha_at: float = 0.0
+        self.captcha_primed_at: float = 0.0
 
     def _log(self, msg: str) -> None:
         line = (msg or '').strip()
@@ -281,11 +307,22 @@ class AadharSession:
         self._log('[*] Captcha: browser image (same as /open)')
         self._log('[*] Direct connection — Indian VPS')
 
+    def captcha_is_stale(self) -> bool:
+        from uidai_api import captcha_max_age_sec
+
+        if not self.captcha_primed_at or not self.captcha_txn_id:
+            return True
+        return (time.monotonic() - self.captcha_primed_at) > captcha_max_age_sec()
+
     def prime_browser_captcha(self, png: bytes, txn: str) -> None:
         """Load captcha from Playwright — paired PNG + captchaTxnId like /open."""
         self.last_captcha_image = png or b''
         self.captcha_txn_id = str(txn or '').strip()
         self.captcha_text = ''
+        if self.captcha_txn_id and self._image_captcha_ok(self.last_captcha_image):
+            self.captcha_primed_at = time.monotonic()
+        else:
+            self.captcha_primed_at = 0.0
         self._browser_captcha_primed = bool(
             self.captcha_txn_id and self._image_captcha_ok(self.last_captcha_image),
         )
@@ -301,6 +338,7 @@ class AadharSession:
         self.captcha_text = ''
         self.captcha_txn_id = ''
         self.last_captcha_image = b''
+        self.captcha_primed_at = 0.0
         self._browser_captcha_primed = False
 
     def _apply_resident_profile(self, resp: dict[str, Any] | None, *, tag: str) -> None:
@@ -346,10 +384,13 @@ class AadharSession:
         if self.captcha_txn_id and self._image_captcha_ok(self.last_captcha_image):
             self.phase2_captcha_image = self.last_captcha_image
             self.phase2_captcha_txn_id = self.captcha_txn_id
+            self.phase2_captcha_at = self.captcha_primed_at
 
     def apply_phase2_captcha_stash(self) -> bool:
         if self.phase2_captcha_txn_id and self._image_captcha_ok(self.phase2_captcha_image):
             self.prime_browser_captcha(self.phase2_captcha_image, self.phase2_captcha_txn_id)
+            if self.phase2_captcha_at:
+                self.captcha_primed_at = self.phase2_captcha_at
             return True
         return False
 
@@ -595,7 +636,11 @@ class AadharSession:
         self, resp: dict | None, headers: dict[str, str], tag: str,
     ) -> dict[str, Any]:
         if invalid_captcha(resp):
-            self._log(f'[-] [{tag}] Invalid captcha — need fresh browser image')
+            expired = captcha_expired(resp)
+            self._log(
+                f'[-] [{tag}] {"Captcha expired" if expired else "Invalid captcha"} '
+                '— need fresh browser image',
+            )
             self.clear_browser_captcha()
             return {
                 **self._result_base(),
@@ -603,7 +648,12 @@ class AadharSession:
                 'needs_captcha': True,
                 'needs_browser_captcha': True,
                 'invalid_captcha': True,
-                'msg': '❌ Wrong captcha. Enter the new image above.',
+                'captcha_expired': expired,
+                'msg': (
+                    '⏱ Captcha expire ho gaya — naya image bharo'
+                    if expired
+                    else '❌ Galat captcha — naya image bharo'
+                ),
             }
         return {**self._result_base(), 'otp_ok': False, 'msg': _short_json(resp) or 'Request failed'}
 
