@@ -535,14 +535,6 @@ class UidaiHttpSession:
             except Exception as e:
                 log.warning('HTTP audio captcha fail: %s', e)
 
-        from browser_session import get_standby_captcha_pair
-
-        png, txn = b'', ''
-        pair = get_standby_captcha_pair() if not is_download_page else None
-        if pair:
-            png, txn = pair
-            append_log(logs, 'info', 'Standby captcha', {'txn': txn[:8], 'bytes': len(png)})
-
         if not txn:
             png, txn = await self._fetch_captcha_via_browser(page_url)
             append_log(logs, 'info', 'Browser captcha', {'txn': txn[:8], 'bytes': len(png)})

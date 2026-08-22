@@ -15,6 +15,9 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from react_extract import (
+    CLEAR_RETRIEVE_FORM_JS,
+    FILL_RETRIEVE_FORM_JS,
+    FILL_RETRIEVE_NAME_JS,
     CLICK_REFRESH_CAPTCHA_JS,
     EXTRACT_CAPTCHA_BUNDLE_JS,
     EXTRACT_CAPTCHA_TXN_JS,
@@ -40,6 +43,7 @@ from uidai_api import (
     normalize_name,
     parse_uidai_response,
     summarize_logs,
+    captcha_max_age_sec,
     uidai_fast,
 )
 
@@ -67,6 +71,7 @@ MOBILE_UA = (
     '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 )
 StepCb = Callable[[int, int, str], Awaitable[None]]
+CaptchaReadyCb = Callable[[bytes, str], Awaitable[None]]
 
 SKIP_FONTS_JS = """(() => {
   if (document.getElementById('rebel-skip-fonts')) return;
@@ -102,13 +107,42 @@ def _pool_key(pool: str = 'eid') -> str:
 
 
 _POOL: dict[str, Any] = {
-    'lock': asyncio.Lock(),
+    'browser_lock': asyncio.Lock(),
+    'slot_locks': {
+        STANDBY_UID: asyncio.Lock(),
+        STANDBY_EID: asyncio.Lock(),
+        STANDBY_PDF: asyncio.Lock(),
+    },
     'pw': None,
     'browser': None,
     STANDBY_UID: _empty_standby(),
     STANDBY_EID: _empty_standby(),
     STANDBY_PDF: _empty_standby(),
 }
+
+# Limit parallel Chromium — OOM fix when many users hit together.
+_BROWSER_SEM = asyncio.Semaphore(max(1, int(os.getenv('UIDAI_BROWSER_SLOTS', '3'))))
+_WARM_LOCK = asyncio.Lock()
+_WARM_TASK: asyncio.Task | None = None
+_PRIME_LOCK = asyncio.Lock()
+_PRIME_TASK: asyncio.Task | None = None
+
+
+def _slot_lock(slot: str) -> asyncio.Lock:
+    return _POOL['slot_locks'][slot]
+
+
+async def _acquire_all_slot_locks() -> list[asyncio.Lock]:
+    locks = [_slot_lock(s) for s in STANDBY_SLOTS]
+    for lk in locks:
+        await lk.acquire()
+    return locks
+
+
+def _release_locks(locks: list[asyncio.Lock]) -> None:
+    for lk in reversed(locks):
+        if lk.locked():
+            lk.release()
 
 
 def _browser_connected(browser: Browser | None) -> bool:
@@ -136,22 +170,53 @@ async def _pool_drop_browser_locked() -> None:
 
 
 async def _pool_shutdown() -> None:
-    async with _POOL['lock']:
-        for slot in STANDBY_SLOTS:
-            sb = _POOL.get(slot) or {}
-            if sb.get('context'):
+    slot_locks = await _acquire_all_slot_locks()
+    try:
+        async with _POOL['browser_lock']:
+            for slot in STANDBY_SLOTS:
+                sb = _POOL.get(slot) or {}
+                if sb.get('context'):
+                    try:
+                        await sb['context'].close()
+                    except Exception:
+                        pass
+                _POOL[slot] = _empty_standby()
+            await _pool_drop_browser_locked()
+            if _POOL['pw']:
                 try:
-                    await sb['context'].close()
+                    await _POOL['pw'].stop()
                 except Exception:
                     pass
-            _POOL[slot] = _empty_standby()
-        await _pool_drop_browser_locked()
-        if _POOL['pw']:
-            try:
-                await _POOL['pw'].stop()
-            except Exception:
-                pass
-        _POOL['pw'] = None
+            _POOL['pw'] = None
+    finally:
+        _release_locks(slot_locks)
+
+
+async def shutdown_browser_pool() -> None:
+    """Graceful Chromium + pool tab shutdown (call on bot exit)."""
+    try:
+        await _pool_shutdown()
+    except Exception as e:
+        log.warning('shutdown_browser_pool: %s', e)
+
+
+def _schedule_background(coro: Awaitable[Any], *, label: str = 'bg') -> None:
+    """Fire-and-forget task that survives errors and ignores closed loop."""
+    async def _wrapper() -> None:
+        try:
+            await coro
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            log.debug('background %s: %s', label, e)
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_closed():
+            return
+        loop.create_task(_wrapper())
+    except RuntimeError:
+        pass
 
 
 def pool_is_warm() -> bool:
@@ -212,10 +277,6 @@ async def fetch_pdf_browser_captcha(
             eid=eid,
             on_step=on_step,
         )
-    pair = get_standby_captcha_pair('eid')
-    if pair and name and mobile:
-        log.info('fetch_pdf_browser_captcha — standby cache hit')
-        return pair
     return await fetch_captcha_from_page(
         UIDAI_PAGE_URL,
         name=name,
@@ -238,12 +299,6 @@ async def fetch_captcha_from_page(
     """Browser captcha snapshot — UIDAI HTTP captcha API often returns 500."""
     is_retrieve = 'retrieve-eid-uid' in page_url
     is_download = 'genricdownload' in page_url.lower() or 'downloadaadhaar' in page_url.lower()
-    if is_retrieve and name and mobile:
-        pair = get_standby_captcha_pair()
-        if pair:
-            log.info('fetch_captcha_from_page — standby cache hit')
-            return pair
-
     sess = UidaiBrowserSession(on_step=on_step)
     net_captcha: dict[str, Any] = {}
 
@@ -267,16 +322,15 @@ async def fetch_captcha_from_page(
             form_wait = 10.0 if uidai_fast() else 22.0
             if not await sess._poll_form(form_wait):
                 raise RuntimeError('Retrieve form timeout')
-            await sess.page.fill('input[name="name"]', normalize_name(name))
-            await sess.page.fill('input[name="mobile"]', mobile.strip())
+            sess.name = normalize_name(name)
+            sess.mobile = mobile.strip()
+            await sess.page.fill('input[name="name"]', sess.name)
+            await sess.page.fill('input[name="mobile"]', sess.mobile)
             await sess.page.evaluate(SET_OPTION_JS, option)
-            await asyncio.sleep(_ui_delay(0.6))
-            poll_sleep = _ui_delay(0.35)
-            for _ in range(_poll_attempts(50)):
-                txn_pre = str(await sess.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
-                if txn_pre:
-                    break
-                await asyncio.sleep(poll_sleep)
+            await sess.refresh_captcha()
+            png, txn = sess._captcha_png_cache, sess.captcha_txn_id
+            if len(png or b'') >= 200 and txn:
+                return png, txn
         elif is_download:
             await asyncio.sleep(_ui_delay(1.2))
             if eid:
@@ -352,15 +406,18 @@ async def _capture_page_captcha(page: Page) -> tuple[bytes, str]:
             return png, txn
         raise
 
-    for attempt in range(50):
+    max_attempts = 12 if uidai_fast() else 50
+    poll_sleep = 0.12 if uidai_fast() else 0.25
+    refresh_at = 5 if uidai_fast() else 20
+    for attempt in range(max_attempts):
         loaded = await el.evaluate(
             '(img) => img.complete && img.naturalWidth > 10 && img.naturalHeight > 5'
         )
         if loaded:
             break
-        if attempt == 20:
+        if attempt == refresh_at:
             await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(poll_sleep)
 
     if len(png) < 500:
         try:
@@ -407,6 +464,15 @@ async def _refresh_standby_captcha_locked(page: Page, slot: str) -> None:
     log.info('Standby %s captcha — txn=%s bytes=%s', slot, (txn or '')[:8], len(png))
 
 
+async def _prepare_standby_retrieve_page(page: Page, slot: str) -> None:
+    """Empty form + UID/EID option — ready for instant name/mobile fill."""
+    opt = 'UID' if slot == STANDBY_UID else 'EID'
+    await page.evaluate(SET_OPTION_JS, opt)
+    await asyncio.sleep(_ui_delay(0.15))
+    await page.evaluate(CLEAR_RETRIEVE_FORM_JS)
+    await asyncio.sleep(_ui_delay(0.15))
+
+
 async def warm_standby_slot(slot: str) -> bool:
     """Keep one 24/7 browser tab hot — UID / EID / PDF download."""
     try:
@@ -428,15 +494,13 @@ async def warm_standby_slot(slot: str) -> bool:
                 try:
                     await page.goto(target_url, wait_until='commit', timeout=40_000)
                     if slot == STANDBY_PDF:
-                        await asyncio.sleep(_ui_delay(1.0))
+                        await asyncio.sleep(_ui_delay(0.35))
                     else:
                         for _ in range(100):
                             if await page.locator('input[name="name"]').count():
                                 break
                             await asyncio.sleep(0.1)
-                        opt = 'UID' if slot == STANDBY_UID else 'EID'
-                        await page.evaluate(SET_OPTION_JS, opt)
-                        await asyncio.sleep(_ui_delay(0.4))
+                        await _prepare_standby_retrieve_page(page, slot)
                     break
                 except Exception as e:
                     log.warning('warm %s attempt %s: %s', slot, attempt + 1, e)
@@ -447,12 +511,230 @@ async def warm_standby_slot(slot: str) -> bool:
         page = sb['page']
         if not page or page.is_closed():
             return False
-        async with _POOL['lock']:
+        lock = _slot_lock(slot)
+        await lock.acquire()
+        try:
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            net_txn: dict[str, Any] = {}
+            _attach_captcha_net_hook(page, net_txn)
             await _refresh_standby_captcha_locked(page, slot)
+            if slot != STANDBY_PDF:
+                txn = await _wait_page_captcha_txn(page, net_txn, timeout_s=6.0 if uidai_fast() else 12.0)
+                if txn:
+                    sb['captcha_txn_id'] = txn
+        finally:
+            lock.release()
         return True
     except Exception as e:
         log.warning('warm_standby_slot %s fail: %s', slot, e)
         return False
+
+
+def pool_form_ready(pool: str = 'uid') -> bool:
+    """Preloaded pool tab open (captcha cache optional)."""
+    slot = _pool_key(pool)
+    sb = _POOL.get(slot) or {}
+    page = sb.get('page')
+    return bool(page and not page.is_closed())
+
+
+def pool_slot_ready(pool: str = 'uid') -> bool:
+    """Preloaded tab + fresh captcha snapshot."""
+    if not pool_form_ready(pool):
+        return False
+    return standby_has_captcha(pool)
+
+
+async def instant_pool_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+    skip_replenish: bool = False,
+) -> tuple[bytes, str] | None:
+    """Fill shared pool tab in-place — no page steal, no goto (~1s)."""
+    nm = normalize_name(name)
+    mob = re.sub(r'\D', '', (mobile or '').strip())
+    if not mob:
+        return None
+    slot = _pool_key(pool)
+    if not pool_form_ready(pool):
+        log.info('instant_pool_captcha — pool %s not ready', pool)
+        return None
+    async with _BROWSER_SEM:
+        return await _instant_pool_captcha_locked(nm, mob, pool=pool, slot=slot, skip_replenish=skip_replenish)
+
+
+async def _instant_pool_captcha_locked(
+    nm: str,
+    mob: str,
+    *,
+    pool: str,
+    slot: str,
+    skip_replenish: bool,
+) -> tuple[bytes, str] | None:
+    net_txn: dict[str, Any] = {}
+    lock = _slot_lock(slot)
+    await lock.acquire()
+    try:
+        sb = _POOL.get(slot) or {}
+        page = sb.get('page')
+        if not page or page.is_closed():
+            return None
+        if slot != STANDBY_PDF:
+            await _prepare_standby_retrieve_page(page, slot)
+        prior_png = sb.get('captcha_png') or b''
+        filled = await page.evaluate(FILL_RETRIEVE_FORM_JS, {'name': nm, 'mobile': mob})
+        if not filled:
+            log.warning('instant_pool_captcha — JS fill miss pool=%s', pool)
+        try:
+            png, txn = await _force_refresh_page_captcha(page, net_txn)
+        except Exception as exc:
+            log.warning('instant_pool_captcha refresh pool=%s: %s', pool, exc)
+            return None
+        if prior_png and png == prior_png:
+            try:
+                png, txn = await _force_refresh_page_captcha(page, net_txn)
+            except Exception:
+                return None
+        if len(png) < 200 or not txn:
+            return None
+        sb['captcha_png'] = png
+        sb['captcha_txn_id'] = txn
+        sb['cached_at'] = time.monotonic()
+        log.info(
+            'instant_pool_captcha pool=%s name=%s bytes=%s txn=%s…',
+            pool, nm[:12], len(png), txn[:8],
+        )
+        return png, txn
+    except Exception as e:
+        log.warning('instant_pool_captcha pool=%s: %s', pool, e)
+        return None
+    finally:
+        if lock.locked():
+            lock.release()
+        if not skip_replenish:
+            _schedule_background(warm_standby_slot(slot), label=f'rewarm-{slot}')
+
+
+async def prefill_standby_name(name: str, pool: str = 'uid') -> bool:
+    """Pre-fill name on 24/7 pool tab while user types mobile in Telegram."""
+    nm = normalize_name(name)
+    if not nm or is_skip_name(nm):
+        return False
+    slot = _pool_key(pool)
+    sb = _POOL.get(slot) or {}
+    page = sb.get('page')
+    if not page or page.is_closed():
+        return False
+    try:
+        lock = _slot_lock(slot)
+        async with lock:
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            ok = await page.evaluate(FILL_RETRIEVE_NAME_JS, nm)
+            if ok:
+                log.info('Pool %s — name prefilled: %s', pool, nm[:20])
+            return bool(ok)
+    except Exception as e:
+        log.warning('prefill_standby_name %s: %s', pool, e)
+        return False
+
+
+async def open_instant_fetch_session(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+) -> UidaiBrowserSession | None:
+    """Adopt pool tab after instant fill + one fast captcha refresh (~3–6s)."""
+    nm = normalize_name(name)
+    mob = re.sub(r'\D', '', (mobile or '').strip())
+    if not mob:
+        return None
+    slot = _pool_key(pool)
+    if not pool_form_ready(pool):
+        try:
+            await asyncio.wait_for(warm_standby_slot(slot), timeout=6.0 if uidai_fast() else 10.0)
+        except Exception as e:
+            log.warning('open_instant_fetch_session warm %s: %s', pool, e)
+        if not pool_form_ready(pool):
+            return None
+
+    hit = await instant_pool_captcha(nm, mob, pool=pool, skip_replenish=True)
+    if hit:
+        png, txn = hit
+        browser = UidaiBrowserSession(pool=pool)
+        browser.name = nm
+        browser.mobile = mob
+        browser.name_skipped = is_skip_name(name)
+        if await browser._try_adopt_standby():
+            browser._captcha_png_cache = png
+            browser._captcha_cache_txn = txn
+            browser.captcha_txn_id = txn
+            browser._captcha_cache_at = time.monotonic()
+            browser._captcha_consumed = False
+            browser.form_ready = True
+            browser.touch()
+            browser._replenish_pool()
+            log.info(
+                'open_instant_fetch_session instant pool=%s txn=%s… bytes=%s',
+                pool, txn[:8], len(png),
+            )
+            return browser
+
+    browser = UidaiBrowserSession(pool=pool)
+    browser.name = nm
+    browser.mobile = mob
+    browser.name_skipped = is_skip_name(name)
+    try:
+        png = await browser.instant_fetch(nm, mob)
+        txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
+        if browser._page and browser._context and png and txn and len(png) >= 200:
+            log.info(
+                'open_instant_fetch_session fallback pool=%s txn=%s… bytes=%s',
+                pool, txn[:8], len(png),
+            )
+            return browser
+    except Exception as e:
+        log.warning('open_instant_fetch_session pool=%s: %s', pool, e)
+    try:
+        await browser.close(keep_warm=True)
+    except Exception:
+        pass
+    return None
+
+
+async def fresh_retrieve_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'eid',
+) -> tuple[bytes, str] | None:
+    """Fresh captcha image — closes browser after capture (PDF HTTP OTP path)."""
+    browser = await open_instant_fetch_session(name, mobile, pool=pool)
+    if not browser:
+        return None
+    png = browser._captcha_png_cache
+    txn = str(browser.captcha_txn_id or browser._captcha_cache_txn or '').strip()
+    try:
+        await browser.close(keep_warm=True)
+    except Exception:
+        pass
+    if png and txn and len(png) >= 200:
+        return png, txn
+    return None
+
+
+async def instant_retrieve_captcha(
+    name: str,
+    mobile: str,
+    *,
+    pool: str = 'uid',
+) -> tuple[bytes, str] | None:
+    """Fresh captcha from pool — always uses full browser refresh path."""
+    return await fresh_retrieve_captcha(name, mobile, pool=pool)
 
 
 async def warm_standby_uidai() -> bool:
@@ -466,12 +748,96 @@ async def refresh_standby_slot(slot: str) -> bool:
     if not page or page.is_closed():
         return False
     try:
-        async with _POOL['lock']:
-            await _refresh_standby_captcha_locked(page, slot)
+        lock = _slot_lock(slot)
+        async with lock:
+            if slot != STANDBY_PDF:
+                await _prepare_standby_retrieve_page(page, slot)
+            net_txn: dict[str, Any] = {}
+            _attach_captcha_net_hook(page, net_txn)
+            png, txn = await _force_refresh_page_captcha(page, net_txn, fast=True)
+            sb['captcha_png'] = png
+            sb['captcha_txn_id'] = txn
+            sb['cached_at'] = time.monotonic()
         return True
     except Exception as e:
         log.warning('refresh_standby_slot %s: %s', slot, e)
         return False
+
+
+async def fast_refresh_standby_slot(slot: str) -> bool:
+    """Fast captcha click-refresh on one pool tab (~2–4s)."""
+    return await refresh_standby_slot(slot)
+
+
+async def fast_refresh_all_pool_captchas() -> int:
+    """Sequential refresh on UID + EID + PDF — avoids RAM spike under load."""
+    if not uidai_instant_form():
+        return 0
+    if not _browser_connected(_POOL.get('browser')):
+        try:
+            await asyncio.wait_for(ensure_pool_warm(), timeout=90.0)
+        except Exception as e:
+            log.warning('fast_refresh_all warm: %s', e)
+            return 0
+    ok = 0
+    for slot in STANDBY_SLOTS:
+        try:
+            async with _BROWSER_SEM:
+                if await fast_refresh_standby_slot(slot):
+                    ok += 1
+        except Exception as e:
+            log.warning('fast_refresh slot %s: %s', slot, e)
+        await asyncio.sleep(0.15)
+    log.info('Pool captcha prime — %s/3 slots refreshed', ok)
+    return ok
+
+
+_POOL_PRIME_AT = 0.0
+_POOL_PRIME_RUNNING = False
+
+
+async def _pool_captcha_prime_worker(label: str) -> int:
+    global _POOL_PRIME_AT, _POOL_PRIME_RUNNING
+    _POOL_PRIME_RUNNING = True
+    try:
+        _POOL_PRIME_AT = time.monotonic()
+        return await fast_refresh_all_pool_captchas()
+    except Exception as e:
+        log.warning('pool captcha prime %s: %s', label, e)
+        return 0
+    finally:
+        _POOL_PRIME_RUNNING = False
+
+
+def schedule_pool_captcha_prime(label: str = 'activity') -> None:
+    """Debounced pool refresh — safe when many users message at once."""
+    if not uidai_instant_form():
+        return
+    now = time.monotonic()
+    if _POOL_PRIME_RUNNING or (_WARM_TASK is not None and not _WARM_TASK.done()):
+        return
+    if now - _POOL_PRIME_AT < 5.0:
+        return
+    _schedule_background(_pool_captcha_prime_worker(label), label=f'pool-prime-{label}')
+
+
+async def prime_pool_captchas_now(label: str = 'now') -> int:
+    """Single-flight captcha refresh — concurrent callers share one task."""
+    global _PRIME_TASK
+    if not uidai_instant_form():
+        return 0
+    async with _PRIME_LOCK:
+        if _PRIME_TASK is not None and not _PRIME_TASK.done():
+            try:
+                return await _PRIME_TASK
+            except Exception:
+                pass
+        _PRIME_TASK = asyncio.create_task(_pool_captcha_prime_worker(label))
+    try:
+        return await _PRIME_TASK
+    except Exception as e:
+        log.warning('prime_pool_captchas_now %s: %s', label, e)
+        return 0
 
 
 async def refresh_standby_captcha() -> bool:
@@ -483,31 +849,255 @@ async def refresh_standby_captcha() -> bool:
     return any(r is True for r in results)
 
 
-async def ensure_triple_pool_warm() -> bool:
-    """Chromium + 3 UIDAI tabs (UID / EID / PDF) — always on."""
+async def _txn_from_page_or_net(page: Page, net_txn: dict[str, Any]) -> str:
+    """Read captcha txn from network hook, React fiber, or bundle JS."""
+    cached = str(net_txn.get('txn') or '').strip()
+    if cached:
+        return cached
+    txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    if txn:
+        return txn
+    bundle = await page.evaluate(EXTRACT_CAPTCHA_BUNDLE_JS)
+    if isinstance(bundle, dict):
+        txn = str(bundle.get('txn') or '').strip()
+        if txn:
+            return txn
+    if net_txn.get('json'):
+        from audio_captcha import parse_captcha_generation
+
+        parsed = parse_captcha_generation(net_txn['json'])
+        txn = str(parsed.get('captchaTxnId') or parsed.get('txn') or '').strip()
+        if txn:
+            return txn
+    return ''
+
+
+async def _wait_page_captcha_txn(
+    page: Page,
+    net_txn: dict[str, Any],
+    *,
+    timeout_s: float = 20.0,
+) -> str:
+    poll_sleep = _ui_delay(0.4)
+    for _ in range(int(timeout_s / poll_sleep)):
+        txn = await _txn_from_page_or_net(page, net_txn)
+        if txn:
+            net_txn['txn'] = txn
+            return txn
+        await asyncio.sleep(poll_sleep)
+    return ''
+
+
+def _attach_captcha_net_hook(page: Page, net_txn: dict[str, Any]) -> None:
+    async def _on_captcha_response(response) -> None:
+        url = (response.url or '').lower()
+        if response.status != 200:
+            return
+        if 'captcha' not in url:
+            return
+        if 'generation' not in url and 'captchaservice' not in url:
+            return
+        try:
+            data = await response.json()
+            net_txn['json'] = data
+            from audio_captcha import parse_captcha_generation
+
+            parsed = parse_captcha_generation(data)
+            txn = str(parsed.get('captchaTxnId') or parsed.get('txn') or '').strip()
+            if txn:
+                net_txn['txn'] = txn
+        except Exception:
+            pass
+
+    page.on('response', _on_captcha_response)
+
+
+async def _page_captcha_changed(page: Page, old_txn: str, old_src: str | None) -> bool:
+    img = page.locator('img[alt*="CAPTCHA" i]').first
+    new_src = await img.get_attribute('src')
+    txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    if txn and old_txn and txn != old_txn:
+        return True
+    if old_src and new_src and new_src != old_src:
+        return True
+    return False
+
+
+async def _wait_page_captcha_visible(page: Page, timeout_s: int = 20) -> None:
+    el = page.locator('img[alt*="CAPTCHA" i]').first
+    await el.wait_for(state='visible', timeout=timeout_s * 1000)
+    for _ in range(timeout_s * 4):
+        if await el.evaluate('(img) => img.complete && img.naturalWidth > 10'):
+            return
+        await asyncio.sleep(0.25)
+    raise RuntimeError('Captcha load fail')
+
+
+async def _force_refresh_page_captcha(
+    page: Page,
+    net_txn: dict[str, Any] | None = None,
+    *,
+    fast: bool = False,
+) -> tuple[bytes, str]:
+    """Click refresh and wait until captcha image or txn actually changes."""
+    hook_txn = net_txn if net_txn is not None else {}
+    _attach_captcha_net_hook(page, hook_txn)
+    img = page.locator('img[alt*="CAPTCHA" i]').first
+    old_txn = str(await page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
+    old_src = await img.get_attribute('src')
+    await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+    await asyncio.sleep(_ui_delay(0.35 if fast else 0.5))
+    vis_timeout = 5 if fast else (12 if uidai_fast() else 20)
     try:
-        await _pool_browser()
-        results = await asyncio.gather(
-            warm_standby_slot(STANDBY_UID),
-            warm_standby_slot(STANDBY_EID),
-            warm_standby_slot(STANDBY_PDF),
-            return_exceptions=True,
-        )
-        ok = sum(1 for r in results if r is True)
-        log.info('Triple pool warm — %s/3 slots ready', ok)
-        return ok >= 2
+        await _wait_page_captcha_visible(page, vis_timeout)
+    except Exception:
+        pass
+    poll_sleep = 0.12 if fast else (0.2 if uidai_fast() else 0.35)
+    poll_rounds = 6 if fast else (20 if uidai_fast() else 30)
+    changed = False
+    for _ in range(poll_rounds):
+        if await _page_captcha_changed(page, old_txn, old_src):
+            changed = True
+            break
+        await asyncio.sleep(poll_sleep)
+    if not changed and not fast:
+        await page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
+        await asyncio.sleep(_ui_delay(0.8))
+        for _ in range(poll_rounds):
+            if await _page_captcha_changed(page, old_txn, old_src):
+                changed = True
+                break
+            await asyncio.sleep(poll_sleep)
+    txn = await _wait_page_captcha_txn(
+        page, hook_txn, timeout_s=3.0 if fast else (6.0 if uidai_fast() else 10.0),
+    )
+    png, cap_txn = await _capture_page_captcha(page)
+    txn = (txn or cap_txn or '').strip()
+    if len(png) < 200 or not txn:
+        raise RuntimeError('Fresh captcha failed after refresh')
+    return png, txn
+
+
+async def _fill_download_page_captcha(page: Page, eid: str) -> tuple[bytes, str]:
+    """Fill EID on download page and capture paired captcha image + txn."""
+    if not eid:
+        raise RuntimeError('EID required for download captcha')
+    net_txn: dict[str, Any] = {}
+    await page.evaluate(SELECT_DOWNLOAD_EID_JS)
+    await asyncio.sleep(_ui_delay(0.15))
+    await page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
+    await asyncio.sleep(_ui_delay(0.25))
+    png, txn = await _force_refresh_page_captcha(page, net_txn)
+    if not txn:
+        raise RuntimeError('captchaTxnID missing — reload page or run /open again')
+    if len(png) < 200:
+        raise RuntimeError('Download captcha image missing')
+    return png, txn
+
+
+async def capture_phase2_captcha_on_pool(eid: str) -> tuple[bytes, str]:
+    """Warm PDF pool tab — fill user EID and return fresh captcha."""
+    if not eid:
+        raise RuntimeError('EID required for phase-2 captcha')
+    slot = STANDBY_PDF
+    if not pool_form_ready('pdf'):
+        if not await warm_standby_slot(slot):
+            raise RuntimeError('PDF pool not warm')
+    lock = _slot_lock(slot)
+    await lock.acquire()
+    try:
+        sb = _POOL.get(slot) or {}
+        page = sb.get('page')
+        if not page or page.is_closed():
+            raise RuntimeError('PDF pool page closed')
+        url = (page.url or '').lower()
+        if 'genricdownload' not in url and 'downloadaadhaar' not in url:
+            await page.goto(DOWNLOAD_PAGE_URL, wait_until='commit', timeout=_goto_timeout_ms())
+            await asyncio.sleep(_ui_delay(0.35))
+        prior_png = sb.get('captcha_png') or b''
+        png, txn = await _fill_download_page_captcha(page, eid)
+        if prior_png and png == prior_png:
+            png, txn = await _fill_download_page_captcha(page, eid)
+        sb['captcha_png'] = png
+        sb['captcha_txn_id'] = txn
+        sb['cached_at'] = time.monotonic()
+        log.info('Phase2 pool captcha — eid=%s… txn=%s bytes=%s', eid[:6], txn[:8], len(png))
+        return png, txn
+    finally:
+        if lock.locked():
+            lock.release()
+
+
+async def _ensure_triple_pool_warm_staged() -> bool:
+    """Staged warm — one tab at a time; easier on RAM with many users."""
+    try:
+        async with _BROWSER_SEM:
+            await _pool_browser()
     except Exception as e:
-        log.warning('Triple pool warm fail: %s', e)
+        log.warning('pool browser launch: %s', e)
         return False
+    ok_uid = False
+    ok_eid = False
+    ok_pdf = False
+    try:
+        async with _BROWSER_SEM:
+            ok_uid = await warm_standby_slot(STANDBY_UID)
+        await asyncio.sleep(0.25)
+        async with _BROWSER_SEM:
+            ok_eid = await warm_standby_slot(STANDBY_EID)
+        await asyncio.sleep(0.25)
+        async with _BROWSER_SEM:
+            ok_pdf = await warm_standby_slot(STANDBY_PDF)
+    except Exception as e:
+        log.warning('staged pool warm: %s', e)
+    ok = sum(1 for x in (ok_uid, ok_eid, ok_pdf) if x)
+    log.info('Triple pool warm (staged) — %s/3 slots ready', ok)
+    return bool(ok_uid or ok >= 2)
+
+
+async def ensure_triple_pool_warm() -> bool:
+    return await _ensure_triple_pool_warm_staged()
 
 
 async def ensure_pool_warm() -> bool:
-    return await ensure_triple_pool_warm()
+    """Single-flight — many users share one warm task."""
+    global _WARM_TASK
+    async with _WARM_LOCK:
+        if _WARM_TASK is not None and not _WARM_TASK.done():
+            try:
+                return await _WARM_TASK
+            except Exception:
+                pass
+        _WARM_TASK = asyncio.create_task(_ensure_triple_pool_warm_staged())
+    try:
+        return await _WARM_TASK
+    except Exception as e:
+        log.warning('ensure_pool_warm: %s', e)
+        return False
+
+
+def _browser_launch_opts() -> dict[str, Any]:
+    """headless=0 + UIDAI_BROWSER_CHANNEL=chrome for laptop debugging."""
+    headless = os.getenv('UIDAI_HEADLESS', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+    opts: dict[str, Any] = {
+        'headless': headless,
+        'args': [
+            '--disable-remote-fonts',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+        ],
+    }
+    if headless:
+        opts['args'].append('--disable-gpu')
+    channel = os.getenv('UIDAI_BROWSER_CHANNEL', '').strip()
+    if channel:
+        opts['channel'] = channel
+    return opts
 
 
 async def _pool_browser() -> tuple[Browser, bool]:
     """Return (browser, reused). Dead pool entry auto-relaunch."""
-    async with _POOL['lock']:
+    async with _POOL['browser_lock']:
         if _POOL['browser']:
             if _browser_connected(_POOL['browser']):
                 log.info('Pre-warm: browser reuse (direct)')
@@ -518,16 +1108,8 @@ async def _pool_browser() -> tuple[Browser, bool]:
         if not _POOL['pw']:
             _POOL['pw'] = await async_playwright().start()
 
-        log.info('Pre-warm: launching browser (direct)')
-        opts: dict[str, Any] = {
-            'headless': True,
-            'args': [
-                '--disable-remote-fonts',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
-        }
+        log.info('Pre-warm: launching browser (direct) headless=%s', _browser_launch_opts().get('headless'))
+        opts = _browser_launch_opts()
         _POOL['browser'] = await _POOL['pw'].chromium.launch(**opts)
         return _POOL['browser'], False
 
@@ -539,11 +1121,13 @@ class UidaiBrowserSession:
         self,
         bundle_path: Path | None = None,
         on_step: StepCb | None = None,
+        on_captcha_ready: CaptchaReadyCb | None = None,
         pool: str = 'uid',
     ) -> None:
         # bundle_path kept for backward compat — no longer used
         self.bundle_path = bundle_path
         self._on_step = on_step
+        self._on_captcha_ready = on_captcha_ready
         self._pool_slot = pool
         self._context: BrowserContext | None = None
         self._page: Page | None = None
@@ -562,6 +1146,9 @@ class UidaiBrowserSession:
         self._captcha_png_cache: bytes = b''
         self._captcha_cache_txn: str = ''
         self._captcha_cache_at: float = 0.0
+        self._captcha_notified = False
+        self._captcha_photo_sent = False
+        self._captcha_consumed = False
 
     @property
     def page(self) -> Page:
@@ -576,6 +1163,83 @@ class UidaiBrowserSession:
     async def _step(self, n: int, total: int, msg: str) -> None:
         if self._on_step:
             await self._on_step(n, total, msg)
+
+    def reset_captcha_notify(self) -> None:
+        self._captcha_notified = False
+        self._captcha_photo_sent = False
+
+    def _clear_captcha_cache(self) -> None:
+        self._captcha_png_cache = b''
+        self._captcha_cache_txn = ''
+        self._captcha_cache_at = 0.0
+
+    def _captcha_cache_fresh(self) -> bool:
+        if self._captcha_consumed or len(self._captcha_png_cache) < 200:
+            return False
+        if not self._captcha_cache_at or not self.captcha_txn_id:
+            return False
+        age = time.monotonic() - self._captcha_cache_at
+        return age <= min(CAPTCHA_CACHE_TTL_SEC, captcha_max_age_sec())
+
+    async def fast_refresh_captcha(self) -> bytes:
+        """~2–4s refresh — no page reload (hot /fetch path)."""
+        if not self._page:
+            raise RuntimeError('Browser not started — run /fetch again')
+        net_txn: dict[str, Any] = {}
+        png, txn = await _force_refresh_page_captcha(self.page, net_txn, fast=True)
+        self._captcha_png_cache = png
+        self._captcha_cache_txn = txn
+        self.captcha_txn_id = txn
+        self._captcha_cache_at = time.monotonic()
+        self._captcha_consumed = False
+        return png
+
+    async def ensure_fresh_captcha_png(self) -> bytes:
+        """Fresh captcha for this request — fast path first."""
+        if not self._page:
+            raise RuntimeError('Browser not started — run /fetch again')
+        try:
+            await self.fast_refresh_captcha()
+        except Exception as exc:
+            log.warning('fast_refresh failed, full refresh: %s', exc)
+            await self.refresh_captcha(allow_reload=True)
+        self.reset_captcha_notify()
+        png = self._captcha_png_cache
+        if len(png or b'') < 200 or not self.captcha_txn_id:
+            raise RuntimeError('Captcha not ready — try /fetch again')
+        return png
+
+    def note_captcha_submitted(self, captcha_text: str) -> None:
+        """Captcha text sent — page txn is spent; refresh after OTP."""
+        self.last_captcha = (captcha_text or '').strip().lower()
+        self._captcha_consumed = True
+
+    async def refresh_for_next_fetch(self) -> None:
+        """Background — new captcha on pool tab after OTP / retrieve."""
+        try:
+            if self._page and not self._page.is_closed():
+                await self.refresh_captcha()
+                self._captcha_consumed = False
+                self.reset_captcha_notify()
+        except Exception as exc:
+            log.warning('refresh_for_next_fetch: %s', exc)
+
+    async def _notify_captcha_ready(self, png: bytes, txn: str = '') -> None:
+        if len(png) < 200:
+            return
+        self._captcha_png_cache = png
+        self._captcha_cache_txn = txn or self._captcha_cache_txn
+        self._captcha_cache_at = time.monotonic()
+        if txn:
+            self.captcha_txn_id = txn
+        cb = self._on_captcha_ready
+        if not cb or self._captcha_photo_sent:
+            return
+        try:
+            await cb(png, txn or self.captcha_txn_id)
+            self._captcha_photo_sent = True
+        except Exception as exc:
+            log.warning('captcha ready callback: %s', exc)
 
     def touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -651,6 +1315,7 @@ class UidaiBrowserSession:
             self.captcha_txn_id = txn
         await self._read_option()
         self.form_ready = True
+        await self._notify_captcha_ready(png, txn)
         return png
 
     async def _try_adopt_standby(self) -> bool:
@@ -664,11 +1329,8 @@ class UidaiBrowserSession:
         self._page = page
         sb['context'] = None
         sb['page'] = None
-        if sb.get('captcha_png'):
-            self._captcha_png_cache = sb['captcha_png']
-            self._captcha_cache_txn = sb.get('captcha_txn_id', '')
-            self.captcha_txn_id = self._captcha_cache_txn
-            self._captcha_cache_at = float(sb.get('cached_at') or time.monotonic())
+        self._clear_captcha_cache()
+        self.captcha_txn_id = ''
         self.form_ready = True
         self.page_loaded_at = time.monotonic()
         self.touch()
@@ -697,9 +1359,9 @@ class UidaiBrowserSession:
             self._page = None
 
         if await self._try_adopt_standby():
-            browser, reused = await _pool_browser()
-            asyncio.create_task(warm_standby_slot(_pool_key(self._pool_slot)))
-            return reused
+            await _pool_browser()
+            self._replenish_pool()
+            return True
 
         last_err: Exception | None = None
         for attempt in range(3):
@@ -713,7 +1375,7 @@ class UidaiBrowserSession:
                 last_err = e
                 log.warning('new_context fail attempt %s: %s', attempt + 1, e)
                 if attempt < 2 and _is_browser_closed_error(e):
-                    async with _POOL['lock']:
+                    async with _POOL['browser_lock']:
                         await _pool_drop_browser_locked()
                     await asyncio.sleep(1)
                     continue
@@ -773,6 +1435,50 @@ class UidaiBrowserSession:
         self.form_ready = True
         self.touch()
 
+    async def _fill_fields_only_fast(self) -> None:
+        """Fill name + mobile on preloaded page — one JS call, no reload."""
+        filled = await self.page.evaluate(
+            FILL_RETRIEVE_FORM_JS, {'name': self.name, 'mobile': self.mobile},
+        )
+        if not filled:
+            await self.page.fill('input[name="name"]', self.name)
+            await self.page.fill('input[name="mobile"]', self.mobile)
+        txn = await self.page.evaluate(EXTRACT_CAPTCHA_TXN_JS)
+        if txn:
+            self.captcha_txn_id = str(txn)
+        await self._read_option()
+        self.form_ready = True
+        self.touch()
+
+    async def instant_fetch(self, name: str, mobile: str) -> bytes:
+        """Turbo /fetch — adopt preloaded pool, fill form, return cached captcha (~1s)."""
+        self.name = normalize_name(name)
+        self.mobile = mobile.strip()
+        self.name_skipped = is_skip_name(name)
+        self.otp_txn_id = ''
+        self.last_captcha = ''
+        self._captcha_consumed = False
+        self._clear_captcha_cache()
+        self.reset_captcha_notify()
+        self.touch()
+
+        if not self._page:
+            if not await self._try_adopt_standby():
+                await self.start()
+        elif not await self._form_on_page():
+            if not await self._try_adopt_standby():
+                await self.start()
+
+        await self._fill_fields_only_fast()
+        await self.fast_refresh_captcha()
+        png = self._captcha_png_cache
+
+        self.page_loaded_at = time.monotonic()
+        self._replenish_pool()
+        if not png or len(png) < 200:
+            raise RuntimeError('Captcha not ready — try /fetch again')
+        return png
+
     async def _fill_fields_and_captcha(self, *, fresh_captcha: bool) -> None:
         await self._fill_fields_only()
         if fresh_captcha:
@@ -787,10 +1493,13 @@ class UidaiBrowserSession:
                 await self._step(8, 8, 'Captcha ready')
 
     async def _poll_form(self, max_sec: float = 25.0) -> bool:
-        for _ in range(int(max_sec / 0.15)):
+        step = 0.08 if uidai_fast() else 0.15
+        if uidai_fast() and max_sec > 12.0:
+            max_sec = 12.0
+        for _ in range(int(max_sec / step)):
             if await self.page.locator('input[name="name"]').count():
                 return True
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(step)
         return False
 
     async def _extract_captcha_txn(self) -> str | None:
@@ -812,6 +1521,24 @@ class UidaiBrowserSession:
         self.option = opt if opt in ('UID', 'EID') else 'UID'
         return self.option
 
+    async     def _replenish_pool(self) -> None:
+        _schedule_background(
+            warm_standby_slot(_pool_key(self._pool_slot)),
+            label='replenish-pool',
+        )
+
+    async def _open_from_preloaded_page(self) -> bytes:
+        """Preloaded pool tab — fill name/mobile and return fresh captcha."""
+        self.touch()
+        self.page_loaded_at = time.monotonic()
+        await self._step(1, 3, 'Preloaded UIDAI page ⚡')
+        await self._fill_fields_only_fast()
+        await self._step(2, 3, 'Refreshing captcha…')
+        await self.fast_refresh_captcha()
+        png = self._captcha_png_cache
+        self._replenish_pool()
+        return png or b''
+
     async def open_form(
         self,
         name: str,
@@ -825,30 +1552,28 @@ class UidaiBrowserSession:
         self.name_skipped = is_skip_name(name)
         self.otp_txn_id = ''
         self.last_captcha = ''
+        self.captcha_txn_id = ''
+        self._captcha_consumed = False
+        self._clear_captcha_cache()
+        self.reset_captcha_notify()
 
-        if not force_reload and await self.page_alive():
-            await self._step(1, 8, f'Session active — {self.ttl_label()} left')
-            await self._fill_fields_and_captcha(fresh_captcha=False)
-            asyncio.create_task(self._prefetch_next_captcha())
-            return self.peek_captcha_png() or b''
-
-        if not force_reload and await self._form_on_page():
-            self.touch()
-            self.page_loaded_at = time.monotonic()
-            pair = get_standby_captcha_pair(self._pool_slot)
-            if pair and not self.captcha_txn_id:
-                self._captcha_png_cache, self.captcha_txn_id = pair[0], pair[1]
-                self._captcha_cache_at = time.monotonic()
-            await self._step(2, 8, 'Pool ready — fast reopen ⚡')
-            await self._fill_fields_and_captcha(fresh_captcha=False)
-            asyncio.create_task(self._prefetch_next_captcha())
-            asyncio.create_task(warm_standby_uidai())
-            return self.peek_captcha_png() or self._captcha_png_cache or b''
+        if not force_reload:
+            if not self._page:
+                await self.start()
+            if await self.page_alive():
+                await self._step(1, 3, f'Session active — {self.ttl_label()} left')
+                await self._fill_fields_only_fast()
+                await self.fast_refresh_captcha()
+                png = self._captcha_png_cache
+                return png or b''
+            if await self._form_on_page():
+                return await self._open_from_preloaded_page()
 
         self.captcha_txn_id = ''
+        self._clear_captcha_cache()
         await self._step(3, 8, 'Opening UIDAI site…')
-        goto_timeout = 45_000
-        poll_sec = 22.0
+        goto_timeout = _goto_timeout_ms()
+        poll_sec = 12.0 if uidai_fast() else 22.0
         max_tries = 3
         last_err: Exception | None = None
         for attempt in range(max_tries):
@@ -866,18 +1591,18 @@ class UidaiBrowserSession:
                 last_err = e
                 if attempt < max_tries - 1:
                     await self._step(3, 8, f'Retry {attempt + 1}/{max_tries}…')
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.3 if uidai_fast() else 0.5)
         if last_err:
             raise RuntimeError(f'UIDAI open fail: {last_err}') from last_err
 
         await self._step(3, 8, 'UIDAI page loaded')
         await self._step(4, 8, 'Form ready')
-        await self._step(5, 8, f'Python engine v{BOT_ENGINE_VERSION} — 24h session')
-        await self._fill_fields_and_captcha(fresh_captcha=False)
+        await self._fill_fields_only_fast()
+        await self.fast_refresh_captcha()
+        png = self._captcha_png_cache
         self.page_loaded_at = time.monotonic()
-        await self.prefetch_captcha()
-        asyncio.create_task(self._prefetch_next_captcha())
-        return self._captcha_png_cache
+        _schedule_background(self._prefetch_next_captcha(), label='prefetch-captcha')
+        return self._captcha_png_cache or png or b''
 
     async def _prefetch_next_captcha(self) -> None:
         """Background — refresh captcha cache for next /open."""
@@ -911,56 +1636,29 @@ class UidaiBrowserSession:
         return png
 
     async def fetch_download_captcha(self, eid: str) -> tuple[bytes, str]:
-        """Phase-2 download page captcha — same retry pattern as open_form."""
+        """Phase-2 download page captcha — reuse pool tab when already open."""
         if not eid:
             raise RuntimeError('EID required for download captcha')
         self.touch()
         await self.start()
         goto_timeout = _goto_timeout_ms()
-        poll_sleep = _ui_delay(0.35)
-        vis_timeout = 10_000 if uidai_fast() else 18_000
         last_err: Exception | None = None
         for attempt in range(3):
             try:
-                await self.page.goto(
-                    DOWNLOAD_PAGE_URL,
-                    wait_until='commit',
-                    timeout=goto_timeout,
-                )
-                await asyncio.sleep(_ui_delay(1.2))
-                await self.page.evaluate(SELECT_DOWNLOAD_EID_JS)
-                await asyncio.sleep(_ui_delay(0.4))
-                await self.page.evaluate(FILL_DOWNLOAD_EID_JS, eid)
-                await asyncio.sleep(_ui_delay(0.8))
-                el = self.page.locator('img[alt*="CAPTCHA" i]').first
-                for vis_try in range(3):
-                    try:
-                        await el.wait_for(state='visible', timeout=vis_timeout)
-                        break
-                    except Exception:
-                        if vis_try < 2:
-                            await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
-                            await asyncio.sleep(_ui_delay(1.0))
-                        else:
-                            raise
-                txn = ''
-                for _ in range(_poll_attempts(50)):
-                    txn = str(await self.page.evaluate(EXTRACT_CAPTCHA_TXN_JS) or '').strip()
-                    if txn:
-                        break
-                    await asyncio.sleep(poll_sleep)
-                if not txn:
-                    await self._wait_captcha_txn(15.0)
-                    txn = self.captcha_txn_id or ''
-                png, cap_txn = await _capture_page_captcha(self.page)
-                txn = txn or cap_txn or ''
-                if txn and len(png) >= 200:
-                    self.captcha_txn_id = txn
-                    self._captcha_png_cache = png
-                    self._captcha_cache_txn = txn
-                    self._captcha_cache_at = time.monotonic()
-                    return png, txn
-                raise RuntimeError('Download captcha image or txn missing')
+                url = (self.page.url or '').lower()
+                if 'genricdownload' not in url and 'downloadaadhaar' not in url:
+                    await self.page.goto(
+                        DOWNLOAD_PAGE_URL,
+                        wait_until='commit',
+                        timeout=goto_timeout,
+                    )
+                    await asyncio.sleep(_ui_delay(0.35))
+                png, txn = await _fill_download_page_captcha(self.page, eid)
+                self.captcha_txn_id = txn
+                self._captcha_png_cache = png
+                self._captcha_cache_txn = txn
+                self._captcha_cache_at = time.monotonic()
+                return png, txn
             except Exception as e:
                 last_err = e
                 log.warning('fetch_download_captcha attempt %s: %s', attempt + 1, e)
@@ -969,28 +1667,23 @@ class UidaiBrowserSession:
         raise RuntimeError(f'Download captcha failed: {last_err}')
 
     async def _captcha_changed(self, old_txn: str, old_src: str | None) -> bool:
-        img = self.page.locator('img[alt*="CAPTCHA" i]').first
-        new_src = await img.get_attribute('src')
-        txn = await self._extract_captcha_txn()
-        if txn and old_txn and txn != old_txn:
-            return True
-        if old_src and new_src and new_src != old_src:
-            return True
-        return False
+        return await _page_captcha_changed(self.page, old_txn, old_src)
 
-    async def refresh_captcha(self) -> bytes:
+    async def refresh_captcha(self, *, allow_reload: bool = True) -> bytes:
         old_txn = self.captcha_txn_id
         old_src = await self.page.locator('img[alt*="CAPTCHA" i]').first.get_attribute('src')
         click_res = await self.page.evaluate(CLICK_REFRESH_CAPTCHA_JS)
         log.info('Captcha refresh click: %s', click_res)
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(_ui_delay(0.5))
         await self._wait_captcha_image()
-        for _ in range(30):
+        poll_sleep = 0.2 if uidai_fast() else 0.35
+        poll_rounds = 18 if uidai_fast() else 30
+        for _ in range(poll_rounds):
             if await self._captcha_changed(old_txn, old_src):
                 break
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(poll_sleep)
 
-        if not await self._captcha_changed(old_txn, old_src):
+        if allow_reload and not await self._captcha_changed(old_txn, old_src):
             log.info('Captcha refresh fallback — page reload')
             await self.page.reload(wait_until='commit', timeout=45_000)
             if not await self._poll_form(20.0):
@@ -1073,6 +1766,26 @@ class UidaiBrowserSession:
             ok, status, text, extra = await self._post_uidai_in_page(payload, logs, 'xhr', label)
         return ok, status, text, extra
 
+    async def ensure_browser_live(self) -> None:
+        """Ensure Playwright context exists for UIDAI API calls (no captcha refresh)."""
+        if self._context and self._page:
+            try:
+                if not self._page.is_closed():
+                    self.touch()
+                    return
+            except Exception:
+                pass
+        if not self.name or not self.mobile:
+            raise RuntimeError('Browser not started — run /fetch again')
+        self._page = None
+        self._context = None
+        if not await self._try_adopt_standby():
+            await self.start()
+        if await self._form_on_page():
+            await self._fill_fields_only_fast()
+        if not self._context:
+            raise RuntimeError('Browser not started — run /fetch again')
+
     async def send_otp(
         self,
         captcha: str,
@@ -1083,6 +1796,7 @@ class UidaiBrowserSession:
         captcha = (captcha or '').strip().lower()
         if not captcha:
             raise ValueError('Captcha required — enter 4–8 characters from the image')
+        await self.ensure_browser_live()
         step_fn = on_step or self._on_step
         total = 6
         logs: list[dict[str, Any]] = []
@@ -1093,10 +1807,15 @@ class UidaiBrowserSession:
                 await step_fn(n, total, msg)
 
         await s(1, f'Captcha fill: {captcha}')
-        await self.page.fill('input[name="captcha"]', captcha)
+        try:
+            await self.page.fill('input[name="captcha"]', captcha)
+        except Exception:
+            append_log(logs, 'info', 'Captcha fill skipped — using paired txn from image')
 
         await s(2, 'captchaTxnID read…')
-        txn = await self._extract_captcha_txn()
+        txn = str(self.captcha_txn_id or self._captcha_cache_txn or '').strip()
+        if not txn:
+            txn = await self._extract_captcha_txn()
         if not txn:
             try:
                 txn = await self._wait_captcha_txn(8.0)
@@ -1109,8 +1828,9 @@ class UidaiBrowserSession:
                     await s(6, 'Done')
                     self.last_logs = logs
                     return self._api_result(logs, otp_ok=False, captcha=captcha)
+        self.captcha_txn_id = txn
 
-        option = await self._read_option()
+        option = self.option or await self._read_option()
 
         payload = build_otp_payload(
             name=self.name,
@@ -1164,6 +1884,7 @@ class UidaiBrowserSession:
     async def submit_otp(self, otp: str, on_step: StepCb | None = None) -> dict[str, Any]:
         """Verify SMS OTP — UIDAI sends Aadhaar/EID to registered mobile."""
         otp = re.sub(r'\s+', '', otp.strip())
+        await self.ensure_browser_live()
         step_fn = on_step or self._on_step
         total = 5
         logs: list[dict[str, Any]] = []
