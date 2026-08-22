@@ -8,7 +8,7 @@ BASE="https://raw.githubusercontent.com/ujjwalrebel53-wq/SpinPlay99/${BRANCH}/ww
 
 FILES=(
   update_bot.sh
-  sex.py aadhar.py browser_session.py react_extract.py pdf_unlock.py
+  sex.py aadhar.py browser_session.py react_extract.py pdf_unlock.py pdf_preview.py
   uidai_api.py bot_ui_classic.py bot_access.py captcha_solver.py audio_captcha.py
   start_sex.sh install_all.sh requirements_sex.txt
 )
@@ -39,20 +39,26 @@ if [ -f .venv/bin/activate ]; then
   source .venv/bin/activate
   pip install -q -U pip
   pip install -q pypdf==5.1.0
+  pip install -q "pymupdf>=1.24.0"
   pip install -q -r requirements_sex.txt 2>/dev/null || true
 else
   echo "⚠ .venv missing — run: bash install_all.sh"
 fi
 
 touch .env
-grep -q '^UIDAI_PDF_CAPTCHA=' .env || echo 'UIDAI_PDF_CAPTCHA=browser' >> .env
+grep -q '^UIDAI_PDF_CAPTCHA=' .env || echo 'UIDAI_PDF_CAPTCHA=auto' >> .env
 grep -q '^UIDAI_WHISPER_AUTO=' .env || echo 'UIDAI_WHISPER_AUTO=0' >> .env
 grep -q '^UIDAI_NAME=' .env || echo 'UIDAI_NAME="KAMAR JAHAN"' >> .env
 grep -q '^UIDAI_FAST=' .env || echo 'UIDAI_FAST=1' >> .env
 grep -q '^UIDAI_POOL_WARM=' .env || echo 'UIDAI_POOL_WARM=1' >> .env
 
-pkill -f '[p]ython3.*sex\.py' 2>/dev/null || true
-sleep 2
+pkill -TERM -f '[p]ython3.*sex\.py' 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pgrep -f '[p]ython3.*sex\.py' >/dev/null || break
+  sleep 1
+done
+pkill -KILL -f '[p]ython3.*sex\.py' 2>/dev/null || true
+sleep 1
 nohup bash start_sex.sh > sex.log 2>&1 &
 sleep 2
 echo ""
