@@ -7,10 +7,15 @@ EXTRACT_CAPTCHA_TXN_JS = """() => {
     return Object.keys(el || {}).find((k) => k.startsWith('__reactFiber'));
   }
   function txnFromFiber(f) {
-    for (let j = 0; j < 22 && f; j++, f = f.return) {
-      const st = f.pendingProps?.state;
+    for (let j = 0; j < 40 && f; j++, f = f.return) {
+      const st = f.pendingProps?.state || f.memoizedState;
       const id = st?.captchaTxnID || st?.captchaTxnId || st?.captchaTxn;
       if (id && String(id).trim()) return String(id).trim();
+      if (st && typeof st === 'object' && st.memoizedState) {
+        const inner = st.memoizedState;
+        const id2 = inner?.captchaTxnID || inner?.captchaTxnId || inner?.captchaTxn;
+        if (id2 && String(id2).trim()) return String(id2).trim();
+      }
     }
     return null;
   }
@@ -31,6 +36,21 @@ EXTRACT_CAPTCHA_TXN_JS = """() => {
     if (!fk) continue;
     const id = txnFromFiber(el[fk]);
     if (id) return id;
+  }
+  const img = document.querySelector('img[alt*="CAPTCHA" i]');
+  if (img) {
+    const fk = fiberKey(img);
+    if (fk) {
+      const id = txnFromFiber(img[fk]);
+      if (id) return id;
+    }
+    let p = img.parentElement;
+    for (let i = 0; i < 10 && p; i++, p = p.parentElement) {
+      const fk2 = fiberKey(p);
+      if (!fk2) continue;
+      const id = txnFromFiber(p[fk2]);
+      if (id) return id;
+    }
   }
   return null;
 }"""
@@ -96,6 +116,35 @@ EXTRACT_CAPTCHA_BUNDLE_JS = """() => {
     }
   }
   return null;
+}"""
+
+FILL_RETRIEVE_FORM_JS = """(name, mobile) => {
+  function setVal(sel, val) {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (proto?.set) proto.set.call(el, val);
+    else el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  const okName = setVal('input[name="name"]', String(name || ''));
+  const okMob = setVal('input[name="mobile"]', String(mobile || '').replace(/\\D/g, ''));
+  return okName && okMob;
+}"""
+
+CLEAR_RETRIEVE_FORM_JS = """() => {
+  for (const name of ['name', 'mobile']) {
+    const el = document.querySelector('input[name="' + name + '"]');
+    if (!el) continue;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (proto?.set) proto.set.call(el, '');
+    else el.value = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  return true;
 }"""
 
 SET_OPTION_JS = """(opt) => {
