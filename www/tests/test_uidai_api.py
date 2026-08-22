@@ -26,7 +26,7 @@ from uidai_api import (
 
 class TestUidaiApi(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(BOT_ENGINE_VERSION, '2.14.1')
+        self.assertEqual(BOT_ENGINE_VERSION, '2.16.2')
 
     def test_get_header_transaction_id(self) -> None:
         h = get_header('abc-123-txn')
@@ -194,6 +194,26 @@ class TestUidaiApi(unittest.TestCase):
             'errorDetails': {'messageEnglish': 'Captcha timed out. Please refresh the captcha'},
         })
         ok, _, extra = parse_uidai_response(200, body)
+        self.assertFalse(ok)
+        self.assertEqual(extra.get('reason'), 'captcha_expired')
+
+    def test_parse_download_captcha_timeout(self) -> None:
+        from aadhar import captcha_expired, invalid_captcha
+
+        body = {
+            'errorCode': 'UAS_NET_VCS_INF_004',
+            'errorDetails': {
+                'messageEnglish': (
+                    'The captcha has timed out for security reasons. '
+                    'Please refresh the captcha and try again.'
+                ),
+            },
+            'status': 400,
+        }
+        self.assertTrue(captcha_expired(body))
+        self.assertTrue(invalid_captcha(body))
+        raw = json.dumps(body)
+        ok, _, extra = parse_download_response(200, raw)
         self.assertFalse(ok)
         self.assertEqual(extra.get('reason'), 'captcha_expired')
 
