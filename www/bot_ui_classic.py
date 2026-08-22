@@ -7,6 +7,8 @@ import re
 import time
 from typing import Any, Literal
 
+from uidai_api import is_skip_name
+
 TerminalMode = Literal['fetch', 'pdf', 'captcha']
 
 _LOADING_MSG_BY_CHAT: dict[int, Any] = {}
@@ -76,6 +78,12 @@ def uidai_user_message(result: dict[str, Any], *, kind: str) -> str:
         return '📱 OTP sent to your mobile. Reply with the 6-digit code here.'
 
     if kind == 'download_otp' and result.get('otp_ok'):
+        a_name = str(result.get('aadhaar_name') or '').strip()
+        if a_name and not is_skip_name(a_name):
+            return (
+                f'👤 Name: {a_name}\n'
+                '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
+            )
         return '📱 OTP 2 sent — reply with the 6-digit code for PDF download.'
 
     if kind == 'download' and result.get('download_ok'):
@@ -177,7 +185,9 @@ async def create_loading_screen(
 class LoadingScreen:
     """Terminal panel — spinner keeps rotating until done/fail."""
 
-    _SPIN_INTERVAL = 0.42
+    # Telegram editMessageText ~1/s per chat — faster edits trigger HTTP 429.
+    _SPIN_INTERVAL = 2.0
+    _MIN_EDIT_GAP = 1.85
 
     def __init__(
         self,
@@ -204,6 +214,9 @@ class LoadingScreen:
         self._spin_frame = 0
         self._animating = False
         self._anim_task: asyncio.Task | None = None
+        self._last_edit_body = ''
+        self._last_edit_mono = 0.0
+        self._edit_lock = asyncio.Lock()
 
     def _spinner_line(self) -> str:
         if self._status == 'done':
@@ -238,19 +251,33 @@ class LoadingScreen:
         try:
             while self._animating:
                 self._spin_frame += 1
-                if self._status == 'loading' and self._lines:
-                    lines = _terminal_lines(self.mode)
-                    pulse = self._spin_frame % max(len(lines), 1)
-                    if pulse < len(lines) and lines[pulse] not in self._lines:
-                        self._lines = list(lines[: max(len(self._lines), pulse + 1)])
                 await self._render()
                 await asyncio.sleep(self._SPIN_INTERVAL)
         except asyncio.CancelledError:
             return
 
+    def _mode_start_line(self) -> str:
+        labels = {
+            'fetch': '[+] Aadhaar SMS fetch started',
+            'pdf': '[+] e-Aadhaar PDF flow started',
+            'captcha': '[+] Captcha session started',
+        }
+        return labels.get(self.mode, '[+] Operation started')
+
+    def _push_step_line(self, n: int, total: int, text: str) -> None:
+        """Append one real progress line — never repeat the same line twice."""
+        label = (text or '').strip()
+        if not label:
+            label = f'Step {n}/{total}'
+        step_line = f'[{n}/{total}] {label}'
+        if self._lines and self._lines[-1] == step_line:
+            return
+        self._lines.append(step_line)
+        if len(self._lines) > 8:
+            self._lines = self._lines[-8:]
+
     async def show(self) -> None:
-        lines = _terminal_lines(self.mode)
-        self._lines = [lines[0]] if lines else []
+        self._lines = [self._mode_start_line()]
         await self._start_spinner()
         await self._render()
 
@@ -260,28 +287,28 @@ class LoadingScreen:
     async def update(self, n: int, total: int, text: str = '') -> None:
         self._total = max(total, 1)
         self._current = n
-        idx = _step_index(self.mode, n, total, text)
-        lines = _terminal_lines(self.mode)
-        self._lines = list(lines[: idx + 1])
+        self._push_step_line(n, total, text)
         await self._render()
 
     async def done(self, final: str = '') -> None:
         await self._stop_spinner()
         self._status = 'done'
-        self._lines = list(_terminal_lines(self.mode))
+        if self._lines and self._lines[-1] != '[+] Done':
+            self._lines.append('[+] Done')
         self._footer = final
-        await self._render()
+        await self._render(force=True)
 
     async def fail(self, err: str = '') -> None:
         await self._stop_spinner()
         self._status = 'fail'
         if not self._lines:
-            lines = _terminal_lines(self.mode)
-            self._lines = [lines[0]] if lines else ['[!] Error']
+            self._lines = [self._mode_start_line()]
+        if self._lines[-1] != '[!] Stopped':
+            self._lines.append('[!] Stopped')
         self._footer = err
-        await self._render()
+        await self._render(force=True)
 
-    async def _render(self) -> None:
+    def _panel_text(self) -> str:
         target = self.mobile or '—'
         elapsed = int(time.monotonic() - self._started)
         body = [
@@ -290,15 +317,39 @@ class LoadingScreen:
             '',
             '━━━━━━━━━━━━━━━━━━━━',
             f'[📡] TARGET:  {target}',
+        ]
+        display_name = (self.name or '').strip()
+        if display_name and not is_skip_name(display_name):
+            body.append(f'[👤] NAME:    {display_name}')
+        body.extend([
             '━━━━━━━━━━━━━━━━━━━━',
             '[⚡️] LIVE TERMINAL:',
-        ]
+        ])
         body.extend(self._lines)
         if self._status == 'fail' and self._footer:
             body.extend(['', f'[!] {self._footer[:200]}'])
         elif self._footer and self._status == 'done':
             body.extend(['', self._footer[:400]])
-        try:
-            await self._msg.edit_text('\n'.join(body)[:4000])
-        except Exception:
-            pass
+        return '\n'.join(body)[:4000]
+
+    async def _render(self, *, force: bool = False) -> None:
+        text = self._panel_text()
+        if not force and text == self._last_edit_body:
+            return
+        async with self._edit_lock:
+            if not force:
+                wait = self._MIN_EDIT_GAP - (time.monotonic() - self._last_edit_mono)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            try:
+                await self._msg.edit_text(text)
+                self._last_edit_body = text
+                self._last_edit_mono = time.monotonic()
+            except Exception as exc:
+                err = str(exc).lower()
+                if '429' in err or 'too many requests' in err or 'retry after' in err:
+                    self._last_edit_mono = time.monotonic() + 2.0
+                    await asyncio.sleep(3.0)
+                retry_after = getattr(exc, 'retry_after', None)
+                if retry_after:
+                    await asyncio.sleep(float(retry_after) + 0.5)
