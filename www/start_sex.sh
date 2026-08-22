@@ -5,9 +5,15 @@ cd "$(dirname "$0")"
 
 echo "=== Rebel /open bot (sex.py) ==="
 
-pkill -f "[p]ython3.*sex\.py" 2>/dev/null || true
-pkill -f "[p]ython3.*bot\.py" 2>/dev/null || true
-sleep 2
+pkill -TERM -f "[p]ython3.*sex\.py" 2>/dev/null || true
+pkill -TERM -f "[p]ython3.*bot\.py" 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pgrep -f "[p]ython3.*sex\.py" >/dev/null || break
+  sleep 1
+done
+pkill -KILL -f "[p]ython3.*sex\.py" 2>/dev/null || true
+pkill -KILL -f "[p]ython3.*bot\.py" 2>/dev/null || true
+sleep 1
 
 for f in sex.py bot_ui_classic.py bot_access.py browser_session.py uidai_api.py react_extract.py captcha_solver.py audio_captcha.py aadhar.py pdf_unlock.py; do
   [ -f "$f" ] || { echo "❌ Missing: $f"; exit 1; }
