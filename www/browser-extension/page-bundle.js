@@ -78,7 +78,7 @@
   function fieldContainer(el) {
     return (
       el?.closest(
-        'mat-form-field, .mat-mdc-form-field, .mat-form-field-wrapper, .form-group, .mb-3, .mb-4, [class*="form-field"]'
+        'mat-form-field, .mat-mdc-form-field, .mat-form-field-wrapper, .form-group, .mb-3, .mb-4, [class*="form-field"], .MuiFormControl-root, .MuiTextField-root, .MuiGrid-root, [class*="FormControl"], [class*="form-control"], [class*="input-group"]'
       ) || el?.parentElement?.parentElement || el?.parentElement
     );
   }
@@ -427,7 +427,7 @@
     }
     if (Date.now() - otpArmLogAt > 15000) {
       otpArmLogAt = Date.now();
-      log?.('info', 'React Send OTP tap armed v12.4.5');
+      log?.('info', 'React Send OTP tap armed v12.4.6');
     }
   }
 
@@ -540,7 +540,7 @@
       const box = fieldContainer(input);
       if (box) blocks.add(box);
     });
-    qAll('mat-form-field, .mat-mdc-form-field, .form-group, [class*="form-field"]').forEach((block) => {
+    qAll('mat-form-field, .mat-mdc-form-field, .form-group, [class*="form-field"], .MuiFormControl-root, .MuiTextField-root').forEach((block) => {
       const blob = norm(block.textContent || '').slice(0, 120);
       if (DOB_LABEL.test(blob)) blocks.add(block);
     });
@@ -558,7 +558,7 @@
   function getMatFields() {
     const seen = new Set();
     const out = [];
-    qAll('mat-form-field, .mat-mdc-form-field').forEach((mff) => {
+    qAll('mat-form-field, .mat-mdc-form-field, .MuiFormControl-root, .MuiTextField-root').forEach((mff) => {
       const input = mff.querySelector('input:not([type="hidden"]), textarea');
       if (!input || seen.has(input)) return;
       seen.add(input);
@@ -597,7 +597,7 @@
     st.textContent =
       '.' +
       HIDDEN_MARK +
-      ',.rebel-email-hidden{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;}' +
+      ',.rebel-email-hidden,[data-rebel-dob-hidden],[data-rebel-email-hidden],[data-rebel-dob-off]{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;border:0!important;}' +
       '.' +
       DISABLED_MARK +
       '{opacity:.55!important;pointer-events:none!important;user-select:none!important;}' +
@@ -999,10 +999,31 @@
 
   let lastModeClickAt = 0;
 
+  function forceHideSections(uiSel, log) {
+    injectCss();
+    let n = 0;
+    if (isReactSite()) n += neutralizeReactDob(uiSel, log);
+    if (dobFieldVisible(uiSel)) {
+      n += hideDob(uiSel, log);
+      if (isReactSite()) {
+        if (dobFieldVisible(uiSel)) removeDobFromDom(uiSel, log);
+      } else {
+        removeDobFromDom(uiSel, log);
+        neutralizeDobControls(uiSel, log);
+      }
+    }
+    n += hideEmail(uiSel, log);
+    if (n) log?.('info', 'Sections hidden', { count: n, dobVisible: dobFieldVisible(uiSel) });
+    return n;
+  }
+
   function advancedBypass(uiSel, log) {
     if (isReactSite()) {
-      if (dobFieldVisible(uiSel)) neutralizeReactDob(uiSel, log);
-      softHideEmailOnly(log, uiSel);
+      if (!isDobBypassed(uiSel) && !shouldSkipEmailToggle(uiSel) && Date.now() - lastModeClickAt > 2000) {
+        quickModeSwitch(uiSel, log);
+        lastModeClickAt = Date.now();
+      }
+      forceHideSections(uiSel, log);
       enableReactOtpButton(log);
       patchReactOtpClick(uiSel, log);
       return {
@@ -1029,6 +1050,18 @@
   }
 
   async function advancedBypassAsync(uiSel, log) {
+    if (isReactSite()) {
+      await ensureUidaiMobileMode(uiSel, log);
+      if (!isDobBypassed(uiSel)) await tryUidaiModeSwitch(uiSel, log);
+      forceHideSections(uiSel, log);
+      enableReactOtpButton(log);
+      patchReactOtpClick(uiSel, log);
+      return {
+        dobBypassed: isDobBypassed(uiSel),
+        dobVisible: dobFieldVisible(uiSel),
+        orLinks: discoverOrLinks(uiSel).map((l) => l.text),
+      };
+    }
     await ensureUidaiMobileMode(uiSel, log);
     if (!isDobBypassed(uiSel)) await tryUidaiModeSwitch(uiSel, log);
     if (dobFieldVisible(uiSel)) {
@@ -1912,9 +1945,8 @@
   }
 
   function prepForUserOtp(uiSel, log) {
-    if (dobFieldVisible(uiSel)) {
-      if (isReactSite()) neutralizeReactDob(uiSel, log);
-      else removeDobFromDom(uiSel, log);
+    if (dobFieldVisible(uiSel) || findEmailBlocks().length) {
+      forceHideSections(uiSel, log);
     }
     if (isReactSite()) {
       syncReactInputs(log);
@@ -2627,7 +2659,11 @@
   });
 
   function runPrep() {
-    if (!isOn() || !E.isDobBypassed?.(UI_SEL)) return;
+    if (!isOn()) return;
+    if (E.dobFieldVisible?.(UI_SEL)) {
+      E.advancedBypass?.(UI_SEL, emit);
+    }
+    if (!E.isDobBypassed?.(UI_SEL)) return;
     if (E.prepForUserOtp) E.prepForUserOtp(UI_SEL, emit);
     else if (E.prepareOtpLight) E.prepareOtpLight(UI_SEL, emit);
   }
@@ -2676,8 +2712,14 @@
     if (!e.data || e.data.rebel !== 1 || e.data.type !== 'cmd') return;
     if (e.data.cmd === 'boot') bootPage();
     if (e.data.cmd === 'apply') {
-      E.apply && E.apply(UI_SEL, emit);
-      runPrep();
+      const run =
+        E.advancedBypassAsync?.(UI_SEL, emit) ||
+        (E.apply ? E.apply(UI_SEL, emit) : Promise.resolve());
+      Promise.resolve(run).then(function () {
+        runPrep();
+        if (E.isDobBypassed?.(UI_SEL)) startPrepLoop();
+        else emit('warn', 'DOB/Email abhi dikhe — Bypass DOB dubara dabao ya page reload');
+      });
     }
     if (e.data.cmd === 'diag') {
       const d = E.getFormDiagnostics ? E.getFormDiagnostics(UI_SEL) : {};
