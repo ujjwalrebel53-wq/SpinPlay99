@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -36,16 +37,26 @@ from bot_ui_classic import (
     LoadingScreen,
     create_loading_screen,
     dismiss_loading_screen,
+    get_loading_screen,
+    get_or_create_loading_screen,
+    shutdown_all_loading,
     uidai_user_message,
 )
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
+    capture_phase2_captcha_on_pool,
     ensure_pool_warm,
-    get_standby_captcha_pair,
-    get_standby_captcha_png,
+    fresh_retrieve_captcha,
+    instant_pool_captcha,
+    instant_retrieve_captcha,
+    pool_form_ready,
     pool_is_warm,
+    pool_slot_ready,
+    prefill_standby_name,
     refresh_standby_captcha,
+    shutdown_browser_pool,
+    _schedule_background,
 )
 from aadhar import (
     AADHAR_SESSIONS,
@@ -67,6 +78,7 @@ from uidai_api import (
     normalize_dob,
     normalize_name,
     uidai_fast,
+    uidai_instant_form,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -115,6 +127,29 @@ FLOW_MODE_DOWNLOAD = 'download'
 
 SESSIONS: dict[int, UidaiBrowserSession] = {}
 FLOW: dict[int, dict] = {}
+_PDF_CAPTCHA_DISPATCHED: dict[int, set[str]] = {}
+
+_CAPTCHA_PHOTOS: dict[int, list[int]] = {}
+
+FLOW_IDLE_SEC = max(30, int(os.getenv('FLOW_IDLE_SEC', '180')))
+
+
+def _idle_timeout_label() -> str:
+    if FLOW_IDLE_SEC >= 60 and FLOW_IDLE_SEC % 60 == 0:
+        return f'{FLOW_IDLE_SEC // 60} min'
+    return f'{FLOW_IDLE_SEC}s'
+
+
+_IDLE_STEPS = frozenset({
+    STEP_NAME,
+    STEP_MOBILE,
+    STEP_DOB,
+    STEP_CAPTCHA,
+    STEP_OTP,
+    STEP_CAPTCHA_2,
+    STEP_OTP_1,
+    STEP_OTP_2,
+})
 
 
 def _ids(update: Update) -> tuple[str | None, str | None]:
@@ -123,8 +158,87 @@ def _ids(update: Update) -> tuple[str | None, str | None]:
     return user_id, chat_id
 
 
+def _telegram_profile(update: Update) -> tuple[str, str]:
+    """Return (username_without_at, full_name)."""
+    user = update.effective_user
+    if not user:
+        return '', ''
+    username = (user.username or '').strip()
+    parts = [p for p in (user.first_name, user.last_name) if p]
+    full_name = ' '.join(parts).strip()
+    return username, full_name
+
+
+def _track_user(update: Update) -> tuple[str, int]:
+    """Save user profile; return (uid, starter_credits_granted)."""
+    user_id, chat_id = _ids(update)
+    uid = str(chat_id or user_id or '').strip()
+    if not uid:
+        return '', 0
+    username, full_name = _telegram_profile(update)
+    starter = ACCESS.record_user(uid, username=username or None, full_name=full_name or None)
+    return uid, starter
+
+
+async def _notify_owner_awarded(
+    context: ContextTypes.DEFAULT_TYPE,
+    uid: str,
+    amount: int,
+    balance: int,
+) -> bool:
+    """Tell user the owner awarded credits."""
+    if amount <= 0:
+        return False
+    try:
+        await context.bot.send_message(
+            chat_id=int(uid),
+            text=(
+                '🎁 The owner awarded you credits!\n\n'
+                f'+{amount} credit(s)\n'
+                f'💳 New balance: {balance}'
+            ),
+        )
+        return True
+    except Exception as e:
+        log.warning('credit notify fail %s: %s', uid, e)
+        return False
+
+
+def _locked_access_message(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    uid, _starter = _track_user(update)
+    username, full_name = _telegram_profile(update)
+    lines = [
+        '🔒 This bot is locked — approved users only.',
+        '',
+        f'Your Chat ID: `{chat_id or uid}`',
+    ]
+    if username:
+        lines.append(f'Username: @{username}')
+    if full_name:
+        lines.append(f'Name: {full_name}')
+    lines.extend(['', 'Ask the owner for access (/myid).'])
+    return '\n'.join(lines)
+
+
 def clear_flow(chat_id: int) -> None:
     FLOW.pop(chat_id, None)
+    _PDF_CAPTCHA_DISPATCHED.pop(chat_id, None)
+    _CAPTCHA_PHOTOS.pop(chat_id, None)
+
+
+def assign_flow(chat_id: int, data: dict) -> None:
+    FLOW[chat_id] = {**data, 'last_activity': time.monotonic()}
+
+
+def bump_flow(chat_id: int, **data) -> None:
+    FLOW[chat_id] = {**FLOW.get(chat_id, {}), **data, 'last_activity': time.monotonic()}
+
+
+def touch_flow(chat_id: int) -> None:
+    """Reset idle timer when user sends any message during a waiting step."""
+    if chat_id in FLOW:
+        FLOW[chat_id]['last_activity'] = time.monotonic()
 
 
 def flow_step(chat_id: int) -> str | None:
@@ -133,6 +247,20 @@ def flow_step(chat_id: int) -> str | None:
 
 def flow_mode(chat_id: int) -> str:
     return FLOW.get(chat_id, {}).get('mode', FLOW_MODE_RETRIEVE)
+
+
+def _flow_display_name(chat_id: int, sess: AadharSession | None = None) -> str:
+    """UIDAI enrollment name — persists on loading UI and captcha after EID verify."""
+    draft = FLOW.get(chat_id, {})
+    for candidate in (
+        draft.get('aadhaar_name'),
+        sess.aadhaar_name if sess else None,
+        draft.get('name'),
+        sess.name if sess else None,
+    ):
+        if candidate and not is_skip_name(str(candidate)):
+            return normalize_name(str(candidate))
+    return ''
 
 
 def clear_pdf_session(chat_id: int) -> None:
@@ -147,15 +275,68 @@ def valid_name_input(text: str) -> bool:
 
 async def guard(update: Update) -> bool:
     user_id, chat_id = _ids(update)
+    _track_user(update)
+    uid = str(chat_id or user_id or '').strip()
+    if ACCESS.is_banned(uid) and not ACCESS.is_owner(user_id, chat_id):
+        await update.message.reply_text(
+            '🚫 You are **banned** from this bot.\nContact the owner if this is a mistake.',
+            parse_mode='Markdown',
+        )
+        return False
     if ACCESS.allowed(user_id, chat_id):
         return True
     await update.message.reply_text(
-        '🔒 This bot is locked — approved users only.\n\n'
-        f'Your Chat ID: `{chat_id}`\n'
-        'Ask the owner for access (/myid).',
+        _locked_access_message(update),
         parse_mode='Markdown',
     )
     return False
+
+
+def _deduct_credits_start(update: Update, cost: int, *, action: str) -> bool:
+    """Deduct credits when /fetch or /pdf session actually starts."""
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return True
+    uid = str(chat_id or user_id or '').strip()
+    if not ACCESS.use_credits(user_id, chat_id, cost):
+        return False
+    log.info('credit deduct uid=%s action=%s cost=%s bal=%s', uid, action, cost, ACCESS.credits(uid))
+    return True
+
+
+async def guard_credits(update: Update, cost: int, *, action: str) -> bool:
+    """Locked mode: approved users need credits before /fetch or /pdf."""
+    if not await guard(update):
+        return False
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required():
+        return True
+    if ACCESS.is_owner(user_id, chat_id):
+        return True
+    if ACCESS.has_credits(user_id, chat_id, cost):
+        return True
+    bal = ACCESS.credits(str(chat_id or user_id))
+    await update.message.reply_text(
+        f'💳 Credits khatam — {action} ke liye {cost} credit chahiye.\n'
+        f'Balance: {bal}\n\n'
+        'Owner se contact karo ya /credits check karo.',
+    )
+    return False
+
+
+def _credit_footer(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return ''
+    bal = ACCESS.credits(str(chat_id or user_id))
+    return f'\n\n💳 Credits: {bal}'
+
+
+def _credit_remain_line(update: Update) -> str:
+    user_id, chat_id = _ids(update)
+    if not ACCESS.credits_required() or ACCESS.is_owner(user_id, chat_id):
+        return ''
+    return f'\n💳 Remaining: {ACCESS.credits(str(chat_id or user_id))}'
 
 
 def is_owner(update: Update) -> bool:
@@ -167,32 +348,25 @@ def get_session(chat_id: int) -> UidaiBrowserSession | None:
     return SESSIONS.get(chat_id)
 
 
-def _captcha_caption(*, fresh: bool = False, instant: bool = False, ttl: str = '') -> str:
+def _captcha_caption(
+    *,
+    fresh: bool = False,
+    instant: bool = False,
+    ttl: str = '',
+    display_name: str = '',
+) -> str:
     prefix = '⚡ Instant captcha\n' if instant else ('🔄 New captcha\n' if fresh else '')
     ttl_line = f'\nSession: {ttl} remaining' if ttl else ''
+    name_line = ''
+    if display_name and not is_skip_name(display_name):
+        name_line = f'👤 {display_name}\n'
     return (
+        f'{name_line}'
         f'{prefix}'
         'Reply with captcha text (4–8 characters)\n'
         '/refresh — load new captcha'
         f'{ttl_line}'
     )
-
-
-async def _try_instant_captcha(
-    update: Update,
-    sess: UidaiBrowserSession | None = None,
-) -> bool:
-    cap = sess.peek_captcha_png() if sess else None
-    if not cap:
-        cap = get_standby_captcha_png('uid')
-    if not cap or len(cap) < 500:
-        return False
-    ttl = sess.ttl_label() if sess and sess.last_activity_at else ''
-    await update.message.reply_photo(
-        photo=cap,
-        caption=_captcha_caption(instant=True, ttl=ttl),
-    )
-    return True
 
 
 def _connection_error_hint(exc: Exception) -> str:
@@ -209,22 +383,105 @@ def _connection_error_hint(exc: Exception) -> str:
     return '❌ Connection failed.\nTry /close then /fetch.'
 
 
+async def _erase_captcha_photos(bot, chat_id: int) -> None:
+    """Remove captcha image messages from chat after user submits captcha text."""
+    for mid in _CAPTCHA_PHOTOS.pop(chat_id, []):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=mid)
+        except Exception:
+            pass
+
+
+async def _reply_captcha(
+    update: Update,
+    sess: UidaiBrowserSession,
+    cap: bytes,
+    *,
+    instant: bool = False,
+    fresh: bool = False,
+) -> None:
+    ttl = sess.ttl_label() if sess.last_activity_at else ''
+    msg = await update.message.reply_photo(
+        photo=cap,
+        caption=_captcha_caption(instant=instant, fresh=fresh, ttl=ttl),
+    )
+    cid = update.effective_chat.id
+    _CAPTCHA_PHOTOS.setdefault(cid, []).append(msg.message_id)
+
+
+async def _on_captcha_text_submitted(
+    update: Update,
+    chat_id: int,
+    progress: LoadingScreen | None,
+    *,
+    step_text: str = 'Processing captcha…',
+) -> None:
+    """Captcha filled — hide image only; loading terminal stays open."""
+    await _erase_captcha_photos(update.get_bot(), chat_id)
+    if progress is not None:
+        await progress.advance_after_captcha(step_text)
+
+
+async def _begin_session_terminal(
+    message,
+    chat_id: int,
+    mobile: str,
+    *,
+    mode: str,
+    name: str = '',
+) -> LoadingScreen:
+    """Session terminal — real backend steps only."""
+    return await create_loading_screen(
+        message, chat_id, mobile, mode=mode, name=name,
+    )
+
+
+async def _hold_captcha_terminal(
+    progress: LoadingScreen,
+    *,
+    instant: bool = False,
+) -> None:
+    if instant:
+        await progress.mark_instant()
+    await progress.hold_for_captcha()
+
+
+async def _wire_fetch_progress(sess: UidaiBrowserSession, progress: LoadingScreen) -> None:
+    async def on_step(n: int, total: int, text: str) -> None:
+        await progress.update(n, total, text)
+
+    sess._on_step = on_step
+
+
+def _wire_fetch_captcha_dispatch(
+    update: Update,
+    sess: UidaiBrowserSession,
+    progress: LoadingScreen,
+) -> None:
+    async def _on_ready(png: bytes, txn: str) -> None:
+        if sess._captcha_photo_sent or len(png) < 200:
+            return
+        await _reply_captcha(update, sess, png, instant=True)
+        sess._captcha_photo_sent = True
+        await progress.on_captcha_dispatched()
+
+    sess.reset_captcha_notify()
+    sess._on_captcha_ready = _on_ready
+
+
 async def _send_captcha_ready(
     update: Update,
     sess: UidaiBrowserSession,
     progress: LoadingScreen,
     *,
-    instant_sent: bool = False,
+    instant: bool = False,
 ) -> None:
-    if not instant_sent:
-        await progress.update(3, 8, 'Loading captcha')
-        cap = await sess.captcha_png(use_cache=True)
-        ttl = sess.ttl_label() if sess.last_activity_at else ''
-        await update.message.reply_photo(
-            photo=cap,
-            caption=_captcha_caption(ttl=ttl),
-        )
-    await progress.done('Captcha ready — reply with text')
+    if not sess._captcha_photo_sent:
+        cap = await sess.ensure_fresh_captcha_png()
+        await _reply_captcha(update, sess, cap, instant=instant)
+        sess._captcha_photo_sent = True
+    await progress.on_captcha_dispatched()
+    await _hold_captcha_terminal(progress, instant=instant)
 
 
 async def _fail_open(
@@ -245,6 +502,131 @@ async def _fail_open(
     await progress.fail(_connection_error_hint(exc))
 
 
+async def _turbo_fetch(
+    update: Update,
+    chat_id: int,
+    name: str,
+    mobile: str,
+    progress: LoadingScreen,
+) -> bool:
+    """Pool hot → captcha in ~1s. Returns False → use slow path."""
+    if not uidai_instant_form():
+        return False
+    hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+    if not hit and not pool_form_ready('uid'):
+        try:
+            from browser_session import STANDBY_UID, warm_standby_slot
+            await asyncio.wait_for(warm_standby_slot(STANDBY_UID), timeout=10.0)
+            hit = await instant_retrieve_captcha(name, mobile, pool='uid')
+        except Exception as e:
+            log.warning('fetch turbo warm retry: %s', e)
+    if not hit:
+        return False
+    png, txn = hit
+    existing = SESSIONS.get(chat_id)
+    if existing and await existing.page_alive():
+        sess = existing
+    else:
+        old = SESSIONS.pop(chat_id, None)
+        if old:
+            try:
+                await old.close(keep_warm=True)
+            except Exception:
+                pass
+        sess = UidaiBrowserSession(pool='uid')
+        SESSIONS[chat_id] = sess
+    try:
+        sess.name = normalize_name(name)
+        sess.mobile = mobile.strip()
+        sess.captcha_txn_id = txn
+        sess._captcha_png_cache = png
+        sess._captcha_cache_txn = txn
+        sess._captcha_cache_at = time.monotonic()
+        sess._captcha_consumed = False
+        sess.form_ready = True
+        sess.touch()
+        await _reply_captcha(update, sess, png, instant=True)
+        sess._captcha_photo_sent = True
+        await progress.on_captcha_dispatched()
+        await _hold_captcha_terminal(progress, instant=True)
+        return True
+    except Exception as e:
+        log.warning('turbo fetch failed, slow path: %s', e)
+        SESSIONS.pop(chat_id, None)
+        return False
+
+
+def _schedule_pool_prefill_name(name: str, pool: str) -> None:
+    """Background — pool tab pe naam pehle se bhar do jab user mobile type kare."""
+    if not uidai_instant_form() or is_skip_name(name):
+        return
+    _schedule_background(prefill_standby_name(name, pool), label='prefill-name')
+
+
+async def _reply_pdf_captcha(
+    update: Update,
+    chat_id: int,
+    sess: AadharSession,
+    png: bytes,
+    *,
+    instant: bool = False,
+) -> None:
+    await update.message.reply_photo(
+        photo=png,
+        caption=_captcha_caption(
+            instant=instant,
+            display_name=_flow_display_name(chat_id, sess),
+        ),
+    )
+
+
+async def _turbo_pdf_phase1(
+    update: Update,
+    chat_id: int,
+    sess: AadharSession,
+    name: str,
+    mobile: str,
+    progress: LoadingScreen,
+    *,
+    dob_norm: str | None,
+    pdf_pass: str,
+) -> bool:
+    """EID pool — guaranteed fresh captcha for /pdf phase 1."""
+    if not uidai_instant_form():
+        return False
+    sess.clear_browser_captcha()
+    hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
+    if not hit and not pool_form_ready('eid'):
+        try:
+            from browser_session import STANDBY_EID, warm_standby_slot
+            await asyncio.wait_for(warm_standby_slot(STANDBY_EID), timeout=10.0)
+            hit = await fresh_retrieve_captcha(name, mobile, pool='eid')
+        except Exception as e:
+            log.warning('pdf turbo warm retry: %s', e)
+    if not hit:
+        log.info(
+            'pdf turbo miss — eid_form=%s eid_captcha=%s',
+            pool_form_ready('eid'),
+            pool_slot_ready('eid'),
+        )
+        return False
+    png, txn = hit
+    sess.prime_browser_captcha(png, txn)
+    assign_flow(chat_id, {
+        'step': STEP_CAPTCHA,
+        'mode': FLOW_MODE_DOWNLOAD,
+        'name': name,
+        'mobile': mobile,
+        'dob': dob_norm,
+        'pdf_password': pdf_pass,
+    })
+    await _reply_pdf_captcha(update, chat_id, sess, png, instant=True)
+    await progress.on_captcha_dispatched()
+    _PDF_CAPTCHA_DISPATCHED.setdefault(chat_id, set()).add('phase1')
+    await _hold_captcha_terminal(progress, instant=True)
+    return True
+
+
 async def open_uidai_session(
     update: Update,
     chat_id: int,
@@ -255,27 +637,28 @@ async def open_uidai_session(
 ) -> None:
     name = normalize_name(name)
     mobile = mobile.strip()
+    if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        return
+    if not _deduct_credits_start(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        await update.message.reply_text('💳 Credit deduct failed — use /credits to check balance.')
+        return
     clear_flow(chat_id)
-    FLOW[chat_id] = {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile}
+    assign_flow(chat_id, {'step': STEP_CAPTCHA, 'name': name, 'mobile': mobile})
 
-    instant_sent = False
-    if not force_new:
-        instant_sent = await _try_instant_captcha(update, SESSIONS.get(chat_id))
+    progress = await _begin_session_terminal(
+        update.message, chat_id, mobile, mode='fetch', name=name,
+    )
+
+    if not force_new and await _turbo_fetch(update, chat_id, name, mobile, progress):
+        return
 
     existing = SESSIONS.get(chat_id)
     if not force_new and existing and await existing.page_alive():
-        progress = await create_loading_screen(
-            update.message, chat_id, mobile, mode='fetch', name=name,
-        )
-
-        async def on_step(n: int, total: int, text: str) -> None:
-            await progress.update(n, total, text)
-
-        existing._on_step = on_step
         try:
-            await existing.start()
+            await _wire_fetch_progress(existing, progress)
+            _wire_fetch_captcha_dispatch(update, existing, progress)
             await existing.open_form(name, mobile, force_reload=False)
-            await _send_captcha_ready(update, existing, progress, instant_sent=instant_sent)
+            await _send_captcha_ready(update, existing, progress)
         except Exception as e:
             await _fail_open(chat_id, existing, progress, e)
         return
@@ -288,30 +671,25 @@ async def open_uidai_session(
             from browser_session import _pool_shutdown
             await _pool_shutdown()
 
-    if not instant_sent:
-        instant_sent = await _try_instant_captcha(update)
-
-    progress = await create_loading_screen(
-        update.message, chat_id, mobile, mode='fetch', name=name,
-    )
-
-    async def on_step(n: int, total: int, text: str) -> None:
-        await progress.update(n, total, text)
-
-    sess = UidaiBrowserSession(on_step=on_step, pool='uid')
+    sess = UidaiBrowserSession(pool='uid')
     SESSIONS[chat_id] = sess
+    await _wire_fetch_progress(sess, progress)
+    _wire_fetch_captcha_dispatch(update, sess, progress)
 
     try:
         await sess.start()
         await sess.open_form(name, mobile, force_reload=force_new)
-        await _send_captcha_ready(update, sess, progress, instant_sent=instant_sent)
+        await _send_captcha_ready(update, sess, progress)
     except Exception as e:
         await _fail_open(chat_id, sess, progress, e)
 
 
 def _pdf_captcha_mode() -> str:
-    """auto/browser = same live browser as /open | http = API fallback only."""
-    return os.getenv('UIDAI_PDF_CAPTCHA', 'browser').strip().lower()
+    """auto = HTTP first when fast, then browser | browser | http."""
+    mode = os.getenv('UIDAI_PDF_CAPTCHA', '').strip().lower()
+    if not mode:
+        return 'auto' if uidai_fast() else 'browser'
+    return mode
 
 
 _PREFETCH_TASKS: dict[int, asyncio.Task] = {}
@@ -343,36 +721,95 @@ async def _try_http_captcha_prime(sess: AadharSession, phase: str) -> bool:
     return await run_aadhar(sess.prime_http_captcha, tag)
 
 
-async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
-    """Background browser captcha for phase 2 — while user reads OTP1 SMS."""
+async def _warm_pdf_pool_background() -> None:
+    """While user reads OTP1 — keep download page hot (no stale HTTP captcha stash)."""
+    try:
+        from browser_session import STANDBY_PDF, warm_standby_slot
+        await warm_standby_slot(STANDBY_PDF)
+    except Exception as e:
+        log.debug('pdf pool warm background: %s', e)
+
+
+async def _prefetch_phase2_pool(sess: AadharSession, chat_id: int) -> bool:
     if not sess.eid:
         return False
-    if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
-        return True
     try:
-        pair = get_standby_captcha_pair('pdf')
-        if pair:
-            sess.prime_browser_captcha(pair[0], pair[1])
-            sess.stash_phase2_captcha()
-            return _captcha_prime_ok(sess)
-        browser = await _pdf_browser_session(chat_id, pool='pdf')
-        png, txn = await browser.fetch_download_captcha(sess.eid)
+        png, txn = await capture_phase2_captcha_on_pool(sess.eid)
         sess.prime_browser_captcha(png, txn)
         sess.stash_phase2_captcha()
         return _captcha_prime_ok(sess)
     except Exception as e:
-        log.warning('phase2 prefetch captcha: %s', e)
+        log.warning('phase2 prefetch pool captcha: %s', e)
         return False
 
 
-async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 8.0) -> None:
+async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
+    """Background — EID-filled pool captcha after OTP1 verify."""
+    if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
+        return True
+    if not sess.eid:
+        return False
+    return await _prefetch_phase2_pool(sess, chat_id)
+
+
+async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 2.0) -> bool:
+    """Brief wait for in-flight prefetch — never block phase 2 for 12s."""
     task = _PREFETCH_TASKS.pop(id(sess), None)
     if task is None:
-        return
+        return False
     try:
-        await asyncio.wait_for(task, timeout=timeout)
+        return bool(await asyncio.wait_for(task, timeout=timeout))
     except (asyncio.TimeoutError, asyncio.CancelledError):
-        pass
+        return False
+    except Exception:
+        return False
+
+
+async def _prime_pdf_phase2_fast(
+    sess: AadharSession,
+    chat_id: int,
+    *,
+    refresh: bool = False,
+) -> bool:
+    """Phase 2 captcha — pool first (~2s), HTTP/browser only as fallback."""
+    if not sess.eid:
+        return False
+    if refresh:
+        sess.clear_browser_captcha()
+        sess.clear_phase2_stash()
+    elif (
+        sess.apply_phase2_captcha_stash()
+        and _captcha_prime_ok(sess)
+        and not sess.captcha_is_stale()
+    ):
+        return True
+    if not refresh and pool_form_ready('pdf'):
+        try:
+            png, txn = await capture_phase2_captcha_on_pool(sess.eid)
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
+                sess.prime_browser_captcha(png, txn)
+                sess.stash_phase2_captcha()
+                return True
+        except Exception as e:
+            log.warning('pdf phase2 pool fast: %s', e)
+    sess._ensure_phase2_headers()
+    if not refresh and uidai_fast() and await _try_http_captcha_prime(sess, 'phase2'):
+        sess.stash_phase2_captcha()
+        if _captcha_prime_ok(sess):
+            return True
+    browser = await _pdf_browser_session(chat_id, None, pool='pdf')
+    for attempt in range(2):
+        try:
+            png, txn = await browser.fetch_download_captcha(sess.eid)
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
+                sess.prime_browser_captcha(png, txn)
+                sess.stash_phase2_captcha()
+                return True
+        except Exception as e:
+            log.warning('pdf phase2 browser fallback attempt %s: %s', attempt + 1, e)
+            if attempt < 1:
+                await asyncio.sleep(0.4)
+    return False
 
 
 async def _prime_pdf_phase1_open(
@@ -382,27 +819,23 @@ async def _prime_pdf_phase1_open(
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 1 captcha — identical path to /open (live browser page)."""
-    pair = get_standby_captcha_pair('eid')
-    if pair and not refresh:
-        sess.prime_browser_captcha(pair[0], pair[1])
-        if _captcha_prime_ok(sess):
+    """Phase 1 captcha — always fresh browser image + txn."""
+    if not refresh:
+        hit = await fresh_retrieve_captcha(sess.name, sess.mobile, pool='eid')
+        if hit:
+            sess.prime_browser_captcha(hit[0], hit[1])
             return True
-    browser = await _pdf_browser_session(chat_id, progress, pool='eid')
+    browser = await _pdf_browser_session(chat_id, None, pool='eid')
+    browser.name = sess.name
+    browser.mobile = sess.mobile
     for attempt in range(3):
         try:
             await browser.start()
-            if refresh and await browser.page_alive():
-                png = await browser.refresh_captcha()
-                txn = browser.captcha_txn_id or browser._captcha_cache_txn
-            else:
-                await browser.open_form(
-                    sess.name,
-                    sess.mobile,
-                    force_reload=refresh or attempt > 0,
-                )
-                png = await browser.captcha_png(use_cache=not refresh and attempt == 0)
-                txn = browser.captcha_txn_id or browser._captcha_cache_txn
+            if not await browser.page_alive():
+                await browser.start()
+            await browser._fill_fields_only_fast()
+            png = await browser.refresh_captcha()
+            txn = browser.captcha_txn_id or browser._captcha_cache_txn
             if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
                 sess.prime_browser_captcha(png, txn)
                 return True
@@ -413,41 +846,20 @@ async def _prime_pdf_phase1_open(
     return False
 
 
-async def _prime_pdf_phase2_open(
+async def _prime_pdf_phase2_browser(
     sess: AadharSession,
     progress: LoadingScreen,
     chat_id: int,
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 2 captcha — download page via browser (paired image + txn)."""
-    if not sess.eid:
-        return False
-    pair = get_standby_captcha_pair('pdf')
-    if pair and not refresh:
-        sess.prime_browser_captcha(pair[0], pair[1])
-        sess.stash_phase2_captcha()
-        if _captcha_prime_ok(sess):
-            return True
-    browser = await _pdf_browser_session(chat_id, progress, pool='pdf')
-    for attempt in range(3):
-        try:
-            await browser.start()
-            png, txn = await browser.fetch_download_captcha(sess.eid)
-            if png and txn and len(png) >= 200:
-                sess.prime_browser_captcha(png, txn)
-                sess.stash_phase2_captcha()
-                return True
-        except Exception as e:
-            log.warning('pdf phase2 open-captcha attempt %s: %s', attempt + 1, e)
-            if attempt < 2:
-                await asyncio.sleep(0.6)
-    return False
+    """Phase 2 captcha — delegated to fast pool-first path."""
+    return await _prime_pdf_phase2_fast(sess, chat_id, refresh=refresh)
 
 
 async def _prime_pdf_browser_captcha(
     sess: AadharSession,
-    progress: LoadingScreen,
+    progress: LoadingScreen | None,
     phase: str,
     chat_id: int,
 ) -> bool:
@@ -460,11 +872,6 @@ async def _prime_pdf_browser_captcha(
         if mode in ('auto', 'browser', ''):
             if await _prime_pdf_phase1_open(sess, progress, chat_id, refresh=refresh):
                 return True
-        pair = get_standby_captcha_pair('eid')
-        if pair and sess.name and sess.mobile and not refresh:
-            sess.prime_browser_captcha(pair[0], pair[1])
-            if _captcha_prime_ok(sess):
-                return True
         if mode == 'http':
             return await _try_http_captcha_prime(sess, phase)
         if mode == 'auto':
@@ -472,17 +879,8 @@ async def _prime_pdf_browser_captcha(
         return False
 
     if phase_key.startswith('phase2'):
-        await _await_phase2_prefetch(sess)
-        if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
-            return True
-        if mode in ('auto', 'browser', ''):
-            if await _prime_pdf_phase2_open(sess, progress, chat_id, refresh=refresh):
-                return True
-        if mode in ('auto', 'http'):
-            if await _try_http_captcha_prime(sess, phase):
-                sess.stash_phase2_captcha()
-                return _captcha_prime_ok(sess)
-        return False
+        await _await_phase2_prefetch(sess, timeout=2.0)
+        return await _prime_pdf_phase2_fast(sess, chat_id, refresh=refresh)
 
     return False
 
@@ -493,21 +891,63 @@ async def _send_pdf_captcha_photo(
     *,
     fresh: bool = False,
     instant: bool = False,
+    chat_id: int | None = None,
 ) -> bool:
     png = sess.last_captcha_image or b''
     if len(png) < _CAPTCHA_MIN_BYTES:
         return False
-    await update.message.reply_photo(
+    cid = chat_id if chat_id is not None else update.effective_chat.id
+    msg = await update.message.reply_photo(
         photo=png,
-        caption=_captcha_caption(fresh=fresh, instant=instant),
+        caption=_captcha_caption(
+            fresh=fresh,
+            instant=instant,
+            display_name=_flow_display_name(cid, sess),
+        ),
     )
+    _CAPTCHA_PHOTOS.setdefault(cid, []).append(msg.message_id)
+    return True
+
+
+async def _maybe_dispatch_pdf_captcha(
+    update: Update,
+    chat_id: int,
+    sess: AadharSession,
+    progress: LoadingScreen,
+    phase: str,
+    *,
+    fresh: bool = False,
+    instant: bool = False,
+) -> bool:
+    """Send PDF-phase captcha photo once per phase — as soon as image is ready."""
+    phase_tag = (phase or 'phase1').split('-')[0]
+    sent = _PDF_CAPTCHA_DISPATCHED.setdefault(chat_id, set())
+    if phase_tag in sent and not fresh:
+        return False
+    if fresh and phase_tag in sent:
+        sent.discard(phase_tag)
+    if sess.captcha_is_stale():
+        return False
+    if not _captcha_prime_ok(sess):
+        return False
+    await _send_pdf_captcha_photo(
+        update, sess, fresh=fresh, instant=instant, chat_id=chat_id,
+    )
+    await progress.on_captcha_dispatched()
+    hint = (
+        'Reply with captcha 2 (4–8 chars)'
+        if phase_tag == 'phase2'
+        else 'Reply with captcha (4–8 chars)'
+    )
+    await progress.hold_for_captcha(hint)
+    sent.add(phase_tag)
     return True
 
 
 async def _run_pdf_with_browser_captcha(
     update: Update,
     sess: AadharSession,
-    progress: LoadingScreen,
+    progress: LoadingScreen | None,
     fn,
     *args,
     phase: str = 'phase1',
@@ -516,6 +956,19 @@ async def _run_pdf_with_browser_captcha(
 ) -> dict:
     """Run /pdf step with browser captcha — manual image entry like /open."""
     chat_id = update.effective_chat.id
+    phase_key = (phase or 'phase1').lower()
+    if not prime and phase_key.startswith('phase2') and sess.captcha_is_stale():
+        refresh = f'{phase}-refresh'
+        if progress and await _prime_pdf_browser_captcha(sess, progress, refresh, chat_id):
+            await progress.update(2, 3, 'Captcha refreshed')
+            await _send_pdf_captcha_photo(update, sess, fresh=True, chat_id=chat_id)
+            return {
+                'otp_ok': False,
+                'needs_captcha': True,
+                'invalid_captcha': True,
+                'captcha_expired': True,
+                'msg': '⏱ Captcha expire ho gaya — naya image bharo',
+            }
     if prime:
         if not await _prime_pdf_browser_captcha(sess, progress, phase, chat_id):
             return {
@@ -523,6 +976,8 @@ async def _run_pdf_with_browser_captcha(
                 'captcha_fetch_failed': True,
                 'msg': 'Captcha failed to load — try /pdf again',
             }
+        if progress:
+            await _maybe_dispatch_pdf_captcha(update, chat_id, sess, progress, phase)
     result = await run_aadhar_retry(fn, *args, progress=progress, **kwargs)
     if result.get('needs_browser_captcha'):
         refresh = f'{phase}-refresh'
@@ -543,11 +998,24 @@ async def _run_pdf_with_browser_captcha(
         and sess.captcha_txn_id
         and len(sess.last_captcha_image) >= _CAPTCHA_MIN_BYTES
     ):
-        await progress.update(4, 8, 'Loading captcha')
-        await _send_pdf_captcha_photo(
-            update, sess,
-            fresh=bool(result.get('invalid_captcha')),
-        )
+        if progress:
+            if not await _maybe_dispatch_pdf_captcha(
+                update, chat_id, sess, progress, phase,
+                fresh=bool(result.get('invalid_captcha')),
+            ):
+                await progress.update(4, 8, 'Loading captcha')
+                await _send_pdf_captcha_photo(
+                    update, sess,
+                    fresh=bool(result.get('invalid_captcha')),
+                    chat_id=chat_id,
+                )
+                await progress.on_captcha_dispatched()
+        else:
+            await _send_pdf_captcha_photo(
+                update, sess,
+                fresh=bool(result.get('invalid_captcha')),
+                chat_id=chat_id,
+            )
     return result
 
 
@@ -559,6 +1027,9 @@ async def _send_eaadhaar_pdf(
     flow: dict,
 ) -> None:
     """Unlock e-Aadhaar — NAME4 + birth year 1920–2020 brute force."""
+    import tempfile
+
+    from pdf_preview import render_pdf_front_back
     from pdf_unlock import pdf_name_prefix, year_range
 
     ident = sess.resolved_identity(env_name=DEFAULT_NAME)
@@ -590,6 +1061,31 @@ async def _send_eaadhaar_pdf(
 
     if unlocked:
         year_line = f'\nBirth year: {year_hint}' if year_hint.isdigit() else ''
+        previews = None
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+                tmp.write(unlocked)
+                tmp_path = Path(tmp.name)
+            previews = render_pdf_front_back(tmp_path)
+        except Exception as exc:
+            log.warning('PDF preview render: %s', exc)
+        finally:
+            if tmp_path:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        if previews:
+            front_png, back_png = previews
+            await update.message.reply_photo(
+                photo=front_png,
+                caption='📄 e-Aadhaar — Front',
+            )
+            await update.message.reply_photo(
+                photo=back_png,
+                caption='📄 e-Aadhaar — Back',
+            )
         await update.message.reply_document(
             document=unlocked,
             filename='eaadhaar_open.pdf',
@@ -637,17 +1133,23 @@ async def _start_download_flow(
 
     name = aadhar_name(name)
     mobile = mobile.strip()
+    if not await guard_credits(update, ACCESS.credit_pdf_cost(), action='/pdf'):
+        return
     dob_norm = normalize_dob(dob) if dob else None
     if not dob_bypass_on() and not dob_norm:
-        FLOW[chat_id] = {
+        assign_flow(chat_id, {
             'step': STEP_DOB,
             'mode': FLOW_MODE_DOWNLOAD,
             'name': name,
             'mobile': mobile,
-        }
+        })
         await update.message.reply_text(
             'Send DOB as DD/MM/YYYY (as on Aadhaar).\nExample: 01/01/1991'
         )
+        return
+
+    if not _deduct_credits_start(update, ACCESS.credit_pdf_cost(), action='/pdf'):
+        await update.message.reply_text('💳 Credit deduct failed — use /credits to check balance.')
         return
 
     clear_flow(chat_id)
@@ -660,39 +1162,48 @@ async def _start_download_flow(
         except Exception:
             pass
 
-    progress = await create_loading_screen(
-        update.message, chat_id, mobile, mode='pdf', name=name,
-    )
-
     sess = AadharSession()
     AADHAR_SESSIONS[chat_id] = sess
     await run_aadhar(sess.setup, name, mobile, dob_norm or dob)
-    await progress.update(1, 4, 'Session ready')
 
     pdf_pass = pdf_password(
         name if not is_skip_name(name) else DEFAULT_NAME,
         dob_norm or dob,
     )
-    FLOW[chat_id] = {
+
+    progress = await _begin_session_terminal(
+        update.message, chat_id, mobile, mode='pdf', name=name,
+    )
+
+    if await _turbo_pdf_phase1(
+        update, chat_id, sess, name, mobile, progress,
+        dob_norm=dob_norm, pdf_pass=pdf_pass,
+    ):
+        return
+
+    assign_flow(chat_id, {
         'step': STEP_OTP_1,
         'mode': FLOW_MODE_DOWNLOAD,
         'name': name,
         'mobile': mobile,
         'dob': dob_norm,
         'pdf_password': pdf_pass,
-    }
+    })
 
     try:
         result = await _run_pdf_with_browser_captcha(
             update, sess, progress, sess.phase1_start, phase='phase1',
         )
         if result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_OTP_1
+            bump_flow(chat_id, step=STEP_OTP_1)
             hint = f'\nPDF password: {pdf_pass}' if pdf_pass else ''
-            await progress.done(uidai_user_message(result, kind='otp') + hint)
+            await progress.append_milestone(
+                uidai_user_message(result, kind='otp') + hint,
+                footer='Reply with OTP 1 from SMS',
+            )
             return
         if result.get('network_error'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            bump_flow(chat_id, step=STEP_CAPTCHA)
             await progress.fail(
                 result.get('msg') or '🔄 Network error — send captcha again',
             )
@@ -701,13 +1212,13 @@ async def _start_download_flow(
             await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
             return
         if result.get('needs_captcha'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA
+            bump_flow(chat_id, step=STEP_CAPTCHA)
             if not _pdf_captcha_ready(sess, result):
                 await progress.fail(result.get('msg') or 'Captcha failed — try /pdf again')
             elif result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
-                await progress.done('Captcha ready — reply with text')
+                await progress.hold_for_captcha('Reply with captcha (4–8 chars)')
             return
         await progress.fail(result.get('msg') or 'Phase 1 failed')
     except Exception as e:
@@ -726,8 +1237,12 @@ async def _phase2_after_otp1(
         await update.message.reply_text('EID missing — /pdf again.')
         return
 
-    progress = await create_loading_screen(
-        update.message, chat_id, sess.mobile, mode='pdf', name=sess.name,
+    progress = await get_or_create_loading_screen(
+        update.message,
+        chat_id,
+        sess.mobile,
+        mode='pdf',
+        name=_flow_display_name(chat_id, sess),
     )
 
     try:
@@ -735,7 +1250,7 @@ async def _phase2_after_otp1(
             update, sess, progress, sess.phase2_start, phase='phase2',
         )
         if result.get('network_error'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             await progress.fail(
                 result.get('msg') or '🔄 Network error — /pdf again or resend captcha',
             )
@@ -744,19 +1259,25 @@ async def _phase2_after_otp1(
             await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
             return
         if result.get('needs_captcha'):
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             if not _pdf_captcha_ready(sess, result):
                 await progress.fail(result.get('msg') or 'Phase 2 captcha failed — try /pdf again')
             elif result.get('invalid_captcha'):
                 await progress.fail(result.get('msg') or 'Invalid captcha — see new image above')
             else:
-                await progress.done('Captcha ready — reply with text')
+                await progress.hold_for_captcha('Reply with captcha 2 (4–8 chars)')
             return
         if result.get('otp_ok'):
-            FLOW[chat_id]['step'] = STEP_OTP_2
-            await progress.done(uidai_user_message(result, kind='download_otp'))
+            bump_flow(chat_id, step=STEP_OTP_2)
+            await progress.append_milestone(
+                uidai_user_message(
+                    {**result, 'aadhaar_name': _flow_display_name(chat_id, sess)},
+                    kind='download_otp',
+                ),
+                footer='Reply with OTP 2 from SMS',
+            )
         else:
-            FLOW[chat_id]['step'] = STEP_CAPTCHA_2
+            bump_flow(chat_id, step=STEP_CAPTCHA_2)
             await progress.fail(result.get('msg') or 'Phase 2 OTP failed')
     except Exception as e:
         log.exception('phase2 otp request failed')
@@ -764,17 +1285,29 @@ async def _phase2_after_otp1(
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await guard(update):
+    user_id, chat_id = _ids(update)
+    uid, starter = _track_user(update)
+    if not ACCESS.allowed(user_id, chat_id):
+        await update.message.reply_text(
+            _locked_access_message(update),
+            parse_mode='Markdown',
+        )
         return
+    starter_line = ''
+    if starter > 0:
+        starter_line = (
+            f'\n\n🎁 Welcome! You received {starter} free starter credits.\n'
+            f'💳 Balance: {ACCESS.credits(uid)}'
+        )
     caption = (
         f'🔐 Rebel Aadhaar Bot v{BOT_ENGINE_VERSION}\n'
         '━━━━━━━━━━━━━━━━━━━━\n\n'
         'Commands:\n'
         '/fetch MOBILE — Aadhaar SMS (1 OTP)\n'
-        '/pdf MOBILE — e-Aadhaar PDF (2 OTP)\n\n'
-        'Example:\n'
-        '/fetch 7651892956\n'
-        '/pdf 7651892956'
+        '/pdf MOBILE — e-Aadhaar PDF (2 OTP)\n'
+        '/credits — balance check'
+        f'{starter_line}'
+        f'{_credit_footer(update)}'
     )
     banner = _start_banner()
     if banner:
@@ -791,6 +1324,7 @@ async def cmd_close(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = SESSIONS.pop(cid, None)
     clear_flow(cid)
     clear_pdf_session(cid)
+    await dismiss_loading_screen(cid)
     if sess:
         await sess.close(keep_warm=True)
     pool_note = '🟢 Triple browser pool 24/7' if pool_is_warm() else '⏳ Pool warming…'
@@ -824,7 +1358,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         '',
         f'Step: {step_labels.get(step, "Ready" if not step else step)}',
     ]
-    if draft.get('name'):
+    display_name = _flow_display_name(cid, get_aadhar_session(cid))
+    if display_name:
+        lines.append(f'Name: {display_name}')
+    elif draft.get('name'):
         lines.append(f'Name: {draft["name"]}')
     if draft.get('mobile'):
         lines.append(f'Mobile: {draft["mobile"]}')
@@ -835,7 +1372,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f'24h remaining: {sess.ttl_label()}' if sess.last_activity_at else '24h remaining: —',
         ])
     lines.append('')
-    lines.append('🟢 Browser pool: active 24/7' if pool_is_warm() else '⚪ Browser pool: idle')
+    user_id, chat_id = _ids(update)
+    if ACCESS.credits_required() and not ACCESS.is_owner(user_id, chat_id):
+        lines.append(f'💳 Credits: {ACCESS.credits(str(chat_id or user_id))}')
+    if pool_form_ready('eid') or pool_form_ready('uid'):
+        lines.append('⚡ UIDAI preloaded — instant /fetch & /pdf ready')
+    elif pool_is_warm():
+        lines.append('🟢 Browser pool: active 24/7')
+    else:
+        lines.append('⚪ Browser pool: warming…')
     await update.message.reply_text('\n'.join(lines))
 
 
@@ -843,12 +1388,18 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat:
         return
     user_id, chat_id = _ids(update)
-    await update.message.reply_text(
-        f'🆔 Your Chat ID: `{chat_id}`\n'
-        f'User ID: `{user_id}`\n\n'
-        'Share this ID with the owner for approval.',
-        parse_mode='Markdown',
-    )
+    _track_user(update)
+    username, full_name = _telegram_profile(update)
+    lines = [
+        f'🆔 Your Chat ID: `{chat_id}`',
+        f'User ID: `{user_id}`',
+    ]
+    if username:
+        lines.append(f'Username: @{username}')
+    if full_name:
+        lines.append(f'Name: {full_name}')
+    lines.append('\nShare this ID with the owner for approval.')
+    await update.message.reply_text('\n'.join(lines), parse_mode='Markdown')
 
 
 async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -863,7 +1414,11 @@ async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         *ACCESS.status_lines(len(SESSIONS)),
         '',
         '/free — public | /lock — approved only',
-        '/approve CHAT_ID · /deny CHAT_ID',
+        '/approve CHAT_ID [credits] · /deny CHAT_ID',
+        '/addcredits CHAT_ID N · /setcredits CHAT_ID N',
+        '/giftall N — free credits to all users',
+        '/ban CHAT_ID · /unban CHAT_ID · /removecredits CHAT_ID N',
+        '/user — all users | /user CHAT_ID — one user',
     ]
     await update.message.reply_text('\n'.join(lines))
 
@@ -896,23 +1451,271 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text('Owner only command.')
         return
     if not context.args:
-        await update.message.reply_text('Usage: /approve CHAT_ID')
+        await update.message.reply_text('Usage: /approve CHAT_ID [credits]')
         return
     uid = context.args[0].strip()
-    ACCESS.approve(uid)
-    await update.message.reply_text(f'✅ Approved: `{uid}`', parse_mode='Markdown')
+    credits = None
+    before = ACCESS.credits(uid)
+    if len(context.args) >= 2:
+        try:
+            credits = max(0, int(context.args[1]))
+        except ValueError:
+            await update.message.reply_text('Credits must be a number.')
+            return
+    bal = ACCESS.approve(uid, credits=credits)
+    label = ACCESS.user_label(uid)
+    added = max(0, bal - before)
+    if added > 0:
+        await _notify_owner_awarded(context, uid, added, bal)
+    await update.message.reply_text(
+        f'✅ Approved: `{uid}`\n'
+        f'👤 {label}\n'
+        f'💳 Credits: {bal}',
+        parse_mode='Markdown',
+    )
 
 
-async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /addcredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    if amount <= 0:
+        await update.message.reply_text('Amount must be positive.')
+        return
+    bal = ACCESS.add_credits(uid, amount)
+    await _notify_owner_awarded(context, uid, amount, bal)
+    await update.message.reply_text(
+        f'💳 `{uid}` balance: {bal}\n📨 User notified.',
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_setcredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /setcredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = max(0, int(context.args[1]))
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    before = ACCESS.credits(uid)
+    bal = ACCESS.set_credits(uid, amount)
+    added = max(0, bal - before)
+    if added > 0:
+        await _notify_owner_awarded(context, uid, added, bal)
+    await update.message.reply_text(
+        f'💳 `{uid}` set to: {bal}'
+        + ('\n📨 User notified.' if added > 0 else ''),
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_giftall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner — free credits to all known users."""
     if not is_owner(update):
         await update.message.reply_text('Owner only command.')
         return
     if not context.args:
-        await update.message.reply_text('Usage: /deny CHAT_ID')
+        await update.message.reply_text('Usage: /giftall AMOUNT\nExample: /giftall 5')
+        return
+    try:
+        amount = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    if amount <= 0:
+        await update.message.reply_text('Amount must be positive.')
+        return
+    results = ACCESS.gift_all_credits(amount)
+    if not results:
+        await update.message.reply_text('No users yet — wait for someone to /start first.')
+        return
+    notified = 0
+    for uid, bal in results:
+        if await _notify_owner_awarded(context, uid, amount, bal):
+            notified += 1
+    await update.message.reply_text(
+        f'🎁 Gifted {amount} credit(s) to {len(results)} user(s).\n'
+        f'📨 Notified: {notified}/{len(results)}'
+    )
+
+
+async def cmd_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    user_id, chat_id = _ids(update)
+    cid = str(chat_id or user_id)
+    if ACCESS.is_owner(user_id, chat_id):
+        await update.message.reply_text('👑 Owner — unlimited credits.')
+        return
+    bal = ACCESS.credits(cid)
+    if not ACCESS.credits_required():
+        await update.message.reply_text('🌍 Bot is public — credits not required right now.')
+        return
+    await update.message.reply_text(
+        f'💳 Your credits: {bal}\n'
+        f'/fetch = {ACCESS.credit_fetch_cost()} · /pdf = {ACCESS.credit_pdf_cost()}'
+    )
+
+
+async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner — list users with chat ID, @username, credits."""
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+
+    if context.args:
+        uid = context.args[0].strip()
+        profile = ACCESS.get_user(uid)
+        if not profile and not ACCESS.is_approved(uid) and ACCESS.credits(uid) == 0:
+            await update.message.reply_text(
+                f'No record for `{uid}`.\nUser must /start the bot first.',
+                parse_mode='Markdown',
+            )
+            return
+        approved = '✅ Approved' if ACCESS.is_approved(uid) else '⏳ Not approved'
+        if ACCESS.is_banned(uid):
+            approved = '🚫 Banned'
+        uname = profile.get('username') or ''
+        name = profile.get('full_name') or '—'
+        username_line = f'@{uname}' if uname else '—'
+        await update.message.reply_text(
+            '━━━━━━━━━━━━━━━━━━━━\n'
+            '  👤 User Profile\n'
+            '━━━━━━━━━━━━━━━━━━━━\n\n'
+            f'Chat ID: `{uid}`\n'
+            f'Username: {username_line}\n'
+            f'Name: {name}\n'
+            f'Status: {approved}\n'
+            f'💳 Credits: {ACCESS.credits(uid)}\n\n'
+            'Manage:\n'
+            f'/approve {uid} [credits]\n'
+            f'/addcredits {uid} N\n'
+            f'/setcredits {uid} N\n'
+            f'/deny {uid}',
+            parse_mode='Markdown',
+        )
+        return
+
+    users = ACCESS.list_users()
+    if not users:
+        await update.message.reply_text('No users yet — wait for someone to /start the bot.')
+        return
+
+    lines = [
+        '━━━━━━━━━━━━━━━━━━━━',
+        '  👥 All Users',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '',
+    ]
+    for uid, profile in users[:40]:
+        uname = profile.get('username') or ''
+        name = profile.get('full_name') or '—'
+        tag = f'@{uname}' if uname else '—'
+        mark = '🚫' if ACCESS.is_banned(uid) else ('✅' if ACCESS.is_approved(uid) else '⏳')
+        bal = ACCESS.credits(uid)
+        lines.append(f'{mark} `{uid}` · {tag}')
+        lines.append(f'   {name} · 💳 {bal}')
+    if len(users) > 40:
+        lines.append(f'\n… and {len(users) - 40} more')
+    lines.extend(['', '/user CHAT_ID — full profile + manage'])
+    await update.message.reply_text('\n'.join(lines), parse_mode='Markdown')
+
+
+async def cmd_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await cmd_ban(update, context)
+
+
+async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
+        await update.message.reply_text('Usage: /ban CHAT_ID')
         return
     uid = context.args[0].strip()
-    ACCESS.deny(uid)
-    await update.message.reply_text(f'🚫 Removed: `{uid}`', parse_mode='Markdown')
+    if ACCESS.is_owner(uid, uid):
+        await update.message.reply_text('Cannot ban owner.')
+        return
+    label = ACCESS.user_label(uid)
+    ACCESS.ban(uid)
+    try:
+        await context.bot.send_message(
+            int(uid),
+            '🚫 You have been **banned** from this bot.\nContact the owner.',
+            parse_mode='Markdown',
+        )
+    except Exception:
+        pass
+    await update.message.reply_text(
+        f'🚫 Banned: `{uid}`\n👤 {label}\n💳 Credits cleared.',
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if not context.args:
+        await update.message.reply_text('Usage: /unban CHAT_ID')
+        return
+    uid = context.args[0].strip()
+    ACCESS.unban(uid)
+    try:
+        await context.bot.send_message(
+            int(uid),
+            '✅ You have been **unbanned**. Send /start to use the bot again.',
+            parse_mode='Markdown',
+        )
+    except Exception:
+        pass
+    await update.message.reply_text(f'✅ Unbanned: `{uid}`', parse_mode='Markdown')
+
+
+async def cmd_removecredits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_owner(update):
+        await update.message.reply_text('Owner only command.')
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Usage: /removecredits CHAT_ID AMOUNT')
+        return
+    uid = context.args[0].strip()
+    try:
+        amount = max(0, int(context.args[1]))
+    except ValueError:
+        await update.message.reply_text('Amount must be a number.')
+        return
+    before = ACCESS.credits(uid)
+    bal = ACCESS.remove_credits(uid, amount)
+    removed = max(0, before - bal)
+    if removed > 0:
+        try:
+            await context.bot.send_message(
+                int(uid),
+                f'💳 The owner removed **{removed}** credit(s).\n\nBalance: **{bal}**',
+                parse_mode='Markdown',
+            )
+        except Exception:
+            pass
+    await update.message.reply_text(
+        f'💳 `{uid}` −{removed} → balance **{bal}**',
+        parse_mode='Markdown',
+    )
 
 
 async def cmd_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -960,6 +1763,8 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
+    if not await guard_credits(update, ACCESS.credit_fetch_cost(), action='/fetch'):
+        return
     if not TOKEN:
         await update.message.reply_text('Set TELEGRAM_BOT_TOKEN in .env')
         return
@@ -977,6 +1782,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not MOBILE_RE.match(mobile):
             await update.message.reply_text('Mobile must be 10 digits starting with 6–9. Example: 7651892956')
             return
+        _schedule_pool_prefill_name(name, 'uid')
         await open_uidai_session(update, cid, name, mobile, force_new=force_new)
         return
 
@@ -996,7 +1802,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     old = SESSIONS.pop(cid, None)
     if old:
         await old.close(keep_warm=True)
-    FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_RETRIEVE}
+    assign_flow(cid, {'step': STEP_NAME, 'mode': FLOW_MODE_RETRIEVE})
     await update.message.reply_text(
         'Send full name (as on Aadhaar)\n'
         'Example: KAMAR JAHAN\n\n'
@@ -1007,6 +1813,8 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
+        return
+    if not await guard_credits(update, ACCESS.credit_pdf_cost(), action='/pdf'):
         return
     if not TOKEN:
         await update.message.reply_text('Set TELEGRAM_BOT_TOKEN in .env')
@@ -1043,7 +1851,7 @@ async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if old:
         await old.close(keep_warm=True)
     clear_pdf_session(cid)
-    FLOW[cid] = {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD}
+    assign_flow(cid, {'step': STEP_NAME, 'mode': FLOW_MODE_DOWNLOAD})
     dob_hint = (
         'DOB bypass on — skip DOB.\n\n'
         if dob_bypass_on()
@@ -1073,6 +1881,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     step = flow_step(cid)
     mode = flow_mode(cid)
+    if step in _IDLE_STEPS:
+        touch_flow(cid)
 
     if step == STEP_NAME and mode == FLOW_MODE_DOWNLOAD:
         if not valid_name_input(text):
@@ -1083,7 +1893,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = normalize_name(text)
-        FLOW[cid] = {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name}
+        assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_DOWNLOAD, 'name': name})
+        _schedule_pool_prefill_name(name, 'eid')
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1105,7 +1916,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = normalize_name(text)
-        FLOW[cid] = {'step': STEP_MOBILE, 'mode': FLOW_MODE_RETRIEVE, 'name': name}
+        assign_flow(cid, {'step': STEP_MOBILE, 'mode': FLOW_MODE_RETRIEVE, 'name': name})
+        _schedule_pool_prefill_name(name, 'uid')
         hint = (
             f'Name skipped — using {PLACEHOLDER_NAME}\n\n'
             if is_skip_name(text)
@@ -1126,17 +1938,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         name = FLOW.get(cid, {}).get('name', DEFAULT_NAME)
-        await update.message.reply_text(f'OK — {name} / {mobile}')
         if mode == FLOW_MODE_DOWNLOAD:
             if dob_bypass_on():
                 await _start_download_flow(update, cid, name, mobile)
             else:
-                FLOW[cid] = {
+                assign_flow(cid, {
                     'step': STEP_DOB,
                     'mode': FLOW_MODE_DOWNLOAD,
                     'name': name,
                     'mobile': mobile,
-                }
+                })
                 await update.message.reply_text(
                     'Send DOB as DD/MM/YYYY.\nExample: 01/01/1991'
                 )
@@ -1163,30 +1974,48 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = await create_loading_screen(
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
             update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
         )
+        await _on_captcha_text_submitted(
+            update, cid, progress, step_text='UIDAI OTP request',
+        )
+        a_sess.captcha_text = text
         try:
-            await progress.update(1, 3, 'UIDAI OTP request')
             result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase1_otp_manual, text,
                 phase='phase1', prime=False,
             )
             if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP_1
-                await progress.done(uidai_user_message(result, kind='otp'))
+                bump_flow(cid, step=STEP_OTP_1)
+                await progress.append_milestone(
+                    uidai_user_message(result, kind='otp'),
+                    footer='Reply with OTP 1 from SMS',
+                )
+                old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
+                if old_prefetch and not old_prefetch.done():
+                    old_prefetch.cancel()
+                _PREFETCH_TASKS[id(a_sess)] = asyncio.create_task(
+                    _warm_pdf_pool_background(),
+                )
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_CAPTCHA
+                bump_flow(cid, step=STEP_CAPTCHA)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
-                FLOW[cid]['step'] = STEP_CAPTCHA
-                await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
+                bump_flow(cid, step=STEP_CAPTCHA)
+                a_sess.clear_browser_captcha()
+                _PDF_CAPTCHA_DISPATCHED.get(cid, set()).discard('phase1')
+                if await _prime_pdf_browser_captcha(a_sess, progress, 'phase1-refresh', cid):
+                    await _send_pdf_captcha_photo(update, a_sess, fresh=True, chat_id=cid)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                else:
+                    await progress.fail(result.get('msg') or 'Wrong captcha — /pdf again')
             else:
                 await progress.fail(result.get('msg') or 'OTP 1 failed')
         except Exception as e:
-            FLOW[cid]['step'] = STEP_CAPTCHA
+            bump_flow(cid, step=STEP_CAPTCHA)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1199,30 +2028,49 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = await create_loading_screen(
-            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
+            update.message,
+            cid,
+            a_sess.mobile,
+            mode='pdf',
+            name=_flow_display_name(cid, a_sess),
         )
+        await _on_captcha_text_submitted(
+            update, cid, progress, step_text='Download OTP request',
+        )
+        a_sess.captcha_text = text
         try:
-            await progress.update(1, 3, 'Download OTP request')
             result = await _run_pdf_with_browser_captcha(
                 update, a_sess, progress, a_sess.phase2_otp_manual, text,
                 phase='phase2', prime=False,
             )
             if result.get('otp_ok'):
-                FLOW[cid]['step'] = STEP_OTP_2
-                await progress.done(uidai_user_message(result, kind='download_otp'))
+                bump_flow(cid, step=STEP_OTP_2)
+                await progress.append_milestone(
+                    uidai_user_message(
+                        {**result, 'aadhaar_name': _flow_display_name(cid, a_sess)},
+                        kind='download_otp',
+                    ),
+                    footer='Reply with OTP 2 from SMS',
+                )
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_CAPTCHA_2
+                bump_flow(cid, step=STEP_CAPTCHA_2)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — same captcha, send again',
                 )
             elif result.get('invalid_captcha'):
-                FLOW[cid]['step'] = STEP_CAPTCHA_2
-                await progress.fail(result.get('msg') or 'Wrong captcha — try the new image')
+                bump_flow(cid, step=STEP_CAPTCHA_2)
+                a_sess.clear_browser_captcha()
+                _PDF_CAPTCHA_DISPATCHED.get(cid, set()).discard('phase2')
+                if await _prime_pdf_browser_captcha(a_sess, progress, 'phase2-refresh', cid):
+                    await _send_pdf_captcha_photo(update, a_sess, fresh=True, chat_id=cid)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                else:
+                    await progress.fail(result.get('msg') or 'Wrong captcha — /pdf again')
             else:
                 await progress.fail(result.get('msg') or 'OTP 2 failed')
         except Exception as e:
-            FLOW[cid]['step'] = STEP_CAPTCHA_2
+            bump_flow(cid, step=STEP_CAPTCHA_2)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1235,26 +2083,29 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = await create_loading_screen(
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
             update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
         )
+        await progress.advance_after_captcha('EID verify request')
         try:
-            await progress.update(1, 3, 'EID verify request')
             result = await run_aadhar_retry(
                 a_sess.phase1_verify, text, progress=progress,
             )
             if result.get('retrieve_ok'):
                 resolved_name = result.get('aadhaar_name') or a_sess.aadhaar_name
                 if resolved_name and not is_skip_name(resolved_name):
-                    FLOW[cid] = {
-                        **FLOW.get(cid, {}),
-                        'aadhaar_name': resolved_name,
-                        'pdf_password': pdf_password(
+                    bump_flow(
+                        cid,
+                        aadhaar_name=resolved_name,
+                        pdf_password=pdf_password(
                             resolved_name,
                             result.get('aadhaar_dob') or FLOW.get(cid, {}).get('dob'),
                         ),
-                    }
-                await progress.done(uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'))
+                    )
+                await progress.append_milestone(
+                    uidai_user_message({**result, 'eid': result.get('eid')}, kind='retrieve'),
+                    footer='Phase 2 — captcha loading…',
+                )
                 old_prefetch = _PREFETCH_TASKS.pop(id(a_sess), None)
                 if old_prefetch and not old_prefetch.done():
                     old_prefetch.cancel()
@@ -1263,16 +2114,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 await _phase2_after_otp1(update, cid, a_sess)
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_OTP_1
+                bump_flow(cid, step=STEP_OTP_1)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — send OTP 1 again',
                 )
             else:
-                FLOW[cid]['step'] = STEP_OTP_1
+                bump_flow(cid, step=STEP_OTP_1)
                 await progress.fail(result.get('msg') or 'OTP 1 verify failed')
         except Exception as e:
             log.exception('otp1 verify failed')
-            FLOW[cid]['step'] = STEP_OTP_1
+            bump_flow(cid, step=STEP_OTP_1)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1285,11 +2136,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — /pdf again.')
             return
-        progress = await create_loading_screen(
-            update.message, cid, a_sess.mobile, mode='pdf', name=a_sess.name,
+        progress = get_loading_screen(cid) or await get_or_create_loading_screen(
+            update.message,
+            cid,
+            a_sess.mobile,
+            mode='pdf',
+            name=_flow_display_name(cid, a_sess),
         )
+        await progress.advance_after_captcha('PDF download request')
         try:
-            await progress.update(1, 3, 'PDF download request')
             result = await run_aadhar_retry(
                 a_sess.phase2_download, text, progress=progress,
             )
@@ -1298,7 +2153,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 flow_draft = FLOW.get(cid, {})
                 if result.get('aadhaar_name'):
                     flow_draft['aadhaar_name'] = result['aadhaar_name']
-                await progress.done(uidai_user_message(result, kind='download'))
+                user_id, chat_id = _ids(update)
+                await progress.done(
+                    uidai_user_message(result, kind='download') + _credit_remain_line(update),
+                )
                 await _send_eaadhaar_pdf(
                     update,
                     pdf_bytes=pdf,
@@ -1311,16 +2169,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if browser_sess:
                     await browser_sess.close(keep_warm=True)
             elif result.get('network_error'):
-                FLOW[cid]['step'] = STEP_OTP_2
+                bump_flow(cid, step=STEP_OTP_2)
                 await progress.fail(
                     result.get('msg') or '🔄 Network error — send OTP 2 again',
                 )
             else:
-                FLOW[cid]['step'] = STEP_OTP_2
+                bump_flow(cid, step=STEP_OTP_2)
                 await progress.fail(uidai_user_message(result, kind='download'))
         except Exception as e:
             log.exception('pdf download failed')
-            FLOW[cid]['step'] = STEP_OTP_2
+            bump_flow(cid, step=STEP_OTP_2)
             await progress.fail(_connection_error_hint(e))
         return
 
@@ -1333,20 +2191,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             clear_flow(cid)
             await update.message.reply_text('Session expired — use /fetch again.')
             return
-        FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-        otp_progress = await create_loading_screen(
+        bump_flow(cid, step=None)
+        otp_progress = get_loading_screen(cid) or await get_or_create_loading_screen(
             update.message, cid, sess.mobile, mode='fetch', name=sess.name,
         )
-
-        async def retrieve_step(n: int, total: int, msg: str) -> None:
-            await otp_progress.update(n, total, msg)
+        await otp_progress.advance_after_captcha('Aadhaar SMS retrieve')
 
         try:
-            result = await sess.submit_otp(text, on_step=retrieve_step)
+            result = await sess.submit_otp(text)
             retrieve_ok = result.get('retrieve_ok', False)
             user_msg = uidai_user_message(result, kind='retrieve')
             if retrieve_ok:
-                await otp_progress.done(user_msg)
+                await otp_progress.done(user_msg + _credit_remain_line(update))
             else:
                 await otp_progress.fail(user_msg)
             if retrieve_ok:
@@ -1360,17 +2216,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     await sess.prefetch_captcha()
                 except Exception:
                     pass
-                FLOW[cid] = {
+                assign_flow(cid, {
                     'step': STEP_CAPTCHA,
                     'name': sess.name,
                     'mobile': sess.mobile,
-                }
+                })
             else:
-                FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+                bump_flow(cid, step=STEP_OTP)
         except Exception as e:
             log.exception('retrieve failed')
             await otp_progress.fail(f'Retrieve fail: {e}')
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+            bump_flow(cid, step=STEP_OTP)
         return
 
     if step != STEP_CAPTCHA or mode == FLOW_MODE_DOWNLOAD:
@@ -1386,16 +2242,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text('Session expired — use /open again.')
         return
 
-    FLOW[cid] = {**FLOW.get(cid, {}), 'step': None}
-    otp_progress = await create_loading_screen(
+    bump_flow(cid, step=None)
+    progress = get_loading_screen(cid) or await get_or_create_loading_screen(
         update.message, cid, sess.mobile, mode='fetch', name=sess.name,
     )
+    await _on_captcha_text_submitted(
+        update, cid, progress, step_text='UIDAI OTP request',
+    )
+    sess.note_captcha_submitted(text)
 
-    async def otp_step(n: int, total: int, msg: str) -> None:
-        await otp_progress.update(n, total, msg)
+    async def on_step(n: int, total: int, msg: str) -> None:
+        await progress.update(n, total, msg)
 
     try:
-        result = await sess.send_otp(text, on_step=otp_step)
+        result = await sess.send_otp(text, on_step=on_step)
         otp_ok = result.get('otp_ok')
         if otp_ok is None:
             otp_ok = any(
@@ -1404,15 +2264,33 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_msg = uidai_user_message(result, kind='otp')
 
         if otp_ok:
-            await otp_progress.done(user_msg)
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_OTP}
+            await progress.append_milestone(
+                user_msg,
+                footer='Reply with 6-digit OTP from SMS',
+            )
+            bump_flow(cid, step=STEP_OTP)
+            _schedule_background(sess.refresh_for_next_fetch(), label='refresh-captcha')
         else:
-            await otp_progress.fail(user_msg)
-            FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+            invalid = any(
+                x.get('d', {}).get('reason') == 'invalid_captcha'
+                for x in result.get('logs', [])
+                if isinstance(x.get('d'), dict)
+            ) or 'captcha' in user_msg.lower()
+            if invalid:
+                sess._captcha_photo_sent = False
+                try:
+                    cap = await sess.refresh_captcha()
+                    await _reply_captcha(update, sess, cap, fresh=True)
+                    await progress.hold_for_captcha('Wrong captcha — new image above')
+                except Exception as exc:
+                    await progress.fail(f'Captcha refresh fail: {exc}')
+            else:
+                await progress.fail(user_msg)
+            bump_flow(cid, step=STEP_CAPTCHA)
     except Exception as e:
         log.exception('otp failed')
-        await otp_progress.fail(f'OTP fail: {e}')
-        FLOW[cid] = {**FLOW.get(cid, {}), 'step': STEP_CAPTCHA}
+        await progress.fail(f'OTP fail: {e}')
+        bump_flow(cid, step=STEP_CAPTCHA)
 
 
 async def warm_pool_job(context) -> None:
@@ -1449,6 +2327,38 @@ async def keepalive_job(context) -> None:
             log.warning('keepalive chat=%s: %s', cid, e)
 
 
+async def _expire_idle_chat(bot, chat_id: int) -> None:
+    await dismiss_loading_screen(chat_id)
+    sess = SESSIONS.pop(chat_id, None)
+    if sess:
+        try:
+            await sess.close(keep_warm=True)
+        except Exception:
+            pass
+    clear_pdf_session(chat_id)
+    clear_flow(chat_id)
+    try:
+        await bot.send_message(
+            chat_id,
+            f'⏱ Session expired ({_idle_timeout_label()} no reply).\n/fetch to start again.',
+        )
+    except Exception:
+        pass
+    log.info('idle session expire chat=%s', chat_id)
+
+
+async def idle_session_job(context) -> None:
+    now = time.monotonic()
+    for cid, flow in list(FLOW.items()):
+        step = flow.get('step')
+        if step not in _IDLE_STEPS:
+            continue
+        last = float(flow.get('last_activity') or 0)
+        if last <= 0 or now - last < FLOW_IDLE_SEC:
+            continue
+        await _expire_idle_chat(context.bot, cid)
+
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if isinstance(context.error, Conflict):
         log.error('409 Conflict — stop duplicate bot instances (bot.py / sex.py)')
@@ -1457,12 +2367,41 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception('Bot error: %s', context.error)
 
 
+async def _startup_pool_warm() -> None:
+    default_warm = '1' if uidai_fast() else '0'
+    if os.getenv('UIDAI_POOL_WARM', default_warm).strip().lower() in ('0', 'false', 'no', 'off'):
+        return
+    try:
+        await asyncio.wait_for(ensure_pool_warm(), timeout=120)
+        log.info('UIDAI triple pool preloaded — instant /fetch ready')
+    except Exception as e:
+        log.warning('startup pool warm: %s', e)
+
+
+async def _on_shutdown(application: Application) -> None:
+    """Graceful cleanup — avoids 'Event loop is closed' on restart."""
+    log.info('Bot shutting down — cleaning up sessions…')
+    for task in list(_PREFETCH_TASKS.values()):
+        if task and not task.done():
+            task.cancel()
+    _PREFETCH_TASKS.clear()
+    try:
+        await shutdown_all_loading()
+    except Exception as e:
+        log.warning('loading shutdown: %s', e)
+    try:
+        await shutdown_browser_pool()
+    except Exception as e:
+        log.warning('pool shutdown: %s', e)
+
+
 async def _register_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands([
         BotCommand('start', 'Rebel Aadhaar — command list'),
         BotCommand('fetch', 'Aadhaar SMS — 1 OTP'),
         BotCommand('pdf', 'e-Aadhaar PDF — 2 OTP'),
     ])
+    application.create_task(_startup_pool_warm(), name='startup_pool_warm')
 
 
 def main() -> None:
@@ -1479,6 +2418,7 @@ def main() -> None:
         Application.builder()
         .token(TOKEN)
         .post_init(_register_bot_commands)
+        .post_shutdown(_on_shutdown)
         .build()
     )
     app.add_handler(CommandHandler('start', cmd_start))
@@ -1496,17 +2436,28 @@ def main() -> None:
     app.add_handler(CommandHandler('lock', cmd_lock))
     app.add_handler(CommandHandler('approve', cmd_approve))
     app.add_handler(CommandHandler('deny', cmd_deny))
+    app.add_handler(CommandHandler('ban', cmd_ban))
+    app.add_handler(CommandHandler('unban', cmd_unban))
+    app.add_handler(CommandHandler('removecredits', cmd_removecredits))
+    app.add_handler(CommandHandler('addcredits', cmd_addcredits))
+    app.add_handler(CommandHandler('setcredits', cmd_setcredits))
+    app.add_handler(CommandHandler('giftall', cmd_giftall))
+    app.add_handler(CommandHandler('freecredits', cmd_giftall))
+    app.add_handler(CommandHandler('credits', cmd_credits))
+    app.add_handler(CommandHandler('user', cmd_user))
+    app.add_handler(CommandHandler('users', cmd_user))
     app.add_handler(CommandHandler('access', cmd_access))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 
     if app.job_queue:
-        warm_delay = 3 if uidai_fast() else 8
-        standby_first = 35 if uidai_fast() else 90
+        warm_delay = 0 if uidai_fast() else 5
+        standby_first = 10 if uidai_fast() else 60
         app.job_queue.run_once(warm_pool_job, when=warm_delay)
-        app.job_queue.run_repeating(standby_captcha_job, interval=300, first=standby_first)
+        app.job_queue.run_repeating(standby_captcha_job, interval=120, first=standby_first)
         app.job_queue.run_repeating(keepalive_job, interval=KEEPALIVE_INTERVAL_SEC, first=120)
-        log.info('24h keepalive every %ss', KEEPALIVE_INTERVAL_SEC)
+        app.job_queue.run_repeating(idle_session_job, interval=15, first=20)
+        log.info('24h keepalive every %ss | idle timeout %ss', KEEPALIVE_INTERVAL_SEC, FLOW_IDLE_SEC)
 
     log.info(
         'sex.py v%s — /fetch + /pdf — owner=%s access=%s',
