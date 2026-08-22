@@ -41,6 +41,7 @@ from bot_ui_classic import (
 from browser_session import (
     KEEPALIVE_INTERVAL_SEC,
     UidaiBrowserSession,
+    capture_phase2_captcha_on_pool,
     ensure_pool_warm,
     get_standby_captcha_pair,
     get_standby_captcha_png,
@@ -344,28 +345,37 @@ async def _try_http_captcha_prime(sess: AadharSession, phase: str) -> bool:
 
 
 async def _prefetch_phase2_captcha(sess: AadharSession, chat_id: int) -> bool:
-    """Background browser captcha for phase 2 — while user reads OTP1 SMS."""
+    """Background phase-2 captcha while user reads OTP1 SMS — HTTP then EID pool."""
     if not sess.eid:
         return False
     if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
         return True
+    sess._ensure_phase2_headers()
     try:
-        pair = get_standby_captcha_pair('pdf')
-        if pair:
-            sess.prime_browser_captcha(pair[0], pair[1])
+        if await _try_http_captcha_prime(sess, 'phase2'):
             sess.stash_phase2_captcha()
             return _captcha_prime_ok(sess)
+    except Exception as e:
+        log.warning('phase2 prefetch HTTP captcha: %s', e)
+    try:
+        png, txn = await capture_phase2_captcha_on_pool(sess.eid)
+        sess.prime_browser_captcha(png, txn)
+        sess.stash_phase2_captcha()
+        return _captcha_prime_ok(sess)
+    except Exception as e:
+        log.warning('phase2 prefetch pool captcha: %s', e)
+    try:
         browser = await _pdf_browser_session(chat_id, pool='pdf')
         png, txn = await browser.fetch_download_captcha(sess.eid)
         sess.prime_browser_captcha(png, txn)
         sess.stash_phase2_captcha()
         return _captcha_prime_ok(sess)
     except Exception as e:
-        log.warning('phase2 prefetch captcha: %s', e)
+        log.warning('phase2 prefetch browser captcha: %s', e)
         return False
 
 
-async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 8.0) -> None:
+async def _await_phase2_prefetch(sess: AadharSession, *, timeout: float = 12.0) -> None:
     task = _PREFETCH_TASKS.pop(id(sess), None)
     if task is None:
         return
@@ -413,33 +423,36 @@ async def _prime_pdf_phase1_open(
     return False
 
 
-async def _prime_pdf_phase2_open(
+async def _prime_pdf_phase2_browser(
     sess: AadharSession,
     progress: LoadingScreen,
     chat_id: int,
     *,
     refresh: bool = False,
 ) -> bool:
-    """Phase 2 captcha — download page via browser (paired image + txn)."""
+    """Phase 2 browser captcha — EID-filled pool tab, then cold browser fallback."""
     if not sess.eid:
         return False
-    pair = get_standby_captcha_pair('pdf')
-    if pair and not refresh:
-        sess.prime_browser_captcha(pair[0], pair[1])
-        sess.stash_phase2_captcha()
-        if _captcha_prime_ok(sess):
-            return True
+    if not refresh:
+        try:
+            png, txn = await capture_phase2_captcha_on_pool(sess.eid)
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
+                sess.prime_browser_captcha(png, txn)
+                sess.stash_phase2_captcha()
+                return True
+        except Exception as e:
+            log.warning('pdf phase2 pool-captcha: %s', e)
     browser = await _pdf_browser_session(chat_id, progress, pool='pdf')
     for attempt in range(3):
         try:
             await browser.start()
             png, txn = await browser.fetch_download_captcha(sess.eid)
-            if png and txn and len(png) >= 200:
+            if png and txn and len(png) >= _CAPTCHA_MIN_BYTES:
                 sess.prime_browser_captcha(png, txn)
                 sess.stash_phase2_captcha()
                 return True
         except Exception as e:
-            log.warning('pdf phase2 open-captcha attempt %s: %s', attempt + 1, e)
+            log.warning('pdf phase2 browser-captcha attempt %s: %s', attempt + 1, e)
             if attempt < 2:
                 await asyncio.sleep(0.6)
     return False
@@ -475,10 +488,15 @@ async def _prime_pdf_browser_captcha(
         await _await_phase2_prefetch(sess)
         if sess.apply_phase2_captcha_stash() and _captcha_prime_ok(sess):
             return True
-        if mode in ('auto', 'browser', ''):
-            if await _prime_pdf_phase2_open(sess, progress, chat_id, refresh=refresh):
+        sess._ensure_phase2_headers()
+        if not refresh and await _try_http_captcha_prime(sess, phase):
+            sess.stash_phase2_captcha()
+            if _captcha_prime_ok(sess):
                 return True
-        if mode in ('auto', 'http'):
+        if mode in ('auto', 'browser', 'http', ''):
+            if await _prime_pdf_phase2_browser(sess, progress, chat_id, refresh=refresh):
+                return True
+        if mode in ('auto', 'http') and refresh:
             if await _try_http_captcha_prime(sess, phase):
                 sess.stash_phase2_captcha()
                 return _captcha_prime_ok(sess)
