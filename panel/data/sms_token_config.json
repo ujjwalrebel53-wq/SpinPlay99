@@ -1,0 +1,7 @@
+{
+    "enabled": false,
+    "device_id": "",
+    "database_url": "https://rabel-raand-default-rtdb.firebaseio.com",
+    "fb_name": "Rebel",
+    "log": []
+}
