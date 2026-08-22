@@ -8,12 +8,22 @@ import re
 import uuid
 from typing import Any
 
-BOT_ENGINE_VERSION = '2.14.1'
+BOT_ENGINE_VERSION = '2.21.7'
+
+
+def captcha_max_age_sec() -> float:
+    """UIDAI captcha txn TTL — refresh before submit if older."""
+    return max(15.0, float(os.getenv('UIDAI_CAPTCHA_MAX_AGE', '180')))
 
 
 def uidai_fast() -> bool:
     """Fast path — HTTP-first captcha, tight timeouts, debounced UI (default ON)."""
     return os.getenv('UIDAI_FAST', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def uidai_instant_form() -> bool:
+    """24/7 preloaded pool + instant name/mobile fill (default ON)."""
+    return os.getenv('UIDAI_INSTANT_FORM', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
 UIDAI_PAGE_URL = 'https://myaadhaar.uidai.gov.in/retrieve-eid-uid'
 RETRIEVE_PAGE_URL = UIDAI_PAGE_URL
@@ -525,6 +535,11 @@ def parse_download_response(status: int, text: str) -> tuple[bool, str, dict[str
 
     if re.search(r'invalid.*captcha', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_captcha'}
+    if re.search(r'timed?\s*out|refresh the captcha', msg_s, re.I):
+        return False, msg_s, {**extra, 'reason': 'captcha_expired'}
+    code = str(j.get('errorCode') or '').upper()
+    if 'VCS_INF' in code:
+        return False, msg_s, {**extra, 'reason': 'captcha_expired'}
     if re.search(r'invalid.*otp|incorrect.*otp|otp.*expired', msg_s, re.I):
         return False, msg_s, {**extra, 'reason': 'invalid_otp'}
     if extra.get('pdf_b64'):

@@ -23,15 +23,15 @@ RANKED_MAX_AGE_SEC = int(os.getenv('UIDAI_PROXY_RANK_HOURS', '6')) * 3600
 
 # 50 seeds — benchmark ke baad proxy_ranked.json fastest-first override karta hai
 DEFAULT_INDIAN_PROXIES = [
+    'http://117.236.124.166:3128',
+    'http://111.92.88.27:3128',
     'http://14.143.222.113:57738',
     'http://14.143.222.113:57788',
     'http://14.143.222.113:10174',
     'http://14.143.222.113:10175',
     'http://14.143.130.210:1111',
     'http://139.167.218.162:3127',
-    'http://117.236.124.166:3128',
     'http://117.236.124.166:3129',
-    'http://111.92.88.27:3128',
     'http://111.125.242.34:1111',
     'http://111.125.242.34:80',
     'http://219.65.73.81:80',

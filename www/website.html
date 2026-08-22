@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rebel Aadhaar — Live Panel</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <main class="shell">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Rebel Panel · Live</p>
+        <h1>e-Aadhaar PDF Download</h1>
+        <p class="sub">Naam, mobile, captcha, OTP — sab ek screen pe, realtime.</p>
+      </div>
+      <div class="badge" id="versionBadge">v…</div>
+    </header>
+
+    <p id="bootError" class="boot-error hidden"></p>
+
+    <section id="loginCard" class="card login-overlay hidden">
+      <h2>PIN Login</h2>
+      <form id="loginForm" class="stack">
+        <label>
+          Access PIN
+          <input type="password" id="pinInput" placeholder="••••" required />
+        </label>
+        <button type="submit" class="btn primary">Login</button>
+      </form>
+      <p id="loginError" class="error hidden"></p>
+    </section>
+
+    <div id="mainPanel">
+      <!-- Live status bar -->
+      <div class="live-bar card" id="liveBar">
+        <span class="live-dot" id="liveDot"></span>
+        <span id="liveStatusText">Ready — details bharo</span>
+        <span class="live-time" id="liveTime"></span>
+      </div>
+
+      <!-- User summary -->
+      <div class="card summary-card hidden" id="summaryCard">
+        <div class="summary-grid">
+          <div><span class="lbl">Name</span><strong id="sumName">—</strong></div>
+          <div><span class="lbl">Mobile</span><strong id="sumMobile">—</strong></div>
+          <div><span class="lbl">EID</span><strong id="sumEid">—</strong></div>
+          <div><span class="lbl">Step</span><strong id="sumStep">Form</strong></div>
+        </div>
+      </div>
+
+      <div class="flow-grid">
+        <!-- 1 Details -->
+        <section class="flow-section active" id="secForm" data-step="form">
+          <div class="sec-head">
+            <span class="sec-num">1</span>
+            <h3>Naam & Mobile</h3>
+            <span class="sec-badge" id="badgeForm">Active</span>
+          </div>
+          <form id="startForm" class="stack">
+            <label>
+              Name (Aadhaar pe jo hai)
+              <input type="text" id="nameInput" placeholder="KAMAR JAHAN" required />
+            </label>
+            <label>
+              Mobile Number (registered)
+              <input type="tel" id="mobileInput" maxlength="10" placeholder="9876543210" required />
+            </label>
+            <label id="dobLabel">
+              DOB (DD/MM/YYYY)
+              <input type="text" id="dobInput" placeholder="01/01/1991" />
+            </label>
+            <button type="submit" class="btn primary" id="startBtn">▶ Start — Captcha lao</button>
+          </form>
+        </section>
+
+        <!-- 2 Captcha 1 -->
+        <section class="flow-section locked" id="secCaptcha1" data-step="captcha1">
+          <div class="sec-head">
+            <span class="sec-num">2</span>
+            <h3>Captcha 1</h3>
+            <span class="sec-badge" id="badgeCaptcha1">Wait</span>
+          </div>
+          <p class="hint" id="msgCaptcha1">Pehle naam/mobile submit karo</p>
+          <div class="captcha-box">
+            <img id="captchaImg1" alt="Captcha 1" class="captcha-img dim" />
+            <button type="button" class="btn ghost btn-sm" id="refreshCaptcha1">↻ Naya Captcha</button>
+          </div>
+          <form id="captcha1Form" class="stack inline">
+            <input type="text" id="captcha1Input" maxlength="8" placeholder="Captcha type karo" disabled />
+            <button type="submit" class="btn primary" disabled id="btnCaptcha1">Submit</button>
+          </form>
+        </section>
+
+        <!-- 3 OTP 1 -->
+        <section class="flow-section locked" id="secOtp1" data-step="otp1">
+          <div class="sec-head">
+            <span class="sec-num">3</span>
+            <h3>OTP 1 (SMS)</h3>
+            <span class="sec-badge" id="badgeOtp1">Wait</span>
+          </div>
+          <p class="hint" id="msgOtp1">Captcha 1 ke baad SMS aayega</p>
+          <form id="otp1Form" class="stack inline">
+            <input type="text" id="otp1Input" maxlength="6" inputmode="numeric" placeholder="6 digit OTP" disabled />
+            <button type="submit" class="btn primary" disabled id="btnOtp1">Verify OTP 1</button>
+          </form>
+        </section>
+
+        <!-- 4 Captcha 2 -->
+        <section class="flow-section locked" id="secCaptcha2" data-step="captcha2">
+          <div class="sec-head">
+            <span class="sec-num">4</span>
+            <h3>Captcha 2</h3>
+            <span class="sec-badge" id="badgeCaptcha2">Wait</span>
+          </div>
+          <p class="hint" id="msgCaptcha2">OTP 1 verify ke baad</p>
+          <div class="captcha-box">
+            <img id="captchaImg2" alt="Captcha 2" class="captcha-img dim" />
+            <button type="button" class="btn ghost btn-sm" id="refreshCaptcha2" disabled>↻ Naya Captcha</button>
+          </div>
+          <form id="captcha2Form" class="stack inline">
+            <input type="text" id="captcha2Input" maxlength="8" placeholder="Captcha 2" disabled />
+            <button type="submit" class="btn primary" disabled id="btnCaptcha2">Submit</button>
+          </form>
+        </section>
+
+        <!-- 5 OTP 2 -->
+        <section class="flow-section locked" id="secOtp2" data-step="otp2">
+          <div class="sec-head">
+            <span class="sec-num">5</span>
+            <h3>OTP 2 (SMS)</h3>
+            <span class="sec-badge" id="badgeOtp2">Wait</span>
+          </div>
+          <p class="hint" id="msgOtp2">Dusra OTP SMS se</p>
+          <form id="otp2Form" class="stack inline">
+            <input type="text" id="otp2Input" maxlength="6" inputmode="numeric" placeholder="6 digit OTP" disabled />
+            <button type="submit" class="btn primary" disabled id="btnOtp2">Download PDF</button>
+          </form>
+        </section>
+
+        <!-- 6 PDF -->
+        <section class="flow-section locked" id="secDone" data-step="done">
+          <div class="sec-head">
+            <span class="sec-num">6</span>
+            <h3>PDF Download</h3>
+            <span class="sec-badge" id="badgeDone">Wait</span>
+          </div>
+          <p class="success" id="doneMessage">OTP 2 ke baad PDF yahan milega</p>
+          <p class="hint" id="pwdLine"></p>
+          <div class="actions">
+            <a class="btn primary disabled" id="downloadBtn" href="#" aria-disabled="true">📥 PDF Download</a>
+            <button type="button" class="btn ghost" id="newFlowBtn">↺ Naya Download</button>
+          </div>
+        </section>
+      </div>
+
+      <p id="flowError" class="error hidden"></p>
+
+      <!-- Live terminal -->
+      <section class="card terminal-card" id="logsCard">
+        <div class="terminal-head">
+          <span>⚡ Live Terminal</span>
+          <span class="terminal-blink">● REC</span>
+        </div>
+        <pre id="logBox">[system] Rebel panel ready — naam aur mobile bharo…</pre>
+      </section>
+    </div>
+  </main>
+
+  <script src="/app.js" defer></script>
+  <script>
+    // Agar API slow/fail ho — panel phir bhi dikhe
+    document.getElementById('mainPanel').style.display = 'block';
+  </script>
+</body>
+</html>

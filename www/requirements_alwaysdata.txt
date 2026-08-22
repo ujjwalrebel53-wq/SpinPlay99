@@ -1,0 +1,11 @@
+# AlwaysData standalone — HTTP only (no Playwright, no Selenium, no Telegram)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+python-dotenv>=1.0.1
+requests>=2.32.0
+pypdf>=5.1.0
+Pillow>=11.0.0
+
+# Optional proxy mode to Indian VPS (leave INDIA_API_URL empty for standalone)
+httpx>=0.27.0
